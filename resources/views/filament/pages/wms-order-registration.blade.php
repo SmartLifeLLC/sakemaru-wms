@@ -49,7 +49,7 @@
             <div class="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
                 <div class="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-gray-700">
                     <div class="text-sm font-semibold text-slate-800 dark:text-gray-100">今回生成したFAX/PDF</div>
-                    <div class="text-xs text-slate-500 dark:text-gray-400">仕入先・入荷予定日ごと</div>
+                    <div class="text-xs text-slate-500 dark:text-gray-400">発注先・入荷予定日ごと</div>
                 </div>
 
                 <div class="overflow-auto">
@@ -57,7 +57,7 @@
                         <thead class="bg-slate-50 text-xs text-slate-600 dark:bg-gray-800 dark:text-gray-300">
                             <tr>
                                 <th class="whitespace-nowrap px-3 py-2 text-left">種別</th>
-                                <th class="whitespace-nowrap px-3 py-2 text-left">仕入先</th>
+                                <th class="whitespace-nowrap px-3 py-2 text-left">発注先</th>
                                 <th class="whitespace-nowrap px-3 py-2 text-center">入荷予定日</th>
                                 <th class="whitespace-nowrap px-3 py-2 text-right">明細数</th>
                                 <th class="whitespace-nowrap px-3 py-2 text-right">総バラ数</th>
@@ -72,7 +72,7 @@
                                     <td class="whitespace-nowrap px-3 py-2">
                                         <span class="rounded bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">{{ $file['order_channel_label'] ?? 'FAX発注' }}</span>
                                     </td>
-                                    <td class="whitespace-nowrap px-3 py-2 font-semibold text-slate-800 dark:text-gray-100">{{ $file['supplier_name'] ?? $file['contractor_name'] ?? '-' }}</td>
+                                    <td class="whitespace-nowrap px-3 py-2 font-semibold text-slate-800 dark:text-gray-100">{{ $file['contractor_name'] ?? '-' }}</td>
                                     <td class="whitespace-nowrap px-3 py-2 text-center font-mono">{{ $file['expected_arrival_date'] ?? '-' }}</td>
                                     <td class="whitespace-nowrap px-3 py-2 text-right font-mono">{{ number_format((int) ($file['order_count'] ?? 0)) }}</td>
                                     <td class="whitespace-nowrap px-3 py-2 text-right font-mono font-bold text-sky-700 dark:text-sky-300">{{ number_format((int) ($file['total_piece_quantity'] ?? $file['total_quantity'] ?? 0)) }}</td>
@@ -124,10 +124,18 @@
                         ->firstWhere('id', $completionDetailDataFileId);
                     $detailLines = collect($detailTargetFile['lines'] ?? []);
                     $detailTotalPieces = $detailLines->sum(fn ($line) => (int) ($line['total_piece_quantity'] ?? 0));
+                    $detailTotalCases = $detailLines->sum(function ($line) {
+                        $capacityCase = max(1, (int) ($line['capacity_case'] ?? 1));
+
+                        return (int) ($line['total_piece_quantity'] ?? 0) / $capacityCase;
+                    });
+                    $detailTotalCasesLabel = abs($detailTotalCases - round($detailTotalCases)) < 0.0001
+                        ? number_format($detailTotalCases, 0)
+                        : rtrim(rtrim(number_format($detailTotalCases, 2), '0'), '.');
                     $detailTotalAmount = $detailLines->sum(fn ($line) => (float) ($line['total_amount'] ?? 0));
                 @endphp
                 <div class="fixed inset-0 flex items-center justify-center bg-slate-950/50 p-4" style="z-index: 10000;">
-                    <div class="flex h-[86vh] max-h-[86vh] w-full max-w-7xl flex-col overflow-hidden rounded-lg bg-white shadow-xl dark:bg-gray-900">
+                    <div class="flex h-[86vh] max-h-[86vh] w-full max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-lg bg-white shadow-xl dark:bg-gray-900">
                         <div class="flex items-center justify-between bg-slate-800 px-4 py-3 text-white">
                             <div class="flex items-center gap-2 text-sm font-semibold">
                                 <x-heroicon-o-list-bullet class="h-5 w-5" />
@@ -149,10 +157,12 @@
                                             <div class="font-mono font-semibold text-slate-900 dark:text-white">{{ $detailTargetFile['expected_arrival_date'] ?? '-' }}</div>
                                         </div>
                                         <div class="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-1">
-                                            <div class="text-xs font-semibold text-slate-500 dark:text-gray-400">仕入先</div>
-                                            <div class="font-semibold text-slate-900 dark:text-white">{{ $detailTargetFile['supplier_name'] ?? $detailTargetFile['contractor_name'] ?? '-' }}</div>
+                                            <div class="text-xs font-semibold text-slate-500 dark:text-gray-400">発注先</div>
+                                            <div class="font-semibold text-slate-900 dark:text-white">{{ $detailTargetFile['contractor_name'] ?? '-' }}</div>
                                             <div class="text-xs font-semibold text-slate-500 dark:text-gray-400">総バラ数</div>
                                             <div class="font-mono font-bold text-sky-700 dark:text-sky-300">{{ number_format($detailTotalPieces) }} バラ</div>
+                                            <div class="text-xs font-semibold text-slate-500 dark:text-gray-400">総ケース数</div>
+                                            <div class="font-mono font-bold text-indigo-700 dark:text-indigo-300">{{ $detailTotalCasesLabel }} ケース</div>
                                             <div class="text-xs font-semibold text-slate-500 dark:text-gray-400">合計金額</div>
                                             <div class="font-mono font-bold text-emerald-700 dark:text-emerald-300">¥{{ number_format($detailTotalAmount, 2) }}</div>
                                         </div>
@@ -241,8 +251,8 @@
                                             <div class="font-semibold text-slate-900 dark:text-white">{{ $downloadTargetFile['order_channel_label'] ?? 'FAX発注' }}</div>
                                         </div>
                                         <div>
-                                            <div class="text-xs font-semibold text-slate-500 dark:text-gray-400">仕入先</div>
-                                            <div class="font-semibold text-slate-900 dark:text-white">{{ $downloadTargetFile['supplier_name'] ?? $downloadTargetFile['contractor_name'] ?? '-' }}</div>
+                                            <div class="text-xs font-semibold text-slate-500 dark:text-gray-400">発注先</div>
+                                            <div class="font-semibold text-slate-900 dark:text-white">{{ $downloadTargetFile['contractor_name'] ?? '-' }}</div>
                                         </div>
                                         <div>
                                             <div class="text-xs font-semibold text-slate-500 dark:text-gray-400">入荷予定日</div>
@@ -434,6 +444,7 @@
                             <th class="whitespace-nowrap px-3 py-2 text-center">単位</th>
                             <th class="whitespace-nowrap px-3 py-2 text-right">発注数</th>
                             <th class="whitespace-nowrap px-3 py-2 text-right">総バラ数</th>
+                            <th class="whitespace-nowrap px-3 py-2 text-right">総ケース数</th>
                             <th class="whitespace-nowrap px-3 py-2 text-right">仕入原価</th>
                             <th class="whitespace-nowrap px-3 py-2 text-right">合計金額</th>
                             <th class="whitespace-nowrap px-3 py-2 text-center">納入先</th>
@@ -448,6 +459,10 @@
                                 $totalPieces = ($line['quantity_type'] ?? '') === \App\Enums\QuantityType::CASE->value
                                     ? $orderQuantity * $capacityCase
                                     : $orderQuantity;
+                                $totalCases = $totalPieces / $capacityCase;
+                                $totalCasesLabel = abs($totalCases - round($totalCases)) < 0.0001
+                                    ? number_format($totalCases, 0)
+                                    : rtrim(rtrim(number_format($totalCases, 2), '0'), '.');
                                 $isEosAvailable = (bool) ($line['is_eos_available'] ?? false);
                                 $purchaseUnitPrice = (float) ($line['purchase_unit_price'] ?? 0);
                                 $lineTotalAmount = $purchaseUnitPrice * $orderQuantity;
@@ -508,6 +523,7 @@
                                     >
                                 </td>
                                 <td class="whitespace-nowrap px-3 py-2 text-right font-mono font-bold text-sky-700 dark:text-sky-300">{{ number_format($totalPieces) }}</td>
+                                <td class="whitespace-nowrap px-3 py-2 text-right font-mono font-bold text-indigo-700 dark:text-indigo-300">{{ $totalCasesLabel }}</td>
                                 <td class="whitespace-nowrap px-3 py-2 text-right font-mono">¥{{ number_format($purchaseUnitPrice, 0) }}</td>
                                 <td class="whitespace-nowrap px-3 py-2 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300">¥{{ number_format($lineTotalAmount, 0) }}</td>
                                 <td class="whitespace-nowrap px-3 py-2 text-center">
@@ -533,7 +549,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="15" class="px-3 py-12 text-center text-sm text-slate-400 dark:text-gray-500">登録リストは空です</td>
+                                <td colspan="16" class="px-3 py-12 text-center text-sm text-slate-400 dark:text-gray-500">登録リストは空です</td>
                             </tr>
                         @endforelse
                     </tbody>
