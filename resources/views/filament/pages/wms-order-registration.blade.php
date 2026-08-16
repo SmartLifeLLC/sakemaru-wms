@@ -713,6 +713,7 @@
                 ? $lines[$duplicateLineIndex]
                 : null;
             $duplicateCurrentWarehouseId = (int) ($duplicateSourceLine['warehouse_id'] ?? 0);
+            $duplicateWarehouseOptions = $this->duplicateWarehouseOptions($duplicateCurrentWarehouseId);
         @endphp
         <div class="fixed inset-0 flex items-center justify-center bg-slate-950/50 p-4" style="z-index: 10000;">
             <div class="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg bg-white shadow-xl dark:bg-gray-900">
@@ -736,26 +737,26 @@
 
                     <div class="min-h-0 flex-1 overflow-auto rounded-md border border-slate-200 dark:border-gray-700">
                         <div class="grid grid-cols-1 divide-y divide-slate-100 text-sm dark:divide-gray-800 md:grid-cols-2 md:divide-x md:divide-y-0">
-                            @foreach ($this->warehouses as $warehouse)
+                            @forelse ($duplicateWarehouseOptions as $warehouse)
                                 @php
                                     $warehouseId = (int) ($warehouse['id'] ?? 0);
                                     $warehouseCode = str_pad((string) ($warehouse['code'] ?? $warehouseId), 2, '0', STR_PAD_LEFT);
                                 @endphp
-                                @if ($warehouseId > 0 && $warehouseId !== $duplicateCurrentWarehouseId)
-                                    <label class="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-slate-50 dark:hover:bg-gray-800">
-                                        <input
-                                            type="checkbox"
-                                            wire:model.live="duplicateWarehouseIds"
-                                            value="{{ $warehouseId }}"
-                                            class="rounded border-slate-300 text-danger-600 focus:ring-danger-500 dark:border-gray-600"
-                                        >
-                                        <span>
-                                            <span class="font-mono font-bold text-slate-800 dark:text-gray-100">{{ $warehouseCode }}</span>
-                                            <span class="ml-2 font-semibold text-slate-800 dark:text-gray-100">{{ $warehouse['name'] ?? '-' }}</span>
-                                        </span>
-                                    </label>
-                                @endif
-                            @endforeach
+                                <label class="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-slate-50 dark:hover:bg-gray-800">
+                                    <input
+                                        type="checkbox"
+                                        wire:model.live="duplicateWarehouseIds"
+                                        value="{{ $warehouseId }}"
+                                        class="rounded border-slate-300 text-danger-600 focus:ring-danger-500 dark:border-gray-600"
+                                    >
+                                    <span>
+                                        <span class="font-mono font-bold text-slate-800 dark:text-gray-100">{{ $warehouseCode }}</span>
+                                        <span class="ml-2 font-semibold text-slate-800 dark:text-gray-100">{{ $warehouse['name'] ?? '-' }}</span>
+                                    </span>
+                                </label>
+                            @empty
+                                <div class="px-3 py-8 text-center text-sm text-slate-400 dark:text-gray-500 md:col-span-2">複製できる納入先がありません</div>
+                            @endforelse
                         </div>
                     </div>
                 </div>

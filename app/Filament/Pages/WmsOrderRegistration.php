@@ -43,6 +43,35 @@ class WmsOrderRegistration extends AdminPage
 
     protected string $view = 'filament.pages.wms-order-registration';
 
+    private const LINE_DUPLICATE_WAREHOUSE_CODES = [
+        '01',
+        '02',
+        '03',
+        '04',
+        '06',
+        '07',
+        '08',
+        '09',
+        '11',
+        '21',
+        '22',
+        '71',
+        '72',
+        '73',
+        '74',
+        '75',
+        '80',
+        '90',
+        '91',
+        '92',
+        '93',
+        '94',
+        '95',
+        '96',
+        '97',
+        '98',
+    ];
+
     public string $orderChannel = 'EOS';
 
     public ?int $warehouseId = null;
@@ -216,11 +245,8 @@ class WmsOrderRegistration extends AdminPage
         $this->resetSalesBasedExternalOrderPreview();
         $this->initializeExternalOrderContractors();
         $this->initializeExternalOrderCategory2();
-        $this->selectedExternalOrderContractorIds = $this->defaultExternalOrderContractorIds();
-        $this->selectedExternalOrderCategory2Ids = collect($this->externalOrderCategory2Data)
-            ->pluck('id')
-            ->values()
-            ->toArray();
+        $this->selectedExternalOrderContractorIds = [];
+        $this->selectedExternalOrderCategory2Ids = [];
     }
 
     public function closeSalesHistoryModal(): void
@@ -1654,15 +1680,15 @@ class WmsOrderRegistration extends AdminPage
             return [];
         }
 
-        $basisDate = Carbon::parse(ClientSetting::freshSystemDateYMD('order_registration:modal_weekly_sales'));
-        $week1Start = $basisDate->copy()->subDays(6)->toDateString();
-        $week1End = $basisDate->toDateString();
-        $week2Start = $basisDate->copy()->subDays(13)->toDateString();
-        $week2End = $basisDate->copy()->subDays(7)->toDateString();
-        $week3Start = $basisDate->copy()->subDays(20)->toDateString();
-        $week3End = $basisDate->copy()->subDays(14)->toDateString();
-        $previousMonthStart = $basisDate->copy()->subMonthNoOverflow()->startOfMonth()->toDateString();
-        $previousMonthEnd = $basisDate->copy()->subMonthNoOverflow()->endOfMonth()->toDateString();
+        $ranges = $this->weeklySalesDateRanges();
+        $week1Start = $ranges['week1']['start'];
+        $week1End = $ranges['week1']['end'];
+        $week2Start = $ranges['week2']['start'];
+        $week2End = $ranges['week2']['end'];
+        $week3Start = $ranges['week3']['start'];
+        $week3End = $ranges['week3']['end'];
+        $previousMonthStart = $ranges['previous_month']['start'];
+        $previousMonthEnd = $ranges['previous_month']['end'];
 
         return DB::connection('sakemaru')
             ->table('stats_item_warehouse_daily_sales')
@@ -1690,6 +1716,67 @@ class WmsOrderRegistration extends AdminPage
                 ],
             ])
             ->all();
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function weeklySalesColumnHelps(): array
+    {
+        $ranges = $this->weeklySalesDateRanges();
+        $basisDate = $this->formatWeeklySalesDate($ranges['basis']);
+        $week1Range = $this->formatWeeklySalesRange($ranges['week1']);
+        $week2Range = $this->formatWeeklySalesRange($ranges['week2']);
+        $week3Range = $this->formatWeeklySalesRange($ranges['week3']);
+        $previousMonthRange = $this->formatWeeklySalesRange($ranges['previous_month']);
+
+        return [
+            '1週' => "基準日 {$basisDate} を含む直近7日間（{$week1Range}）の販売数量です。",
+            '2週' => "基準日 {$basisDate} の7日前から13日前まで（{$week2Range}）の販売数量です。",
+            '3週' => "基準日 {$basisDate} の14日前から20日前まで（{$week3Range}）の販売数量です。",
+            '前月' => "基準日 {$basisDate} の前月1か月分（{$previousMonthRange}）の販売数量です。",
+        ];
+    }
+
+    /**
+     * @return array{basis: string, week1: array{start: string, end: string}, week2: array{start: string, end: string}, week3: array{start: string, end: string}, previous_month: array{start: string, end: string}}
+     */
+    private function weeklySalesDateRanges(): array
+    {
+        $basisDate = Carbon::parse(ClientSetting::freshSystemDateYMD('order_registration:modal_weekly_sales'));
+
+        return [
+            'basis' => $basisDate->toDateString(),
+            'week1' => [
+                'start' => $basisDate->copy()->subDays(6)->toDateString(),
+                'end' => $basisDate->toDateString(),
+            ],
+            'week2' => [
+                'start' => $basisDate->copy()->subDays(13)->toDateString(),
+                'end' => $basisDate->copy()->subDays(7)->toDateString(),
+            ],
+            'week3' => [
+                'start' => $basisDate->copy()->subDays(20)->toDateString(),
+                'end' => $basisDate->copy()->subDays(14)->toDateString(),
+            ],
+            'previous_month' => [
+                'start' => $basisDate->copy()->subMonthNoOverflow()->startOfMonth()->toDateString(),
+                'end' => $basisDate->copy()->subMonthNoOverflow()->endOfMonth()->toDateString(),
+            ],
+        ];
+    }
+
+    /**
+     * @param  array{start: string, end: string}  $range
+     */
+    private function formatWeeklySalesRange(array $range): string
+    {
+        return $this->formatWeeklySalesDate($range['start']).'〜'.$this->formatWeeklySalesDate($range['end']);
+    }
+
+    private function formatWeeklySalesDate(string $date): string
+    {
+        return Carbon::parse($date)->format('Y/m/d');
     }
 
     public function getSubCategories(int $parentId): array
@@ -1962,12 +2049,14 @@ class WmsOrderRegistration extends AdminPage
         }
 
         $sourceLine = $this->lines[$this->duplicateLineIndex];
+        $sourceWarehouseId = (int) ($sourceLine['warehouse_id'] ?? 0);
+        $warehouseById = collect($this->duplicateWarehouseOptions($sourceWarehouseId))->keyBy('id');
         $targetWarehouseIds = collect($this->duplicateWarehouseIds)
             ->map(fn ($id): int => (int) $id)
             ->filter(fn (int $id): bool => $id > 0)
+            ->filter(fn (int $id): bool => $warehouseById->has($id))
             ->unique()
             ->values();
-        $warehouseById = collect($this->warehouses)->keyBy('id');
         $created = 0;
 
         foreach ($targetWarehouseIds as $warehouseId) {
@@ -1986,6 +2075,28 @@ class WmsOrderRegistration extends AdminPage
             ->title($created > 0 ? "{$created}件を複製しました" : '複製できる納入先がありませんでした');
 
         ($created > 0 ? $notification->success() : $notification->warning())->send();
+    }
+
+    /**
+     * @return array<int, array{id: int, code: string, name: string, label?: string}>
+     */
+    public function duplicateWarehouseOptions(?int $sourceWarehouseId = null): array
+    {
+        $allowedCodeOrder = array_flip(self::LINE_DUPLICATE_WAREHOUSE_CODES);
+
+        return collect($this->warehouses)
+            ->filter(function (array $warehouse) use ($sourceWarehouseId): bool {
+                $warehouseId = (int) ($warehouse['id'] ?? 0);
+
+                if ($warehouseId <= 0 || ($sourceWarehouseId !== null && $warehouseId === $sourceWarehouseId)) {
+                    return false;
+                }
+
+                return in_array($this->normalizedWarehouseCode($warehouse['code'] ?? $warehouseId), self::LINE_DUPLICATE_WAREHOUSE_CODES, true);
+            })
+            ->sortBy(fn (array $warehouse): int => $allowedCodeOrder[$this->normalizedWarehouseCode($warehouse['code'] ?? $warehouse['id'] ?? '')] ?? PHP_INT_MAX)
+            ->values()
+            ->all();
     }
 
     public function confirmOrders(): void
@@ -2315,6 +2426,13 @@ class WmsOrderRegistration extends AdminPage
         $warehouse = collect($this->warehouses)->firstWhere('id', $warehouseId);
 
         return is_array($warehouse) ? $warehouse : null;
+    }
+
+    private function normalizedWarehouseCode(mixed $code): string
+    {
+        $code = trim((string) $code);
+
+        return $code === '' ? '' : str_pad($code, 2, '0', STR_PAD_LEFT);
     }
 
     /**
