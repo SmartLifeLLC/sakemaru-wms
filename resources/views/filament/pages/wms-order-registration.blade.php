@@ -68,15 +68,21 @@
                         </thead>
                         <tbody class="divide-y divide-slate-100 dark:divide-gray-800">
                             @forelse (($completionResult['files'] ?? []) as $file)
+                                @php
+                                    $fileChannelLabel = (string) ($file['order_channel_label'] ?? 'FAX発注');
+                                    $fileChannelBadgeClass = (($file['order_channel'] ?? null) === 'FAX' || $fileChannelLabel === 'FAX発注')
+                                        ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200'
+                                        : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200';
+                                @endphp
                                 <tr class="odd:bg-[#f5f9ff] even:bg-white dark:odd:bg-[#1e2a3b] dark:even:bg-gray-900">
                                     <td class="whitespace-nowrap px-3 py-2">
-                                        <span class="rounded bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">{{ $file['order_channel_label'] ?? 'FAX発注' }}</span>
+                                        <span class="rounded px-2 py-1 text-xs font-semibold {{ $fileChannelBadgeClass }}">{{ $fileChannelLabel }}</span>
                                     </td>
                                     <td class="whitespace-nowrap px-3 py-2 font-semibold text-slate-800 dark:text-gray-100">{{ $file['contractor_name'] ?? '-' }}</td>
                                     <td class="whitespace-nowrap px-3 py-2 text-center font-mono">{{ $file['expected_arrival_date'] ?? '-' }}</td>
                                     <td class="whitespace-nowrap px-3 py-2 text-right font-mono">{{ number_format((int) ($file['order_count'] ?? 0)) }}</td>
                                     <td class="whitespace-nowrap px-3 py-2 text-right font-mono font-bold text-sky-700 dark:text-sky-300">{{ number_format((int) ($file['total_piece_quantity'] ?? $file['total_quantity'] ?? 0)) }}</td>
-                                    <td class="whitespace-nowrap px-3 py-2 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300">¥{{ number_format((float) ($file['total_amount'] ?? 0), 2) }}</td>
+                                    <td class="whitespace-nowrap px-3 py-2 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300">¥{{ number_format((float) ($file['total_amount'] ?? 0), 0) }}</td>
                                     <td class="px-3 py-2">
                                         @if (filled($file['fax_error'] ?? null))
                                             <span class="text-xs font-semibold text-danger-700 dark:text-danger-300">{{ $file['fax_error'] }}</span>
@@ -164,7 +170,7 @@
                                             <div class="text-xs font-semibold text-slate-500 dark:text-gray-400">総ケース数</div>
                                             <div class="font-mono font-bold text-indigo-700 dark:text-indigo-300">{{ $detailTotalCasesLabel }} ケース</div>
                                             <div class="text-xs font-semibold text-slate-500 dark:text-gray-400">合計金額</div>
-                                            <div class="font-mono font-bold text-emerald-700 dark:text-emerald-300">¥{{ number_format($detailTotalAmount, 2) }}</div>
+                                            <div class="font-mono font-bold text-emerald-700 dark:text-emerald-300">¥{{ number_format($detailTotalAmount, 0) }}</div>
                                         </div>
                                     </div>
                                 </div>
@@ -191,9 +197,15 @@
                                     </thead>
                                     <tbody class="divide-y divide-slate-100 dark:divide-gray-800">
                                         @forelse ($detailLines as $line)
+                                            @php
+                                                $lineChannelLabel = (string) ($line['order_channel_label'] ?? '-');
+                                                $lineChannelBadgeClass = $lineChannelLabel === 'FAX発注'
+                                                    ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200'
+                                                    : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200';
+                                            @endphp
                                             <tr class="odd:bg-[#f5f9ff] even:bg-white dark:odd:bg-[#1e2a3b] dark:even:bg-gray-900">
                                                 <td class="whitespace-nowrap px-3 py-2 text-center">
-                                                    <span class="rounded bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">{{ $line['order_channel_label'] ?? '-' }}</span>
+                                                    <span class="rounded px-2 py-1 text-xs font-semibold {{ $lineChannelBadgeClass }}">{{ $lineChannelLabel }}</span>
                                                 </td>
                                                 <td class="whitespace-nowrap px-3 py-2 text-center font-mono">{{ $line['expected_arrival_date'] ?? '-' }}</td>
                                                 <td class="whitespace-nowrap px-3 py-2 font-mono text-xs">{{ $line['contractor_code'] ?? '' }}</td>
@@ -205,8 +217,8 @@
                                                 <td class="whitespace-nowrap px-3 py-2 text-center">{{ $line['quantity_type_label'] ?? '-' }}</td>
                                                 <td class="whitespace-nowrap px-3 py-2 text-right font-mono">{{ number_format((int) ($line['order_quantity'] ?? 0)) }}</td>
                                                 <td class="whitespace-nowrap px-3 py-2 text-right font-mono font-bold text-sky-700 dark:text-sky-300">{{ number_format((int) ($line['total_piece_quantity'] ?? 0)) }}</td>
-                                                <td class="whitespace-nowrap px-3 py-2 text-right font-mono">¥{{ number_format((float) ($line['purchase_unit_price'] ?? 0), 2) }}</td>
-                                                <td class="whitespace-nowrap px-3 py-2 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300">¥{{ number_format((float) ($line['total_amount'] ?? 0), 2) }}</td>
+                                                <td class="whitespace-nowrap px-3 py-2 text-right font-mono">¥{{ number_format((float) ($line['purchase_unit_price'] ?? 0), 0) }}</td>
+                                                <td class="whitespace-nowrap px-3 py-2 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300">¥{{ number_format((float) ($line['total_amount'] ?? 0), 0) }}</td>
                                             </tr>
                                         @empty
                                             <tr>
@@ -468,6 +480,10 @@
                                 $lineTotalAmount = $purchaseUnitPrice * $orderQuantity;
                                 $warehouseCode = $formatWarehouseCode($line['warehouse_id'] ?? null);
                                 $warehouseName = $warehouseNameForLine($line);
+                                $orderChannelValue = (string) ($line['order_channel'] ?? \App\Enums\AutoOrder\OrderChannel::EOS->value);
+                                $orderChannelSelectClass = $orderChannelValue === \App\Enums\AutoOrder\OrderChannel::FAX->value
+                                    ? 'border-green-300 bg-green-100 text-green-700 dark:border-green-700 dark:bg-green-900/40 dark:text-green-200'
+                                    : 'border-blue-300 bg-blue-100 text-blue-700 dark:border-blue-700 dark:bg-blue-900/40 dark:text-blue-200';
                             @endphp
                             <tr wire:key="registration-line-{{ $index }}" class="odd:bg-[#f5f9ff] even:bg-white dark:odd:bg-[#1e2a3b] dark:even:bg-gray-900">
                                 <td class="whitespace-nowrap px-3 py-2 text-center font-mono font-semibold text-slate-500 dark:text-gray-400">{{ $loop->iteration }}</td>
@@ -475,13 +491,13 @@
                                     @if ($isEosAvailable)
                                         <select
                                             wire:model.live="lines.{{ $index }}.order_channel"
-                                            class="w-28 rounded-md border-slate-300 text-xs font-semibold dark:border-gray-600 dark:bg-gray-900"
+                                            class="w-28 rounded-md text-xs font-semibold {{ $orderChannelSelectClass }}"
                                         >
                                             <option value="{{ \App\Enums\AutoOrder\OrderChannel::EOS->value }}">EOS発注</option>
                                             <option value="{{ \App\Enums\AutoOrder\OrderChannel::FAX->value }}">FAX発注</option>
                                         </select>
                                     @else
-                                        <span class="inline-flex items-center rounded bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">FAX固定</span>
+                                        <span class="inline-flex items-center rounded bg-green-100 px-2 py-1 text-xs font-semibold text-green-700 dark:bg-green-900/40 dark:text-green-200">FAX固定</span>
                                     @endif
                                 </td>
                                 <td class="whitespace-nowrap px-3 py-2 text-center">
@@ -659,7 +675,7 @@
                                                 @elseif ($row['will_force_fax'] ?? false)
                                                     <span class="rounded bg-danger-100 px-2 py-1 text-xs font-semibold text-danger-700 dark:bg-danger-900/40 dark:text-danger-200">商品未設定 / FAX固定</span>
                                                 @else
-                                                    <span class="rounded bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">FAX発注</span>
+                                                    <span class="rounded bg-green-100 px-2 py-1 text-xs font-semibold text-green-700 dark:bg-green-900/40 dark:text-green-200">FAX発注</span>
                                                 @endif
                                             </td>
                                             <td class="whitespace-nowrap px-3 py-2 text-center">

@@ -664,10 +664,31 @@ class WmsOrderRegistration extends AdminPage
                         WHEN \'CARTON\' THEN GREATEST(wms_order_incoming_schedules.expected_quantity - wms_order_incoming_schedules.received_quantity, 0) * GREATEST(COALESCE(incoming_items.capacity_carton, 1), 1)
                         ELSE GREATEST(wms_order_incoming_schedules.expected_quantity - wms_order_incoming_schedules.received_quantity, 0)
                     END
-                ) as incoming_qty,
-                MIN(wms_order_incoming_schedules.expected_arrival_date) as incoming_expected_arrival_date
+                ) as incoming_qty
             ')
             ->groupBy('wms_order_incoming_schedules.item_id');
+
+        $lastOrderArrivalSubquery = DB::connection('sakemaru')
+            ->table('wms_order_incoming_schedules')
+            ->where('warehouse_id', $selectedWarehouseId)
+            ->whereNotIn('status', [
+                IncomingScheduleStatus::CANCELLED->value,
+                IncomingScheduleStatus::PARTIAL_CANCELLED->value,
+                IncomingScheduleStatus::DELETED->value,
+            ])
+            ->whereNotNull('expected_arrival_date')
+            ->selectRaw('
+                item_id,
+                SUBSTRING_INDEX(
+                    GROUP_CONCAT(
+                        expected_arrival_date
+                        ORDER BY order_date DESC, expected_arrival_date DESC, id DESC
+                    ),
+                    \',\',
+                    1
+                ) as incoming_expected_arrival_date
+            ')
+            ->groupBy('item_id');
 
         $targetItemContractorsSubquery = DB::connection('sakemaru')
             ->table('item_contractors')
@@ -701,6 +722,9 @@ class WmsOrderRegistration extends AdminPage
             })
             ->leftJoinSub($incomingSubquery, 'incoming', function ($join): void {
                 $join->on('incoming.item_id', '=', 'item_contractors.item_id');
+            })
+            ->leftJoinSub($lastOrderArrivalSubquery, 'last_order_arrivals', function ($join): void {
+                $join->on('last_order_arrivals.item_id', '=', 'item_contractors.item_id');
             })
             ->where('items.end_of_sale_type', 'NORMAL')
             ->where('items.is_ended', false)
@@ -743,7 +767,7 @@ class WmsOrderRegistration extends AdminPage
                 sales.transfer_piece_qty as transfer_piece_qty,
                 COALESCE(stocks.effective_stock, 0) as effective_stock,
                 COALESCE(incoming.incoming_qty, 0) as incoming_qty,
-                incoming.incoming_expected_arrival_date as incoming_expected_arrival_date,
+                last_order_arrivals.incoming_expected_arrival_date as incoming_expected_arrival_date,
                 (COALESCE(stocks.effective_stock, 0) + COALESCE(incoming.incoming_qty, 0)) as projected_stock,
                 GREATEST(sales.sales_qty - (COALESCE(stocks.effective_stock, 0) + COALESCE(incoming.incoming_qty, 0)), 0) as shortage_qty,
                 COALESCE(item_contractors.purchase_unit, 1) as purchase_unit,
@@ -1414,6 +1438,11 @@ class WmsOrderRegistration extends AdminPage
 
     private function itemStandardLabel(mixed $volume, mixed $volumeUnit, ?string $fallback = null): string
     {
+        $fallback = trim((string) $fallback);
+        if ($fallback !== '') {
+            return $fallback;
+        }
+
         $volumeNumber = is_numeric($volume) ? (float) $volume : null;
         if (
             $volumeUnit !== null
@@ -1428,9 +1457,7 @@ class WmsOrderRegistration extends AdminPage
             return $volumeLabel.$unitLabel;
         }
 
-        $fallback = trim((string) $fallback);
-
-        return $fallback !== '' ? $fallback : '-';
+        return '-';
     }
 
     /**
@@ -1559,12 +1586,23 @@ class WmsOrderRegistration extends AdminPage
             ->table('wms_order_incoming_schedules')
             ->where('warehouse_id', $warehouseId)
             ->whereIn('item_id', $itemIds)
-            ->whereIn('status', [
-                IncomingScheduleStatus::PENDING->value,
-                IncomingScheduleStatus::PARTIAL->value,
+            ->whereNotIn('status', [
+                IncomingScheduleStatus::CANCELLED->value,
+                IncomingScheduleStatus::PARTIAL_CANCELLED->value,
+                IncomingScheduleStatus::DELETED->value,
             ])
-            ->whereRaw('(expected_quantity - received_quantity) > 0')
-            ->selectRaw('item_id, MIN(expected_arrival_date) as incoming_expected_arrival_date')
+            ->whereNotNull('expected_arrival_date')
+            ->selectRaw('
+                item_id,
+                SUBSTRING_INDEX(
+                    GROUP_CONCAT(
+                        expected_arrival_date
+                        ORDER BY order_date DESC, expected_arrival_date DESC, id DESC
+                    ),
+                    \',\',
+                    1
+                ) as incoming_expected_arrival_date
+            ')
             ->groupBy('item_id')
             ->get()
             ->mapWithKeys(fn ($row): array => [

@@ -160,7 +160,7 @@ class OrderRegistrationService
         }
 
         if ($channel === OrderChannel::EOS && ! $this->searchService->isJxContractor($contractorId)) {
-            throw new \InvalidArgumentException("{$lineNumber}行目はEOS発注対象外の仕入先です。");
+            throw new \InvalidArgumentException("{$lineNumber}行目はEOS発注対象外の発注先です。");
         }
 
         if (blank($expectedArrivalDate)) {
@@ -192,9 +192,12 @@ class OrderRegistrationService
                 ->where('contractor_id', $contractorId)
                 ->first();
         }
+        if (! $itemContractor && $settingsItemContractor) {
+            $itemContractor = $settingsItemContractor;
+        }
 
         if (! $itemContractor && $channel === OrderChannel::EOS) {
-            throw new \InvalidArgumentException("{$lineNumber}行目の商品は選択した仕入先に紐づいていないためEOS発注できません。FAX発注に変更してください。");
+            throw new \InvalidArgumentException("{$lineNumber}行目の商品は選択した発注先に紐づいていないためEOS発注できません。FAX発注に変更してください。");
         }
 
         if (! $itemContractor && $supplierId <= 0) {
@@ -202,11 +205,11 @@ class OrderRegistrationService
         }
 
         if (! $itemContractor && ! $this->supplierBelongsToContractor($supplierId, $contractorId)) {
-            throw new \InvalidArgumentException("{$lineNumber}行目の仕入先に紐づく発注先がありません。");
+            throw new \InvalidArgumentException("{$lineNumber}行目の発注先に有効な仕入先が設定されていません。発注先を変更してください。");
         }
 
         if ($itemContractor) {
-            $supplierId = (int) ($itemContractor->supplier_id ?? $supplierId ?: 0);
+            $supplierId = (int) ($itemContractor->supplier_id ?? 0) ?: $this->defaultSupplierIdForContractor($contractorId) ?: $supplierId;
         }
 
         $purchaseUnit = max(1, (int) ($line['purchase_unit'] ?? $settingsItemContractor?->purchase_unit ?? 1));
@@ -316,6 +319,18 @@ class OrderRegistrationService
                 ->where('id', $contractorId)
                 ->where('supplier_id', $supplierId)
                 ->exists();
+    }
+
+    private function defaultSupplierIdForContractor(int $contractorId): int
+    {
+        if ($contractorId < 1) {
+            return 0;
+        }
+
+        return (int) (DB::connection('sakemaru')
+            ->table('contractors')
+            ->where('id', $contractorId)
+            ->value('supplier_id') ?? 0);
     }
 
     /**

@@ -2,6 +2,7 @@
 
 namespace App\Services\AutoOrder;
 
+use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderChannel;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Models\Sakemaru\ClientSetting;
@@ -14,6 +15,8 @@ use Illuminate\Support\Facades\DB;
 
 class OrderRegistrationSearchService
 {
+    private const EOS_DEFAULT_ARRIVAL_CUTOFF_HOUR = 13;
+
     /** @var array<string, string> */
     private array $defaultExpectedArrivalDateCache = [];
 
@@ -273,10 +276,31 @@ class OrderRegistrationSearchService
                         WHEN \'CARTON\' THEN GREATEST(wms_order_incoming_schedules.expected_quantity - wms_order_incoming_schedules.received_quantity, 0) * GREATEST(COALESCE(incoming_items.capacity_carton, 1), 1)
                         ELSE GREATEST(wms_order_incoming_schedules.expected_quantity - wms_order_incoming_schedules.received_quantity, 0)
                     END
-                ) as incoming_qty,
-                MIN(wms_order_incoming_schedules.expected_arrival_date) as incoming_expected_arrival_date
+                ) as incoming_qty
             ')
             ->groupBy('wms_order_incoming_schedules.item_id');
+
+        $lastOrderArrivalSubquery = DB::connection('sakemaru')
+            ->table('wms_order_incoming_schedules')
+            ->where('warehouse_id', $warehouseId)
+            ->whereNotIn('status', [
+                IncomingScheduleStatus::CANCELLED->value,
+                IncomingScheduleStatus::PARTIAL_CANCELLED->value,
+                IncomingScheduleStatus::DELETED->value,
+            ])
+            ->whereNotNull('expected_arrival_date')
+            ->selectRaw('
+                item_id,
+                SUBSTRING_INDEX(
+                    GROUP_CONCAT(
+                        expected_arrival_date
+                        ORDER BY order_date DESC, expected_arrival_date DESC, id DESC
+                    ),
+                    \',\',
+                    1
+                ) as incoming_expected_arrival_date
+            ')
+            ->groupBy('item_id');
 
         $targetItemContractorsSubquery = DB::connection('sakemaru')
             ->table('item_contractors')
@@ -308,6 +332,9 @@ class OrderRegistrationSearchService
             })
             ->leftJoinSub($incomingSubquery, 'incoming', function ($join): void {
                 $join->on('incoming.item_id', '=', 'item_contractors.item_id');
+            })
+            ->leftJoinSub($lastOrderArrivalSubquery, 'last_order_arrivals', function ($join): void {
+                $join->on('last_order_arrivals.item_id', '=', 'item_contractors.item_id');
             })
             ->where('items.end_of_sale_type', 'NORMAL')
             ->where('items.is_ended', false)
@@ -352,7 +379,7 @@ class OrderRegistrationSearchService
                 sales.transfer_piece_qty as transfer_piece_qty,
                 COALESCE(stocks.effective_stock, 0) as effective_stock,
                 COALESCE(incoming.incoming_qty, 0) as incoming_qty,
-                incoming.incoming_expected_arrival_date as incoming_expected_arrival_date,
+                last_order_arrivals.incoming_expected_arrival_date as incoming_expected_arrival_date,
                 GREATEST(sales.sales_qty - (COALESCE(stocks.effective_stock, 0) + COALESCE(incoming.incoming_qty, 0)), 0) as shortage_qty,
                 COALESCE(item_contractors.purchase_unit, 1) as purchase_unit
             ')
@@ -470,9 +497,15 @@ class OrderRegistrationSearchService
             ->table('wms_order_incoming_schedules')
             ->where('warehouse_id', $warehouseId)
             ->where('item_id', $itemId)
-            ->whereIn('status', ['PENDING', 'PARTIAL'])
-            ->whereRaw('(expected_quantity - received_quantity) > 0')
-            ->orderBy('expected_arrival_date')
+            ->whereNotIn('status', [
+                IncomingScheduleStatus::CANCELLED->value,
+                IncomingScheduleStatus::PARTIAL_CANCELLED->value,
+                IncomingScheduleStatus::DELETED->value,
+            ])
+            ->whereNotNull('expected_arrival_date')
+            ->orderByDesc('order_date')
+            ->orderByDesc('expected_arrival_date')
+            ->orderByDesc('id')
             ->value('expected_arrival_date');
 
         return $this->incomingExpectedArrivalDateCache[$cacheKey] = filled($date)
@@ -485,7 +518,7 @@ class OrderRegistrationSearchService
         int $contractorId,
         OrderChannel $channel = OrderChannel::FAX
     ): string {
-        $orderDate = $this->defaultArrivalOrderDate($contractorId, $channel);
+        $orderDate = $this->defaultArrivalOrderDate($channel);
         $cacheKey = "{$warehouseId}:{$contractorId}:{$channel->value}:{$orderDate->toDateString()}";
 
         if (isset($this->defaultExpectedArrivalDateCache[$cacheKey])) {
@@ -499,7 +532,7 @@ class OrderRegistrationSearchService
             ->toDateString();
     }
 
-    private function defaultArrivalOrderDate(int $contractorId, OrderChannel $channel): Carbon
+    private function defaultArrivalOrderDate(OrderChannel $channel): Carbon
     {
         $orderDate = Carbon::parse(ClientSetting::freshSystemDateYMD('order_registration:default_arrival'))->startOfDay();
 
@@ -514,9 +547,20 @@ class OrderRegistrationSearchService
             (int) $currentTime->format('s')
         );
 
-        return $this->hasReachedJxGenerationCutoff($contractorId, $currentAt)
+        return $this->hasReachedEosDefaultArrivalCutoff($currentAt)
             ? $orderDate->copy()->addDay()
             : $orderDate;
+    }
+
+    private function hasReachedEosDefaultArrivalCutoff(Carbon $currentAt): bool
+    {
+        if ($currentAt->isSunday()) {
+            return false;
+        }
+
+        return $currentAt->gte(
+            $currentAt->copy()->setTime(self::EOS_DEFAULT_ARRIVAL_CUTOFF_HOUR, 0, 0)
+        );
     }
 
     private function hasReachedJxGenerationCutoff(int $contractorId, Carbon $currentAt): bool
