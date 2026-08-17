@@ -46,6 +46,17 @@ class WmsInventoryCountTable
                     ->date('Y/m/d')
                     ->sortable(),
 
+                TextColumn::make('snapshot_taken_at')
+                    ->label('在庫取得(開始)')
+                    ->dateTime('m/d H:i')
+                    ->placeholder('-')
+                    ->sortable(),
+
+                TextColumn::make('ending_stock_taken_at')
+                    ->label('在庫取得(終了)')
+                    ->dateTime('m/d H:i')
+                    ->placeholder('-'),
+
                 TextColumn::make('status')
                     ->label('ステータス')
                     ->badge()

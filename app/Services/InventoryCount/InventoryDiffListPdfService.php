@@ -38,7 +38,8 @@ class InventoryDiffListPdfService
 
     // Column widths (mm) — based on sample PDF layout
     // Row1: item_code (wide span) ... cost_price (right)
-    // Row2: item_name | input_count | system_qty | actual_qty | diff_qty | diff_amount
+    // Row2: item_name | input_count | start_system_qty | actual_qty | start_diff_qty | start_diff_amount
+    // Row3 (diff list only): blank | blank | end_system_qty | actual_qty | end_diff_qty | end_diff_amount
     private const COL_W1 = 70;  // item_code / item_name
 
     private const COL_W2 = 20;  // location_no / input_count
@@ -109,7 +110,7 @@ class InventoryDiffListPdfService
                 }
 
                 $currentShelfPrefix = $shelfPrefix;
-                $blockHeight = self::BLOCK_ROW_HEIGHT * 2;
+                $blockHeight = self::BLOCK_ROW_HEIGHT * $this->itemBlockRowCount();
 
                 if ($this->currentY + $blockHeight > self::PAGE_HEIGHT - self::MARGIN_BOTTOM) {
                     $this->addNewPage($header, $currentShelfPrefix);
@@ -164,25 +165,53 @@ class InventoryDiffListPdfService
         }
 
         return $items
-            ->map(function (WmsInventoryCountItem $item): WmsInventoryCountItem {
-                if ($item->difference_quantity === null) {
-                    $actualQty = $item->final_count_quantity
-                        ?? $item->second_count_quantity
-                        ?? $item->first_count_quantity;
-
-                    if ($actualQty === null) {
-                        return $item;
-                    }
-
-                    $differenceQuantity = (float) $actualQty - (float) $item->system_quantity;
-                    $item->difference_quantity = $differenceQuantity;
-                    $item->difference_amount = $differenceQuantity * (float) $item->cost_price;
-                }
-
-                return $item;
-            })
-            ->filter(fn (WmsInventoryCountItem $item): bool => (float) ($item->difference_quantity ?? 0) !== 0.0)
+            ->map(fn (WmsInventoryCountItem $item): WmsInventoryCountItem => $this->attachDiffListValues($item))
+            ->filter(fn (WmsInventoryCountItem $item): bool => $this->hasPrintableDifference($item))
             ->values();
+    }
+
+    private function attachDiffListValues(WmsInventoryCountItem $item): WmsInventoryCountItem
+    {
+        $actualQty = $this->actualQuantity($item);
+
+        $startDifferenceQuantity = $item->difference_quantity !== null
+            ? (float) $item->difference_quantity
+            : ($actualQty !== null ? (float) $actualQty - (float) $item->system_quantity : null);
+
+        if ($actualQty !== null) {
+            $item->setAttribute('pdf_actual_quantity', $actualQty);
+        }
+
+        if ($startDifferenceQuantity !== null) {
+            $startDiffAmount = $item->difference_amount !== null
+                ? (float) $item->difference_amount
+                : $startDifferenceQuantity * (float) $item->cost_price;
+
+            $item->setAttribute('pdf_start_difference_quantity', $startDifferenceQuantity);
+            $item->setAttribute('pdf_start_difference_amount', $startDiffAmount);
+        }
+
+        if ($actualQty !== null && $item->ending_system_quantity !== null) {
+            $endDifferenceQuantity = (float) $actualQty - (float) $item->ending_system_quantity;
+
+            $item->setAttribute('pdf_end_difference_quantity', $endDifferenceQuantity);
+            $item->setAttribute('pdf_end_difference_amount', $endDifferenceQuantity * (float) $item->cost_price);
+        }
+
+        return $item;
+    }
+
+    private function hasPrintableDifference(WmsInventoryCountItem $item): bool
+    {
+        return (float) ($item->getAttribute('pdf_start_difference_quantity') ?? 0) !== 0.0
+            || (float) ($item->getAttribute('pdf_end_difference_quantity') ?? 0) !== 0.0;
+    }
+
+    private function actualQuantity(WmsInventoryCountItem $item): mixed
+    {
+        return $item->final_count_quantity
+            ?? $item->second_count_quantity
+            ?? $item->first_count_quantity;
     }
 
     private function buildHeader(WmsInventoryCount $inventoryCount): array
@@ -300,19 +329,38 @@ class InventoryDiffListPdfService
         $this->pdf->Cell(self::COL_W2, $rowH, '入力回数', 0, 0, 'R');
 
         $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2, $y2);
-        $this->pdf->Cell(self::COL_W3, $rowH, '理論数量', 0, 0, 'R');
+        $this->pdf->Cell(self::COL_W3, $rowH, $this->uncountedRound === null ? '理論在庫(開始)' : '理論数量', 0, 0, 'R');
 
         $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2 + self::COL_W3, $y2);
         $this->pdf->Cell(self::COL_W4, $rowH, '実数量', 0, 0, 'R');
 
         $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2 + self::COL_W3 + self::COL_W4, $y2);
-        $this->pdf->Cell(self::COL_W5, $rowH, '差異数量', 0, 0, 'R');
+        $this->pdf->Cell(self::COL_W5, $rowH, $this->uncountedRound === null ? '開始差異' : '差異数量', 0, 0, 'R');
 
         $this->pdf->SetXY($rightX, $y2);
-        $this->pdf->Cell(self::COL_W6, $rowH, '差異金額', 0, 0, 'R');
+        $this->pdf->Cell(self::COL_W6, $rowH, $this->uncountedRound === null ? '開始差額' : '差異金額', 0, 0, 'R');
+
+        if ($this->uncountedRound === null) {
+            $y3 = $y2 + $rowH;
+
+            $this->pdf->SetXY($x, $y3);
+            $this->pdf->Cell(self::COL_W1, $rowH, '終了比較', 0, 0, 'L');
+
+            $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2, $y3);
+            $this->pdf->Cell(self::COL_W3, $rowH, '理論在庫(終了)', 0, 0, 'R');
+
+            $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2 + self::COL_W3, $y3);
+            $this->pdf->Cell(self::COL_W4, $rowH, '実数量', 0, 0, 'R');
+
+            $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2 + self::COL_W3 + self::COL_W4, $y3);
+            $this->pdf->Cell(self::COL_W5, $rowH, '終了差異', 0, 0, 'R');
+
+            $this->pdf->SetXY($rightX, $y3);
+            $this->pdf->Cell(self::COL_W6, $rowH, '終了差額', 0, 0, 'R');
+        }
 
         // Separator line below headers
-        $sepY = $y2 + $rowH;
+        $sepY = $y + ($rowH * $this->itemBlockRowCount());
         $this->pdf->Line($x, $sepY, $x + self::CONTENT_WIDTH, $sepY);
 
         $this->currentY = $sepY + 0.5;
@@ -331,7 +379,18 @@ class InventoryDiffListPdfService
         $this->pdf->SetLineStyle(['dash' => '']);
 
         $costPrice = $this->formatMoney($countItem->cost_price);
-        $diffAmount = $this->formatDiffMoney($countItem->difference_amount);
+        $startDifferenceQuantity = $this->uncountedRound !== null
+            ? null
+            : $countItem->getAttribute('pdf_start_difference_quantity');
+        $startDiffAmount = $this->uncountedRound !== null
+            ? null
+            : $countItem->getAttribute('pdf_start_difference_amount');
+        $endDifferenceQuantity = $this->uncountedRound !== null
+            ? null
+            : $countItem->getAttribute('pdf_end_difference_quantity');
+        $endDiffAmount = $this->uncountedRound !== null
+            ? null
+            : $countItem->getAttribute('pdf_end_difference_amount');
 
         $rightX = $x + self::COL_W1 + self::COL_W2 + self::COL_W3 + self::COL_W4 + self::COL_W5;
 
@@ -353,7 +412,7 @@ class InventoryDiffListPdfService
         $this->pdf->SetXY($rightX, $y);
         $this->pdf->Cell(self::COL_W6, $rowH, $costPrice, 0, 0, 'R');
 
-        // === Row 2: item_name | input_count | system_qty | actual_qty | diff_qty | diff_amount ===
+        // === Row 2: item_name | input_count | start_system_qty | actual_qty | start_diff_qty | start_diff_amount ===
         $y2 = $y + $rowH;
 
         $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_NORMAL);
@@ -368,17 +427,38 @@ class InventoryDiffListPdfService
 
         $actualQty = $this->uncountedRound !== null
             ? $countItem->{$this->roundColumn($this->uncountedRound)}
-            : ($countItem->final_count_quantity ?? $countItem->second_count_quantity ?? $countItem->first_count_quantity);
+            : $countItem->getAttribute('pdf_actual_quantity');
         $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2 + self::COL_W3, $y2);
         $this->pdf->Cell(self::COL_W4, $rowH, $this->formatQuantity($actualQty), 0, 0, 'R');
 
         $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2 + self::COL_W3 + self::COL_W4, $y2);
-        $this->pdf->Cell(self::COL_W5, $rowH, $this->formatQuantity($this->uncountedRound !== null ? null : $countItem->difference_quantity), 0, 0, 'R');
+        $this->pdf->Cell(self::COL_W5, $rowH, $this->formatQuantity($this->uncountedRound !== null ? null : $startDifferenceQuantity), 0, 0, 'R');
 
         $this->pdf->SetXY($rightX, $y2);
-        $this->pdf->Cell(self::COL_W6, $rowH, $this->uncountedRound !== null ? '¥0' : $diffAmount, 0, 0, 'R');
+        $this->pdf->Cell(self::COL_W6, $rowH, $this->uncountedRound !== null ? '¥0' : $this->formatDiffMoney($startDiffAmount), 0, 0, 'R');
 
-        $this->currentY = $y2 + $rowH;
+        if ($this->uncountedRound === null) {
+            $y3 = $y2 + $rowH;
+
+            $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2, $y3);
+            $this->pdf->Cell(self::COL_W3, $rowH, $this->formatOptionalQuantity($countItem->ending_system_quantity), 0, 0, 'R');
+
+            $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2 + self::COL_W3, $y3);
+            $this->pdf->Cell(self::COL_W4, $rowH, $this->formatQuantity($actualQty), 0, 0, 'R');
+
+            $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2 + self::COL_W3 + self::COL_W4, $y3);
+            $this->pdf->Cell(self::COL_W5, $rowH, $this->formatOptionalQuantity($endDifferenceQuantity), 0, 0, 'R');
+
+            $this->pdf->SetXY($rightX, $y3);
+            $this->pdf->Cell(self::COL_W6, $rowH, $this->formatOptionalDiffMoney($endDiffAmount), 0, 0, 'R');
+        }
+
+        $this->currentY = $y + ($rowH * $this->itemBlockRowCount());
+    }
+
+    private function itemBlockRowCount(): int
+    {
+        return $this->uncountedRound === null ? 3 : 2;
     }
 
     private function renderPageNumbers(): void
@@ -411,6 +491,15 @@ class InventoryDiffListPdfService
         return number_format($floatVal, 3);
     }
 
+    private function formatOptionalQuantity(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '-';
+        }
+
+        return $this->formatQuantity($value);
+    }
+
     private function formatMoney(mixed $value): string
     {
         if ($value === null || $value === '') {
@@ -441,6 +530,15 @@ class InventoryDiffListPdfService
         $prefix = $floatVal < 0 ? '-¥' : '¥';
 
         return $prefix.number_format(abs($floatVal));
+    }
+
+    private function formatOptionalDiffMoney(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '-';
+        }
+
+        return $this->formatDiffMoney($value);
     }
 
     private function truncateText(string $text, float $maxWidthMm): string
