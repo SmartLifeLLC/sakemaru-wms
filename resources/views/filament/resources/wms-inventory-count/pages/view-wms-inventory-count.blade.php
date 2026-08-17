@@ -115,6 +115,16 @@
                             HANDY受付中
                         </span>
                     @endif
+                    @if ($record->snapshot_taken_at)
+                        <span class="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-bold text-slate-700">
+                            在庫取得(開始) {{ $record->snapshot_taken_at->format('m/d H:i') }}
+                        </span>
+                    @endif
+                    @if ($record->ending_stock_taken_at)
+                        <span class="rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-bold text-purple-700">
+                            在庫取得(終了) {{ $record->ending_stock_taken_at->format('m/d H:i') }}
+                        </span>
+                    @endif
                     @if ($record->stock_movement_from_at)
                         <span class="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-bold text-blue-700">
                             実施 {{ $record->stock_movement_from_at->format('m/d H:i') }}
@@ -329,8 +339,8 @@
                             @endforeach
                         </div>
                     @endif
+                    {{ $this->getAction('downloadDiffListPdf') }}
                     @if ($record->status !== \App\Models\WmsInventoryCount::STATUS_DRAFT)
-                        {{ $this->getAction('downloadDiffListPdf') }}
                         {{ $this->getAction('downloadUncountedListPdf') }}
                         {{ $this->getAction('restoreCancelledForCounting') }}
                         {{ $this->getAction('fillUncountedWithZero') }}
@@ -374,8 +384,14 @@
                                 </th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">
                                     <button type="button" wire:click="sortBy('system_quantity')" class="inline-flex items-center gap-1 font-bold hover:text-sky-700">
-                                        <span>理論数量</span>
+                                        <span>理論在庫(開始)</span>
                                         <span class="text-[10px]">{{ $this->sortIndicator('system_quantity') }}</span>
+                                    </button>
+                                </th>
+                                <th class="border border-slate-300 px-2 py-2 text-right">
+                                    <button type="button" wire:click="sortBy('ending_system_quantity')" class="inline-flex items-center gap-1 font-bold hover:text-sky-700">
+                                        <span>理論在庫(終了)</span>
+                                        <span class="text-[10px]">{{ $this->sortIndicator('ending_system_quantity') }}</span>
                                     </button>
                                 </th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">受払合計</th>
@@ -404,6 +420,7 @@
                                     $initSecond = $row->second_count_quantity !== null ? (string) (int) $row->second_count_quantity : '';
                                     $initFinal = $row->final_count_quantity !== null ? (string) (int) $row->final_count_quantity : '';
                                     $movementQty = $row->post_count_movement_quantity;
+                                    $endingSystemQty = $row->ending_system_quantity;
                                 @endphp
                                 <tr wire:key="ic-row-{{ $row->id }}-r{{ $activeRound }}-u{{ $row->updated_at?->timestamp ?? 0 }}"
                                     x-data="{
@@ -439,6 +456,9 @@
                                     <td class="whitespace-nowrap border border-slate-300 px-2 py-1 font-mono">{{ $row->item_code ?: '-' }}</td>
                                     <td class="min-w-[240px] border border-slate-300 px-2 py-1">{{ $row->item_name ?: '-' }}</td>
                                     <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums">{{ number_format((int) $row->system_quantity) }}</td>
+                                    <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums {{ $endingSystemQty !== null && (int) $endingSystemQty !== (int) $row->system_quantity ? 'text-purple-700' : 'text-slate-700' }}">
+                                        {{ $endingSystemQty !== null ? number_format((int) $endingSystemQty) : '-' }}
+                                    </td>
                                     <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums {{ $movementQty !== null && (int) $movementQty > 0 ? 'text-green-700' : ($movementQty !== null && (int) $movementQty < 0 ? 'text-red-700' : 'text-slate-500') }}">
                                         {{ $movementQty !== null ? number_format((int) $movementQty) : '-' }}
                                     </td>

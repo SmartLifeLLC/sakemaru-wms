@@ -206,9 +206,9 @@ class InventoryCountService
     private function refreshSystemQuantitiesLocked(WmsInventoryCount $inventoryCount): array
     {
         $this->assertCanRefreshSystemQuantities($inventoryCount);
+        $this->assertEndingStockColumnsExist();
 
         $updatedItems = 0;
-        $updatedDifferences = 0;
         $missingRealStocks = 0;
 
         WmsInventoryCountItem::query()
@@ -217,14 +217,9 @@ class InventoryCountService
             ->select([
                 'id',
                 'real_stock_id',
-                'system_quantity',
-                'first_count_quantity',
-                'second_count_quantity',
-                'final_count_quantity',
-                'difference_quantity',
-                'cost_price',
+                'ending_system_quantity',
             ])
-            ->chunkById(500, function ($items) use (&$updatedItems, &$updatedDifferences, &$missingRealStocks) {
+            ->chunkById(500, function ($items) use (&$updatedItems, &$missingRealStocks) {
                 $stockQuantities = DB::connection('sakemaru')
                     ->table('real_stocks')
                     ->whereIn('id', $items->pluck('real_stock_id')->filter()->unique()->values())
@@ -238,13 +233,19 @@ class InventoryCountService
                     }
 
                     $systemQuantity = (int) $stockQuantities->get($item->real_stock_id);
-                    $this->updateCountItemSystemQuantity($item, $systemQuantity, $updatedItems, $updatedDifferences);
+                    $this->updateCountItemEndingSystemQuantity($item, $systemQuantity, $updatedItems);
                 }
             });
 
+        $insertedItems = $this->insertMissingEndingStockItems($inventoryCount);
+
+        $inventoryCount->update([
+            'ending_stock_taken_at' => now(),
+        ]);
+
         return [
             'updated_items' => $updatedItems,
-            'updated_differences' => $updatedDifferences,
+            'inserted_items' => $insertedItems,
             'missing_real_stocks' => $missingRealStocks,
         ];
     }
@@ -354,6 +355,112 @@ class InventoryCountService
 
         $updateData['updated_at'] = now();
         WmsInventoryCountItem::whereKey($item->id)->update($updateData);
+    }
+
+    private function updateCountItemEndingSystemQuantity(WmsInventoryCountItem $item, int $systemQuantity, int &$updatedItems): void
+    {
+        if ($item->ending_system_quantity !== null && (int) $item->ending_system_quantity === $systemQuantity) {
+            return;
+        }
+
+        WmsInventoryCountItem::whereKey($item->id)->update([
+            'ending_system_quantity' => $systemQuantity,
+            'updated_at' => now(),
+        ]);
+
+        $updatedItems++;
+    }
+
+    private function insertMissingEndingStockItems(WmsInventoryCount $inventoryCount): int
+    {
+        $inserted = 0;
+        $lotRanked = DB::raw(
+            '(SELECT rsl.real_stock_id, rsl.location_id, rsl.floor_id, ROW_NUMBER() OVER (PARTITION BY rsl.real_stock_id ORDER BY rsl.updated_at DESC, rsl.id DESC) AS rn FROM real_stock_lots rsl WHERE rsl.status = \'ACTIVE\') as lot'
+        );
+
+        DB::connection('sakemaru')
+            ->table('real_stocks as rs')
+            ->join('items as i', 'i.id', '=', 'rs.item_id')
+            ->leftJoin($lotRanked, function ($join) {
+                $join->on('lot.real_stock_id', '=', 'rs.id')
+                    ->where('lot.rn', '=', 1);
+            })
+            ->leftJoin('locations as l', 'l.id', '=', 'lot.location_id')
+            ->leftJoin('floors as f', 'f.id', '=', DB::raw('COALESCE(lot.floor_id, l.floor_id)'))
+            ->leftJoin('wms_inventory_count_items as ici', function ($join) use ($inventoryCount) {
+                $join->on('ici.real_stock_id', '=', 'rs.id')
+                    ->where('ici.inventory_count_id', '=', $inventoryCount->id);
+            })
+            ->where('rs.warehouse_id', $inventoryCount->warehouse_id)
+            ->whereNull('ici.id')
+            ->where(function ($query) {
+                $query->where('rs.current_quantity', '!=', 0)
+                    ->orWhereNotNull('lot.real_stock_id');
+            })
+            ->select([
+                'rs.id as real_stock_id',
+                'rs.item_id',
+                'i.code as item_code',
+                'i.name as item_name',
+                DB::raw("(SELECT isi.search_string FROM item_search_information isi WHERE isi.item_id = i.id AND isi.code_type = 'JAN' AND isi.quantity_type = 'PIECE' AND isi.is_active = 1 ORDER BY isi.priority IS NULL, isi.priority, isi.id LIMIT 1) as barcode"),
+                'l.id as location_id',
+                'f.id as floor_id',
+                'f.name as floor_name',
+                'l.code1 as location_code1',
+                'l.code2 as location_code2',
+                'l.code3 as location_code3',
+                'rs.current_quantity as ending_system_quantity',
+                DB::raw('COALESCE((SELECT ip.cost_unit_price FROM item_prices ip WHERE ip.item_id = i.id AND ip.is_active = 1 LIMIT 1), 0) as cost_price'),
+            ])
+            ->chunkById(1000, function ($rows) use ($inventoryCount, &$inserted) {
+                $now = now();
+                $records = [];
+
+                foreach ($rows as $row) {
+                    $records[] = [
+                        'inventory_count_id' => $inventoryCount->id,
+                        'real_stock_id' => $row->real_stock_id,
+                        'item_id' => $row->item_id,
+                        'item_code' => $row->item_code ?? '',
+                        'item_name' => $row->item_name ?? '',
+                        'barcode' => $row->barcode,
+                        'location_id' => $row->location_id,
+                        'floor_id' => $row->floor_id,
+                        'floor_name' => $row->floor_name,
+                        'location_code1' => $row->location_code1,
+                        'location_code2' => $row->location_code2,
+                        'location_code3' => $row->location_code3,
+                        'location_no' => Location::formatCode(
+                            $row->location_code1,
+                            $row->location_code2,
+                            $row->location_code3
+                        ),
+                        'system_quantity' => 0,
+                        'ending_system_quantity' => $row->ending_system_quantity,
+                        'cost_price' => $row->cost_price,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ];
+                }
+
+                if ($records === []) {
+                    return;
+                }
+
+                WmsInventoryCountItem::insert($records);
+                $inserted += count($records);
+            }, 'rs.id', 'real_stock_id');
+
+        return $inserted;
+    }
+
+    private function assertEndingStockColumnsExist(): void
+    {
+        if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_counts', 'ending_stock_taken_at')
+            || ! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')
+        ) {
+            throw new \RuntimeException('終了時理論在庫用のDB列が未作成です。マイグレーションを実行してください。');
+        }
     }
 
     public function addSingleItemByCode(WmsInventoryCount $inventoryCount, string $itemCode): array

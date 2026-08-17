@@ -101,6 +101,79 @@ class InventoryCountServiceTest extends TestCase
         $this->assertSame('20.00', $item->difference_amount);
     }
 
+    public function test_refresh_system_quantities_saves_ending_quantities_and_adds_new_rows_with_start_zero(): void
+    {
+        foreach ([
+            'wms_inventory_counts' => 'ending_stock_taken_at',
+            'wms_inventory_count_items' => 'ending_system_quantity',
+        ] as $table => $column) {
+            if (! Schema::connection('sakemaru')->hasColumn($table, $column)) {
+                $this->markTestSkipped("{$table}.{$column} is not available.");
+            }
+        }
+
+        $itemIds = DB::connection('sakemaru')
+            ->table('items')
+            ->orderBy('id')
+            ->limit(2)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->values();
+
+        if ($itemIds->count() < 2) {
+            $this->markTestSkipped('items table does not have enough rows.');
+        }
+
+        $warehouseId = 990022;
+        $existingRealStockId = $this->createRealStock($itemIds[0], 9, 1, $warehouseId);
+        $newRealStockId = $this->createRealStock($itemIds[1], 12, 1, $warehouseId);
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => $warehouseId,
+            'warehouse_code' => (string) $warehouseId,
+            'warehouse_name' => '終了時在庫テスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+        ]);
+
+        $existingItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => $existingRealStockId,
+            'item_id' => $itemIds[0],
+            'item_code' => '999101',
+            'item_name' => '既存明細商品',
+            'system_quantity' => 1,
+            'final_count_quantity' => 3,
+            'difference_quantity' => 2,
+            'cost_price' => 10,
+            'difference_amount' => 20,
+        ]);
+
+        $result = (new InventoryCountService)->refreshSystemQuantities($inventoryCount);
+
+        $inventoryCount->refresh();
+        $existingItem->refresh();
+        $insertedItem = WmsInventoryCountItem::query()
+            ->where('inventory_count_id', $inventoryCount->id)
+            ->where('real_stock_id', $newRealStockId)
+            ->first();
+
+        $this->assertSame(1, $result['updated_items']);
+        $this->assertSame(1, $result['inserted_items']);
+        $this->assertSame(0, $result['missing_real_stocks']);
+        $this->assertNotNull($inventoryCount->ending_stock_taken_at);
+        $this->assertSame(1, $existingItem->system_quantity);
+        $this->assertSame(9, $existingItem->ending_system_quantity);
+        $this->assertSame(3, $existingItem->final_count_quantity);
+        $this->assertSame(2, $existingItem->difference_quantity);
+
+        $this->assertNotNull($insertedItem);
+        $this->assertSame(0, $insertedItem->system_quantity);
+        $this->assertSame(12, $insertedItem->ending_system_quantity);
+    }
+
     public function test_refresh_system_quantities_from_daily_snapshot_uses_latest_snapshot_on_or_before_selected_date(): void
     {
         if (! Schema::connection('sakemaru')->hasTable('real_stock_daily_snapshots')) {
@@ -305,13 +378,13 @@ class InventoryCountServiceTest extends TestCase
         $this->assertEquals(10.0, $queueItems[0]['amount']);
     }
 
-    private function createRealStock(int $itemId, int $currentQuantity, int $clientId = 1): int
+    private function createRealStock(int $itemId, int $currentQuantity, int $clientId = 1, int $warehouseId = 22): int
     {
         return (int) DB::connection('sakemaru')
             ->table('real_stocks')
             ->insertGetId([
                 'client_id' => $clientId,
-                'warehouse_id' => 22,
+                'warehouse_id' => $warehouseId,
                 'stock_allocation_id' => 0,
                 'item_id' => $itemId,
                 'current_quantity' => $currentQuantity,

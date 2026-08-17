@@ -23,6 +23,7 @@ use Filament\Support\Enums\Alignment;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class ViewWmsInventoryCount extends Page implements HasForms
 {
@@ -170,7 +171,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function sortBy(string $column): void
     {
-        $allowed = ['item_code', 'item_name', 'system_quantity', 'difference_quantity'];
+        $allowed = ['item_code', 'item_name', 'system_quantity', 'ending_system_quantity', 'difference_quantity'];
         if (! in_array($column, $allowed, true)) {
             return;
         }
@@ -320,6 +321,12 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     private function applySort(\Illuminate\Database\Eloquent\Builder $query): void
     {
+        if ($this->sortColumn === 'ending_system_quantity'
+            && ! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')
+        ) {
+            $this->sortColumn = '';
+        }
+
         if ($this->sortColumn !== '') {
             $query->orderBy($this->sortColumn, $this->sortDirection);
         } else {
@@ -919,7 +926,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->visible(fn () => $record->canResumeCurrentStockSaved())
                 ->requiresConfirmation()
                 ->modalHeading('カウント再開')
-                ->modalDescription('現状保存を取り消し、カウント中に戻します。理論在庫や実棚数は変更しません。現在庫更新と指定日在庫更新を再度実行できます。')
+                ->modalDescription('現状保存を取り消し、カウント中に戻します。理論在庫や実棚数は変更しません。終了時在庫取得と指定日在庫更新を再度実行できます。')
                 ->modalFooterActionsAlignment(Alignment::End)
                 ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('再開する')->color('danger'))
                 ->modalCancelActionLabel('再開せず閉じる')
@@ -932,7 +939,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
                         Notification::make()
                             ->success()
                             ->title('カウントを再開しました')
-                            ->body('現在庫更新と指定日在庫更新を実行できます。')
+                            ->body('終了時在庫取得と指定日在庫更新を実行できます。')
                             ->send();
                     } catch (\Throwable $e) {
                         Notification::make()
@@ -944,16 +951,16 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 }),
 
             Action::make('refreshCurrentStock')
-                ->label('現在庫更新')
+                ->label('終了時在庫取得')
                 ->icon('heroicon-o-arrow-path')
                 ->color('warning')
                 ->visible(fn () => $record->canRefreshSystemQuantities())
                 ->requiresConfirmation()
-                ->modalHeading('現在庫更新')
-                ->modalDescription('現在の在庫数を理論在庫として再取得し、入力済み実棚数との差異を再計算します。実棚数と現状保存状態は変更しません。')
+                ->modalHeading('終了時在庫取得')
+                ->modalDescription('現在の在庫数を理論在庫(終了)として取得します。理論在庫(開始)、実棚数、差異数量、現状保存状態は変更しません。初回生成時になかった在庫は理論在庫(開始)0で明細追加します。')
                 ->modalFooterActionsAlignment(Alignment::End)
-                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('更新する')->color('danger'))
-                ->modalCancelActionLabel('更新せず閉じる')
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('取得する')->color('danger'))
+                ->modalCancelActionLabel('取得せず閉じる')
                 ->action(function () use ($record) {
                     try {
                         $result = (new InventoryCountService)->refreshSystemQuantities($record);
@@ -962,26 +969,26 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
                         Notification::make()
                             ->success()
-                            ->title('現在庫を更新しました')
-                            ->body("理論在庫: {$result['updated_items']}件 / 差分再計算: {$result['updated_differences']}件")
+                            ->title('終了時在庫を取得しました')
+                            ->body("理論在庫(終了): {$result['updated_items']}件 / 追加明細: {$result['inserted_items']}件 / 未取得: {$result['missing_real_stocks']}件")
                             ->send();
                     } catch (\Throwable $e) {
                         Notification::make()
                             ->danger()
-                            ->title('現在庫を更新できません')
+                            ->title('終了時在庫を取得できません')
                             ->body($e->getMessage())
                             ->send();
                     }
                 }),
 
             Action::make('refreshDailySnapshotStock')
-                ->label('指定日在庫更新')
+                ->label('指定日在庫(開始)更新')
                 ->icon('heroicon-o-calendar-days')
                 ->color('warning')
                 ->visible(fn () => $record->canRefreshSystemQuantities())
                 ->requiresConfirmation()
-                ->modalHeading('指定日在庫更新')
-                ->modalDescription('選択した日の2:00時点の在庫履歴から理論在庫を復元し、入力済み実棚数との差異を再計算します。実棚数と現状保存状態は変更しません。')
+                ->modalHeading('指定日在庫(開始)更新')
+                ->modalDescription('選択した日の2:00時点の在庫履歴から理論在庫(開始)を復元し、入力済み実棚数との差異を再計算します。実棚数、理論在庫(終了)、現状保存状態は変更しません。')
                 ->modalFooterActionsAlignment(Alignment::End)
                 ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('更新する')->color('danger'))
                 ->modalCancelActionLabel('更新せず閉じる')
@@ -1000,13 +1007,13 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
                         Notification::make()
                             ->success()
-                            ->title('指定日の在庫に更新しました')
-                            ->body("対象日: {$result['snapshot_date']} / 理論在庫: {$result['updated_items']}件 / 差分再計算: {$result['updated_differences']}件 / 未取得: {$result['missing_snapshot_rows']}件")
+                            ->title('指定日の開始在庫に更新しました')
+                            ->body("対象日: {$result['snapshot_date']} / 理論在庫(開始): {$result['updated_items']}件 / 差分再計算: {$result['updated_differences']}件 / 未取得: {$result['missing_snapshot_rows']}件")
                             ->send();
                     } catch (\Throwable $e) {
                         Notification::make()
                             ->danger()
-                            ->title('指定日の在庫に更新できません')
+                            ->title('指定日の開始在庫に更新できません')
                             ->body($e->getMessage())
                             ->send();
                     }
@@ -1153,7 +1160,6 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->label('差分PDF')
                 ->icon('heroicon-o-document-arrow-down')
                 ->color('gray')
-                ->visible(fn () => $record->status !== WmsInventoryCount::STATUS_DRAFT)
                 ->action(function () use ($record) {
                     $pdfContent = (new InventoryDiffListPdfService)->generate($record);
                     $filename = '棚卸差分確認_'.($record->count_no ?? 'unknown').'.pdf';

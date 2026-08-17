@@ -55,6 +55,8 @@ class InventoryCountController extends ApiController
                 'status' => $count->status,
                 'status_label' => $count->status_label,
                 'started_at' => $count->started_at?->toIso8601String(),
+                'snapshot_taken_at' => $count->snapshot_taken_at?->toIso8601String(),
+                'ending_stock_taken_at' => $count->ending_stock_taken_at?->toIso8601String(),
                 'memo' => $count->memo,
                 'handy_reception' => true,
                 'current_round' => $this->currentRound($count),
@@ -96,6 +98,7 @@ class InventoryCountController extends ApiController
                 'status_label' => $count->status_label,
                 'started_at' => $count->started_at?->toIso8601String(),
                 'snapshot_taken_at' => $count->snapshot_taken_at?->toIso8601String(),
+                'ending_stock_taken_at' => $count->ending_stock_taken_at?->toIso8601String(),
                 'memo' => $count->memo,
                 'handy_reception' => (bool) $count->handy_reception,
                 'total_items' => (int) $itemStats->total_items,
@@ -492,6 +495,7 @@ class InventoryCountController extends ApiController
         $master = $this->itemMaster($item->item_id);
         $capacityCase = max((int) ($master?->capacity_case ?? 1), 1);
         $systemQuantity = (int) $item->system_quantity;
+        $endingSystemQuantity = $item->ending_system_quantity !== null ? (int) $item->ending_system_quantity : null;
         $currentCount = $item->final_count_quantity ?? $item->second_count_quantity ?? $item->first_count_quantity;
         $searchCodes = $this->searchCodes($item->item_id);
 
@@ -524,9 +528,15 @@ class InventoryCountController extends ApiController
                 'code3' => $item->location_code3,
             ],
             'system_quantity' => $systemQuantity,
+            'system_quantity_start' => $systemQuantity,
             'system_case_quantity' => intdiv($systemQuantity, $capacityCase),
             'system_piece_quantity' => $systemQuantity % $capacityCase,
             'system_total_piece_quantity' => $systemQuantity,
+            'ending_system_quantity' => $endingSystemQuantity,
+            'system_quantity_end' => $endingSystemQuantity,
+            'ending_system_case_quantity' => $endingSystemQuantity !== null ? intdiv($endingSystemQuantity, $capacityCase) : null,
+            'ending_system_piece_quantity' => $endingSystemQuantity !== null ? $endingSystemQuantity % $capacityCase : null,
+            'ending_system_total_piece_quantity' => $endingSystemQuantity,
             'first_count_quantity' => $item->first_count_quantity !== null ? (float) $item->first_count_quantity : null,
             'first_count_actor_name' => $item->first_count_actor_name,
             'second_count_quantity' => $item->second_count_quantity !== null ? (float) $item->second_count_quantity : null,
@@ -725,6 +735,7 @@ class InventoryCountController extends ApiController
                 'status_label' => $count->status_label,
                 'started_at' => $count->started_at?->toIso8601String(),
                 'snapshot_taken_at' => $count->snapshot_taken_at?->toIso8601String(),
+                'ending_stock_taken_at' => $count->ending_stock_taken_at?->toIso8601String(),
                 'memo' => $count->memo,
                 'handy_reception' => true,
                 'total_items' => (int) $itemStats->total_items,

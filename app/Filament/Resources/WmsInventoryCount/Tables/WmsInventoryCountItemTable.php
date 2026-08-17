@@ -51,9 +51,15 @@ class WmsInventoryCountItemTable
                     ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('system_quantity')
-                    ->label('理論数量')
+                    ->label('理論在庫(開始)')
                     ->numeric(0)
                     ->alignEnd(),
+
+                TextColumn::make('ending_system_quantity')
+                    ->label('理論在庫(終了)')
+                    ->numeric(0)
+                    ->alignEnd()
+                    ->placeholder('-'),
 
                 TextColumn::make('first_count_quantity')
                     ->label('1回目')
