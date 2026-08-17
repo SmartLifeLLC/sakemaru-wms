@@ -82,13 +82,42 @@ class InventoryDiffListPdfService
         return $this->generatePdf($inventoryCount);
     }
 
+    /**
+     * @param  Collection<int, WmsInventoryCount>  $inventoryCounts
+     */
+    public function generateUncountedForCounts(Collection $inventoryCounts, int $round): string
+    {
+        $inventoryCounts = $inventoryCounts
+            ->filter(fn ($inventoryCount): bool => $inventoryCount instanceof WmsInventoryCount && $inventoryCount->exists)
+            ->values();
+        $round = min(max($round, 1), 3);
+
+        $this->pdfTitle = "{$round}回目未カウントリスト";
+        $this->emptyMessage = "{$round}回目未カウントデータなし";
+        $this->uncountedRound = $round;
+
+        return $this->generatePdfForItems(
+            $this->queryMultiCountUncountedItems($inventoryCounts, $round),
+            $this->buildMultiHeader($inventoryCounts),
+        );
+    }
+
     private function generatePdf(WmsInventoryCount $inventoryCount): string
     {
-        $items = $this->queryItems($inventoryCount);
+        return $this->generatePdfForItems(
+            $this->queryItems($inventoryCount),
+            $this->buildHeader($inventoryCount),
+        );
+    }
 
+    /**
+     * @param  Collection<int, WmsInventoryCountItem>  $items
+     * @param  array{count_date: string, warehouse_code: string, warehouse_name: string}  $header
+     */
+    private function generatePdfForItems(Collection $items, array $header): string
+    {
         $this->initPdf();
 
-        $header = $this->buildHeader($inventoryCount);
         $currentShelfPrefix = null;
         $isFirstPage = true;
 
@@ -134,7 +163,9 @@ class InventoryDiffListPdfService
         $query = WmsInventoryCountItem::where('inventory_count_id', $inventoryCount->id);
 
         if ($this->uncountedRound !== null) {
-            $query->whereNull($this->roundColumn($this->uncountedRound));
+            $query
+                ->whereNull($this->roundColumn($this->uncountedRound))
+                ->where('system_quantity', '!=', 0);
         } else {
             $query->where(function ($query) {
                 $query->whereNotNull('difference_quantity')
@@ -168,6 +199,109 @@ class InventoryDiffListPdfService
             ->map(fn (WmsInventoryCountItem $item): WmsInventoryCountItem => $this->attachDiffListValues($item))
             ->filter(fn (WmsInventoryCountItem $item): bool => $this->hasPrintableDifference($item))
             ->values();
+    }
+
+    /**
+     * @param  Collection<int, WmsInventoryCount>  $inventoryCounts
+     * @return Collection<int, WmsInventoryCountItem>
+     */
+    private function queryMultiCountUncountedItems(Collection $inventoryCounts, int $round): Collection
+    {
+        $inventoryCountIds = $inventoryCounts
+            ->pluck('id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($inventoryCountIds->isEmpty()) {
+            return collect();
+        }
+
+        $roundColumn = $this->roundColumn($round);
+
+        return WmsInventoryCountItem::with('inventoryCount')
+            ->whereIn('inventory_count_id', $inventoryCountIds)
+            ->get()
+            ->groupBy(fn (WmsInventoryCountItem $item): string => $this->inventoryItemKey($item))
+            ->filter(fn (Collection $items): bool => $items->every(
+                fn (WmsInventoryCountItem $item): bool => $item->{$roundColumn} === null,
+            ) && $items->contains(fn (WmsInventoryCountItem $item): bool => $this->hasNonZeroSystemQuantity($item)))
+            ->map(fn (Collection $items): WmsInventoryCountItem => $this->latestRepresentativeItem(
+                $items->filter(fn (WmsInventoryCountItem $item): bool => $this->hasNonZeroSystemQuantity($item))
+            ))
+            ->values()
+            ->sort($this->inventoryItemSorter(...))
+            ->values();
+    }
+
+    private function inventoryItemKey(WmsInventoryCountItem $item): string
+    {
+        if ($item->real_stock_id !== null) {
+            return 'real_stock:'.$item->real_stock_id;
+        }
+
+        return implode('|', [
+            'item',
+            $item->item_id ?? '',
+            $item->lot_id ?? '',
+            $item->lot_no ?? '',
+            $item->expiration_date?->format('Y-m-d') ?? '',
+            $item->location_id ?? '',
+            $item->location_code1 ?? '',
+            $item->location_code2 ?? '',
+            $item->location_code3 ?? '',
+            $item->location_no ?? '',
+        ]);
+    }
+
+    /**
+     * @param  Collection<int, WmsInventoryCountItem>  $items
+     */
+    private function latestRepresentativeItem(Collection $items): WmsInventoryCountItem
+    {
+        return $items
+            ->sort(fn (WmsInventoryCountItem $a, WmsInventoryCountItem $b): int => $this->representativeSortValues($a) <=> $this->representativeSortValues($b))
+            ->last();
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function representativeSortValues(WmsInventoryCountItem $item): array
+    {
+        return [
+            $item->inventoryCount?->count_date?->getTimestamp() ?? 0,
+            (int) $item->inventory_count_id,
+            (int) $item->id,
+        ];
+    }
+
+    private function inventoryItemSorter(WmsInventoryCountItem $a, WmsInventoryCountItem $b): int
+    {
+        return $this->inventoryItemSortValues($a) <=> $this->inventoryItemSortValues($b);
+    }
+
+    /**
+     * @return array<int, int|string>
+     */
+    private function inventoryItemSortValues(WmsInventoryCountItem $item): array
+    {
+        return [
+            $item->location_id === null
+                || trim((string) ($item->location_no ?? '')) === ''
+                || trim((string) ($item->location_code1 ?? '')) === '' ? 1 : 0,
+            (string) ($item->location_code1 ?? ''),
+            (string) ($item->location_code2 ?? ''),
+            (string) ($item->location_code3 ?? ''),
+            (string) ($item->item_code ?? ''),
+            (int) $item->inventory_count_id,
+            (int) $item->id,
+        ];
+    }
+
+    private function hasNonZeroSystemQuantity(WmsInventoryCountItem $item): bool
+    {
+        return (float) ($item->system_quantity ?? 0) !== 0.0;
     }
 
     private function attachDiffListValues(WmsInventoryCountItem $item): WmsInventoryCountItem
@@ -221,6 +355,56 @@ class InventoryDiffListPdfService
             'warehouse_code' => $inventoryCount->warehouse_code ?? '',
             'warehouse_name' => $inventoryCount->warehouse_name ?? '',
         ];
+    }
+
+    /**
+     * @param  Collection<int, WmsInventoryCount>  $inventoryCounts
+     * @return array{count_date: string, warehouse_code: string, warehouse_name: string}
+     */
+    private function buildMultiHeader(Collection $inventoryCounts): array
+    {
+        $dates = $inventoryCounts
+            ->pluck('count_date')
+            ->filter()
+            ->sortBy(fn ($date): string => $date->format('Y-m-d'))
+            ->values();
+
+        $warehouseCodes = $inventoryCounts
+            ->pluck('warehouse_code')
+            ->filter(fn ($value): bool => filled($value))
+            ->unique()
+            ->values();
+
+        $warehouseNames = $inventoryCounts
+            ->pluck('warehouse_name')
+            ->filter(fn ($value): bool => filled($value))
+            ->unique()
+            ->values();
+
+        return [
+            'count_date' => $this->formatMultiDateLabel($dates),
+            'warehouse_code' => $warehouseCodes->count() === 1 ? (string) $warehouseCodes->first() : '複数',
+            'warehouse_name' => $warehouseNames->count() === 1 ? (string) $warehouseNames->first() : '複数倉庫',
+        ];
+    }
+
+    /**
+     * @param  Collection<int, mixed>  $dates
+     */
+    private function formatMultiDateLabel(Collection $dates): string
+    {
+        if ($dates->isEmpty()) {
+            return '';
+        }
+
+        $first = $dates->first()?->format('Y/m/d');
+        $last = $dates->last()?->format('Y/m/d');
+
+        if ($first === $last) {
+            return $first;
+        }
+
+        return "{$first}-{$last}";
     }
 
     private function shelfPagePrefix(WmsInventoryCountItem $item): ?string
