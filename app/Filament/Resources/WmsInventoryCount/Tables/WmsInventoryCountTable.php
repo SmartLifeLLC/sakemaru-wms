@@ -99,7 +99,7 @@ class WmsInventoryCountTable
                         return WmsInventoryCount::applyDisplayStatusFilter($query, $statuses);
                     }),
             ])
-            ->defaultSort('id', 'desc')
+            ->defaultSort(fn (Builder $query): Builder => static::applyDefaultOrder($query))
             ->recordActions([
                 static::getInstructionSheetAction(),
 
@@ -125,6 +125,13 @@ class WmsInventoryCountTable
     protected static function defaultStatusFilterValues(): array
     {
         return WmsInventoryCount::defaultStatusFilterValues();
+    }
+
+    public static function applyDefaultOrder(Builder $query): Builder
+    {
+        return $query
+            ->orderByDesc('count_date')
+            ->orderByDesc('id');
     }
 
     protected static function getInstructionSheetAction(): Action
