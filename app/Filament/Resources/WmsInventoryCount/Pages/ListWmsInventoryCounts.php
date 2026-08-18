@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsInventoryCount\Pages;
 
 use App\Filament\Concerns\HasWmsUserViews;
+use App\Filament\Resources\WmsInventoryCount\Tables\WmsInventoryCountTable;
 use App\Filament\Resources\WmsInventoryCountResource;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsInventoryCount;
@@ -23,6 +24,13 @@ class ListWmsInventoryCounts extends ListRecords
     protected static string $resource = WmsInventoryCountResource::class;
 
     protected ?Collection $cachedWarehouses = null;
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            WmsInventoryCountTable::getCreateAction(),
+        ];
+    }
 
     public function getPresetViews(): array
     {

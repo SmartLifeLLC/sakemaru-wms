@@ -47,8 +47,8 @@
             return keyword === '' || this.normalize(value).includes(keyword);
         },
         rowVisible(row) {
-            if (this.activeTab === 'diff' && !(row.diff !== null && row.diff !== 0)) return false;
-            if (this.activeTab === 'matched' && !(row.diff !== null && row.diff === 0)) return false;
+            if (this.activeTab === 'diff' && !(row.endDiff !== null && row.endDiff !== 0)) return false;
+            if (this.activeTab === 'matched' && !(row.endDiff !== null && row.endDiff === 0)) return false;
             if (this.activeTab === 'uncounted' && this.activeRound === 1 && row.first !== '') return false;
             if (this.activeTab === 'uncounted' && this.activeRound === 2 && row.second !== '') return false;
             if (this.activeTab === 'uncounted' && this.activeRound === 3 && row.final_ !== '') return false;
@@ -396,21 +396,21 @@
                                 </th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">受払合計</th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">1回目</th>
-                                <th class="border border-slate-300 px-2 py-2 text-right">1回目差分</th>
+                                <th class="border border-slate-300 px-2 py-2 text-right">1回目終了差分</th>
                                 <th class="border border-slate-300 px-2 py-2 text-left">1回目入力者</th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">2回目</th>
-                                <th class="border border-slate-300 px-2 py-2 text-right">2回目差分</th>
+                                <th class="border border-slate-300 px-2 py-2 text-right">2回目終了差分</th>
                                 <th class="border border-slate-300 px-2 py-2 text-left">2回目入力者</th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">3回目</th>
-                                <th class="border border-slate-300 px-2 py-2 text-right">3回目差分</th>
+                                <th class="border border-slate-300 px-2 py-2 text-right">3回目終了差分</th>
                                 <th class="border border-slate-300 px-2 py-2 text-left">3回目入力者</th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">
-                                    <button type="button" wire:click="sortBy('difference_quantity')" class="inline-flex items-center gap-1 font-bold hover:text-sky-700">
-                                        <span>差異数量</span>
-                                        <span class="text-[10px]">{{ $this->sortIndicator('difference_quantity') }}</span>
+                                    <button type="button" wire:click="sortBy('ending_difference_quantity')" class="inline-flex items-center gap-1 font-bold hover:text-sky-700">
+                                        <span>終了差異数量</span>
+                                        <span class="text-[10px]">{{ $this->sortIndicator('ending_difference_quantity') }}</span>
                                     </button>
                                 </th>
-                                <th class="border border-slate-300 px-2 py-2 text-right">差異金額</th>
+                                <th class="border border-slate-300 px-2 py-2 text-right">終了差異金額</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -431,18 +431,18 @@
                                         itemName: @js($row->item_name ?: ''),
                                         first: @js($initFirst), second: @js($initSecond), final_: @js($initFinal),
                                         origFirst: @js($initFirst), origSecond: @js($initSecond), origFinal: @js($initFinal),
-                                        system: {{ (int) $row->system_quantity }}, cost: {{ (float) $row->cost_price }},
+                                        system: {{ (int) $row->system_quantity }}, endingSystem: @js($endingSystemQty !== null ? (int) $endingSystemQty : null), cost: {{ (float) $row->cost_price }},
                                         toInt(v) { return v === '' ? null : parseInt(v); },
                                         get counted() {
                                             if (this.activeRound == 3) return this.toInt(this.final_);
                                             if (this.activeRound == 2) return this.toInt(this.second);
                                             return this.toInt(this.first);
                                         },
-                                        get firstDiff() { return this.first !== '' ? this.toInt(this.first)-this.system : null; },
-                                        get secondDiff() { return this.second !== '' ? this.toInt(this.second)-this.system : null; },
-                                        get finalDiff() { return this.final_ !== '' ? this.toInt(this.final_)-this.system : null; },
-                                        get diff() { return this.counted!==null ? this.counted-this.system : null; },
-                                        get diffAmt() { return this.diff!==null ? Math.round(this.diff*this.cost) : null; },
+                                        get firstDiff() { return this.first !== '' && this.endingSystem !== null ? this.toInt(this.first)-this.endingSystem : null; },
+                                        get secondDiff() { return this.second !== '' && this.endingSystem !== null ? this.toInt(this.second)-this.endingSystem : null; },
+                                        get finalDiff() { return this.final_ !== '' && this.endingSystem !== null ? this.toInt(this.final_)-this.endingSystem : null; },
+                                        get endDiff() { return this.counted!==null && this.endingSystem !== null ? this.counted-this.endingSystem : null; },
+                                        get endDiffAmt() { return this.endDiff!==null ? Math.round(this.endDiff*this.cost) : null; },
                                         get changed() { return this.first!==this.origFirst||this.second!==this.origSecond||this.final_!==this.origFinal; },
                                         clean(v) { return v.replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/[^0-9]/g,''); },
                                         notify() { $dispatch('count-update',{id:{{ $row->id }},origFirst:this.origFirst,origSecond:this.origSecond,origFinal:this.origFinal,first:this.first,second:this.second,final:this.final_}); }
@@ -500,17 +500,18 @@
                                             x-text="finalDiff !== null ? new Intl.NumberFormat().format(finalDiff) : '-'"></td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-slate-600">{{ $row->final_count_actor_name ?: '-' }}</td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums"
-                                            :class="{ 'text-green-700': diff > 0, 'text-red-700': diff < 0 }"
-                                            x-text="diff !== null ? new Intl.NumberFormat().format(diff) : '-'"></td>
+                                            :class="{ 'text-green-700': endDiff > 0, 'text-red-700': endDiff < 0 }"
+                                            x-text="endDiff !== null ? new Intl.NumberFormat().format(endDiff) : '-'"></td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right tabular-nums"
-                                            :class="{ 'text-green-700': diffAmt > 0, 'text-red-700': diffAmt < 0 }"
-                                            x-text="diffAmt !== null ? '¥' + new Intl.NumberFormat().format(diffAmt) : '-'"></td>
+                                            :class="{ 'text-green-700': endDiffAmt > 0, 'text-red-700': endDiffAmt < 0 }"
+                                            x-text="endDiffAmt !== null ? '¥' + new Intl.NumberFormat().format(endDiffAmt) : '-'"></td>
                                     @else
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right tabular-nums">{{ $initFirst !== '' ? number_format((int) $initFirst) : '-' }}</td>
                                         @php
-                                            $firstDiff = $row->roundDifference(1);
-                                            $secondDiff = $row->roundDifference(2);
-                                            $finalDiff = $row->roundDifference(3);
+                                            $endingBase = $endingSystemQty !== null ? (int) $endingSystemQty : null;
+                                            $firstDiff = $endingBase !== null && $row->first_count_quantity !== null ? (int) $row->first_count_quantity - $endingBase : null;
+                                            $secondDiff = $endingBase !== null && $row->second_count_quantity !== null ? (int) $row->second_count_quantity - $endingBase : null;
+                                            $finalDiff = $endingBase !== null && $row->final_count_quantity !== null ? (int) $row->final_count_quantity - $endingBase : null;
                                         @endphp
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums {{ $firstDiff !== null && $firstDiff > 0 ? 'text-green-700' : ($firstDiff !== null && $firstDiff < 0 ? 'text-red-700' : '') }}">{{ $firstDiff !== null ? number_format((int) $firstDiff) : '-' }}</td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-slate-600">{{ $row->first_count_actor_name ?: '-' }}</td>
@@ -520,9 +521,17 @@
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums">{{ $initFinal !== '' ? number_format((int) $initFinal) : '-' }}</td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums {{ $finalDiff !== null && $finalDiff > 0 ? 'text-green-700' : ($finalDiff !== null && $finalDiff < 0 ? 'text-red-700' : '') }}">{{ $finalDiff !== null ? number_format((int) $finalDiff) : '-' }}</td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-slate-600">{{ $row->final_count_actor_name ?: '-' }}</td>
-                                        @php $diffQty = $row->difference_quantity; @endphp
+                                        @php
+                                            $activeQty = match ($activeRound) {
+                                                1 => $row->first_count_quantity,
+                                                2 => $row->second_count_quantity,
+                                                3 => $row->final_count_quantity,
+                                            };
+                                            $diffQty = $endingBase !== null && $activeQty !== null ? (int) $activeQty - $endingBase : null;
+                                            $diffAmount = $diffQty !== null ? (float) $diffQty * (float) $row->cost_price : null;
+                                        @endphp
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums {{ $diffQty !== null && $diffQty > 0 ? 'text-green-700' : ($diffQty !== null && $diffQty < 0 ? 'text-red-700' : '') }}">{{ $diffQty !== null ? number_format((int) $diffQty) : '-' }}</td>
-                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right tabular-nums {{ $row->difference_amount !== null && (float) $row->difference_amount > 0 ? 'text-green-700' : ($row->difference_amount !== null && (float) $row->difference_amount < 0 ? 'text-red-700' : '') }}">{{ $row->difference_amount !== null ? '¥' . number_format((int) $row->difference_amount) : '-' }}</td>
+                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right tabular-nums {{ $diffAmount !== null && $diffAmount > 0 ? 'text-green-700' : ($diffAmount !== null && $diffAmount < 0 ? 'text-red-700' : '') }}">{{ $diffAmount !== null ? '¥' . number_format((int) $diffAmount) : '-' }}</td>
                                     @endif
                                 </tr>
                             @endforeach

@@ -110,9 +110,6 @@ class WmsInventoryCountTable
                     ->color('gray')
                     ->url(fn (WmsInventoryCount $record) => route('filament.admin.resources.wms-inventory-counts.view', $record)),
             ], position: RecordActionsPosition::AfterColumns)
-            ->toolbarActions([
-                static::getCreateAction(),
-            ])
             ->bulkActions([
                 BulkActionGroup::make([
                     static::getBulkUncountedListPdfAction(),
@@ -235,7 +232,7 @@ class WmsInventoryCountTable
             });
     }
 
-    protected static function getCreateAction(): Action
+    public static function getCreateAction(): Action
     {
         return Action::make('createInventoryCount')
             ->label('棚卸し作成')

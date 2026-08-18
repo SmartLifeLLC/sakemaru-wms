@@ -6,6 +6,7 @@ use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
 use App\Services\InventoryCount\InventoryDiffListPdfService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use ReflectionMethod;
@@ -18,7 +19,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
 
     protected $connectionsToTransact = ['sakemaru'];
 
-    public function test_diff_list_includes_start_and_end_differences(): void
+    public function test_diff_list_includes_only_ending_differences(): void
     {
         if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')) {
             $this->markTestSkipped('wms_inventory_count_items.ending_system_quantity is not available.');
@@ -67,18 +68,28 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'cost_price' => 30,
         ]);
 
+        $noEndingStock = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999204,
+            'item_code' => 'PDF004',
+            'item_name' => '終了理論なし',
+            'system_quantity' => 4,
+            'ending_system_quantity' => null,
+            'final_count_quantity' => 8,
+            'cost_price' => 40,
+        ]);
+
         $items = $this->diffListItems($inventoryCount);
 
-        $this->assertSame([$endOnly->id, $startOnly->id], $items->pluck('id')->all());
+        $this->assertSame([$endOnly->id], $items->pluck('id')->all());
+        $this->assertFalse($items->contains('id', $startOnly->id));
         $this->assertFalse($items->contains('id', $matched->id));
+        $this->assertFalse($items->contains('id', $noEndingStock->id));
 
         $endOnlyRow = $items->firstWhere('id', $endOnly->id);
-        $startOnlyRow = $items->firstWhere('id', $startOnly->id);
 
-        $this->assertEquals(0.0, $endOnlyRow->getAttribute('pdf_start_difference_quantity'));
         $this->assertEquals(2.0, $endOnlyRow->getAttribute('pdf_end_difference_quantity'));
-        $this->assertEquals(2.0, $startOnlyRow->getAttribute('pdf_start_difference_quantity'));
-        $this->assertEquals(0.0, $startOnlyRow->getAttribute('pdf_end_difference_quantity'));
+        $this->assertNull($endOnlyRow->getAttribute('pdf_start_difference_quantity'));
     }
 
     public function test_diff_list_can_be_generated_for_draft_with_no_difference_rows(): void
@@ -96,6 +107,77 @@ class InventoryDiffListPdfServiceTest extends TestCase
         $pdf = (new InventoryDiffListPdfService)->generate($inventoryCount);
 
         $this->assertStringStartsWith('%PDF', $pdf);
+    }
+
+    public function test_diff_pdf_omits_money_columns_and_prints_jan_code(): void
+    {
+        if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')) {
+            $this->markTestSkipped('wms_inventory_count_items.ending_system_quantity is not available.');
+        }
+
+        $pdftotext = trim((string) shell_exec('command -v pdftotext 2>/dev/null'));
+
+        if ($pdftotext === '') {
+            $this->markTestSkipped('pdftotext is not available.');
+        }
+
+        $itemId = random_int(900000000, 999999999);
+        $janCode = '4999999999999';
+        $productCode = 'PDFJAN'.Str::upper(Str::random(10));
+
+        $quantityInformationId = DB::connection('sakemaru')->table('item_quantity_information')->insertGetId([
+            'item_id' => $itemId,
+            'product_code' => $productCode,
+            'quantity_code' => '00',
+            'dm_code' => '0',
+            'own_code' => $janCode,
+            'quantity' => 1,
+            'creator_id' => 1,
+            'last_updater_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::connection('sakemaru')->table('item_search_information')->insert([
+            'client_id' => 1,
+            'item_id' => $itemId,
+            'code_type' => 'OTHER',
+            'quantity_type' => 'PIECE',
+            'item_quantity_information_id' => $quantityInformationId,
+            'search_string' => $janCode,
+            'creator_id' => 1,
+            'last_updater_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => 'PDFバーコードテスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+        ]);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $itemId,
+            'item_code' => 'PDFJAN001',
+            'item_name' => 'JAN表示差異',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 3,
+            'final_count_quantity' => 5,
+            'cost_price' => 12345,
+        ]);
+
+        $text = $this->extractPdfText((new InventoryDiffListPdfService)->generate($inventoryCount), $pdftotext);
+
+        $this->assertStringContainsString($janCode, $text);
+        $this->assertStringNotContainsString('仕入原価', $text);
+        $this->assertStringNotContainsString('終了差額', $text);
+        $this->assertStringNotContainsString('差異金額', $text);
     }
 
     public function test_uncounted_list_excludes_zero_system_quantity_items(): void
@@ -269,5 +351,30 @@ class InventoryDiffListPdfServiceTest extends TestCase
         $method->setAccessible(true);
 
         return $method->invoke(new InventoryDiffListPdfService, $inventoryCounts, $round);
+    }
+
+    private function extractPdfText(string $pdf, string $pdftotext): string
+    {
+        $pdfPath = tempnam(sys_get_temp_dir(), 'wms-diff-pdf-');
+        $textPath = tempnam(sys_get_temp_dir(), 'wms-diff-text-');
+
+        try {
+            file_put_contents($pdfPath, $pdf);
+
+            $command = escapeshellarg($pdftotext).' -layout '.escapeshellarg($pdfPath).' '.escapeshellarg($textPath);
+            exec($command, $output, $exitCode);
+
+            $this->assertSame(0, $exitCode, implode("\n", $output));
+
+            return (string) file_get_contents($textPath);
+        } finally {
+            if (is_file($pdfPath)) {
+                unlink($pdfPath);
+            }
+
+            if (is_file($textPath)) {
+                unlink($textPath);
+            }
+        }
     }
 }
