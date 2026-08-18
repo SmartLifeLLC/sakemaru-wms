@@ -180,7 +180,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
         $this->assertStringNotContainsString('差異金額', $text);
     }
 
-    public function test_uncounted_list_excludes_zero_system_quantity_items(): void
+    public function test_uncounted_list_includes_zero_system_quantity_and_filters_major_categories(): void
     {
         $inventoryCount = WmsInventoryCount::create([
             'count_no' => 'TST-'.Str::upper(Str::random(12)),
@@ -192,10 +192,15 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'status' => WmsInventoryCount::STATUS_COUNTING,
         ]);
 
+        $targetItemId = $this->createItemInMajorCategory(1001);
+        $zeroSystemQuantityItemId = $this->createItemInMajorCategory(1002);
+        $excludedItemId = $this->createItemInMajorCategory(9999);
+        $countedItemId = $this->createItemInMajorCategory(1003);
+
         $target = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
             'real_stock_id' => random_int(900000000, 999999999),
-            'item_id' => 999251,
+            'item_id' => $targetItemId,
             'item_code' => 'UNC001',
             'item_name' => '未入力で理論あり',
             'system_quantity' => 3,
@@ -205,17 +210,40 @@ class InventoryDiffListPdfServiceTest extends TestCase
         $zeroSystemQuantity = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
             'real_stock_id' => $target->real_stock_id + 1,
-            'item_id' => 999252,
+            'item_id' => $zeroSystemQuantityItemId,
             'item_code' => 'UNC002',
             'item_name' => '未入力で理論ゼロ',
             'system_quantity' => 0,
             'cost_price' => 20,
         ]);
 
+        $excludedCategory = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => $target->real_stock_id + 2,
+            'item_id' => $excludedItemId,
+            'item_code' => 'UNC003',
+            'item_name' => '対象外大分類',
+            'system_quantity' => 5,
+            'cost_price' => 30,
+        ]);
+
+        $counted = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => $target->real_stock_id + 3,
+            'item_id' => $countedItemId,
+            'item_code' => 'UNC004',
+            'item_name' => '対象大分類だが入力済み',
+            'system_quantity' => 0,
+            'first_count_quantity' => 0,
+            'cost_price' => 40,
+        ]);
+
         $items = $this->uncountedListItems($inventoryCount, 1);
 
         $this->assertTrue($items->contains('id', $target->id));
-        $this->assertFalse($items->contains('id', $zeroSystemQuantity->id));
+        $this->assertTrue($items->contains('id', $zeroSystemQuantity->id));
+        $this->assertFalse($items->contains('id', $excludedCategory->id));
+        $this->assertFalse($items->contains('id', $counted->id));
     }
 
     public function test_multi_count_uncounted_list_excludes_items_counted_in_any_selected_count(): void
@@ -244,11 +272,17 @@ class InventoryDiffListPdfServiceTest extends TestCase
         $uncountedStockId = $countedStockId + 1;
         $zeroCountedStockId = $countedStockId + 2;
         $zeroSystemQuantityStockId = $countedStockId + 3;
+        $excludedCategoryStockId = $countedStockId + 4;
+        $countedItemId = $this->createItemInMajorCategory(1001);
+        $uncountedItemId = $this->createItemInMajorCategory(1002);
+        $zeroCountedItemId = $this->createItemInMajorCategory(1003);
+        $zeroSystemQuantityItemId = $this->createItemInMajorCategory(1006);
+        $excludedItemId = $this->createItemInMajorCategory(9999);
 
         WmsInventoryCountItem::create([
             'inventory_count_id' => $firstInventoryCount->id,
             'real_stock_id' => $countedStockId,
-            'item_id' => 999301,
+            'item_id' => $countedItemId,
             'item_code' => 'BULK001',
             'item_name' => '別日で入力済み',
             'system_quantity' => 10,
@@ -258,7 +292,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
         WmsInventoryCountItem::create([
             'inventory_count_id' => $secondInventoryCount->id,
             'real_stock_id' => $countedStockId,
-            'item_id' => 999301,
+            'item_id' => $countedItemId,
             'item_code' => 'BULK001',
             'item_name' => '別日で入力済み',
             'system_quantity' => 10,
@@ -270,7 +304,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
         WmsInventoryCountItem::create([
             'inventory_count_id' => $firstInventoryCount->id,
             'real_stock_id' => $uncountedStockId,
-            'item_id' => 999302,
+            'item_id' => $uncountedItemId,
             'item_code' => 'BULK002',
             'item_name' => '全日未入力',
             'system_quantity' => 5,
@@ -280,7 +314,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
         $latestUncounted = WmsInventoryCountItem::create([
             'inventory_count_id' => $secondInventoryCount->id,
             'real_stock_id' => $uncountedStockId,
-            'item_id' => 999302,
+            'item_id' => $uncountedItemId,
             'item_code' => 'BULK002',
             'item_name' => '全日未入力',
             'location_code1' => 'A',
@@ -292,7 +326,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
         WmsInventoryCountItem::create([
             'inventory_count_id' => $firstInventoryCount->id,
             'real_stock_id' => $zeroCountedStockId,
-            'item_id' => 999303,
+            'item_id' => $zeroCountedItemId,
             'item_code' => 'BULK003',
             'item_name' => 'ゼロ入力済み',
             'system_quantity' => 1,
@@ -301,22 +335,34 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'cost_price' => 30,
         ]);
 
-        WmsInventoryCountItem::create([
+        $zeroSystemQuantity = WmsInventoryCountItem::create([
             'inventory_count_id' => $secondInventoryCount->id,
             'real_stock_id' => $zeroSystemQuantityStockId,
-            'item_id' => 999304,
+            'item_id' => $zeroSystemQuantityItemId,
             'item_code' => 'BULK004',
             'item_name' => '理論ゼロ未入力',
             'system_quantity' => 0,
             'cost_price' => 40,
         ]);
 
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $secondInventoryCount->id,
+            'real_stock_id' => $excludedCategoryStockId,
+            'item_id' => $excludedItemId,
+            'item_code' => 'BULK005',
+            'item_name' => '対象外大分類',
+            'system_quantity' => 10,
+            'cost_price' => 50,
+        ]);
+
         $items = $this->multiCountUncountedItems(collect([$firstInventoryCount, $secondInventoryCount]), 1);
 
-        $this->assertSame([$latestUncounted->id], $items->pluck('id')->all());
+        $this->assertCount(2, $items);
+        $this->assertTrue($items->contains('id', $latestUncounted->id));
+        $this->assertTrue($items->contains('id', $zeroSystemQuantity->id));
         $this->assertFalse($items->contains('real_stock_id', $countedStockId));
         $this->assertFalse($items->contains('real_stock_id', $zeroCountedStockId));
-        $this->assertFalse($items->contains('real_stock_id', $zeroSystemQuantityStockId));
+        $this->assertFalse($items->contains('real_stock_id', $excludedCategoryStockId));
 
         $pdf = (new InventoryDiffListPdfService)->generateUncountedForCounts(collect([$firstInventoryCount, $secondInventoryCount]), 1);
 
@@ -376,5 +422,55 @@ class InventoryDiffListPdfServiceTest extends TestCase
                 unlink($textPath);
             }
         }
+    }
+
+    private function createItemInMajorCategory(int $majorCategoryCode): int
+    {
+        $majorCategoryId = DB::connection('sakemaru')->table('item_categories')->insertGetId([
+            'client_id' => 1,
+            'name' => '未PDF大分類'.$majorCategoryCode,
+            'code' => $majorCategoryCode,
+            'depth' => 1,
+            'creator_id' => 1,
+            'last_updater_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $middleCategoryId = DB::connection('sakemaru')->table('item_categories')->insertGetId([
+            'client_id' => 1,
+            'name' => '未PDF中分類'.$majorCategoryCode,
+            'parent_id' => $majorCategoryId,
+            'code' => random_int(100000, 999999),
+            'depth' => 2,
+            'creator_id' => 1,
+            'last_updater_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return DB::connection('sakemaru')->table('items')->insertGetId([
+            'name_main' => '未PDF対象商品'.Str::upper(Str::random(8)),
+            'code' => random_int(800000000, 899999999),
+            'type' => 'NOT_ALCOHOL',
+            'manufacturer_id' => 0,
+            'volume' => 1,
+            'capacity_case' => 1,
+            'creator_id' => 1,
+            'packaging' => '1',
+            'nickname' => '未PDF対象',
+            'client_id' => 1,
+            'item_category1_id' => $majorCategoryId,
+            'item_category2_id' => $middleCategoryId,
+            'container_type_id' => 0,
+            'manufacture_type_id' => 0,
+            'storage_type_id' => 0,
+            'measurement_unit_weight' => 0,
+            'measurement_case_weight' => 0,
+            'order_rank' => 'ORDER_MANUAL',
+            'last_updater_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 }
