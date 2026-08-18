@@ -882,7 +882,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->url(fn () => WmsInventoryCountResource::getUrl('logs', ['record' => $record])),
 
             Action::make('addSingleItem')
-                ->label('追加')
+                ->label('商品追加')
                 ->icon('heroicon-o-plus-circle')
                 ->color('success')
                 ->visible(fn () => ! in_array($record->status, [

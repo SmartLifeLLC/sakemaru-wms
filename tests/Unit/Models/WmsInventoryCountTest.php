@@ -53,4 +53,9 @@ class WmsInventoryCountTest extends TestCase
         $this->assertStringContainsString('`current_stock_saved_at` is not null', strtolower($savedQuery->toSql()));
         $this->assertSame([WmsInventoryCount::STATUS_COUNTING], $savedQuery->getBindings());
     }
+
+    public function test_status_filter_has_no_default_values(): void
+    {
+        $this->assertSame([], WmsInventoryCount::defaultStatusFilterValues());
+    }
 }

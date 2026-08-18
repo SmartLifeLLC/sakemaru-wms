@@ -175,9 +175,7 @@ class WmsInventoryCount extends WmsModel
 
     public static function defaultStatusFilterValues(): array
     {
-        return [
-            self::STATUS_DRAFT,
-        ];
+        return [];
     }
 
     public function getDisplayStatusAttribute(): string
