@@ -180,7 +180,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
         $this->assertStringNotContainsString('差異金額', $text);
     }
 
-    public function test_uncounted_list_includes_zero_system_quantity_and_filters_major_categories(): void
+    public function test_uncounted_list_excludes_zero_system_quantity_without_difference_and_filters_major_categories(): void
     {
         $inventoryCount = WmsInventoryCount::create([
             'count_no' => 'TST-'.Str::upper(Str::random(12)),
@@ -193,7 +193,8 @@ class InventoryDiffListPdfServiceTest extends TestCase
         ]);
 
         $targetItemId = $this->createItemInMajorCategory(1001);
-        $zeroSystemQuantityItemId = $this->createItemInMajorCategory(1002);
+        $zeroSystemQuantityWithoutDifferenceItemId = $this->createItemInMajorCategory(1002);
+        $zeroSystemQuantityWithDifferenceItemId = $this->createItemInMajorCategory(1006);
         $excludedItemId = $this->createItemInMajorCategory(9999);
         $countedItemId = $this->createItemInMajorCategory(1003);
 
@@ -207,41 +208,53 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'cost_price' => 10,
         ]);
 
-        $zeroSystemQuantity = WmsInventoryCountItem::create([
+        $zeroSystemQuantityWithoutDifference = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
             'real_stock_id' => $target->real_stock_id + 1,
-            'item_id' => $zeroSystemQuantityItemId,
+            'item_id' => $zeroSystemQuantityWithoutDifferenceItemId,
             'item_code' => 'UNC002',
-            'item_name' => '未入力で理論ゼロ',
+            'item_name' => '未入力で理論ゼロ差異なし',
             'system_quantity' => 0,
             'cost_price' => 20,
         ]);
 
-        $excludedCategory = WmsInventoryCountItem::create([
+        $zeroSystemQuantityWithDifference = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
             'real_stock_id' => $target->real_stock_id + 2,
-            'item_id' => $excludedItemId,
+            'item_id' => $zeroSystemQuantityWithDifferenceItemId,
             'item_code' => 'UNC003',
+            'item_name' => '未入力で理論ゼロ差異あり',
+            'system_quantity' => 0,
+            'difference_quantity' => 1,
+            'cost_price' => 30,
+        ]);
+
+        $excludedCategory = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => $target->real_stock_id + 3,
+            'item_id' => $excludedItemId,
+            'item_code' => 'UNC004',
             'item_name' => '対象外大分類',
             'system_quantity' => 5,
-            'cost_price' => 30,
+            'cost_price' => 40,
         ]);
 
         $counted = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
-            'real_stock_id' => $target->real_stock_id + 3,
+            'real_stock_id' => $target->real_stock_id + 4,
             'item_id' => $countedItemId,
-            'item_code' => 'UNC004',
+            'item_code' => 'UNC005',
             'item_name' => '対象大分類だが入力済み',
             'system_quantity' => 0,
             'first_count_quantity' => 0,
-            'cost_price' => 40,
+            'cost_price' => 50,
         ]);
 
         $items = $this->uncountedListItems($inventoryCount, 1);
 
         $this->assertTrue($items->contains('id', $target->id));
-        $this->assertTrue($items->contains('id', $zeroSystemQuantity->id));
+        $this->assertTrue($items->contains('id', $zeroSystemQuantityWithDifference->id));
+        $this->assertFalse($items->contains('id', $zeroSystemQuantityWithoutDifference->id));
         $this->assertFalse($items->contains('id', $excludedCategory->id));
         $this->assertFalse($items->contains('id', $counted->id));
     }
@@ -271,12 +284,14 @@ class InventoryDiffListPdfServiceTest extends TestCase
         $countedStockId = random_int(900000000, 999999999);
         $uncountedStockId = $countedStockId + 1;
         $zeroCountedStockId = $countedStockId + 2;
-        $zeroSystemQuantityStockId = $countedStockId + 3;
-        $excludedCategoryStockId = $countedStockId + 4;
+        $zeroSystemQuantityWithoutDifferenceStockId = $countedStockId + 3;
+        $zeroSystemQuantityWithDifferenceStockId = $countedStockId + 4;
+        $excludedCategoryStockId = $countedStockId + 5;
         $countedItemId = $this->createItemInMajorCategory(1001);
         $uncountedItemId = $this->createItemInMajorCategory(1002);
         $zeroCountedItemId = $this->createItemInMajorCategory(1003);
-        $zeroSystemQuantityItemId = $this->createItemInMajorCategory(1006);
+        $zeroSystemQuantityWithoutDifferenceItemId = $this->createItemInMajorCategory(1006);
+        $zeroSystemQuantityWithDifferenceItemId = $this->createItemInMajorCategory(1001);
         $excludedItemId = $this->createItemInMajorCategory(9999);
 
         WmsInventoryCountItem::create([
@@ -335,33 +350,45 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'cost_price' => 30,
         ]);
 
-        $zeroSystemQuantity = WmsInventoryCountItem::create([
+        $zeroSystemQuantityWithoutDifference = WmsInventoryCountItem::create([
             'inventory_count_id' => $secondInventoryCount->id,
-            'real_stock_id' => $zeroSystemQuantityStockId,
-            'item_id' => $zeroSystemQuantityItemId,
+            'real_stock_id' => $zeroSystemQuantityWithoutDifferenceStockId,
+            'item_id' => $zeroSystemQuantityWithoutDifferenceItemId,
             'item_code' => 'BULK004',
-            'item_name' => '理論ゼロ未入力',
+            'item_name' => '理論ゼロ差異なし未入力',
             'system_quantity' => 0,
             'cost_price' => 40,
+        ]);
+
+        $zeroSystemQuantityWithDifference = WmsInventoryCountItem::create([
+            'inventory_count_id' => $secondInventoryCount->id,
+            'real_stock_id' => $zeroSystemQuantityWithDifferenceStockId,
+            'item_id' => $zeroSystemQuantityWithDifferenceItemId,
+            'item_code' => 'BULK005',
+            'item_name' => '理論ゼロ差異あり未入力',
+            'system_quantity' => 0,
+            'difference_quantity' => 2,
+            'cost_price' => 50,
         ]);
 
         WmsInventoryCountItem::create([
             'inventory_count_id' => $secondInventoryCount->id,
             'real_stock_id' => $excludedCategoryStockId,
             'item_id' => $excludedItemId,
-            'item_code' => 'BULK005',
+            'item_code' => 'BULK006',
             'item_name' => '対象外大分類',
             'system_quantity' => 10,
-            'cost_price' => 50,
+            'cost_price' => 60,
         ]);
 
         $items = $this->multiCountUncountedItems(collect([$firstInventoryCount, $secondInventoryCount]), 1);
 
         $this->assertCount(2, $items);
         $this->assertTrue($items->contains('id', $latestUncounted->id));
-        $this->assertTrue($items->contains('id', $zeroSystemQuantity->id));
+        $this->assertTrue($items->contains('id', $zeroSystemQuantityWithDifference->id));
         $this->assertFalse($items->contains('real_stock_id', $countedStockId));
         $this->assertFalse($items->contains('real_stock_id', $zeroCountedStockId));
+        $this->assertFalse($items->contains('real_stock_id', $zeroSystemQuantityWithoutDifference->real_stock_id));
         $this->assertFalse($items->contains('real_stock_id', $excludedCategoryStockId));
 
         $pdf = (new InventoryDiffListPdfService)->generateUncountedForCounts(collect([$firstInventoryCount, $secondInventoryCount]), 1);
