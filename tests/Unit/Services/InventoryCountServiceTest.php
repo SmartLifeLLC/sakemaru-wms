@@ -4,6 +4,7 @@ namespace Tests\Unit\Services;
 
 use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
+use App\Services\InventoryCount\InventoryCountLedgerBalanceService;
 use App\Services\InventoryCount\InventoryCountService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
@@ -16,6 +17,22 @@ class InventoryCountServiceTest extends TestCase
     use DatabaseTransactions;
 
     protected $connectionsToTransact = ['sakemaru'];
+
+    public function test_ledger_quantity_scaling_uses_fixed_precision(): void
+    {
+        $service = new InventoryCountLedgerBalanceService;
+        $toScaled = new \ReflectionMethod($service, 'quantityToScaled');
+        $fromScaled = new \ReflectionMethod($service, 'scaledToQuantity');
+
+        $total = $toScaled->invoke($service, '0.1')
+            + $toScaled->invoke($service, '0.2')
+            + $toScaled->invoke($service, '1.2344')
+            - $toScaled->invoke($service, '1.2344');
+
+        $this->assertSame(300, $total);
+        $this->assertSame(-1235, $toScaled->invoke($service, '-1.2345'));
+        $this->assertSame('0.300', number_format($fromScaled->invoke($service, $total), 3, '.', ''));
+    }
 
     public function test_save_current_stock_only_marks_status_and_does_not_update_count_items(): void
     {
@@ -255,6 +272,156 @@ class InventoryCountServiceTest extends TestCase
         $this->assertSame('6.00', $item->difference_amount);
     }
 
+    public function test_refresh_ending_system_quantities_from_ledger_updates_ending_only_and_adds_missing_items(): void
+    {
+        foreach ([
+            'wms_inventory_counts' => 'ending_stock_taken_at',
+            'wms_inventory_count_items' => 'ending_system_quantity',
+        ] as $table => $column) {
+            if (! Schema::connection('sakemaru')->hasColumn($table, $column)) {
+                $this->markTestSkipped("{$table}.{$column} is not available.");
+            }
+        }
+
+        foreach ([
+            'wms_inventory_count_theory_update_runs',
+            'wms_inventory_count_theory_update_rows',
+        ] as $table) {
+            if (! Schema::connection('sakemaru')->hasTable($table)) {
+                $this->markTestSkipped("{$table} is not available.");
+            }
+        }
+
+        if (! Schema::connection('sakemaru')->hasTable('stats_item_stock_opening_balances')) {
+            $this->markTestSkipped('stats_item_stock_opening_balances table is not available.');
+        }
+
+        $items = $this->ledgerTestItems();
+        if ($items->count() < 2) {
+            $this->markTestSkipped('items table does not have enough ledger-testable rows.');
+        }
+
+        $clientId = (int) $items[0]->client_id;
+        $warehouseId = 990126;
+        $now = now();
+
+        DB::connection('sakemaru')->table('stats_item_stock_opening_balances')->insert([
+            [
+                'client_id' => $clientId,
+                'opening_date' => InventoryCountLedgerBalanceService::OPENING_DATE,
+                'source_database' => 'phpunit',
+                'warehouse_id' => $warehouseId,
+                'warehouse_code' => (string) $warehouseId,
+                'warehouse_name' => '棚卸理論在庫テスト倉庫',
+                'item_id' => $items[0]->id,
+                'item_code' => (string) $items[0]->code,
+                'item_name' => (string) $items[0]->name,
+                'stock_allocation_id' => 0,
+                'opening_quantity' => 17,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+            [
+                'client_id' => $clientId,
+                'opening_date' => InventoryCountLedgerBalanceService::OPENING_DATE,
+                'source_database' => 'phpunit',
+                'warehouse_id' => $warehouseId,
+                'warehouse_code' => (string) $warehouseId,
+                'warehouse_name' => '棚卸理論在庫テスト倉庫',
+                'item_id' => $items[1]->id,
+                'item_code' => (string) $items[1]->code,
+                'item_name' => (string) $items[1]->name,
+                'stock_allocation_id' => 0,
+                'opening_quantity' => 8,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+        ]);
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => $clientId,
+            'warehouse_id' => $warehouseId,
+            'warehouse_code' => (string) $warehouseId,
+            'warehouse_name' => '棚卸理論在庫テスト倉庫',
+            'count_date' => InventoryCountLedgerBalanceService::OPENING_DATE,
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+        ]);
+
+        $existingItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $items[0]->id,
+            'item_code' => (string) $items[0]->code,
+            'item_name' => (string) $items[0]->name,
+            'system_quantity' => 5,
+            'ending_system_quantity' => 2,
+            'final_count_quantity' => 6,
+            'difference_quantity' => 1,
+            'cost_price' => 10,
+            'difference_amount' => 10,
+        ]);
+
+        $result = (new InventoryCountService)->refreshEndingSystemQuantitiesFromLedger(
+            $inventoryCount,
+            InventoryCountLedgerBalanceService::OPENING_DATE,
+        );
+
+        $inventoryCount->refresh();
+        $existingItem->refresh();
+        $insertedItem = WmsInventoryCountItem::query()
+            ->where('inventory_count_id', $inventoryCount->id)
+            ->where('item_id', $items[1]->id)
+            ->first();
+
+        $this->assertSame(1, $result['updated_items']);
+        $this->assertSame(1, $result['inserted_items']);
+        $this->assertIsInt($result['backup_run_id']);
+        $this->assertSame(1, $result['backed_up_existing_rows']);
+        $this->assertSame(1, $result['backed_up_inserted_rows']);
+        $this->assertNotNull($inventoryCount->ending_stock_taken_at);
+        $this->assertSame(5, $existingItem->system_quantity);
+        $this->assertSame(17, $existingItem->ending_system_quantity);
+        $this->assertSame(6, $existingItem->final_count_quantity);
+        $this->assertSame(1, $existingItem->difference_quantity);
+
+        $this->assertNotNull($insertedItem);
+        $this->assertSame(0, $insertedItem->system_quantity);
+        $this->assertSame(8, $insertedItem->ending_system_quantity);
+
+        $run = DB::connection('sakemaru')
+            ->table('wms_inventory_count_theory_update_runs')
+            ->whereKey($result['backup_run_id'])
+            ->first();
+
+        $this->assertNotNull($run);
+        $this->assertSame('finished', $run->status);
+        $this->assertSame($inventoryCount->id, (int) $run->inventory_count_id);
+        $this->assertSame(1, (int) $run->updated_items);
+        $this->assertSame(1, (int) $run->inserted_items);
+
+        $existingBackup = DB::connection('sakemaru')
+            ->table('wms_inventory_count_theory_update_rows')
+            ->where('run_id', $result['backup_run_id'])
+            ->where('inventory_count_item_id', $existingItem->id)
+            ->first();
+
+        $this->assertNotNull($existingBackup);
+        $this->assertSame(1, (int) $existingBackup->was_existing);
+        $this->assertSame('2.000', (string) $existingBackup->old_ending_system_quantity);
+        $this->assertSame('17.000', (string) $existingBackup->new_ending_system_quantity);
+
+        $insertedBackup = DB::connection('sakemaru')
+            ->table('wms_inventory_count_theory_update_rows')
+            ->where('run_id', $result['backup_run_id'])
+            ->where('inventory_count_item_id', $insertedItem->id)
+            ->first();
+
+        $this->assertNotNull($insertedBackup);
+        $this->assertSame(0, (int) $insertedBackup->was_existing);
+        $this->assertNull($insertedBackup->old_ending_system_quantity);
+        $this->assertSame('8.000', (string) $insertedBackup->new_ending_system_quantity);
+    }
+
     public function test_post_count_movement_calculation_only_updates_counted_rows(): void
     {
         foreach ([
@@ -394,5 +561,45 @@ class InventoryCountServiceTest extends TestCase
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+    }
+
+    private function ledgerTestItems()
+    {
+        $query = DB::connection('sakemaru')
+            ->table('items as i')
+            ->whereNotNull('i.client_id');
+
+        $itemColumns = Schema::connection('sakemaru')->getColumnListing('items');
+
+        if (in_array('is_active', $itemColumns, true)) {
+            $query->where('i.is_active', true);
+        }
+
+        if (in_array('is_managed_stock', $itemColumns, true)) {
+            $query->where('i.is_managed_stock', true);
+        }
+
+        if (in_array('type', $itemColumns, true)) {
+            $query->whereRaw("COALESCE(i.type, '') <> 'CONTAINER'");
+        }
+
+        if (Schema::connection('sakemaru')->hasTable('item_sets')) {
+            $query
+                ->leftJoin('item_sets as item_set', function ($join) {
+                    $join->on('item_set.id', '=', 'i.item_set_id')
+                        ->where('item_set.is_active', true);
+                })
+                ->where(function ($query) {
+                    $query
+                        ->whereNull('item_set.id')
+                        ->orWhere('item_set.set_type', '!=', 'OWNED');
+                });
+        }
+
+        return $query
+            ->select(['i.id', 'i.code', 'i.name', 'i.client_id'])
+            ->orderBy('i.id')
+            ->limit(2)
+            ->get();
     }
 }
