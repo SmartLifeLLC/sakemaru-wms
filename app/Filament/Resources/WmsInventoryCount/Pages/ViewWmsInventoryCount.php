@@ -7,6 +7,7 @@ use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
 use App\Models\WmsInventoryCountItemLog;
 use App\Services\InventoryCount\InventoryCountService;
+use App\Services\InventoryCount\InventoryDifferenceWorkbookService;
 use App\Services\InventoryCount\InventoryDiffListPdfService;
 use App\Services\InventoryCount\InventoryInstructionPdfService;
 use App\Services\InventoryCount\InventoryInstructionSheetPdfService;
@@ -1428,6 +1429,22 @@ class ViewWmsInventoryCount extends Page implements HasForms
                         fn () => print ($pdfContent),
                         $filename,
                         ['Content-Type' => 'application/pdf']
+                    );
+                }),
+
+            Action::make('downloadDifferenceWorkbook')
+                ->label('差異データ')
+                ->icon('heroicon-o-table-cells')
+                ->color('gray')
+                ->visible(fn () => $record->status !== WmsInventoryCount::STATUS_DRAFT)
+                ->action(function () use ($record) {
+                    $xlsxContent = (new InventoryDifferenceWorkbookService)->generate($record);
+                    $filename = '棚卸差異データ_'.($record->count_no ?? 'unknown').'.xlsx';
+
+                    return response()->streamDownload(
+                        fn () => print ($xlsxContent),
+                        $filename,
+                        ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
                     );
                 }),
 

@@ -55,6 +55,29 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertStringContainsString("\$filename = '棚卸未カウント_'.\$this->activeRoundLabel().'_'.", $page);
     }
 
+    public function test_difference_workbook_action_is_placed_after_uncounted_pdf(): void
+    {
+        $page = file_get_contents(app_path('Filament/Resources/WmsInventoryCount/Pages/ViewWmsInventoryCount.php'));
+
+        $uncountedPosition = strpos($page, "Action::make('downloadUncountedListPdf')");
+        $workbookPosition = strpos($page, "Action::make('downloadDifferenceWorkbook')");
+
+        $this->assertNotFalse($uncountedPosition);
+        $this->assertNotFalse($workbookPosition);
+        $this->assertGreaterThan($uncountedPosition, $workbookPosition);
+        $this->assertStringContainsString('->label(\'差異データ\')', $page);
+        $this->assertStringContainsString('InventoryDifferenceWorkbookService)->generate($record)', $page);
+        $this->assertStringContainsString('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', $page);
+
+        $blade = file_get_contents(resource_path('views/filament/resources/wms-inventory-count/pages/view-wms-inventory-count.blade.php'));
+        $bladeUncountedPosition = strpos($blade, "\$this->getAction('downloadUncountedListPdf')");
+        $bladeWorkbookPosition = strpos($blade, "\$this->getAction('downloadDifferenceWorkbook')");
+
+        $this->assertNotFalse($bladeUncountedPosition);
+        $this->assertNotFalse($bladeWorkbookPosition);
+        $this->assertGreaterThan($bladeUncountedPosition, $bladeWorkbookPosition);
+    }
+
     public function test_inline_save_accepts_negative_count_quantity(): void
     {
         $inventoryCount = WmsInventoryCount::create([
