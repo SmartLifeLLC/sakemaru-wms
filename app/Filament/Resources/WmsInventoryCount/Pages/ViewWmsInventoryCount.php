@@ -1195,8 +1195,8 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->icon('heroicon-o-document-arrow-down')
                 ->color('gray')
                 ->action(function () use ($record) {
-                    $pdfContent = (new InventoryDiffListPdfService)->generate($record);
-                    $filename = '棚卸差分確認_'.($record->count_no ?? 'unknown').'.pdf';
+                    $pdfContent = (new InventoryDiffListPdfService)->generate($record, $this->activeCountRound);
+                    $filename = '棚卸差分確認_'.$this->activeRoundLabel().'_'.($record->count_no ?? 'unknown').'.pdf';
 
                     return response()->streamDownload(
                         fn () => print ($pdfContent),

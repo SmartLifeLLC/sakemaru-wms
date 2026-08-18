@@ -78,12 +78,15 @@ class InventoryDiffListPdfService
 
     private string $emptyMessage = '差異データなし';
 
+    private ?int $diffRound = null;
+
     private ?int $uncountedRound = null;
 
-    public function generate(WmsInventoryCount $inventoryCount): string
+    public function generate(WmsInventoryCount $inventoryCount, ?int $round = null): string
     {
-        $this->pdfTitle = '棚卸差異リスト';
-        $this->emptyMessage = '差異データなし';
+        $this->diffRound = $round === null ? null : min(max($round, 1), 3);
+        $this->pdfTitle = $this->diffRound === null ? '棚卸差異リスト' : "{$this->diffRound}回目棚卸差異リスト";
+        $this->emptyMessage = $this->diffRound === null ? '差異データなし' : "{$this->diffRound}回目差異データなし";
         $this->uncountedRound = null;
 
         return $this->generatePdf($inventoryCount);
@@ -91,9 +94,10 @@ class InventoryDiffListPdfService
 
     public function generateUncounted(WmsInventoryCount $inventoryCount, int $round): string
     {
-        $this->pdfTitle = "{$round}回目未カウントリスト";
-        $this->emptyMessage = "{$round}回目未カウントデータなし";
+        $this->diffRound = null;
         $this->uncountedRound = min(max($round, 1), 3);
+        $this->pdfTitle = "{$this->uncountedRound}回目未カウントリスト";
+        $this->emptyMessage = "{$this->uncountedRound}回目未カウントデータなし";
 
         return $this->generatePdf($inventoryCount);
     }
@@ -108,6 +112,7 @@ class InventoryDiffListPdfService
             ->values();
         $round = min(max($round, 1), 3);
 
+        $this->diffRound = null;
         $this->pdfTitle = "{$round}回目未カウントリスト";
         $this->emptyMessage = "{$round}回目未カウントデータなし";
         $this->uncountedRound = $round;
@@ -128,7 +133,7 @@ class InventoryDiffListPdfService
 
     /**
      * @param  Collection<int, WmsInventoryCountItem>  $items
-     * @param  array{count_date: string, warehouse_code: string, warehouse_name: string}  $header
+     * @param  array{count_date: string, warehouse_id: mixed, warehouse_code: string, warehouse_name: string}  $header
      */
     private function generatePdfForItems(Collection $items, array $header): string
     {
@@ -137,45 +142,29 @@ class InventoryDiffListPdfService
             ? []
             : (new InventoryJanCodeResolver)->forItems($items);
 
-        $currentShelfPrefix = null;
-        $currentCategoryKey = null;
+        $currentPageGroupKey = null;
         $isFirstPage = true;
 
         if ($items->isEmpty()) {
-            $this->addNewPage($header, null);
+            $this->addNewPage($header, $this->emptyPageGroupTitle($header));
             $this->pdf->SetFont('kozgopromedium', '', 12);
             $this->pdf->SetXY(self::MARGIN_LEFT, $this->currentY);
             $this->pdf->Cell(self::CONTENT_WIDTH, 10, $this->emptyMessage, 0, 0, 'C');
         } else {
             foreach ($items as $item) {
-                $shelfPrefix = $this->shelfPagePrefix($item);
-                $categoryKey = $this->middleCategoryKey($item);
-                $categoryName = $this->middleCategoryName($item);
+                $pageGroupKey = $this->pageGroupKey($item, $header);
+                $pageGroupTitle = $this->pageGroupTitle($item, $header);
 
-                if ($currentShelfPrefix !== null && $currentShelfPrefix !== $shelfPrefix) {
-                    $this->addNewPage($header, $shelfPrefix);
-                    $currentCategoryKey = null;
-                    $isFirstPage = false;
-                } elseif ($isFirstPage && $currentShelfPrefix === null) {
-                    $this->addNewPage($header, $shelfPrefix);
-                    $currentCategoryKey = null;
+                if ($isFirstPage || $currentPageGroupKey !== $pageGroupKey) {
+                    $this->addNewPage($header, $pageGroupTitle);
+                    $currentPageGroupKey = $pageGroupKey;
                     $isFirstPage = false;
                 }
 
-                $currentShelfPrefix = $shelfPrefix;
-                $categoryChanged = $currentCategoryKey !== $categoryKey;
                 $blockHeight = self::BLOCK_ROW_HEIGHT * $this->itemBlockRowCount();
-                $requiredHeight = $blockHeight + ($categoryChanged ? self::CATEGORY_HEADER_HEIGHT : 0);
 
-                if ($this->currentY + $requiredHeight > self::PAGE_HEIGHT - self::MARGIN_BOTTOM) {
-                    $this->addNewPage($header, $currentShelfPrefix);
-                    $currentCategoryKey = null;
-                    $categoryChanged = true;
-                }
-
-                if ($categoryChanged) {
-                    $this->renderCategoryHeader($categoryName);
-                    $currentCategoryKey = $categoryKey;
+                if ($this->currentY + $blockHeight > self::PAGE_HEIGHT - self::MARGIN_BOTTOM) {
+                    $this->addNewPage($header, $pageGroupTitle);
                 }
 
                 $this->renderItemBlock($item, $janCodes[(int) $item->item_id] ?? '');
@@ -194,19 +183,25 @@ class InventoryDiffListPdfService
     private function queryItems(WmsInventoryCount $inventoryCount): Collection
     {
         $query = WmsInventoryCountItem::where('inventory_count_id', $inventoryCount->id)
-            ->with(['item.item_category2']);
+            ->with(['inventoryCount', 'item.item_category2']);
 
         if ($this->uncountedRound !== null) {
-            $query->whereNull($this->roundColumn($this->uncountedRound));
+            $roundColumn = $this->roundColumn($this->uncountedRound);
+
+            $query->whereNull($roundColumn);
             $this->applyUncountedTargetFilters($query);
         } else {
-            $query
-                ->whereNotNull('ending_system_quantity')
-                ->where(function ($query) {
+            $query->whereNotNull('ending_system_quantity');
+
+            if ($this->diffRound !== null) {
+                $query->whereNotNull($this->roundColumn($this->diffRound));
+            } else {
+                $query->where(function ($query) {
                     $query->whereNotNull('final_count_quantity')
                         ->orWhereNotNull('second_count_quantity')
                         ->orWhereNotNull('first_count_quantity');
                 });
+            }
         }
 
         $items = $query
@@ -337,12 +332,30 @@ class InventoryDiffListPdfService
      */
     private function inventoryItemSortValues(WmsInventoryCountItem $item): array
     {
+        $locationMissing = $item->location_id === null
+            || trim((string) ($item->location_no ?? '')) === ''
+            || trim((string) ($item->location_code1 ?? '')) === '' ? 1 : 0;
+
+        if ($this->isWarehouse91Item($item)) {
+            return [
+                ...$this->warehouseSortValues($item),
+                $locationMissing,
+                $this->shelfPagePrefix($item) ?? '',
+                (string) ($item->location_code1 ?? ''),
+                (string) ($item->location_code2 ?? ''),
+                (string) ($item->location_code3 ?? ''),
+                (string) ($item->item_code ?? ''),
+                (int) $item->inventory_count_id,
+                (int) $item->id,
+            ];
+        }
+
         return [
+            ...$this->warehouseSortValues($item),
+            ...$this->middleCategorySortValues($item),
             $item->location_id === null
                 || trim((string) ($item->location_no ?? '')) === ''
                 || trim((string) ($item->location_code1 ?? '')) === '' ? 1 : 0,
-            $this->shelfPagePrefix($item) ?? '',
-            ...$this->middleCategorySortValues($item),
             (string) ($item->location_code1 ?? ''),
             (string) ($item->location_code2 ?? ''),
             (string) ($item->location_code3 ?? ''),
@@ -376,6 +389,10 @@ class InventoryDiffListPdfService
 
     private function actualQuantity(WmsInventoryCountItem $item): mixed
     {
+        if ($this->diffRound !== null) {
+            return $item->{$this->roundColumn($this->diffRound)};
+        }
+
         return $item->final_count_quantity
             ?? $item->second_count_quantity
             ?? $item->first_count_quantity;
@@ -385,6 +402,7 @@ class InventoryDiffListPdfService
     {
         return [
             'count_date' => $inventoryCount->count_date?->format('Y/m/d') ?? '',
+            'warehouse_id' => $inventoryCount->warehouse_id,
             'warehouse_code' => $inventoryCount->warehouse_code ?? '',
             'warehouse_name' => $inventoryCount->warehouse_name ?? '',
         ];
@@ -392,7 +410,7 @@ class InventoryDiffListPdfService
 
     /**
      * @param  Collection<int, WmsInventoryCount>  $inventoryCounts
-     * @return array{count_date: string, warehouse_code: string, warehouse_name: string}
+     * @return array{count_date: string, warehouse_id: mixed, warehouse_code: string, warehouse_name: string}
      */
     private function buildMultiHeader(Collection $inventoryCounts): array
     {
@@ -414,8 +432,15 @@ class InventoryDiffListPdfService
             ->unique()
             ->values();
 
+        $warehouseIds = $inventoryCounts
+            ->pluck('warehouse_id')
+            ->filter(fn ($value): bool => filled($value))
+            ->unique()
+            ->values();
+
         return [
             'count_date' => $this->formatMultiDateLabel($dates),
+            'warehouse_id' => $warehouseIds->count() === 1 ? $warehouseIds->first() : null,
             'warehouse_code' => $warehouseCodes->count() === 1 ? (string) $warehouseCodes->first() : '複数',
             'warehouse_name' => $warehouseNames->count() === 1 ? (string) $warehouseNames->first() : '複数倉庫',
         ];
@@ -438,6 +463,100 @@ class InventoryDiffListPdfService
         }
 
         return "{$first}-{$last}";
+    }
+
+    /**
+     * @param  array{warehouse_id?: mixed, warehouse_code?: string}  $header
+     */
+    private function emptyPageGroupTitle(array $header): string
+    {
+        return $this->isWarehouse91Header($header) ? '棚番：' : '中分類：';
+    }
+
+    /**
+     * @param  array{warehouse_id?: mixed, warehouse_code?: string}  $header
+     */
+    private function pageGroupKey(WmsInventoryCountItem $item, array $header): string
+    {
+        $warehouseIdentity = $this->itemWarehouseIdentity($item, $header);
+
+        if ($this->isWarehouse91Item($item, $header)) {
+            return $warehouseIdentity.'|shelf:'.($this->shelfPagePrefix($item) ?? '');
+        }
+
+        return $warehouseIdentity.'|middle_category:'.$this->middleCategoryKey($item);
+    }
+
+    /**
+     * @param  array{warehouse_id?: mixed, warehouse_code?: string}  $header
+     */
+    private function pageGroupTitle(WmsInventoryCountItem $item, array $header): string
+    {
+        if ($this->isWarehouse91Item($item, $header)) {
+            return '棚番：'.($this->shelfPagePrefix($item) ?? '');
+        }
+
+        return '中分類：'.$this->middleCategoryName($item);
+    }
+
+    /**
+     * @param  array{warehouse_id?: mixed, warehouse_code?: string}  $header
+     */
+    private function itemWarehouseIdentity(WmsInventoryCountItem $item, array $header = []): string
+    {
+        $inventoryCount = $item->relationLoaded('inventoryCount') ? $item->inventoryCount : null;
+        $warehouseId = $inventoryCount?->warehouse_id ?? ($header['warehouse_id'] ?? null);
+        $warehouseCode = trim((string) ($inventoryCount?->warehouse_code ?? ($header['warehouse_code'] ?? '')));
+
+        if ($warehouseId !== null && $warehouseId !== '') {
+            return 'warehouse_id:'.$warehouseId;
+        }
+
+        if ($warehouseCode !== '') {
+            return 'warehouse_code:'.$warehouseCode;
+        }
+
+        return 'warehouse_unknown';
+    }
+
+    /**
+     * @return array<int, int|string>
+     */
+    private function warehouseSortValues(WmsInventoryCountItem $item): array
+    {
+        $inventoryCount = $item->relationLoaded('inventoryCount') ? $item->inventoryCount : null;
+
+        return [
+            (string) ($inventoryCount?->warehouse_code ?? ''),
+            (int) ($inventoryCount?->warehouse_id ?? 0),
+        ];
+    }
+
+    /**
+     * @param  array{warehouse_id?: mixed, warehouse_code?: string}  $header
+     */
+    private function isWarehouse91Item(WmsInventoryCountItem $item, array $header = []): bool
+    {
+        $inventoryCount = $item->relationLoaded('inventoryCount') ? $item->inventoryCount : null;
+
+        return $this->isWarehouse91(
+            $inventoryCount?->warehouse_id ?? ($header['warehouse_id'] ?? null),
+            $inventoryCount?->warehouse_code ?? ($header['warehouse_code'] ?? ''),
+        );
+    }
+
+    /**
+     * @param  array{warehouse_id?: mixed, warehouse_code?: string}  $header
+     */
+    private function isWarehouse91Header(array $header): bool
+    {
+        return $this->isWarehouse91($header['warehouse_id'] ?? null, $header['warehouse_code'] ?? '');
+    }
+
+    private function isWarehouse91(mixed $warehouseId, mixed $warehouseCode): bool
+    {
+        return trim((string) $warehouseCode) === '91'
+            || ($warehouseId !== null && $warehouseId !== '' && (int) $warehouseId === 91);
     }
 
     private function shelfPagePrefix(WmsInventoryCountItem $item): ?string
@@ -526,25 +645,28 @@ class InventoryDiffListPdfService
         $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_NORMAL);
     }
 
-    private function addNewPage(array $header, ?string $shelfPrefix): void
+    private function addNewPage(array $header, ?string $pageGroupTitle): void
     {
         $this->pdf->AddPage();
         $this->currentY = self::MARGIN_TOP;
-        $this->renderPageHeader($header, $shelfPrefix);
+        $this->renderPageHeader($header, $pageGroupTitle);
         $this->renderColumnHeaders();
     }
 
-    private function renderPageHeader(array $header, ?string $shelfPrefix): void
+    private function renderPageHeader(array $header, ?string $pageGroupTitle): void
     {
         $x = self::MARGIN_LEFT;
+        $pageGroupTitle ??= $this->emptyPageGroupTitle($header);
+        $isMiddleCategoryTitle = str_starts_with($pageGroupTitle, '中分類：');
+        $titleWidth = $isMiddleCategoryTitle ? 100 : 55;
 
         // Row 1: title + 棚卸日 + print datetime
-        $this->pdf->SetFont('kozgopromedium', 'B', self::FONT_SIZE_TITLE);
+        $this->pdf->SetFont('kozgopromedium', 'B', $isMiddleCategoryTitle ? 12 : self::FONT_SIZE_TITLE);
         $this->pdf->SetXY($x, $this->currentY);
-        $this->pdf->Cell(55, 10, '棚番：'.($shelfPrefix ?? ''), 0, 0, 'L');
+        $this->pdf->Cell($titleWidth, 10, $this->truncateText($pageGroupTitle, $titleWidth - 2), 0, 0, 'L');
 
         $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_HEADER);
-        $this->pdf->SetXY($x + 57, $this->currentY + 2);
+        $this->pdf->SetXY($x + ($isMiddleCategoryTitle ? 104 : 57), $this->currentY + 2);
         $this->pdf->Cell(40, 5, '棚卸日 '.$header['count_date'], 0, 0, 'L');
 
         $printTimestamp = now()->format('Y/m/d H:i:s');
@@ -578,7 +700,7 @@ class InventoryDiffListPdfService
 
         $row1X = $x + self::COL_W_JAN;
         $this->pdf->SetXY($row1X, $y);
-        $this->pdf->Cell(self::COL_W_ITEM, $rowH, 'アイテムコード', 0, 0, 'L');
+        $this->pdf->Cell(self::COL_W_ITEM, $rowH, 'アイテムコード / アイテム名称', 0, 0, 'L');
 
         $row1X += self::COL_W_ITEM;
         $this->pdf->SetXY($row1X, $y);
@@ -665,10 +787,29 @@ class InventoryDiffListPdfService
         $this->renderBarcodeCell($x, $y, self::COL_W_JAN, $janCode);
         $contentX = $x + self::COL_W_JAN;
 
-        // === Row 1: item_code | location | lot | expiration ===
+        [$itemNameLine1, $itemNameLine2] = $this->splitItemNameForItemCell(
+            (string) ($countItem->item_code ?? ''),
+            (string) ($countItem->item_name ?? ''),
+        );
+
+        // === Row 1: item_code + item_name | location | lot | expiration ===
         $this->pdf->SetFont('kozgopromedium', 'B', self::FONT_SIZE_NORMAL);
         $this->pdf->SetXY($contentX, $y);
-        $this->pdf->Cell(self::COL_W_ITEM, $rowH, $countItem->item_code ?? '', 0, 0, 'L');
+        $itemCode = (string) ($countItem->item_code ?? '');
+        $itemCodeWidth = $itemCode === '' ? 0 : $this->pdf->GetStringWidth($itemCode);
+
+        if ($itemCode !== '') {
+            $this->pdf->Cell($itemCodeWidth, $rowH, $itemCode, 0, 0, 'L');
+        }
+
+        $itemNameX = $contentX + ($itemCode === '' ? 0 : $itemCodeWidth + 2);
+        $itemNameWidth = self::COL_W_ITEM - ($itemNameX - $contentX) - 2;
+
+        if ($itemNameLine1 !== '' && $itemNameWidth > 0) {
+            $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_NORMAL);
+            $this->pdf->SetXY($itemNameX, $y);
+            $this->pdf->Cell($itemNameWidth, $rowH, $itemNameLine1, 0, 0, 'L');
+        }
 
         $row1X = $contentX + self::COL_W_ITEM;
         $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_NORMAL);
@@ -683,12 +824,12 @@ class InventoryDiffListPdfService
         $this->pdf->SetXY($row1X, $y);
         $this->pdf->Cell(self::COL_W_EXPIRATION, $rowH, $countItem->expiration_date?->format('Y/m/d') ?? '', 0, 0, 'C');
 
-        // === Row 2: item_name | input_count | system_qty | actual_qty | diff_qty ===
+        // === Row 2: item_name continued | input_count | system_qty | actual_qty | diff_qty ===
         $y2 = $y + $rowH;
 
         $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_NORMAL);
         $this->pdf->SetXY($contentX, $y2);
-        $this->pdf->Cell(self::COL_W_ITEM, $rowH, $this->truncateText($countItem->item_name ?? '', self::COL_W_ITEM - 2), 0, 0, 'L');
+        $this->pdf->Cell(self::COL_W_ITEM, $rowH, $itemNameLine2, 0, 0, 'L');
 
         $row2X = $contentX + self::COL_W_ITEM;
         $this->pdf->SetXY($row2X, $y2);
@@ -791,6 +932,62 @@ class InventoryDiffListPdfService
         }
 
         return $this->formatQuantity($value);
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function splitItemNameForItemCell(string $itemCode, string $itemName): array
+    {
+        $itemName = trim($itemName);
+
+        if ($itemName === '') {
+            return ['', ''];
+        }
+
+        $this->pdf->SetFont('kozgopromedium', 'B', self::FONT_SIZE_NORMAL);
+        $itemCodeWidth = $itemCode === '' ? 0 : $this->pdf->GetStringWidth($itemCode) + 2;
+
+        $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_NORMAL);
+        [$firstLine, $remainingText] = $this->takeTextForWidth(
+            $itemName,
+            max(0, self::COL_W_ITEM - $itemCodeWidth - 2),
+        );
+
+        return [
+            $firstLine,
+            $this->truncateText($remainingText, self::COL_W_ITEM - 2),
+        ];
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function takeTextForWidth(string $text, float $maxWidthMm): array
+    {
+        if ($text === '' || $maxWidthMm <= 0) {
+            return ['', $text];
+        }
+
+        if ($this->pdf->GetStringWidth($text) <= $maxWidthMm) {
+            return [$text, ''];
+        }
+
+        $chars = mb_str_split($text);
+        $result = '';
+        $width = 0;
+
+        foreach ($chars as $index => $char) {
+            $charWidth = $this->pdf->GetStringWidth($char);
+            if ($width + $charWidth > $maxWidthMm) {
+                return [$result, implode('', array_slice($chars, $index))];
+            }
+
+            $result .= $char;
+            $width += $charWidth;
+        }
+
+        return [$result, ''];
     }
 
     private function truncateText(string $text, float $maxWidthMm): string
