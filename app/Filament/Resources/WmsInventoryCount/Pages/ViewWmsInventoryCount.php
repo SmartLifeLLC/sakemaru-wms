@@ -171,8 +171,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function sortBy(string $column): void
     {
-        $allowed = ['item_code', 'item_name', 'system_quantity', 'ending_system_quantity', 'difference_quantity'];
-        if (! in_array($column, $allowed, true)) {
+        if (! in_array($column, $this->sortableColumns(), true)) {
             return;
         }
 
@@ -309,25 +308,42 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     private function applyTabFilter(\Illuminate\Database\Eloquent\Builder $query, string $tab): void
     {
+        $roundColumn = $this->roundColumn($this->activeCountRound);
+
         match ($tab) {
-            'diff' => $query->whereNotNull('difference_quantity')->where('difference_quantity', '!=', 0),
+            'diff' => $query
+                ->whereNotNull($roundColumn)
+                ->whereNotNull('ending_system_quantity')
+                ->whereColumn($roundColumn, '!=', 'ending_system_quantity'),
             'matched' => $query
-                ->whereNotNull($this->roundColumn($this->activeCountRound))
-                ->whereColumn($this->roundColumn($this->activeCountRound), 'system_quantity'),
-            'uncounted' => $query->whereNull($this->roundColumn($this->activeCountRound)),
+                ->whereNotNull($roundColumn)
+                ->whereNotNull('ending_system_quantity')
+                ->whereColumn($roundColumn, 'ending_system_quantity'),
+            'uncounted' => $query->whereNull($roundColumn),
             default => null,
         };
     }
 
     private function applySort(\Illuminate\Database\Eloquent\Builder $query): void
     {
-        if ($this->sortColumn === 'ending_system_quantity'
+        if (! in_array($this->sortColumn, $this->sortableColumns(), true)) {
+            $this->sortColumn = '';
+        }
+
+        if (in_array($this->sortColumn, ['ending_system_quantity', 'ending_difference_quantity'], true)
             && ! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')
         ) {
             $this->sortColumn = '';
         }
 
-        if ($this->sortColumn !== '') {
+        if ($this->sortColumn === 'ending_difference_quantity') {
+            $roundColumn = $this->roundColumn($this->activeCountRound);
+            $direction = $this->sortDirection === 'desc' ? 'desc' : 'asc';
+
+            $query
+                ->orderByRaw("CASE WHEN {$roundColumn} IS NULL OR ending_system_quantity IS NULL THEN 1 ELSE 0 END")
+                ->orderByRaw("({$roundColumn} - ending_system_quantity) {$direction}");
+        } elseif ($this->sortColumn !== '') {
             $query->orderBy($this->sortColumn, $this->sortDirection);
         } else {
             $query->orderByRaw("
@@ -344,6 +360,11 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->orderBy('location_code3');
         }
         $query->orderBy('id');
+    }
+
+    private function sortableColumns(): array
+    {
+        return ['item_code', 'item_name', 'system_quantity', 'ending_system_quantity', 'ending_difference_quantity'];
     }
 
     private function applyTextFilter(\Illuminate\Database\Eloquent\Builder $query, string $value, array $columns): void

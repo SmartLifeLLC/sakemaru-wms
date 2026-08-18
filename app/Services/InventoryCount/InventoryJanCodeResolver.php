@@ -3,7 +3,7 @@
 namespace App\Services\InventoryCount;
 
 use App\Models\WmsInventoryCountItem;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class InventoryJanCodeResolver
