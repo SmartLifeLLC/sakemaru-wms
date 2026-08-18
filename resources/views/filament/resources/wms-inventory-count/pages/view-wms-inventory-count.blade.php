@@ -402,12 +402,6 @@
                                     </button>
                                 </th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">
-                                    <button type="button" wire:click="sortBy('system_quantity')" class="inline-flex items-center gap-1 font-bold hover:text-sky-700">
-                                        <span>理論在庫(開始)</span>
-                                        <span class="text-[10px]">{{ $this->sortIndicator('system_quantity') }}</span>
-                                    </button>
-                                </th>
-                                <th class="border border-slate-300 px-2 py-2 text-right">
                                     <button type="button" wire:click="sortBy('ending_system_quantity')" class="inline-flex items-center gap-1 font-bold hover:text-sky-700">
                                         <span>理論在庫(終了)</span>
                                         <span class="text-[10px]">{{ $this->sortIndicator('ending_system_quantity') }}</span>
@@ -450,7 +444,7 @@
                                         itemName: @js($row->item_name ?: ''),
                                         first: @js($initFirst), second: @js($initSecond), final_: @js($initFinal),
                                         origFirst: @js($initFirst), origSecond: @js($initSecond), origFinal: @js($initFinal),
-                                        system: {{ (int) $row->system_quantity }}, endingSystem: @js($endingSystemQty !== null ? (int) $endingSystemQty : null), cost: {{ (float) $row->cost_price }},
+                                        endingSystem: @js($endingSystemQty !== null ? (int) $endingSystemQty : null), cost: {{ (float) $row->cost_price }},
                                         toInt(v) {
                                             v = String(v ?? '');
                                             if (v === '' || v === '-') return null;
@@ -502,7 +496,6 @@
                                     <td class="whitespace-nowrap border border-slate-300 px-2 py-1 font-mono">{{ $row->location_no ?: '-' }}</td>
                                     <td class="whitespace-nowrap border border-slate-300 px-2 py-1 font-mono">{{ $row->item_code ?: '-' }}</td>
                                     <td class="min-w-[240px] border border-slate-300 px-2 py-1">{{ $row->item_name ?: '-' }}</td>
-                                    <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums">{{ number_format((int) $row->system_quantity) }}</td>
                                     <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums {{ $endingSystemQty !== null && (int) $endingSystemQty !== (int) $row->system_quantity ? 'text-purple-700' : 'text-slate-700' }}">
                                         {{ $endingSystemQty !== null ? number_format((int) $endingSystemQty) : '-' }}
                                     </td>

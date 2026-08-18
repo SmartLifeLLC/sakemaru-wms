@@ -11,11 +11,16 @@ use App\Models\WmsInventoryCountItemLog;
 use App\Models\WmsPicker;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
 class InventoryCountService
 {
     public const INVENTORY_ADJUSTMENT_EXCLUDED_PREFIXES = ['4', '5', '7', '8', '9'];
+
+    private const THEORY_UPDATE_RUNS_TABLE = 'wms_inventory_count_theory_update_runs';
+
+    private const THEORY_UPDATE_ROWS_TABLE = 'wms_inventory_count_theory_update_rows';
 
     public function create(array $data): WmsInventoryCount
     {
@@ -156,9 +161,296 @@ class InventoryCountService
         });
     }
 
+    public function refreshEndingSystemQuantitiesFromLedger(WmsInventoryCount $inventoryCount, string $endDate): array
+    {
+        $endDate = CarbonImmutable::parse($endDate)->toDateString();
+
+        if ($endDate > now()->toDateString()) {
+            throw new \RuntimeException('未来日の受払では理論在庫を更新できません。');
+        }
+
+        $this->assertCanRefreshSystemQuantities($inventoryCount);
+        $this->assertEndingStockColumnsExist();
+        $this->assertTheoryUpdateBackupTablesExist();
+
+        $ledgerService = new InventoryCountLedgerBalanceService;
+        $calculationStartedAt = microtime(true);
+        $balances = $this->calculateEndingLedgerBalancesWithoutWriteLocks(
+            $ledgerService,
+            (int) $inventoryCount->client_id,
+            (int) $inventoryCount->warehouse_id,
+            $endDate,
+        );
+        $calculationSeconds = round(microtime(true) - $calculationStartedAt, 3);
+
+        $updateStartedAt = microtime(true);
+
+        return DB::connection('sakemaru')->transaction(function () use ($inventoryCount, $endDate, $ledgerService, $balances, $calculationSeconds, $updateStartedAt) {
+            $inventoryCount = WmsInventoryCount::query()
+                ->whereKey($inventoryCount->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $this->assertCanRefreshSystemQuantities($inventoryCount);
+            $this->assertEndingStockColumnsExist();
+            $this->assertTheoryUpdateBackupTablesExist();
+
+            $runId = $this->createTheoryUpdateRun(
+                $inventoryCount,
+                $endDate,
+                count($balances),
+                $calculationSeconds,
+            );
+
+            $existingItemIds = WmsInventoryCountItem::query()
+                ->where('inventory_count_id', $inventoryCount->id)
+                ->distinct()
+                ->pluck('item_id')
+                ->map(fn ($itemId) => (int) $itemId)
+                ->filter()
+                ->values()
+                ->all();
+
+            $eligibleExistingItemIds = array_flip($ledgerService->eligibleItemIds($existingItemIds, (int) $inventoryCount->client_id));
+            [$targetQuantities, $skippedItems] = $this->targetEndingQuantitiesByCountItemId(
+                (int) $inventoryCount->id,
+                $balances,
+                $eligibleExistingItemIds,
+            );
+            $backedUpExistingRows = $this->backupExistingTheoryUpdateRows(
+                $runId,
+                (int) $inventoryCount->id,
+                $targetQuantities,
+            );
+            $updatedItems = $this->updateExistingEndingSystemQuantities($targetQuantities);
+
+            $insertedItemIds = $this->insertMissingLedgerStockItems($inventoryCount, $balances, $existingItemIds, $ledgerService);
+            $backedUpInsertedRows = $this->backupInsertedTheoryUpdateRows($runId, $insertedItemIds);
+            $insertedItems = count($insertedItemIds);
+            $finishedAt = now();
+            $updateSeconds = round(microtime(true) - $updateStartedAt, 3);
+
+            $inventoryCount->update([
+                'ending_stock_taken_at' => $finishedAt,
+            ]);
+
+            DB::connection('sakemaru')->table(self::THEORY_UPDATE_RUNS_TABLE)
+                ->whereKey($runId)
+                ->update([
+                    'status' => 'finished',
+                    'finished_at' => $finishedAt,
+                    'ending_stock_taken_at_after' => $finishedAt,
+                    'updated_items' => $updatedItems,
+                    'inserted_items' => $insertedItems,
+                    'skipped_items' => $skippedItems,
+                    'backed_up_existing_rows' => $backedUpExistingRows,
+                    'backed_up_inserted_rows' => $backedUpInsertedRows,
+                    'update_seconds' => $updateSeconds,
+                    'updated_at' => $finishedAt,
+                ]);
+
+            Log::info('Inventory count ending theory updated from ledger', [
+                'inventory_count_id' => $inventoryCount->id,
+                'theory_update_run_id' => $runId,
+                'end_date' => $endDate,
+                'calculated_item_count' => count($balances),
+                'updated_items' => $updatedItems,
+                'inserted_items' => $insertedItems,
+                'skipped_items' => $skippedItems,
+                'calculation_seconds' => $calculationSeconds,
+                'update_seconds' => $updateSeconds,
+            ]);
+
+            return [
+                'end_date' => $endDate,
+                'calculated_item_count' => count($balances),
+                'updated_items' => $updatedItems,
+                'inserted_items' => $insertedItems,
+                'skipped_items' => $skippedItems,
+                'backup_run_id' => $runId,
+                'backed_up_existing_rows' => $backedUpExistingRows,
+                'backed_up_inserted_rows' => $backedUpInsertedRows,
+                'calculation_seconds' => $calculationSeconds,
+                'update_seconds' => $updateSeconds,
+            ];
+        });
+    }
+
     public function calculatePostCountMovements(WmsInventoryCount $inventoryCount, string $countedAt): array
     {
         return (new InventoryCountMovementService)->calculatePostCountMovements($inventoryCount, $countedAt);
+    }
+
+    /**
+     * 受払計算は更新トランザクションから分離する。READ ONLYの一貫スナップショットなので行ロックは取らない。
+     *
+     * @return array<int, float>
+     */
+    private function calculateEndingLedgerBalancesWithoutWriteLocks(
+        InventoryCountLedgerBalanceService $ledgerService,
+        int $clientId,
+        int $warehouseId,
+        string $endDate,
+    ): array {
+        $connection = DB::connection('sakemaru');
+
+        if ($connection->transactionLevel() > 0) {
+            return $ledgerService->balancesByItem($clientId, $warehouseId, $endDate);
+        }
+
+        $connection->statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY');
+        $connection->beginTransaction();
+
+        try {
+            $balances = $ledgerService->balancesByItem($clientId, $warehouseId, $endDate);
+            $connection->commit();
+
+            return $balances;
+        } catch (\Throwable $e) {
+            $connection->rollBack();
+
+            throw $e;
+        }
+    }
+
+    private function createTheoryUpdateRun(
+        WmsInventoryCount $inventoryCount,
+        string $endDate,
+        int $calculatedItemCount,
+        float $calculationSeconds,
+    ): int {
+        $now = now();
+
+        return (int) DB::connection('sakemaru')->table(self::THEORY_UPDATE_RUNS_TABLE)->insertGetId([
+            'inventory_count_id' => $inventoryCount->id,
+            'client_id' => $inventoryCount->client_id,
+            'warehouse_id' => $inventoryCount->warehouse_id,
+            'end_date' => $endDate,
+            'update_type' => 'ending_ledger',
+            'status' => 'running',
+            'executed_by' => auth()->id(),
+            'started_at' => $now,
+            'ending_stock_taken_at_before' => $inventoryCount->ending_stock_taken_at,
+            'calculated_item_count' => $calculatedItemCount,
+            'calculation_seconds' => $calculationSeconds,
+            'metadata' => json_encode([
+                'opening_date' => InventoryCountLedgerBalanceService::OPENING_DATE,
+                'calculation' => 'repeatable_read_read_only_transaction_without_row_locks',
+                'backup' => 'existing_rows_before_update_and_inserted_rows_after_insert',
+            ], JSON_UNESCAPED_UNICODE),
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+    }
+
+    /**
+     * @param  array<int, float>  $balances
+     * @param  array<int, int>  $eligibleExistingItemIds
+     * @return array{0: array<int, int>, 1: int}
+     */
+    private function targetEndingQuantitiesByCountItemId(
+        int $inventoryCountId,
+        array $balances,
+        array $eligibleExistingItemIds,
+    ): array {
+        $targetQuantities = [];
+        $skippedItems = 0;
+        $seenItemIds = [];
+
+        WmsInventoryCountItem::query()
+            ->where('inventory_count_id', $inventoryCountId)
+            ->select(['id', 'item_id'])
+            ->orderBy('id')
+            ->chunkById(500, function ($items) use ($balances, $eligibleExistingItemIds, &$targetQuantities, &$skippedItems, &$seenItemIds) {
+                foreach ($items as $item) {
+                    $itemId = (int) $item->item_id;
+                    if (! isset($eligibleExistingItemIds[$itemId])) {
+                        $skippedItems++;
+
+                        continue;
+                    }
+
+                    $targetQuantities[(int) $item->id] = isset($seenItemIds[$itemId])
+                        ? 0
+                        : (int) round($balances[$itemId] ?? 0);
+
+                    $seenItemIds[$itemId] = true;
+                }
+            });
+
+        return [$targetQuantities, $skippedItems];
+    }
+
+    /**
+     * @param  array<int, int>  $targetQuantities
+     */
+    private function backupExistingTheoryUpdateRows(int $runId, int $inventoryCountId, array $targetQuantities): int
+    {
+        $backedUp = 0;
+
+        DB::connection('sakemaru')
+            ->table('wms_inventory_count_items')
+            ->where('inventory_count_id', $inventoryCountId)
+            ->orderBy('id')
+            ->chunkById(500, function ($items) use ($runId, $inventoryCountId, $targetQuantities, &$backedUp) {
+                $now = now();
+                $records = [];
+
+                foreach ($items as $item) {
+                    $oldValues = (array) $item;
+
+                    $records[] = [
+                        'run_id' => $runId,
+                        'inventory_count_id' => $inventoryCountId,
+                        'inventory_count_item_id' => $item->id,
+                        'was_existing' => true,
+                        'item_id' => $item->item_id,
+                        'real_stock_id' => $item->real_stock_id,
+                        'old_ending_system_quantity' => $item->ending_system_quantity,
+                        'new_ending_system_quantity' => $targetQuantities[(int) $item->id] ?? $item->ending_system_quantity,
+                        'old_values' => json_encode($oldValues, JSON_UNESCAPED_UNICODE),
+                        'new_values' => null,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ];
+                }
+
+                if ($records === []) {
+                    return;
+                }
+
+                DB::connection('sakemaru')->table(self::THEORY_UPDATE_ROWS_TABLE)->insert($records);
+                $backedUp += count($records);
+            });
+
+        return $backedUp;
+    }
+
+    /**
+     * @param  array<int, int>  $targetQuantities
+     */
+    private function updateExistingEndingSystemQuantities(array $targetQuantities): int
+    {
+        if ($targetQuantities === []) {
+            return 0;
+        }
+
+        $updatedItems = 0;
+
+        foreach (array_chunk($targetQuantities, 500, true) as $chunk) {
+            WmsInventoryCountItem::query()
+                ->whereKey(array_keys($chunk))
+                ->select(['id', 'ending_system_quantity'])
+                ->orderBy('id')
+                ->chunkById(500, function ($items) use ($chunk, &$updatedItems) {
+                    foreach ($items as $item) {
+                        $systemQuantity = (int) $chunk[(int) $item->id];
+                        $this->updateCountItemEndingSystemQuantity($item, $systemQuantity, $updatedItems);
+                    }
+                });
+        }
+
+        return $updatedItems;
     }
 
     public function saveCurrentStock(WmsInventoryCount $inventoryCount): void
@@ -454,12 +746,175 @@ class InventoryCountService
         return $inserted;
     }
 
+    /**
+     * @return array<int, int>
+     */
+    private function insertMissingLedgerStockItems(
+        WmsInventoryCount $inventoryCount,
+        array $balances,
+        array $existingItemIds,
+        InventoryCountLedgerBalanceService $ledgerService,
+    ): array {
+        $existingItemIdMap = array_flip(array_map('intval', $existingItemIds));
+        $eligibleItemIds = $ledgerService->eligibleItemIds(array_keys($balances), (int) $inventoryCount->client_id);
+        $missingItemIds = collect($eligibleItemIds)
+            ->filter(fn (int $itemId): bool => ! isset($existingItemIdMap[$itemId]) && abs((float) ($balances[$itemId] ?? 0)) > 0.0001)
+            ->values()
+            ->all();
+
+        if ($missingItemIds === []) {
+            return [];
+        }
+
+        $insertedIds = [];
+        $lotRanked = DB::raw(
+            '(SELECT rsl.real_stock_id, rsl.location_id, rsl.floor_id, ROW_NUMBER() OVER (PARTITION BY rsl.real_stock_id ORDER BY rsl.updated_at DESC, rsl.id DESC) AS rn FROM real_stock_lots rsl WHERE rsl.status = \'ACTIVE\') as lot'
+        );
+
+        foreach (array_chunk($missingItemIds, 500) as $chunkItemIds) {
+            $stockRows = DB::connection('sakemaru')
+                ->table('real_stocks as rs')
+                ->leftJoin($lotRanked, function ($join) {
+                    $join->on('lot.real_stock_id', '=', 'rs.id')
+                        ->where('lot.rn', '=', 1);
+                })
+                ->leftJoin('locations as l', 'l.id', '=', 'lot.location_id')
+                ->leftJoin('floors as f', 'f.id', '=', DB::raw('COALESCE(lot.floor_id, l.floor_id)'))
+                ->where('rs.client_id', $inventoryCount->client_id)
+                ->where('rs.warehouse_id', $inventoryCount->warehouse_id)
+                ->whereIn('rs.item_id', $chunkItemIds)
+                ->orderBy('rs.id')
+                ->get([
+                    'rs.id as real_stock_id',
+                    'rs.item_id',
+                    'l.id as location_id',
+                    'f.id as floor_id',
+                    'f.name as floor_name',
+                    'l.code1 as location_code1',
+                    'l.code2 as location_code2',
+                    'l.code3 as location_code3',
+                ])
+                ->groupBy('item_id')
+                ->map(fn ($rows) => $rows->first());
+
+            $items = DB::connection('sakemaru')
+                ->table('items as i')
+                ->whereIn('i.id', $chunkItemIds)
+                ->select([
+                    'i.id as item_id',
+                    'i.code as item_code',
+                    'i.name as item_name',
+                    DB::raw("(SELECT isi.search_string FROM item_search_information isi WHERE isi.item_id = i.id AND isi.code_type = 'JAN' AND isi.quantity_type = 'PIECE' AND isi.is_active = 1 ORDER BY isi.priority IS NULL, isi.priority, isi.id LIMIT 1) as barcode"),
+                    DB::raw('COALESCE((SELECT ip.cost_unit_price FROM item_prices ip WHERE ip.item_id = i.id AND ip.is_active = 1 LIMIT 1), 0) as cost_price'),
+                ])
+                ->get()
+                ->keyBy('item_id');
+
+            $now = now();
+
+            foreach ($chunkItemIds as $itemId) {
+                $item = $items->get($itemId);
+                if (! $item) {
+                    continue;
+                }
+
+                $stock = $stockRows->get($itemId);
+                $insertedIds[] = (int) WmsInventoryCountItem::query()->insertGetId([
+                    'inventory_count_id' => $inventoryCount->id,
+                    'real_stock_id' => $stock?->real_stock_id,
+                    'item_id' => $item->item_id,
+                    'item_code' => $item->item_code ?? '',
+                    'item_name' => $item->item_name ?? '',
+                    'barcode' => $item->barcode,
+                    'location_id' => $stock?->location_id,
+                    'floor_id' => $stock?->floor_id,
+                    'floor_name' => $stock?->floor_name,
+                    'location_code1' => $stock?->location_code1,
+                    'location_code2' => $stock?->location_code2,
+                    'location_code3' => $stock?->location_code3,
+                    'location_no' => Location::formatCode(
+                        $stock?->location_code1,
+                        $stock?->location_code2,
+                        $stock?->location_code3
+                    ),
+                    'system_quantity' => 0,
+                    'ending_system_quantity' => (int) round($balances[(int) $item->item_id] ?? 0),
+                    'cost_price' => $item->cost_price,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            }
+        }
+
+        return $insertedIds;
+    }
+
+    /**
+     * @param  array<int, int>  $insertedItemIds
+     */
+    private function backupInsertedTheoryUpdateRows(int $runId, array $insertedItemIds): int
+    {
+        if ($insertedItemIds === []) {
+            return 0;
+        }
+
+        $backedUp = 0;
+
+        foreach (array_chunk($insertedItemIds, 500) as $chunkIds) {
+            $items = DB::connection('sakemaru')
+                ->table('wms_inventory_count_items')
+                ->whereIn('id', $chunkIds)
+                ->orderBy('id')
+                ->get();
+
+            $now = now();
+            $records = [];
+
+            foreach ($items as $item) {
+                $newValues = (array) $item;
+
+                $records[] = [
+                    'run_id' => $runId,
+                    'inventory_count_id' => $item->inventory_count_id,
+                    'inventory_count_item_id' => $item->id,
+                    'was_existing' => false,
+                    'item_id' => $item->item_id,
+                    'real_stock_id' => $item->real_stock_id,
+                    'old_ending_system_quantity' => null,
+                    'new_ending_system_quantity' => $item->ending_system_quantity,
+                    'old_values' => null,
+                    'new_values' => json_encode($newValues, JSON_UNESCAPED_UNICODE),
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+
+            if ($records === []) {
+                continue;
+            }
+
+            DB::connection('sakemaru')->table(self::THEORY_UPDATE_ROWS_TABLE)->insert($records);
+            $backedUp += count($records);
+        }
+
+        return $backedUp;
+    }
+
     private function assertEndingStockColumnsExist(): void
     {
         if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_counts', 'ending_stock_taken_at')
             || ! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')
         ) {
             throw new \RuntimeException('終了時理論在庫用のDB列が未作成です。マイグレーションを実行してください。');
+        }
+    }
+
+    private function assertTheoryUpdateBackupTablesExist(): void
+    {
+        if (! Schema::connection('sakemaru')->hasTable(self::THEORY_UPDATE_RUNS_TABLE)
+            || ! Schema::connection('sakemaru')->hasTable(self::THEORY_UPDATE_ROWS_TABLE)
+        ) {
+            throw new \RuntimeException('理論在庫更新バックアップ用のDBテーブルが未作成です。マイグレーションを実行してください。');
         }
     }
 

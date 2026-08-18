@@ -364,7 +364,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     private function sortableColumns(): array
     {
-        return ['item_code', 'item_name', 'system_quantity', 'ending_system_quantity', 'ending_difference_quantity'];
+        return ['item_code', 'item_name', 'ending_system_quantity', 'ending_difference_quantity'];
     }
 
     private function applyTextFilter(\Illuminate\Database\Eloquent\Builder $query, string $value, array $columns): void
@@ -960,7 +960,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->visible(fn () => $record->canResumeCurrentStockSaved())
                 ->requiresConfirmation()
                 ->modalHeading('カウント再開')
-                ->modalDescription('現状保存を取り消し、カウント中に戻します。理論在庫や実棚数は変更しません。終了時在庫取得と指定日在庫更新を再度実行できます。')
+                ->modalDescription('現状保存を取り消し、カウント中に戻します。理論在庫や実棚数は変更しません。終了時在庫取得と理論在庫更新を再度実行できます。')
                 ->modalFooterActionsAlignment(Alignment::End)
                 ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('再開する')->color('danger'))
                 ->modalCancelActionLabel('再開せず閉じる')
@@ -973,7 +973,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
                         Notification::make()
                             ->success()
                             ->title('カウントを再開しました')
-                            ->body('終了時在庫取得と指定日在庫更新を実行できます。')
+                            ->body('終了時在庫取得と理論在庫更新を実行できます。')
                             ->send();
                     } catch (\Throwable $e) {
                         Notification::make()
@@ -1016,38 +1016,38 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 }),
 
             Action::make('refreshDailySnapshotStock')
-                ->label('指定日在庫(開始)更新')
+                ->label('理論在庫更新')
                 ->icon('heroicon-o-calendar-days')
                 ->color('warning')
                 ->visible(fn () => $record->canRefreshSystemQuantities())
                 ->requiresConfirmation()
-                ->modalHeading('指定日在庫(開始)更新')
-                ->modalDescription('選択した日の2:00時点の在庫履歴から理論在庫(開始)を復元し、入力済み実棚数との差異を再計算します。実棚数、理論在庫(終了)、現状保存状態は変更しません。')
+                ->modalHeading('理論在庫更新')
+                ->modalDescription('選択した日の終了時点の受払残を再計算し、理論在庫(終了)に反映します。理論在庫(開始)、実棚数、現状保存状態は変更しません。')
                 ->modalFooterActionsAlignment(Alignment::End)
                 ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('更新する')->color('danger'))
                 ->modalCancelActionLabel('更新せず閉じる')
                 ->schema([
                     DatePicker::make('snapshot_date')
-                        ->label('スナップショット日')
+                        ->label('受払終了日')
                         ->default($record->count_date?->toDateString() ?? now()->toDateString())
                         ->maxDate(now())
                         ->required(),
                 ])
                 ->action(function (array $data) use ($record) {
                     try {
-                        $result = (new InventoryCountService)->refreshSystemQuantitiesFromDailySnapshot($record, (string) $data['snapshot_date']);
+                        $result = (new InventoryCountService)->refreshEndingSystemQuantitiesFromLedger($record, (string) $data['snapshot_date']);
                         $this->record->refresh();
                         $this->itemPage = 1;
 
                         Notification::make()
                             ->success()
-                            ->title('指定日の開始在庫に更新しました')
-                            ->body("対象日: {$result['snapshot_date']} / 理論在庫(開始): {$result['updated_items']}件 / 差分再計算: {$result['updated_differences']}件 / 未取得: {$result['missing_snapshot_rows']}件")
+                            ->title('理論在庫を更新しました')
+                            ->body("受払終了日: {$result['end_date']} / 理論在庫(終了): {$result['updated_items']}件 / 追加明細: {$result['inserted_items']}件 / 対象外: {$result['skipped_items']}件 / バックアップID: {$result['backup_run_id']}")
                             ->send();
                     } catch (\Throwable $e) {
                         Notification::make()
                             ->danger()
-                            ->title('指定日の開始在庫に更新できません')
+                            ->title('理論在庫を更新できません')
                             ->body($e->getMessage())
                             ->send();
                     }
