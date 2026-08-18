@@ -39,23 +39,23 @@ class InventoryDiffListPdfService
 
     private const CONTENT_WIDTH = 190; // 210 - 10 - 10
 
-    private const COL_W_JAN = 38;
+    private const COL_W_JAN = 36;
 
-    private const COL_W_ITEM = 66;
+    private const COL_W_ITEM = 100;
 
-    private const COL_W_LOCATION = 22;
+    private const COL_W_LOCATION = 12;
 
-    private const COL_W_LOT = 28;
+    private const COL_W_LOT = 20;
 
-    private const COL_W_EXPIRATION = 36;
+    private const COL_W_EXPIRATION = 22;
 
-    private const COL_W_INPUT = 18;
+    private const COL_W_INPUT = 10;
 
-    private const COL_W_SYSTEM = 26;
+    private const COL_W_SYSTEM = 16;
 
-    private const COL_W_ACTUAL = 20;
+    private const COL_W_ACTUAL = 14;
 
-    private const COL_W_DIFF = 22;
+    private const COL_W_DIFF = 14;
 
     private const BARCODE_WIDTH = 34;
 
@@ -507,15 +507,15 @@ class InventoryDiffListPdfService
 
         $row1X += self::COL_W_ITEM;
         $this->pdf->SetXY($row1X, $y);
-        $this->pdf->Cell(self::COL_W_LOCATION, $rowH, 'ロケーションNO', 0, 0, 'L');
+        $this->pdf->Cell(self::COL_W_LOCATION, $rowH, 'ロケ', 0, 0, 'C');
 
         $row1X += self::COL_W_LOCATION;
         $this->pdf->SetXY($row1X, $y);
-        $this->pdf->Cell(self::COL_W_LOT, $rowH, 'ロットNO', 0, 0, 'L');
+        $this->pdf->Cell(self::COL_W_LOT, $rowH, 'ロットNO', 0, 0, 'C');
 
         $row1X += self::COL_W_LOT;
         $this->pdf->SetXY($row1X, $y);
-        $this->pdf->Cell(self::COL_W_EXPIRATION, $rowH, '賞味期限', 0, 0, 'L');
+        $this->pdf->Cell(self::COL_W_EXPIRATION, $rowH, '賞味期限', 0, 0, 'C');
 
         // Row 2 headers
         $y2 = $y + $rowH;
@@ -525,19 +525,19 @@ class InventoryDiffListPdfService
 
         $row2X += self::COL_W_ITEM;
         $this->pdf->SetXY($row2X, $y2);
-        $this->pdf->Cell(self::COL_W_INPUT, $rowH, '入力回数', 0, 0, 'R');
+        $this->pdf->Cell(self::COL_W_INPUT, $rowH, '入力', 0, 0, 'C');
 
         $row2X += self::COL_W_INPUT;
         $this->pdf->SetXY($row2X, $y2);
-        $this->pdf->Cell(self::COL_W_SYSTEM, $rowH, $this->uncountedRound === null ? '理論在庫(終了)' : '理論数量', 0, 0, 'R');
+        $this->pdf->Cell(self::COL_W_SYSTEM, $rowH, $this->uncountedRound === null ? '終了理論' : '理論数量', 0, 0, 'C');
 
         $row2X += self::COL_W_SYSTEM;
         $this->pdf->SetXY($row2X, $y2);
-        $this->pdf->Cell(self::COL_W_ACTUAL, $rowH, '実数量', 0, 0, 'R');
+        $this->pdf->Cell(self::COL_W_ACTUAL, $rowH, '実数量', 0, 0, 'C');
 
         $row2X += self::COL_W_ACTUAL;
         $this->pdf->SetXY($row2X, $y2);
-        $this->pdf->Cell(self::COL_W_DIFF, $rowH, $this->uncountedRound === null ? '終了差異' : '差異数量', 0, 0, 'R');
+        $this->pdf->Cell(self::COL_W_DIFF, $rowH, $this->uncountedRound === null ? '終了差異' : '差異数量', 0, 0, 'C');
 
         // Separator line below headers
         $sepY = $y + ($rowH * $this->itemBlockRowCount());
@@ -573,15 +573,15 @@ class InventoryDiffListPdfService
         $row1X = $contentX + self::COL_W_ITEM;
         $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_NORMAL);
         $this->pdf->SetXY($row1X, $y);
-        $this->pdf->Cell(self::COL_W_LOCATION, $rowH, $countItem->location_no ?? '', 0, 0, 'L');
+        $this->pdf->Cell(self::COL_W_LOCATION, $rowH, $countItem->location_no ?? '', 0, 0, 'C');
 
         $row1X += self::COL_W_LOCATION;
         $this->pdf->SetXY($row1X, $y);
-        $this->pdf->Cell(self::COL_W_LOT, $rowH, $countItem->lot_no ?? '', 0, 0, 'L');
+        $this->pdf->Cell(self::COL_W_LOT, $rowH, $countItem->lot_no ?? '', 0, 0, 'C');
 
         $row1X += self::COL_W_LOT;
         $this->pdf->SetXY($row1X, $y);
-        $this->pdf->Cell(self::COL_W_EXPIRATION, $rowH, $countItem->expiration_date?->format('Y/m/d') ?? '', 0, 0, 'L');
+        $this->pdf->Cell(self::COL_W_EXPIRATION, $rowH, $countItem->expiration_date?->format('Y/m/d') ?? '', 0, 0, 'C');
 
         // === Row 2: item_name | input_count | system_qty | actual_qty | diff_qty ===
         $y2 = $y + $rowH;
@@ -592,7 +592,7 @@ class InventoryDiffListPdfService
 
         $row2X = $contentX + self::COL_W_ITEM;
         $this->pdf->SetXY($row2X, $y2);
-        $this->pdf->Cell(self::COL_W_INPUT, $rowH, (string) ($countItem->input_count ?? 0), 0, 0, 'R');
+        $this->pdf->Cell(self::COL_W_INPUT, $rowH, (string) ($countItem->input_count ?? 0), 0, 0, 'C');
 
         $row2X += self::COL_W_INPUT;
         $this->pdf->SetXY($row2X, $y2);
@@ -605,7 +605,7 @@ class InventoryDiffListPdfService
             $this->uncountedRound === null ? $this->formatOptionalQuantity($systemQty) : $this->formatQuantity($systemQty),
             0,
             0,
-            'R'
+            'C'
         );
 
         $actualQty = $this->uncountedRound !== null
@@ -613,11 +613,11 @@ class InventoryDiffListPdfService
             : $countItem->getAttribute('pdf_actual_quantity');
         $row2X += self::COL_W_SYSTEM;
         $this->pdf->SetXY($row2X, $y2);
-        $this->pdf->Cell(self::COL_W_ACTUAL, $rowH, $this->formatQuantity($actualQty), 0, 0, 'R');
+        $this->pdf->Cell(self::COL_W_ACTUAL, $rowH, $this->formatQuantity($actualQty), 0, 0, 'C');
 
         $row2X += self::COL_W_ACTUAL;
         $this->pdf->SetXY($row2X, $y2);
-        $this->pdf->Cell(self::COL_W_DIFF, $rowH, $this->uncountedRound !== null ? '0' : $this->formatOptionalQuantity($endDifferenceQuantity), 0, 0, 'R');
+        $this->pdf->Cell(self::COL_W_DIFF, $rowH, $this->uncountedRound !== null ? '0' : $this->formatOptionalQuantity($endDifferenceQuantity), 0, 0, 'C');
 
         $this->currentY = $y + ($rowH * $this->itemBlockRowCount());
     }

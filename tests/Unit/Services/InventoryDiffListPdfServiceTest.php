@@ -175,6 +175,8 @@ class InventoryDiffListPdfServiceTest extends TestCase
         $text = $this->extractPdfText((new InventoryDiffListPdfService)->generate($inventoryCount), $pdftotext);
 
         $this->assertStringContainsString($janCode, $text);
+        $this->assertStringContainsString('ロケ', $text);
+        $this->assertStringNotContainsString('ロケーションNO', $text);
         $this->assertStringNotContainsString('仕入原価', $text);
         $this->assertStringNotContainsString('終了差額', $text);
         $this->assertStringNotContainsString('差異金額', $text);
