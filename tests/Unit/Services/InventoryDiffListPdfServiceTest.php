@@ -182,6 +182,67 @@ class InventoryDiffListPdfServiceTest extends TestCase
         $this->assertStringNotContainsString('差異金額', $text);
     }
 
+    public function test_diff_and_uncounted_pdfs_print_middle_category_headers(): void
+    {
+        if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')) {
+            $this->markTestSkipped('wms_inventory_count_items.ending_system_quantity is not available.');
+        }
+
+        $pdftotext = trim((string) shell_exec('command -v pdftotext 2>/dev/null'));
+
+        if ($pdftotext === '') {
+            $this->markTestSkipped('pdftotext is not available.');
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => '中分類ヘッダーテスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+        ]);
+
+        $diffItemId = $this->createItemInMajorCategory(1001);
+        $uncountedItemId = $this->createItemInMajorCategory(1002);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $diffItemId,
+            'item_code' => 'CATDIFF001',
+            'item_name' => '中分類差異対象',
+            'location_code1' => 'Z',
+            'location_code2' => '01',
+            'location_code3' => '01',
+            'location_no' => 'Z-01-01',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 3,
+            'final_count_quantity' => 5,
+            'cost_price' => 10,
+        ]);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $uncountedItemId,
+            'item_code' => 'CATUNC001',
+            'item_name' => '中分類未カウント対象',
+            'location_code1' => 'Z',
+            'location_code2' => '01',
+            'location_code3' => '02',
+            'location_no' => 'Z-01-02',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 5,
+            'cost_price' => 20,
+        ]);
+
+        $diffText = $this->extractPdfText((new InventoryDiffListPdfService)->generate($inventoryCount), $pdftotext);
+        $uncountedText = $this->extractPdfText((new InventoryDiffListPdfService)->generateUncounted($inventoryCount, 1), $pdftotext);
+
+        $this->assertStringContainsString('中分類：未PDF中分類1001', $diffText);
+        $this->assertStringContainsString('中分類：未PDF中分類1002', $uncountedText);
+    }
+
     public function test_uncounted_list_excludes_zero_system_quantity_without_difference_and_filters_major_categories(): void
     {
         $inventoryCount = WmsInventoryCount::create([

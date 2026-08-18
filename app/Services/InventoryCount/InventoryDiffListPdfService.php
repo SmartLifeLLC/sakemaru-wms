@@ -2,6 +2,7 @@
 
 namespace App\Services\InventoryCount;
 
+use App\Models\Sakemaru\ItemCategory;
 use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
 use Illuminate\Database\Eloquent\Builder;
@@ -21,6 +22,8 @@ class InventoryDiffListPdfService
     private const FONT_SIZE_COL_HEADER = 7;
 
     private const BLOCK_ROW_HEIGHT = 6.5;
+
+    private const CATEGORY_HEADER_HEIGHT = 6;
 
     private const LINE_WIDTH = 0.2;
 
@@ -135,6 +138,7 @@ class InventoryDiffListPdfService
             : (new InventoryJanCodeResolver)->forItems($items);
 
         $currentShelfPrefix = null;
+        $currentCategoryKey = null;
         $isFirstPage = true;
 
         if ($items->isEmpty()) {
@@ -145,20 +149,33 @@ class InventoryDiffListPdfService
         } else {
             foreach ($items as $item) {
                 $shelfPrefix = $this->shelfPagePrefix($item);
+                $categoryKey = $this->middleCategoryKey($item);
+                $categoryName = $this->middleCategoryName($item);
 
                 if ($currentShelfPrefix !== null && $currentShelfPrefix !== $shelfPrefix) {
                     $this->addNewPage($header, $shelfPrefix);
+                    $currentCategoryKey = null;
                     $isFirstPage = false;
                 } elseif ($isFirstPage && $currentShelfPrefix === null) {
                     $this->addNewPage($header, $shelfPrefix);
+                    $currentCategoryKey = null;
                     $isFirstPage = false;
                 }
 
                 $currentShelfPrefix = $shelfPrefix;
+                $categoryChanged = $currentCategoryKey !== $categoryKey;
                 $blockHeight = self::BLOCK_ROW_HEIGHT * $this->itemBlockRowCount();
+                $requiredHeight = $blockHeight + ($categoryChanged ? self::CATEGORY_HEADER_HEIGHT : 0);
 
-                if ($this->currentY + $blockHeight > self::PAGE_HEIGHT - self::MARGIN_BOTTOM) {
+                if ($this->currentY + $requiredHeight > self::PAGE_HEIGHT - self::MARGIN_BOTTOM) {
                     $this->addNewPage($header, $currentShelfPrefix);
+                    $currentCategoryKey = null;
+                    $categoryChanged = true;
+                }
+
+                if ($categoryChanged) {
+                    $this->renderCategoryHeader($categoryName);
+                    $currentCategoryKey = $categoryKey;
                 }
 
                 $this->renderItemBlock($item, $janCodes[(int) $item->item_id] ?? '');
@@ -176,7 +193,8 @@ class InventoryDiffListPdfService
      */
     private function queryItems(WmsInventoryCount $inventoryCount): Collection
     {
-        $query = WmsInventoryCountItem::where('inventory_count_id', $inventoryCount->id);
+        $query = WmsInventoryCountItem::where('inventory_count_id', $inventoryCount->id)
+            ->with(['item.item_category2']);
 
         if ($this->uncountedRound !== null) {
             $query->whereNull($this->roundColumn($this->uncountedRound));
@@ -208,12 +226,15 @@ class InventoryDiffListPdfService
             ->get();
 
         if ($this->uncountedRound !== null) {
-            return $items;
+            return $items
+                ->sort($this->inventoryItemSorter(...))
+                ->values();
         }
 
         return $items
             ->map(fn (WmsInventoryCountItem $item): WmsInventoryCountItem => $this->attachDiffListValues($item))
             ->filter(fn (WmsInventoryCountItem $item): bool => $this->hasPrintableDifference($item))
+            ->sort($this->inventoryItemSorter(...))
             ->values();
     }
 
@@ -235,7 +256,7 @@ class InventoryDiffListPdfService
 
         $roundColumn = $this->roundColumn($round);
 
-        return WmsInventoryCountItem::with('inventoryCount')
+        return WmsInventoryCountItem::with(['inventoryCount', 'item.item_category2'])
             ->whereIn('inventory_count_id', $inventoryCountIds)
             ->tap(fn (Builder $query) => $this->applyUncountedTargetFilters($query))
             ->get()
@@ -320,6 +341,8 @@ class InventoryDiffListPdfService
             $item->location_id === null
                 || trim((string) ($item->location_no ?? '')) === ''
                 || trim((string) ($item->location_code1 ?? '')) === '' ? 1 : 0,
+            $this->shelfPagePrefix($item) ?? '',
+            ...$this->middleCategorySortValues($item),
             (string) ($item->location_code1 ?? ''),
             (string) ($item->location_code2 ?? ''),
             (string) ($item->location_code3 ?? ''),
@@ -426,6 +449,58 @@ class InventoryDiffListPdfService
         }
 
         return mb_substr($locationNo, 0, 2);
+    }
+
+    private function middleCategory(WmsInventoryCountItem $item): ?ItemCategory
+    {
+        $category = $item->item?->item_category2;
+
+        if ($category === null || (int) ($category->depth ?? 0) !== 2) {
+            return null;
+        }
+
+        return $category;
+    }
+
+    private function middleCategoryKey(WmsInventoryCountItem $item): string
+    {
+        $category = $this->middleCategory($item);
+
+        return $category?->id !== null
+            ? (string) $category->id
+            : 'no_middle_category';
+    }
+
+    private function middleCategoryName(WmsInventoryCountItem $item): string
+    {
+        $category = $this->middleCategory($item);
+
+        if ($category === null) {
+            return '中分類なし';
+        }
+
+        $name = trim((string) ($category->name ?? ''));
+        if ($name !== '') {
+            return $name;
+        }
+
+        $code = trim((string) ($category->code ?? ''));
+
+        return $code !== '' ? $code : '中分類なし';
+    }
+
+    /**
+     * @return array<int, int|string>
+     */
+    private function middleCategorySortValues(WmsInventoryCountItem $item): array
+    {
+        $category = $this->middleCategory($item);
+
+        return [
+            $category === null ? 1 : 0,
+            (string) ($category?->code ?? ''),
+            (int) ($category?->id ?? 0),
+        ];
     }
 
     private function roundColumn(int $round): string
@@ -544,6 +619,31 @@ class InventoryDiffListPdfService
         $this->pdf->Line($x, $sepY, $x + self::CONTENT_WIDTH, $sepY);
 
         $this->currentY = $sepY + 0.5;
+    }
+
+    private function renderCategoryHeader(string $categoryName): void
+    {
+        $x = self::MARGIN_LEFT;
+        $y = $this->currentY;
+
+        $this->pdf->SetLineWidth(self::LINE_WIDTH);
+        $this->pdf->SetDrawColor(180, 190, 200);
+        $this->pdf->SetFillColor(245, 247, 250);
+        $this->pdf->Rect($x, $y, self::CONTENT_WIDTH, self::CATEGORY_HEADER_HEIGHT, 'DF');
+        $this->pdf->SetDrawColor(0, 0, 0);
+
+        $this->pdf->SetFont('kozgopromedium', 'B', self::FONT_SIZE_NORMAL);
+        $this->pdf->SetXY($x + 2, $y + 0.8);
+        $this->pdf->Cell(
+            self::CONTENT_WIDTH - 4,
+            self::CATEGORY_HEADER_HEIGHT - 1,
+            $this->truncateText('中分類：'.$categoryName, self::CONTENT_WIDTH - 4),
+            0,
+            0,
+            'L'
+        );
+
+        $this->currentY = $y + self::CATEGORY_HEADER_HEIGHT + 0.5;
     }
 
     private function renderItemBlock(WmsInventoryCountItem $countItem, string $janCode): void

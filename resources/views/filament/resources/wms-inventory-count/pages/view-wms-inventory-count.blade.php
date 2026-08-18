@@ -33,6 +33,7 @@
 
     <div x-data="{
         filtersOpen: true,
+        detailsOpen: false,
         locationPickerOpen: false,
         activeTab: @entangle('listTab'),
         activeRound: @entangle('activeCountRound'),
@@ -295,15 +296,7 @@
                     </div>
                 </div>
                 <div class="flex flex-wrap items-center justify-end gap-2 pb-2">
-                    {{ $this->getAction('viewLogs') }}
                     {{ $this->getAction('addSingleItem') }}
-                    {{ $this->getAction('saveCurrentStock') }}
-                    {{ $this->getAction('resumeCurrentStockSavedForCounting') }}
-                    {{ $this->getAction('refreshCurrentStock') }}
-                    {{ $this->getAction('refreshDailySnapshotStock') }}
-                    {{ $this->getAction('calculatePostCountMovements') }}
-                    {{ $this->getAction('downloadInstructionPdf') }}
-                    {{ $this->getAction('downloadInstructionSheet') }}
                     {{ $this->getAction('toggleHandyReception') }}
                     @if ($record->status === \App\Models\WmsInventoryCount::STATUS_DRAFT)
                         {{ $this->getAction('startCounting') }}
@@ -339,23 +332,43 @@
                             @endforeach
                         </div>
                     @endif
+                    {{ $this->getAction('downloadInstructionSheet') }}
                     {{ $this->getAction('downloadDiffListPdf') }}
                     @if ($record->status !== \App\Models\WmsInventoryCount::STATUS_DRAFT)
                         {{ $this->getAction('downloadUncountedListPdf') }}
-                        {{ $this->getAction('restoreCancelledForCounting') }}
-                        {{ $this->getAction('fillUncountedWithZero') }}
                     @endif
                     @if ($record->status === \App\Models\WmsInventoryCount::STATUS_CHECKED)
                         {{ $this->getAction('reopenFinalRound') }}
                         {{ $this->getAction('confirm') }}
                     @endif
-                    @if (! in_array($record->status, [
-                        \App\Models\WmsInventoryCount::STATUS_CONFIRMED,
-                        \App\Models\WmsInventoryCount::STATUS_CANCELLED,
-                    ], true))
-                        {{ $this->getAction('cancel') }}
-                    @endif
+                    <button type="button"
+                        @click="detailsOpen = ! detailsOpen"
+                        class="inline-flex items-center gap-2 rounded-md border border-green-300 px-3 py-1.5 text-sm font-bold text-white shadow-sm hover:bg-green-800"
+                        :class="detailsOpen ? 'bg-green-900' : 'bg-green-800/60'">
+                        <x-filament::icon icon="heroicon-m-ellipsis-horizontal-circle" class="h-4 w-4" />
+                        <span>詳細</span>
+                        <x-filament::icon icon="heroicon-m-chevron-down" class="h-4 w-4 transition" x-bind:class="{ 'rotate-180': detailsOpen }" />
+                    </button>
                     <div wire:loading class="text-xs">読込中...</div>
+                </div>
+                <div x-show="detailsOpen" x-collapse x-cloak class="border-t border-green-600/60 bg-green-800/50 px-3 py-2">
+                    <div class="flex flex-wrap items-center justify-end gap-2">
+                        {{ $this->getAction('viewLogs') }}
+                        {{ $this->getAction('downloadInstructionPdf') }}
+                        {{ $this->getAction('saveCurrentStock') }}
+                        {{ $this->getAction('resumeCurrentStockSavedForCounting') }}
+                        {{ $this->getAction('refreshCurrentStock') }}
+                        {{ $this->getAction('refreshDailySnapshotStock') }}
+                        {{ $this->getAction('calculatePostCountMovements') }}
+                        {{ $this->getAction('restoreCancelledForCounting') }}
+                        {{ $this->getAction('fillUncountedWithZero') }}
+                        @if (! in_array($record->status, [
+                            \App\Models\WmsInventoryCount::STATUS_CONFIRMED,
+                            \App\Models\WmsInventoryCount::STATUS_CANCELLED,
+                        ], true))
+                            {{ $this->getAction('cancel') }}
+                        @endif
+                    </div>
                 </div>
             </div>
 

@@ -93,7 +93,6 @@ class WmsInventoryCountTable
                     ->label('ステータス')
                     ->multiple()
                     ->options(WmsInventoryCount::statusFilterOptions())
-                    ->default(WmsInventoryCount::defaultStatusFilterValues())
                     ->query(function (Builder $query, array $data): Builder {
                         $statuses = $data['values'] ?? [];
 
