@@ -235,7 +235,7 @@ class InventoryCountService
             ]);
 
             DB::connection('sakemaru')->table(self::THEORY_UPDATE_RUNS_TABLE)
-                ->whereKey($runId)
+                ->where('id', $runId)
                 ->update([
                     'status' => 'finished',
                     'finished_at' => $finishedAt,
