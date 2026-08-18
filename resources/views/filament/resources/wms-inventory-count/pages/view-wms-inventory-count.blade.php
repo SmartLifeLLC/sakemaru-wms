@@ -404,7 +404,7 @@
                                 </th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">
                                     <button type="button" wire:click="sortBy('ending_system_quantity')" class="inline-flex items-center gap-1 font-bold hover:text-sky-700">
-                                        <span>理論在庫(終了)</span>
+                                        <span>理論在庫</span>
                                         <span class="text-[10px]">{{ $this->sortIndicator('ending_system_quantity') }}</span>
                                     </button>
                                 </th>

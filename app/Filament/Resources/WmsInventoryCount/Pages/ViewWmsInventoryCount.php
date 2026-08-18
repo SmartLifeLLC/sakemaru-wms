@@ -1201,7 +1201,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->visible(fn () => $record->canRefreshSystemQuantities())
                 ->requiresConfirmation()
                 ->modalHeading('終了時在庫取得')
-                ->modalDescription('現在の在庫数を理論在庫(終了)として取得します。理論在庫(開始)、実棚数、差異数量、現状保存状態は変更しません。初回生成時になかった在庫は理論在庫(開始)0で明細追加します。')
+                ->modalDescription('現在の在庫数を理論在庫として取得します。理論在庫(開始)、実棚数、差異数量、現状保存状態は変更しません。初回生成時になかった在庫は理論在庫(開始)0で明細追加します。')
                 ->modalFooterActionsAlignment(Alignment::End)
                 ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('取得する')->color('danger'))
                 ->modalCancelActionLabel('取得せず閉じる')
@@ -1214,7 +1214,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
                         Notification::make()
                             ->success()
                             ->title('終了時在庫を取得しました')
-                            ->body("理論在庫(終了): {$result['updated_items']}件 / 追加明細: {$result['inserted_items']}件 / 未取得: {$result['missing_real_stocks']}件")
+                            ->body("理論在庫: {$result['updated_items']}件 / 追加明細: {$result['inserted_items']}件 / 未取得: {$result['missing_real_stocks']}件")
                             ->send();
                     } catch (\Throwable $e) {
                         Notification::make()
@@ -1232,7 +1232,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->visible(fn () => $record->canRefreshSystemQuantities())
                 ->requiresConfirmation()
                 ->modalHeading('理論在庫更新')
-                ->modalDescription('選択した日の終了時点の受払残を再計算し、理論在庫(終了)に反映します。理論在庫(開始)、実棚数、現状保存状態は変更しません。')
+                ->modalDescription('選択した日の終了時点の受払残を再計算し、理論在庫に反映します。理論在庫(開始)、実棚数、現状保存状態は変更しません。')
                 ->modalFooterActionsAlignment(Alignment::End)
                 ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('更新する')->color('danger'))
                 ->modalCancelActionLabel('更新せず閉じる')
@@ -1252,7 +1252,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
                         Notification::make()
                             ->success()
                             ->title('理論在庫を更新しました')
-                            ->body("受払終了日: {$result['end_date']} / 理論在庫(終了): {$result['updated_items']}件 / 追加明細: {$result['inserted_items']}件 / 対象外: {$result['skipped_items']}件 / バックアップID: {$result['backup_run_id']}")
+                            ->body("受払終了日: {$result['end_date']} / 理論在庫: {$result['updated_items']}件 / 追加明細: {$result['inserted_items']}件 / 対象外: {$result['skipped_items']}件 / バックアップID: {$result['backup_run_id']}")
                             ->send();
                     } catch (\Throwable $e) {
                         Notification::make()
@@ -1486,29 +1486,10 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->icon('heroicon-o-check-circle')
                 ->color('info')
                 ->visible(fn () => $record->status === WmsInventoryCount::STATUS_CHECKED)
-                ->requiresConfirmation()
-                ->modalHeading('棚卸し確定')
-                ->modalDescription('棚卸しを確定し、差異分の実棚変更伝票作成キューを登録します。受払計算済みの場合は棚卸し実施日を伝票日とし、実施後受払を加味した理論数量・実棚数量で登録します。この操作は取り消せません。')
-                ->modalContent(fn () => view('filament.resources.wms-inventory-count.modals.inventory-adjustment-exclusions', [
-                    'summary' => (new InventoryCountService)->inventoryAdjustmentExcludedSummary($record),
-                ]))
-                ->modalSubmitActionLabel('除外して確定')
-                ->action(function () use ($record) {
-                    try {
-                        (new InventoryCountService)->confirm($record, auth()->id());
-                        Notification::make()->success()->title('棚卸しを確定しました')->body('差異がある場合は実棚変更伝票作成キューを登録しています。')->send();
-                    } catch (\Throwable $e) {
-                        Notification::make()
-                            ->danger()
-                            ->title('棚卸しを確定できません')
-                            ->body($e->getMessage())
-                            ->send();
-
-                        return null;
-                    }
-
-                    return redirect()->route('filament.admin.resources.wms-inventory-counts.view', $record);
-                }),
+                ->action(fn () => Notification::make()
+                    ->warning()
+                    ->title(InventoryCountService::CONFIRM_DISABLED_MESSAGE)
+                    ->send()),
 
             Action::make('cancel')
                 ->label('取消')

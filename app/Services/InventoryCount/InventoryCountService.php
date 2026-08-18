@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\Schema;
 
 class InventoryCountService
 {
+    public const CONFIRM_DISABLED_MESSAGE = '現在利用できません。';
+
     public const INVENTORY_ADJUSTMENT_EXCLUDED_PREFIXES = ['4', '5', '7', '8', '9'];
 
     private const THEORY_UPDATE_RUNS_TABLE = 'wms_inventory_count_theory_update_runs';
@@ -43,12 +45,81 @@ class InventoryCountService
 
     public function takeSnapshot(WmsInventoryCount $inventoryCount): int
     {
-        $warehouseId = $inventoryCount->warehouse_id;
+        $countDate = CarbonImmutable::parse($inventoryCount->count_date)->toDateString();
+        $ledgerService = new InventoryCountLedgerBalanceService;
+        $balances = $this->calculateLedgerBalancesWithoutWriteLocks(
+            $ledgerService,
+            (int) $inventoryCount->client_id,
+            (int) $inventoryCount->warehouse_id,
+            $countDate,
+        );
+
+        return DB::connection('sakemaru')->transaction(function () use ($inventoryCount, $ledgerService, $balances) {
+            $inventoryCount = WmsInventoryCount::query()
+                ->whereKey($inventoryCount->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $inserted = $this->insertInitialSnapshotItemsFromLedger($inventoryCount, $balances, $ledgerService);
+            $now = now();
+            $updateData = ['snapshot_taken_at' => $now];
+
+            if (Schema::connection('sakemaru')->hasColumn('wms_inventory_counts', 'ending_stock_taken_at')
+                && Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')
+            ) {
+                $updateData['ending_stock_taken_at'] = $now;
+            }
+
+            $inventoryCount->update($updateData);
+
+            return $inserted;
+        });
+    }
+
+    /**
+     * @param  array<int, float>  $balances
+     */
+    private function insertInitialSnapshotItemsFromLedger(
+        WmsInventoryCount $inventoryCount,
+        array $balances,
+        InventoryCountLedgerBalanceService $ledgerService,
+    ): int {
+        $warehouseId = (int) $inventoryCount->warehouse_id;
+        $clientId = (int) $inventoryCount->client_id;
         $inserted = 0;
 
         $lotRanked = DB::raw(
             '(SELECT rsl.real_stock_id, rsl.location_id, rsl.floor_id, ROW_NUMBER() OVER (PARTITION BY rsl.real_stock_id ORDER BY rsl.updated_at DESC, rsl.id DESC) AS rn FROM real_stock_lots rsl WHERE rsl.status = \'ACTIVE\') as lot'
         );
+        $hasEndingSystemQuantityColumn = Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity');
+
+        $stockItemIds = DB::connection('sakemaru')
+            ->table('real_stocks as rs')
+            ->leftJoin($lotRanked, function ($join) {
+                $join->on('lot.real_stock_id', '=', 'rs.id')
+                    ->where('lot.rn', '=', 1);
+            })
+            ->where('rs.client_id', $clientId)
+            ->where('rs.warehouse_id', $warehouseId)
+            ->where(function ($query) {
+                $query->where('rs.current_quantity', '!=', 0)
+                    ->orWhereNotNull('lot.real_stock_id');
+            })
+            ->distinct()
+            ->pluck('rs.item_id')
+            ->map(fn ($itemId): int => (int) $itemId)
+            ->all();
+
+        $eligibleItemIds = $ledgerService->eligibleItemIds(
+            array_merge(array_keys($balances), $stockItemIds),
+            $clientId,
+        );
+
+        if ($eligibleItemIds === []) {
+            return $inserted;
+        }
+
+        $seenItemIds = [];
 
         DB::connection('sakemaru')
             ->table('real_stocks as rs')
@@ -59,7 +130,9 @@ class InventoryCountService
             })
             ->leftJoin('locations as l', 'l.id', '=', 'lot.location_id')
             ->leftJoin('floors as f', 'f.id', '=', DB::raw('COALESCE(lot.floor_id, l.floor_id)'))
+            ->where('rs.client_id', $clientId)
             ->where('rs.warehouse_id', $warehouseId)
+            ->whereIn('rs.item_id', $eligibleItemIds)
             ->where(function ($query) {
                 $query->where('rs.current_quantity', '!=', 0)
                     ->orWhereNotNull('lot.real_stock_id');
@@ -76,20 +149,27 @@ class InventoryCountService
                 'l.code1 as location_code1',
                 'l.code2 as location_code2',
                 'l.code3 as location_code3',
-                'rs.current_quantity as system_quantity',
                 DB::raw('COALESCE((SELECT ip.cost_unit_price FROM item_prices ip WHERE ip.item_id = i.id AND ip.is_active = 1 LIMIT 1), 0) as cost_price'),
             ])
             ->orderBy('f.name')
             ->orderBy('l.code1')
             ->orderBy('l.code2')
             ->orderBy('l.code3')
-            ->chunk(1000, function ($rows) use ($inventoryCount, &$inserted) {
+            ->orderBy('rs.id')
+            ->chunk(1000, function ($rows) use ($inventoryCount, $balances, $hasEndingSystemQuantityColumn, &$seenItemIds, &$inserted) {
+                $now = now();
                 $records = [];
+
                 foreach ($rows as $row) {
-                    $records[] = [
+                    $itemId = (int) $row->item_id;
+                    $systemQuantity = isset($seenItemIds[$itemId])
+                        ? 0
+                        : (int) round($balances[$itemId] ?? 0);
+
+                    $record = [
                         'inventory_count_id' => $inventoryCount->id,
                         'real_stock_id' => $row->real_stock_id,
-                        'item_id' => $row->item_id,
+                        'item_id' => $itemId,
                         'item_code' => $row->item_code ?? '',
                         'item_name' => $row->item_name ?? '',
                         'barcode' => $row->barcode,
@@ -104,17 +184,34 @@ class InventoryCountService
                             $row->location_code2,
                             $row->location_code3
                         ),
-                        'system_quantity' => $row->system_quantity,
+                        'system_quantity' => $systemQuantity,
                         'cost_price' => $row->cost_price,
-                        'created_at' => now(),
-                        'updated_at' => now(),
+                        'created_at' => $now,
+                        'updated_at' => $now,
                     ];
+
+                    if ($hasEndingSystemQuantityColumn) {
+                        $record['ending_system_quantity'] = $systemQuantity;
+                    }
+
+                    $records[] = $record;
+                    $seenItemIds[$itemId] = true;
                 }
+
+                if ($records === []) {
+                    return;
+                }
+
                 WmsInventoryCountItem::insert($records);
                 $inserted += count($records);
             });
 
-        $inventoryCount->update(['snapshot_taken_at' => now()]);
+        $inserted += $this->insertMissingInitialLedgerStockItems(
+            $inventoryCount,
+            $balances,
+            array_keys($seenItemIds),
+            $ledgerService,
+        );
 
         return $inserted;
     }
@@ -175,7 +272,7 @@ class InventoryCountService
 
         $ledgerService = new InventoryCountLedgerBalanceService;
         $calculationStartedAt = microtime(true);
-        $balances = $this->calculateEndingLedgerBalancesWithoutWriteLocks(
+        $balances = $this->calculateLedgerBalancesWithoutWriteLocks(
             $ledgerService,
             (int) $inventoryCount->client_id,
             (int) $inventoryCount->warehouse_id,
@@ -286,7 +383,7 @@ class InventoryCountService
      *
      * @return array<int, float>
      */
-    private function calculateEndingLedgerBalancesWithoutWriteLocks(
+    private function calculateLedgerBalancesWithoutWriteLocks(
         InventoryCountLedgerBalanceService $ledgerService,
         int $clientId,
         int $warehouseId,
@@ -850,6 +947,125 @@ class InventoryCountService
     }
 
     /**
+     * @param  array<int, float>  $balances
+     * @param  array<int, int>  $existingItemIds
+     */
+    private function insertMissingInitialLedgerStockItems(
+        WmsInventoryCount $inventoryCount,
+        array $balances,
+        array $existingItemIds,
+        InventoryCountLedgerBalanceService $ledgerService,
+    ): int {
+        $existingItemIdMap = array_flip(array_map('intval', $existingItemIds));
+        $eligibleItemIds = $ledgerService->eligibleItemIds(array_keys($balances), (int) $inventoryCount->client_id);
+        $missingItemIds = collect($eligibleItemIds)
+            ->filter(fn (int $itemId): bool => ! isset($existingItemIdMap[$itemId]) && abs((float) ($balances[$itemId] ?? 0)) > 0.0001)
+            ->values()
+            ->all();
+
+        if ($missingItemIds === []) {
+            return 0;
+        }
+
+        $inserted = 0;
+        $lotRanked = DB::raw(
+            '(SELECT rsl.real_stock_id, rsl.location_id, rsl.floor_id, ROW_NUMBER() OVER (PARTITION BY rsl.real_stock_id ORDER BY rsl.updated_at DESC, rsl.id DESC) AS rn FROM real_stock_lots rsl WHERE rsl.status = \'ACTIVE\') as lot'
+        );
+        $hasEndingSystemQuantityColumn = Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity');
+
+        foreach (array_chunk($missingItemIds, 500) as $chunkItemIds) {
+            $stockRows = DB::connection('sakemaru')
+                ->table('real_stocks as rs')
+                ->leftJoin($lotRanked, function ($join) {
+                    $join->on('lot.real_stock_id', '=', 'rs.id')
+                        ->where('lot.rn', '=', 1);
+                })
+                ->leftJoin('locations as l', 'l.id', '=', 'lot.location_id')
+                ->leftJoin('floors as f', 'f.id', '=', DB::raw('COALESCE(lot.floor_id, l.floor_id)'))
+                ->where('rs.client_id', $inventoryCount->client_id)
+                ->where('rs.warehouse_id', $inventoryCount->warehouse_id)
+                ->whereIn('rs.item_id', $chunkItemIds)
+                ->orderBy('rs.id')
+                ->get([
+                    'rs.id as real_stock_id',
+                    'rs.item_id',
+                    'l.id as location_id',
+                    'f.id as floor_id',
+                    'f.name as floor_name',
+                    'l.code1 as location_code1',
+                    'l.code2 as location_code2',
+                    'l.code3 as location_code3',
+                ])
+                ->groupBy('item_id')
+                ->map(fn ($rows) => $rows->first());
+
+            $items = DB::connection('sakemaru')
+                ->table('items as i')
+                ->whereIn('i.id', $chunkItemIds)
+                ->select([
+                    'i.id as item_id',
+                    'i.code as item_code',
+                    'i.name as item_name',
+                    DB::raw("(SELECT isi.search_string FROM item_search_information isi WHERE isi.item_id = i.id AND isi.code_type = 'JAN' AND isi.quantity_type = 'PIECE' AND isi.is_active = 1 ORDER BY isi.priority IS NULL, isi.priority, isi.id LIMIT 1) as barcode"),
+                    DB::raw('COALESCE((SELECT ip.cost_unit_price FROM item_prices ip WHERE ip.item_id = i.id AND ip.is_active = 1 LIMIT 1), 0) as cost_price'),
+                ])
+                ->get()
+                ->keyBy('item_id');
+
+            $now = now();
+            $records = [];
+
+            foreach ($chunkItemIds as $itemId) {
+                $item = $items->get($itemId);
+                if (! $item) {
+                    continue;
+                }
+
+                $stock = $stockRows->get($itemId);
+                $systemQuantity = (int) round($balances[(int) $item->item_id] ?? 0);
+                $record = [
+                    'inventory_count_id' => $inventoryCount->id,
+                    'real_stock_id' => $stock?->real_stock_id,
+                    'item_id' => $item->item_id,
+                    'item_code' => $item->item_code ?? '',
+                    'item_name' => $item->item_name ?? '',
+                    'barcode' => $item->barcode,
+                    'location_id' => $stock?->location_id,
+                    'floor_id' => $stock?->floor_id,
+                    'floor_name' => $stock?->floor_name,
+                    'location_code1' => $stock?->location_code1,
+                    'location_code2' => $stock?->location_code2,
+                    'location_code3' => $stock?->location_code3,
+                    'location_no' => Location::formatCode(
+                        $stock?->location_code1,
+                        $stock?->location_code2,
+                        $stock?->location_code3
+                    ),
+                    'system_quantity' => $systemQuantity,
+                    'cost_price' => $item->cost_price,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+
+                if ($hasEndingSystemQuantityColumn) {
+                    $record['ending_system_quantity'] = $systemQuantity;
+                }
+
+                $records[] = $record;
+            }
+
+            if ($records === []) {
+                continue;
+            }
+
+            WmsInventoryCountItem::insert($records);
+            $inserted += count($records);
+        }
+
+        return $inserted;
+    }
+
+    /**
      * @param  array<int, int>  $insertedItemIds
      */
     private function backupInsertedTheoryUpdateRows(int $runId, array $insertedItemIds): int
@@ -926,7 +1142,30 @@ class InventoryCountService
             throw new \InvalidArgumentException('商品CDを入力してください。');
         }
 
-        return DB::connection('sakemaru')->transaction(function () use ($inventoryCount, $itemCode) {
+        $item = DB::connection('sakemaru')
+            ->table('items')
+            ->where('code', $itemCode)
+            ->first(['id', 'code', 'name']);
+
+        if (! $item) {
+            throw new \RuntimeException("商品CD {$itemCode} が見つかりません。");
+        }
+
+        $ledgerService = new InventoryCountLedgerBalanceService;
+        if ($ledgerService->eligibleItemIds([(int) $item->id], (int) $inventoryCount->client_id) === []) {
+            throw new \RuntimeException("商品CD {$itemCode} は棚卸しの受払計算対象外です。");
+        }
+
+        $countDate = CarbonImmutable::parse($inventoryCount->count_date)->toDateString();
+        $balances = $this->calculateLedgerBalancesWithoutWriteLocks(
+            $ledgerService,
+            (int) $inventoryCount->client_id,
+            (int) $inventoryCount->warehouse_id,
+            $countDate,
+        );
+        $ledgerQuantity = (int) round($balances[(int) $item->id] ?? 0);
+
+        return DB::connection('sakemaru')->transaction(function () use ($inventoryCount, $item, $ledgerQuantity) {
             $inventoryCount = WmsInventoryCount::query()
                 ->whereKey($inventoryCount->id)
                 ->lockForUpdate()
@@ -937,15 +1176,6 @@ class InventoryCountService
                 WmsInventoryCount::STATUS_CANCELLED,
             ], true)) {
                 throw new \RuntimeException('確定済または取消済の棚卸しには追加できません。');
-            }
-
-            $item = DB::connection('sakemaru')
-                ->table('items')
-                ->where('code', $itemCode)
-                ->first(['id', 'code', 'name']);
-
-            if (! $item) {
-                throw new \RuntimeException("商品CD {$itemCode} が見つかりません。");
             }
 
             $latestLot = DB::raw(
@@ -960,12 +1190,12 @@ class InventoryCountService
                 })
                 ->leftJoin('locations as l', 'l.id', '=', 'lot.location_id')
                 ->leftJoin('floors as f', 'f.id', '=', DB::raw('COALESCE(lot.floor_id, l.floor_id)'))
+                ->where('rs.client_id', $inventoryCount->client_id)
                 ->where('rs.warehouse_id', $inventoryCount->warehouse_id)
                 ->where('rs.item_id', $item->id)
                 ->select([
                     'rs.id as real_stock_id',
                     'rs.item_id',
-                    'rs.current_quantity as system_quantity',
                     'l.id as location_id',
                     'f.id as floor_id',
                     'f.name as floor_name',
@@ -978,10 +1208,6 @@ class InventoryCountService
                 ->orderBy('rs.id')
                 ->get();
 
-            if ($stocks->isEmpty()) {
-                throw new \RuntimeException("商品CD {$itemCode} はこの倉庫の在庫行がありません。");
-            }
-
             $existingRealStockIds = WmsInventoryCountItem::query()
                 ->where('inventory_count_id', $inventoryCount->id)
                 ->whereIn('real_stock_id', $stocks->pluck('real_stock_id'))
@@ -992,13 +1218,22 @@ class InventoryCountService
             $existingMap = array_flip($existingRealStockIds);
             $records = [];
             $now = now();
+            $hasEndingSystemQuantityColumn = Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity');
+            $hasExistingItemRow = WmsInventoryCountItem::query()
+                ->where('inventory_count_id', $inventoryCount->id)
+                ->where('item_id', $item->id)
+                ->exists();
+            $ledgerQuantityAssigned = $hasExistingItemRow;
 
             foreach ($stocks as $stock) {
                 if (isset($existingMap[(int) $stock->real_stock_id])) {
                     continue;
                 }
 
-                $records[] = [
+                $systemQuantity = $ledgerQuantityAssigned ? 0 : $ledgerQuantity;
+                $ledgerQuantityAssigned = true;
+
+                $record = [
                     'inventory_count_id' => $inventoryCount->id,
                     'real_stock_id' => $stock->real_stock_id,
                     'item_id' => $stock->item_id,
@@ -1016,11 +1251,58 @@ class InventoryCountService
                         $stock->location_code2,
                         $stock->location_code3
                     ),
-                    'system_quantity' => $stock->system_quantity,
+                    'system_quantity' => $systemQuantity,
                     'cost_price' => $stock->cost_price,
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
+
+                if ($hasEndingSystemQuantityColumn) {
+                    $record['ending_system_quantity'] = $systemQuantity;
+                }
+
+                $records[] = $record;
+            }
+
+            if ($stocks->isEmpty() && ! $hasExistingItemRow) {
+                $record = [
+                    'inventory_count_id' => $inventoryCount->id,
+                    'real_stock_id' => null,
+                    'item_id' => $item->id,
+                    'item_code' => $item->code ?? '',
+                    'item_name' => $item->name ?? '',
+                    'barcode' => DB::connection('sakemaru')
+                        ->table('item_search_information')
+                        ->where('item_id', $item->id)
+                        ->where('code_type', 'JAN')
+                        ->where('quantity_type', 'PIECE')
+                        ->where('is_active', true)
+                        ->orderByRaw('priority IS NULL')
+                        ->orderBy('priority')
+                        ->orderBy('id')
+                        ->value('search_string'),
+                    'location_id' => null,
+                    'floor_id' => null,
+                    'floor_name' => null,
+                    'location_code1' => null,
+                    'location_code2' => null,
+                    'location_code3' => null,
+                    'location_no' => null,
+                    'system_quantity' => $ledgerQuantity,
+                    'cost_price' => DB::connection('sakemaru')
+                        ->table('item_prices')
+                        ->where('item_id', $item->id)
+                        ->where('is_active', true)
+                        ->value('cost_unit_price') ?? 0,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+
+                if ($hasEndingSystemQuantityColumn) {
+                    $record['ending_system_quantity'] = $ledgerQuantity;
+                }
+
+                $records[] = $record;
             }
 
             if ($records !== []) {
@@ -1030,9 +1312,9 @@ class InventoryCountService
             return [
                 'item_code' => (string) $item->code,
                 'item_name' => (string) $item->name,
-                'stock_count' => $stocks->count(),
+                'stock_count' => $stocks->isEmpty() ? 1 : $stocks->count(),
                 'inserted_count' => count($records),
-                'existing_count' => $stocks->count() - count($records),
+                'existing_count' => max(0, ($stocks->isEmpty() ? 1 : $stocks->count()) - count($records)),
             ];
         });
     }
@@ -1140,6 +1422,8 @@ class InventoryCountService
 
     public function confirm(WmsInventoryCount $inventoryCount, int $userId): void
     {
+        throw new \RuntimeException(self::CONFIRM_DISABLED_MESSAGE);
+
         DB::connection('sakemaru')->transaction(function () use ($inventoryCount, $userId) {
             $inventoryCount = WmsInventoryCount::query()
                 ->whereKey($inventoryCount->id)
