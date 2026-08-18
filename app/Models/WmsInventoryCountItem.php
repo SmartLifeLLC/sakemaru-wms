@@ -115,12 +115,7 @@ class WmsInventoryCountItem extends WmsModel
             return $confirmedDifference;
         }
 
-        $quantity = match ($round) {
-            1 => $this->first_count_quantity,
-            2 => $this->second_count_quantity,
-            3 => $this->final_count_quantity,
-            default => null,
-        };
+        $quantity = $this->roundQuantity($round);
 
         if ($quantity === null) {
             return null;
@@ -129,6 +124,16 @@ class WmsInventoryCountItem extends WmsModel
         $baseQuantity = $this->ending_system_quantity ?? $this->system_quantity;
 
         return (float) $quantity - (float) $baseQuantity;
+    }
+
+    public function roundQuantity(int $round): ?int
+    {
+        return match ($round) {
+            1 => $this->first_count_quantity,
+            2 => $this->second_count_quantity ?? $this->first_count_quantity,
+            3 => $this->final_count_quantity,
+            default => null,
+        };
     }
 
     public function confirmedRoundSystemQuantity(int $round): ?float

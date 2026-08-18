@@ -467,12 +467,12 @@
                                         },
                                         get counted() {
                                             if (this.activeRound == 3) return this.toInt(this.final_);
-                                            if (this.activeRound == 2) return this.toInt(this.second);
+                                            if (this.activeRound == 2) return this.toInt(this.second) ?? this.toInt(this.first);
                                             return this.toInt(this.first);
                                         },
                                         get originalCounted() {
                                             if (this.activeRound == 3) return this.toInt(this.origFinal);
-                                            if (this.activeRound == 2) return this.toInt(this.origSecond);
+                                            if (this.activeRound == 2) return this.toInt(this.origSecond) ?? this.toInt(this.origFirst);
                                             return this.toInt(this.origFirst);
                                         },
                                         diffFor(quantity, confirmed, confirmedDiff) {
@@ -483,7 +483,7 @@
                                             return this.diffFor(this.toInt(this.first), this.firstConfirmed, this.firstConfirmedDiff);
                                         },
                                         get secondDiff() {
-                                            return this.diffFor(this.toInt(this.second), this.secondConfirmed, this.secondConfirmedDiff);
+                                            return this.diffFor(this.toInt(this.second) ?? this.toInt(this.first), this.secondConfirmed, this.secondConfirmedDiff);
                                         },
                                         get finalDiff() {
                                             return this.diffFor(this.toInt(this.final_), this.finalConfirmed, this.finalConfirmedDiff);
@@ -495,7 +495,7 @@
                                         },
                                         get originalEndDiff() {
                                             if (this.activeRound == 3) return this.diffFor(this.toInt(this.origFinal), this.finalConfirmed, this.finalConfirmedDiff);
-                                            if (this.activeRound == 2) return this.diffFor(this.toInt(this.origSecond), this.secondConfirmed, this.secondConfirmedDiff);
+                                            if (this.activeRound == 2) return this.diffFor(this.toInt(this.origSecond) ?? this.toInt(this.origFirst), this.secondConfirmed, this.secondConfirmedDiff);
                                             return this.diffFor(this.toInt(this.origFirst), this.firstConfirmed, this.firstConfirmedDiff);
                                         },
                                         get endDiffAmt() {

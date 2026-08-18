@@ -92,7 +92,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
         $this->assertNull($endOnlyRow->getAttribute('pdf_start_difference_quantity'));
     }
 
-    public function test_diff_list_for_selected_round_does_not_fallback_to_other_rounds(): void
+    public function test_diff_list_for_second_round_adopts_first_quantity_when_second_is_blank(): void
     {
         if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')) {
             $this->markTestSkipped('wms_inventory_count_items.ending_system_quantity is not available.');
@@ -157,13 +157,15 @@ class InventoryDiffListPdfServiceTest extends TestCase
 
         $items = $this->diffListItems($inventoryCount, 2);
 
-        $this->assertSame([$secondRoundDiff->id], $items->pluck('id')->all());
-        $this->assertFalse($items->contains('id', $firstRoundOnly->id));
+        $this->assertSame([$firstRoundOnly->id, $secondRoundDiff->id], $items->pluck('id')->all());
         $this->assertFalse($items->contains('id', $secondRoundMatched->id));
         $this->assertFalse($items->contains('id', $finalRoundOnly->id));
 
+        $firstRoundOnlyRow = $items->firstWhere('id', $firstRoundOnly->id);
         $secondRoundDiffRow = $items->firstWhere('id', $secondRoundDiff->id);
 
+        $this->assertSame(7, $firstRoundOnlyRow->getAttribute('pdf_actual_quantity'));
+        $this->assertEquals(-3.0, $firstRoundOnlyRow->getAttribute('pdf_end_difference_quantity'));
         $this->assertSame(6, $secondRoundDiffRow->getAttribute('pdf_actual_quantity'));
         $this->assertEquals(-4.0, $secondRoundDiffRow->getAttribute('pdf_end_difference_quantity'));
     }
@@ -207,6 +209,53 @@ class InventoryDiffListPdfServiceTest extends TestCase
         ]);
 
         $items = $this->diffListItems($inventoryCount, 1);
+        $row = $items->firstWhere('id', $item->id);
+
+        $this->assertNotNull($row);
+        $this->assertSame(7, $row->getAttribute('pdf_actual_quantity'));
+        $this->assertSame(10, (int) $row->getAttribute('pdf_system_quantity'));
+        $this->assertEquals(-3.0, $row->getAttribute('pdf_end_difference_quantity'));
+    }
+
+    public function test_diff_list_for_confirmed_second_round_uses_fallback_snapshot_when_second_is_blank(): void
+    {
+        foreach ([
+            'ending_system_quantity',
+            'second_count_confirmed_system_quantity',
+            'second_count_confirmed_difference_quantity',
+        ] as $column) {
+            if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', $column)) {
+                $this->markTestSkipped("wms_inventory_count_items.{$column} is not available.");
+            }
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => 'PDF2回目確定差分テスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'current_count_round' => 3,
+            'second_count_confirmed_at' => now(),
+        ]);
+
+        $item = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999307,
+            'item_code' => 'ROUND-PDF-007',
+            'item_name' => '2回目未入力確定差分保持',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 12,
+            'first_count_quantity' => 7,
+            'second_count_confirmed_system_quantity' => 10,
+            'second_count_confirmed_difference_quantity' => -3,
+            'second_count_confirmed_difference_amount' => -30,
+            'cost_price' => 10,
+        ]);
+
+        $items = $this->diffListItems($inventoryCount, 2);
         $row = $items->firstWhere('id', $item->id);
 
         $this->assertNotNull($row);

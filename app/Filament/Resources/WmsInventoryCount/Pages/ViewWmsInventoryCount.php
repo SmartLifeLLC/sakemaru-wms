@@ -279,7 +279,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
             return (int) $confirmedDifference;
         }
 
-        $countedQty = $item->{$this->roundColumn($round)};
+        $countedQty = $item->roundQuantity($round);
         $baseQty = $item->ending_system_quantity;
 
         if ($countedQty === null || $baseQty === null) {
@@ -336,17 +336,33 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
         match ($tab) {
             'diff' => $useConfirmedDifference
-                ? $query->whereNotNull($roundColumn)->whereNotNull($confirmedDifferenceColumn)->where($confirmedDifferenceColumn, '!=', 0)
+                ? $query->whereNotNull($confirmedDifferenceColumn)->where($confirmedDifferenceColumn, '!=', 0)
+                : ($this->activeCountRound === 2
+                    ? $query
+                        ->where(function ($query) use ($roundColumn) {
+                            $query->whereNotNull($roundColumn)
+                                ->orWhereNotNull('first_count_quantity');
+                        })
+                        ->whereNotNull('ending_system_quantity')
+                        ->whereRaw('COALESCE(second_count_quantity, first_count_quantity) != ending_system_quantity')
                 : $query
                     ->whereNotNull($roundColumn)
                     ->whereNotNull('ending_system_quantity')
-                    ->whereColumn($roundColumn, '!=', 'ending_system_quantity'),
+                    ->whereColumn($roundColumn, '!=', 'ending_system_quantity')),
             'matched' => $useConfirmedDifference
-                ? $query->whereNotNull($roundColumn)->where($confirmedDifferenceColumn, 0)
+                ? $query->whereNotNull($confirmedDifferenceColumn)->where($confirmedDifferenceColumn, 0)
+                : ($this->activeCountRound === 2
+                    ? $query
+                        ->where(function ($query) use ($roundColumn) {
+                            $query->whereNotNull($roundColumn)
+                                ->orWhereNotNull('first_count_quantity');
+                        })
+                        ->whereNotNull('ending_system_quantity')
+                        ->whereRaw('COALESCE(second_count_quantity, first_count_quantity) = ending_system_quantity')
                 : $query
                     ->whereNotNull($roundColumn)
                     ->whereNotNull('ending_system_quantity')
-                    ->whereColumn($roundColumn, 'ending_system_quantity'),
+                    ->whereColumn($roundColumn, 'ending_system_quantity')),
             'uncounted' => $query->whereNull($roundColumn),
             default => null,
         };
@@ -371,8 +387,12 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
             if ($this->isRoundConfirmed($this->activeCountRound) && $this->inventoryCountItemColumnExists($confirmedDifferenceColumn)) {
                 $query
-                    ->orderByRaw("CASE WHEN {$roundColumn} IS NULL OR {$confirmedDifferenceColumn} IS NULL THEN 1 ELSE 0 END")
+                    ->orderByRaw("CASE WHEN {$confirmedDifferenceColumn} IS NULL THEN 1 ELSE 0 END")
                     ->orderBy($confirmedDifferenceColumn, $direction);
+            } elseif ($this->activeCountRound === 2) {
+                $query
+                    ->orderByRaw('CASE WHEN COALESCE(second_count_quantity, first_count_quantity) IS NULL OR ending_system_quantity IS NULL THEN 1 ELSE 0 END')
+                    ->orderByRaw("(COALESCE(second_count_quantity, first_count_quantity) - ending_system_quantity) {$direction}");
             } else {
                 $query
                     ->orderByRaw("CASE WHEN {$roundColumn} IS NULL OR ending_system_quantity IS NULL THEN 1 ELSE 0 END")
@@ -601,7 +621,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
             $countedQty = match ($this->activeCountRound) {
                 1 => $first,
-                2 => $second,
+                2 => $second ?? $first,
                 3 => $final,
             };
             if ($countedQty !== null) {
@@ -734,19 +754,25 @@ class ViewWmsInventoryCount extends Page implements HasForms
             return;
         }
 
-        $this->storeConfirmedRoundDifferences($round);
-
         $updates = [
             $this->roundConfirmedAtColumn($round) => now(),
             $this->roundConfirmedByColumn($round) => auth()->id(),
         ];
 
         if ($round < 3) {
-            $this->seedNextRoundQuantity($round);
-
             $updates['current_count_round'] = max($this->currentProgressRound(), $round + 1);
             $updates['status'] = WmsInventoryCount::STATUS_COUNTING;
-            $this->record->update($updates);
+
+            DB::connection('sakemaru')->transaction(function () use ($round, $updates): void {
+                if ($round === 2) {
+                    $this->fillMissingSecondRoundQuantitiesFromFirst();
+                }
+
+                $this->storeConfirmedRoundDifferences($round);
+                $this->seedNextRoundQuantity($round);
+                $this->record->update($updates);
+            });
+
             $this->record->refresh();
             $this->activeCountRound = $this->currentProgressRound();
             $this->listTab = 'all';
@@ -762,7 +788,12 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
         $updates['current_count_round'] = 3;
         $updates['status'] = WmsInventoryCount::STATUS_CHECKED;
-        $this->record->update($updates);
+
+        DB::connection('sakemaru')->transaction(function () use ($round, $updates): void {
+            $this->storeConfirmedRoundDifferences($round);
+            $this->record->update($updates);
+        });
+
         $this->record->refresh();
         Notification::make()->success()->title('3回目を確定しました')->body('差異確認済に変更しました')->send();
     }
@@ -860,6 +891,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
         WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
             ->select([
                 'id',
+                'first_count_quantity',
                 $roundColumn,
                 'system_quantity',
                 'ending_system_quantity',
@@ -868,9 +900,9 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 $differenceColumn,
                 $amountColumn,
             ])
-            ->chunkById(500, function ($items) use ($roundColumn, $systemColumn, $differenceColumn, $amountColumn) {
+            ->chunkById(500, function ($items) use ($round, $systemColumn, $differenceColumn, $amountColumn) {
                 foreach ($items as $item) {
-                    $countedQty = $item->{$roundColumn};
+                    $countedQty = $item->roundQuantity($round);
                     $confirmedSystemQty = $countedQty === null
                         ? null
                         : (int) ($item->ending_system_quantity ?? $item->system_quantity);
@@ -897,14 +929,23 @@ class ViewWmsInventoryCount extends Page implements HasForms
             });
     }
 
+    private function fillMissingSecondRoundQuantitiesFromFirst(): void
+    {
+        WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
+            ->whereNull('second_count_quantity')
+            ->whereNotNull('first_count_quantity')
+            ->update([
+                'second_count_quantity' => DB::raw('first_count_quantity'),
+                'updated_at' => now(),
+            ]);
+    }
+
     private function calculateRoundDifferences(int $round): void
     {
-        $roundColumn = $this->roundColumn($round);
-
         WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
-            ->chunkById(500, function ($items) use ($roundColumn) {
+            ->chunkById(500, function ($items) use ($round) {
                 foreach ($items as $item) {
-                    $countedQty = $item->{$roundColumn};
+                    $countedQty = $item->roundQuantity($round);
 
                     if ($countedQty === null) {
                         $item->difference_quantity = null;
@@ -925,23 +966,30 @@ class ViewWmsInventoryCount extends Page implements HasForms
         $nextColumn = $this->roundColumn($round + 1);
 
         WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
-            ->whereNotNull($currentColumn)
+            ->when($round === 2, fn ($query) => $query->where(function ($query) use ($currentColumn) {
+                $query->whereNotNull($currentColumn)
+                    ->orWhereNotNull('first_count_quantity');
+            }), fn ($query) => $query->whereNotNull($currentColumn))
             ->whereNull($nextColumn)
-            ->where(function ($query) use ($currentColumn) {
+            ->where(function ($query) use ($round, $currentColumn) {
+                $countExpression = $round === 2
+                    ? 'COALESCE(second_count_quantity, first_count_quantity)'
+                    : $currentColumn;
+
                 $query
-                    ->where(function ($query) use ($currentColumn) {
+                    ->where(function ($query) use ($countExpression) {
                         $query
                             ->whereNotNull('ending_system_quantity')
-                            ->whereColumn($currentColumn, 'ending_system_quantity');
+                            ->whereRaw("{$countExpression} = ending_system_quantity");
                     })
-                    ->orWhere(function ($query) use ($currentColumn) {
+                    ->orWhere(function ($query) use ($countExpression) {
                         $query
                             ->whereNull('ending_system_quantity')
-                            ->whereColumn($currentColumn, 'system_quantity');
+                            ->whereRaw("{$countExpression} = system_quantity");
                     });
             })
             ->update([
-                $nextColumn => DB::raw($currentColumn),
+                $nextColumn => DB::raw($round === 2 ? 'COALESCE(second_count_quantity, first_count_quantity)' : $currentColumn),
                 'updated_at' => now(),
             ]);
     }

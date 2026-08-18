@@ -257,6 +257,106 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertSame(-1, $different->refresh()->first_count_confirmed_difference_quantity);
     }
 
+    public function test_second_round_confirmation_adopts_first_quantity_when_second_is_blank(): void
+    {
+        foreach ([
+            'ending_system_quantity',
+            'second_count_confirmed_system_quantity',
+            'second_count_confirmed_difference_quantity',
+            'second_count_confirmed_difference_amount',
+        ] as $column) {
+            if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', $column)) {
+                $this->markTestSkipped("wms_inventory_count_items.{$column} is not available.");
+            }
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => '2回目確定テスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'current_count_round' => 2,
+            'first_count_confirmed_at' => now(),
+        ]);
+
+        $fallbackMatched = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999505,
+            'item_code' => 'ROUND005',
+            'item_name' => '2回目未入力1回目一致',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 8,
+            'first_count_quantity' => 8,
+            'cost_price' => 10,
+        ]);
+
+        $fallbackDifferent = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999506,
+            'item_code' => 'ROUND006',
+            'item_name' => '2回目未入力1回目差異',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 8,
+            'first_count_quantity' => 7,
+            'cost_price' => 10,
+        ]);
+
+        $secondDifferent = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999507,
+            'item_code' => 'ROUND007',
+            'item_name' => '2回目入力差異',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 8,
+            'first_count_quantity' => 7,
+            'second_count_quantity' => 6,
+            'cost_price' => 20,
+        ]);
+
+        $uncounted = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999508,
+            'item_code' => 'ROUND008',
+            'item_name' => '2回目未入力1回目なし',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 8,
+            'cost_price' => 10,
+        ]);
+
+        $page = new ViewWmsInventoryCount;
+        $page->record = $inventoryCount;
+        $page->activeCountRound = 2;
+
+        $page->confirmRound(2);
+
+        $this->assertSame(3, $inventoryCount->refresh()->current_count_round);
+        $this->assertNotNull($inventoryCount->second_count_confirmed_at);
+        $this->assertSame(8, $fallbackMatched->refresh()->second_count_confirmed_system_quantity);
+        $this->assertSame(8, $fallbackMatched->second_count_quantity);
+        $this->assertSame(0, $fallbackMatched->second_count_confirmed_difference_quantity);
+        $this->assertSame('0.00', $fallbackMatched->second_count_confirmed_difference_amount);
+        $this->assertSame(8, $fallbackMatched->final_count_quantity);
+        $this->assertSame(8, $fallbackDifferent->refresh()->second_count_confirmed_system_quantity);
+        $this->assertSame(7, $fallbackDifferent->second_count_quantity);
+        $this->assertSame(-1, $fallbackDifferent->second_count_confirmed_difference_quantity);
+        $this->assertSame('-10.00', $fallbackDifferent->second_count_confirmed_difference_amount);
+        $this->assertNull($fallbackDifferent->final_count_quantity);
+        $this->assertSame(8, $secondDifferent->refresh()->second_count_confirmed_system_quantity);
+        $this->assertSame(-2, $secondDifferent->second_count_confirmed_difference_quantity);
+        $this->assertSame('-40.00', $secondDifferent->second_count_confirmed_difference_amount);
+        $this->assertNull($uncounted->refresh()->second_count_confirmed_difference_quantity);
+
+        $page->setActiveCountRound(2);
+
+        $this->assertSame(2, $page->countForTab('diff'));
+        $this->assertSame(1, $page->countForTab('matched'));
+        $this->assertSame(1, $page->countForTab('uncounted'));
+        $this->assertSame(-1, $page->roundDifferenceForDisplay($fallbackDifferent->refresh(), 2));
+    }
+
     public function test_reopen_final_round_clears_final_confirmed_difference_snapshot(): void
     {
         foreach ([
