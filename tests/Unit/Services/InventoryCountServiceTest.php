@@ -390,7 +390,7 @@ class InventoryCountServiceTest extends TestCase
 
         $run = DB::connection('sakemaru')
             ->table('wms_inventory_count_theory_update_runs')
-            ->whereKey($result['backup_run_id'])
+            ->where('id', $result['backup_run_id'])
             ->first();
 
         $this->assertNotNull($run);
