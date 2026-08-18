@@ -9,6 +9,8 @@ use TCPDF;
 
 class InventoryDiffListPdfService
 {
+    private const UNCOUNTED_TARGET_CATEGORY_CODES = [1001, 1002, 1003, 1006];
+
     private const FONT_SIZE_TITLE = 18;
 
     private const FONT_SIZE_HEADER = 9;
@@ -178,7 +180,7 @@ class InventoryDiffListPdfService
         if ($this->uncountedRound !== null) {
             $query
                 ->whereNull($this->roundColumn($this->uncountedRound))
-                ->where('system_quantity', '!=', 0);
+                ->whereHas('item.item_category1', fn ($query) => $query->whereIn('code', self::UNCOUNTED_TARGET_CATEGORY_CODES));
         } else {
             $query
                 ->whereNotNull('ending_system_quantity')
@@ -235,14 +237,13 @@ class InventoryDiffListPdfService
 
         return WmsInventoryCountItem::with('inventoryCount')
             ->whereIn('inventory_count_id', $inventoryCountIds)
+            ->whereHas('item.item_category1', fn ($query) => $query->whereIn('code', self::UNCOUNTED_TARGET_CATEGORY_CODES))
             ->get()
             ->groupBy(fn (WmsInventoryCountItem $item): string => $this->inventoryItemKey($item))
             ->filter(fn (Collection $items): bool => $items->every(
                 fn (WmsInventoryCountItem $item): bool => $item->{$roundColumn} === null,
-            ) && $items->contains(fn (WmsInventoryCountItem $item): bool => $this->hasNonZeroSystemQuantity($item)))
-            ->map(fn (Collection $items): WmsInventoryCountItem => $this->latestRepresentativeItem(
-                $items->filter(fn (WmsInventoryCountItem $item): bool => $this->hasNonZeroSystemQuantity($item))
             ))
+            ->map(fn (Collection $items): WmsInventoryCountItem => $this->latestRepresentativeItem($items))
             ->values()
             ->sort($this->inventoryItemSorter(...))
             ->values();
@@ -311,11 +312,6 @@ class InventoryDiffListPdfService
             (int) $item->inventory_count_id,
             (int) $item->id,
         ];
-    }
-
-    private function hasNonZeroSystemQuantity(WmsInventoryCountItem $item): bool
-    {
-        return (float) ($item->system_quantity ?? 0) !== 0.0;
     }
 
     private function attachDiffListValues(WmsInventoryCountItem $item): WmsInventoryCountItem
