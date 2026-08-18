@@ -56,7 +56,7 @@ class WmsInventoryCountItemTable
                     ->alignEnd(),
 
                 TextColumn::make('ending_system_quantity')
-                    ->label('理論在庫(終了)')
+                    ->label('理論在庫')
                     ->numeric(0)
                     ->alignEnd()
                     ->placeholder('-'),
