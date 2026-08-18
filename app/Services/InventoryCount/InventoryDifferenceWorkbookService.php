@@ -189,7 +189,7 @@ class InventoryDifferenceWorkbookService
             $row["{$round}回目±差異"] = $values['difference'];
             $row["{$round}回目絶対差異"] = $values['absolute_difference'];
 
-            if ($this->shouldFillRound($inventoryCount, $round) && $this->physicalRoundQuantity($item, $round) === null) {
+            if ($this->shouldExportRound($inventoryCount, $round) && $this->physicalRoundQuantity($item, $round) === null) {
                 $uncountedRounds[] = "{$round}回目";
             }
         }
@@ -234,7 +234,7 @@ class InventoryDifferenceWorkbookService
      */
     private function roundValues(WmsInventoryCount $inventoryCount, WmsInventoryCountItem $item, int $round): array
     {
-        if (! $this->shouldFillRound($inventoryCount, $round)) {
+        if (! $this->shouldExportRound($inventoryCount, $round)) {
             return ['quantity' => null, 'difference' => null, 'absolute_difference' => null];
         }
 
@@ -303,17 +303,9 @@ class InventoryDifferenceWorkbookService
         return $quantity === null ? null : (int) $quantity;
     }
 
-    private function shouldFillRound(WmsInventoryCount $inventoryCount, int $round): bool
+    private function shouldExportRound(WmsInventoryCount $inventoryCount, int $round): bool
     {
-        return $this->isRoundConfirmed($inventoryCount, $round)
-            || $this->currentRound($inventoryCount) === $round;
-    }
-
-    private function currentRound(WmsInventoryCount $inventoryCount): int
-    {
-        $round = (int) ($inventoryCount->current_count_round ?: 1);
-
-        return min(max($round, 1), 3);
+        return $this->isRoundConfirmed($inventoryCount, $round);
     }
 
     private function isRoundConfirmed(WmsInventoryCount $inventoryCount, int $round): bool

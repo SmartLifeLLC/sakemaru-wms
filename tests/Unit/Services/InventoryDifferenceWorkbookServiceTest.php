@@ -54,6 +54,7 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
             'ending_system_quantity' => 12,
             'first_count_quantity' => 7,
             'second_count_quantity' => 11,
+            'final_count_quantity' => 5,
             'first_count_confirmed_system_quantity' => 10,
             'first_count_confirmed_difference_quantity' => -3,
             'first_count_confirmed_difference_amount' => -30,
@@ -146,6 +147,32 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
             'input_count' => 1,
         ]);
 
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => random_int(900000000, 999999999),
+            'item_id' => $targetItemId,
+            'item_code' => 'WB006',
+            'item_name' => '3回目未確定差異商品',
+            'location_id' => 6,
+            'location_code1' => 'A',
+            'location_code2' => '01',
+            'location_code3' => '06',
+            'location_no' => 'A0-01-06',
+            'system_quantity' => 12,
+            'ending_system_quantity' => 12,
+            'first_count_quantity' => 12,
+            'second_count_quantity' => 12,
+            'final_count_quantity' => 5,
+            'first_count_confirmed_system_quantity' => 12,
+            'first_count_confirmed_difference_quantity' => 0,
+            'first_count_confirmed_difference_amount' => 0,
+            'second_count_confirmed_system_quantity' => 12,
+            'second_count_confirmed_difference_quantity' => 0,
+            'second_count_confirmed_difference_amount' => 0,
+            'cost_price' => 10,
+            'input_count' => 3,
+        ]);
+
         $workbook = $this->loadWorkbook((new InventoryDifferenceWorkbookService)->generate($inventoryCount));
 
         $this->assertSame(['差異', '未棚'], $workbook->getSheetNames());
@@ -163,6 +190,7 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertArrayHasKey('WB001', $diffRows);
         $this->assertArrayNotHasKey('WB002', $diffRows);
         $this->assertArrayNotHasKey('WB005', $diffRows);
+        $this->assertArrayNotHasKey('WB006', $diffRows);
 
         $this->assertSame(12, $diffRows['WB001']['理論在庫']);
         $this->assertSame(7, $diffRows['WB001']['1回目数量']);
@@ -182,11 +210,13 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertNotContains('賞味期限', $uncountedHeaders);
 
         $uncountedRows = $this->rowsByItemCode($workbook->getSheetByName('未棚'));
-        $this->assertArrayHasKey('WB001', $uncountedRows);
+        $this->assertArrayNotHasKey('WB001', $uncountedRows);
         $this->assertArrayNotHasKey('WB002', $uncountedRows);
         $this->assertArrayNotHasKey('WB003', $uncountedRows);
         $this->assertArrayNotHasKey('WB004', $uncountedRows);
-        $this->assertSame('3回目', $uncountedRows['WB001']['未入力回']);
+        $this->assertArrayHasKey('WB005', $uncountedRows);
+        $this->assertArrayNotHasKey('WB006', $uncountedRows);
+        $this->assertSame('2回目', $uncountedRows['WB005']['未入力回']);
     }
 
     public function test_difference_workbook_exports_empty_sheets(): void
