@@ -48,11 +48,11 @@
             return keyword === '' || this.normalize(value).includes(keyword);
         },
         rowVisible(row) {
-            if (this.activeTab === 'diff' && !(row.endDiff !== null && row.endDiff !== 0)) return false;
-            if (this.activeTab === 'matched' && !(row.endDiff !== null && row.endDiff === 0)) return false;
-            if (this.activeTab === 'uncounted' && this.activeRound === 1 && row.first !== '') return false;
-            if (this.activeTab === 'uncounted' && this.activeRound === 2 && row.second !== '') return false;
-            if (this.activeTab === 'uncounted' && this.activeRound === 3 && row.final_ !== '') return false;
+            if (this.activeTab === 'diff' && !(row.originalEndDiff !== null && row.originalEndDiff !== 0)) return false;
+            if (this.activeTab === 'matched' && !(row.originalEndDiff !== null && row.originalEndDiff === 0)) return false;
+            if (this.activeTab === 'uncounted' && this.activeRound === 1 && row.origFirst !== '') return false;
+            if (this.activeTab === 'uncounted' && this.activeRound === 2 && row.origSecond !== '') return false;
+            if (this.activeTab === 'uncounted' && this.activeRound === 3 && row.origFinal !== '') return false;
             if (!this.includes(row.location, this.filters.locationText)) return false;
             if (this.selectedLocations.length && !this.selectedLocations.includes(row.location)) return false;
             return true;
@@ -72,10 +72,16 @@
         setChange(id, field, value, origFirst, origSecond, origFinal, first, second, final_) {
             let changed = (first !== origFirst || second !== origSecond || final_ !== origFinal);
             if (changed) {
-                this.changes[id] = { first: first === '' ? null : parseInt(first), second: second === '' ? null : parseInt(second), final: final_ === '' ? null : parseInt(final_) };
+                this.changes[id] = { first: this.parseQuantity(first), second: this.parseQuantity(second), final: this.parseQuantity(final_) };
             } else {
                 delete this.changes[id];
             }
+        },
+        parseQuantity(value) {
+            value = String(value ?? '');
+            if (value === '' || value === '-') return null;
+            let number = parseInt(value, 10);
+            return Number.isNaN(number) ? null : number;
         },
         get changeCount() { return Object.keys(this.changes).length; },
         focusItemCodeFilter() {
@@ -445,19 +451,47 @@
                                         first: @js($initFirst), second: @js($initSecond), final_: @js($initFinal),
                                         origFirst: @js($initFirst), origSecond: @js($initSecond), origFinal: @js($initFinal),
                                         system: {{ (int) $row->system_quantity }}, endingSystem: @js($endingSystemQty !== null ? (int) $endingSystemQty : null), cost: {{ (float) $row->cost_price }},
-                                        toInt(v) { return v === '' ? null : parseInt(v); },
+                                        toInt(v) {
+                                            v = String(v ?? '');
+                                            if (v === '' || v === '-') return null;
+                                            let number = parseInt(v, 10);
+                                            return Number.isNaN(number) ? null : number;
+                                        },
                                         get counted() {
                                             if (this.activeRound == 3) return this.toInt(this.final_);
                                             if (this.activeRound == 2) return this.toInt(this.second);
                                             return this.toInt(this.first);
                                         },
-                                        get firstDiff() { return this.first !== '' && this.endingSystem !== null ? this.toInt(this.first)-this.endingSystem : null; },
-                                        get secondDiff() { return this.second !== '' && this.endingSystem !== null ? this.toInt(this.second)-this.endingSystem : null; },
-                                        get finalDiff() { return this.final_ !== '' && this.endingSystem !== null ? this.toInt(this.final_)-this.endingSystem : null; },
+                                        get originalCounted() {
+                                            if (this.activeRound == 3) return this.toInt(this.origFinal);
+                                            if (this.activeRound == 2) return this.toInt(this.origSecond);
+                                            return this.toInt(this.origFirst);
+                                        },
+                                        get firstDiff() {
+                                            let quantity = this.toInt(this.first);
+                                            return quantity !== null && this.endingSystem !== null ? quantity-this.endingSystem : null;
+                                        },
+                                        get secondDiff() {
+                                            let quantity = this.toInt(this.second);
+                                            return quantity !== null && this.endingSystem !== null ? quantity-this.endingSystem : null;
+                                        },
+                                        get finalDiff() {
+                                            let quantity = this.toInt(this.final_);
+                                            return quantity !== null && this.endingSystem !== null ? quantity-this.endingSystem : null;
+                                        },
                                         get endDiff() { return this.counted!==null && this.endingSystem !== null ? this.counted-this.endingSystem : null; },
+                                        get originalEndDiff() { return this.originalCounted!==null && this.endingSystem !== null ? this.originalCounted-this.endingSystem : null; },
                                         get endDiffAmt() { return this.endDiff!==null ? Math.round(this.endDiff*this.cost) : null; },
                                         get changed() { return this.first!==this.origFirst||this.second!==this.origSecond||this.final_!==this.origFinal; },
-                                        clean(v) { return v.replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/[^0-9]/g,''); },
+                                        clean(v) {
+                                            v = String(v ?? '')
+                                                .replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0))
+                                                .replace(/[−－ー―]/g,'-')
+                                                .replace(/[^0-9-]/g,'');
+                                            let negative = v.includes('-');
+                                            v = v.replace(/-/g,'');
+                                            return (negative ? '-' : '') + v;
+                                        },
                                         notify() { $dispatch('count-update',{id:{{ $row->id }},origFirst:this.origFirst,origSecond:this.origSecond,origFinal:this.origFinal,first:this.first,second:this.second,final:this.final_}); }
                                     }"
                                     x-show="rowVisible($data)"
@@ -480,7 +514,7 @@
                                             <input type="text" inputmode="numeric"
                                                 :value="first"
                                                 @input="first=clean($event.target.value); $event.target.value=first; notify()"
-                                                @keydown="if(['e','E','+','-','.'].includes($event.key)) $event.preventDefault()"
+                                                @keydown="if(['e','E','+','.'].includes($event.key)) $event.preventDefault()"
                                                 @disabled($activeRound !== 1)
                                                 class="{{ $countInputClass }}" placeholder="-">
                                         </td>
@@ -492,7 +526,7 @@
                                             <input type="text" inputmode="numeric"
                                                 :value="second"
                                                 @input="second=clean($event.target.value); $event.target.value=second; notify()"
-                                                @keydown="if(['e','E','+','-','.'].includes($event.key)) $event.preventDefault()"
+                                                @keydown="if(['e','E','+','.'].includes($event.key)) $event.preventDefault()"
                                                 @disabled($activeRound !== 2)
                                                 class="{{ $countInputClass }}" placeholder="-">
                                         </td>
@@ -504,7 +538,7 @@
                                             <input type="text" inputmode="numeric"
                                                 :value="final_"
                                                 @input="final_=clean($event.target.value); $event.target.value=final_; notify()"
-                                                @keydown="if(['e','E','+','-','.'].includes($event.key)) $event.preventDefault()"
+                                                @keydown="if(['e','E','+','.'].includes($event.key)) $event.preventDefault()"
                                                 @disabled($activeRound !== 3)
                                                 class="{{ $countInputClass }}" placeholder="-">
                                         </td>

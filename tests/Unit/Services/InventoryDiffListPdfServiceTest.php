@@ -92,6 +92,150 @@ class InventoryDiffListPdfServiceTest extends TestCase
         $this->assertNull($endOnlyRow->getAttribute('pdf_start_difference_quantity'));
     }
 
+    public function test_diff_list_for_selected_round_does_not_fallback_to_other_rounds(): void
+    {
+        if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')) {
+            $this->markTestSkipped('wms_inventory_count_items.ending_system_quantity is not available.');
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => 'PDF回数別差異テスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'current_count_round' => 2,
+        ]);
+
+        $firstRoundOnly = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999301,
+            'item_code' => 'ROUND-PDF-001',
+            'item_name' => '1回目だけ差異',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 10,
+            'first_count_quantity' => 7,
+            'cost_price' => 10,
+        ]);
+
+        $secondRoundDiff = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999302,
+            'item_code' => 'ROUND-PDF-002',
+            'item_name' => '2回目差異',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 10,
+            'first_count_quantity' => 10,
+            'second_count_quantity' => 6,
+            'cost_price' => 20,
+        ]);
+
+        $secondRoundMatched = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999303,
+            'item_code' => 'ROUND-PDF-003',
+            'item_name' => '2回目一致',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 10,
+            'first_count_quantity' => 6,
+            'second_count_quantity' => 10,
+            'cost_price' => 30,
+        ]);
+
+        $finalRoundOnly = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999304,
+            'item_code' => 'ROUND-PDF-004',
+            'item_name' => '3回目だけ差異',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 10,
+            'final_count_quantity' => 5,
+            'cost_price' => 40,
+        ]);
+
+        $items = $this->diffListItems($inventoryCount, 2);
+
+        $this->assertSame([$secondRoundDiff->id], $items->pluck('id')->all());
+        $this->assertFalse($items->contains('id', $firstRoundOnly->id));
+        $this->assertFalse($items->contains('id', $secondRoundMatched->id));
+        $this->assertFalse($items->contains('id', $finalRoundOnly->id));
+
+        $secondRoundDiffRow = $items->firstWhere('id', $secondRoundDiff->id);
+
+        $this->assertSame(6, $secondRoundDiffRow->getAttribute('pdf_actual_quantity'));
+        $this->assertEquals(-4.0, $secondRoundDiffRow->getAttribute('pdf_end_difference_quantity'));
+    }
+
+    public function test_uncounted_list_for_selected_round_ignores_other_round_quantities(): void
+    {
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => 'PDF回数別未カウントテスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'current_count_round' => 2,
+        ]);
+
+        $itemId = $this->createItemInMajorCategory(1001);
+        $stockId = random_int(900000000, 999999999);
+
+        $firstRoundOnly = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => $stockId,
+            'item_id' => $itemId,
+            'item_code' => 'UNCROUND001',
+            'item_name' => '1回目だけ入力済み',
+            'system_quantity' => 10,
+            'first_count_quantity' => 10,
+            'cost_price' => 10,
+        ]);
+
+        $secondRoundCounted = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => $stockId + 1,
+            'item_id' => $itemId,
+            'item_code' => 'UNCROUND002',
+            'item_name' => '2回目入力済み',
+            'system_quantity' => 10,
+            'second_count_quantity' => 10,
+            'cost_price' => 20,
+        ]);
+
+        $finalRoundOnly = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => $stockId + 2,
+            'item_id' => $itemId,
+            'item_code' => 'UNCROUND003',
+            'item_name' => '3回目だけ入力済み',
+            'system_quantity' => 10,
+            'final_count_quantity' => 10,
+            'cost_price' => 30,
+        ]);
+
+        $neverCounted = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => $stockId + 3,
+            'item_id' => $itemId,
+            'item_code' => 'UNCROUND004',
+            'item_name' => '未入力',
+            'system_quantity' => 10,
+            'cost_price' => 40,
+        ]);
+
+        $items = $this->uncountedListItems($inventoryCount, 2);
+
+        $this->assertEqualsCanonicalizing(
+            [$firstRoundOnly->id, $finalRoundOnly->id, $neverCounted->id],
+            $items->pluck('id')->all(),
+        );
+        $this->assertFalse($items->contains('id', $secondRoundCounted->id));
+    }
+
     public function test_diff_list_can_be_generated_for_draft_with_no_difference_rows(): void
     {
         $inventoryCount = WmsInventoryCount::create([
@@ -182,6 +326,30 @@ class InventoryDiffListPdfServiceTest extends TestCase
         $this->assertStringNotContainsString('差異金額', $text);
     }
 
+    public function test_pdf_item_name_is_split_after_item_code(): void
+    {
+        $service = new InventoryDiffListPdfService;
+
+        $initPdf = new ReflectionMethod(InventoryDiffListPdfService::class, 'initPdf');
+        $initPdf->setAccessible(true);
+        $initPdf->invoke($service);
+
+        $splitItemName = new ReflectionMethod(InventoryDiffListPdfService::class, 'splitItemNameForItemCell');
+        $splitItemName->setAccessible(true);
+
+        [$firstLine, $secondLine] = $splitItemName->invoke(
+            $service,
+            'LONGITEM001',
+            '商品名商品名商品名商品名商品名商品名商品名商品名商品名商品名商品名商品名商品名',
+        );
+
+        $this->assertNotSame('', $firstLine);
+        $this->assertNotSame('', $secondLine);
+        $this->assertStringNotContainsString('LONGITEM001', $firstLine);
+        $this->assertStringContainsString('商品名', $firstLine);
+        $this->assertStringContainsString('商品名', $secondLine);
+    }
+
     public function test_diff_and_uncounted_pdfs_print_middle_category_headers(): void
     {
         if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')) {
@@ -241,6 +409,142 @@ class InventoryDiffListPdfServiceTest extends TestCase
 
         $this->assertStringContainsString('中分類：未PDF中分類1001', $diffText);
         $this->assertStringContainsString('中分類：未PDF中分類1002', $uncountedText);
+    }
+
+    public function test_pdf_groups_warehouse_91_by_shelf_without_middle_category_grouping(): void
+    {
+        if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')) {
+            $this->markTestSkipped('wms_inventory_count_items.ending_system_quantity is not available.');
+        }
+
+        $pdftotext = trim((string) shell_exec('command -v pdftotext 2>/dev/null'));
+        $pdfinfo = trim((string) shell_exec('command -v pdfinfo 2>/dev/null'));
+
+        if ($pdftotext === '' || $pdfinfo === '') {
+            $this->markTestSkipped('poppler tools are not available.');
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 91,
+            'warehouse_code' => '91',
+            'warehouse_name' => '91棚番グループテスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+        ]);
+
+        $firstCategoryItemId = $this->createItemInMajorCategory(1001);
+        $secondCategoryItemId = $this->createItemInMajorCategory(1002);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $firstCategoryItemId,
+            'item_code' => 'GROUP91001',
+            'item_name' => '91棚番A0商品',
+            'location_id' => 1,
+            'location_code1' => 'A',
+            'location_code2' => '01',
+            'location_code3' => '01',
+            'location_no' => 'A0-01-01',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 5,
+            'final_count_quantity' => 4,
+            'cost_price' => 10,
+        ]);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $secondCategoryItemId,
+            'item_code' => 'GROUP91002',
+            'item_name' => '91棚番B0商品',
+            'location_id' => 2,
+            'location_code1' => 'B',
+            'location_code2' => '01',
+            'location_code3' => '01',
+            'location_no' => 'B0-01-01',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 5,
+            'final_count_quantity' => 4,
+            'cost_price' => 10,
+        ]);
+
+        $pdf = (new InventoryDiffListPdfService)->generate($inventoryCount);
+        $text = $this->extractPdfText($pdf, $pdftotext);
+
+        $this->assertSame(2, $this->pdfPageCount($pdf, $pdfinfo));
+        $this->assertStringContainsString('棚番：A0', $text);
+        $this->assertStringContainsString('棚番：B0', $text);
+        $this->assertStringNotContainsString('中分類：未PDF中分類1001', $text);
+        $this->assertStringNotContainsString('中分類：未PDF中分類1002', $text);
+    }
+
+    public function test_pdf_groups_non_91_warehouses_by_middle_category_without_shelf_grouping(): void
+    {
+        if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')) {
+            $this->markTestSkipped('wms_inventory_count_items.ending_system_quantity is not available.');
+        }
+
+        $pdftotext = trim((string) shell_exec('command -v pdftotext 2>/dev/null'));
+        $pdfinfo = trim((string) shell_exec('command -v pdfinfo 2>/dev/null'));
+
+        if ($pdftotext === '' || $pdfinfo === '') {
+            $this->markTestSkipped('poppler tools are not available.');
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => '中分類グループテスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+        ]);
+
+        $firstCategoryItemId = $this->createItemInMajorCategory(1001);
+        $secondCategoryItemId = $this->createItemInMajorCategory(1002);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $firstCategoryItemId,
+            'item_code' => 'GROUPCAT001',
+            'item_name' => '中分類A商品',
+            'location_id' => 1,
+            'location_code1' => 'A',
+            'location_code2' => '01',
+            'location_code3' => '01',
+            'location_no' => 'A0-01-01',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 5,
+            'final_count_quantity' => 4,
+            'cost_price' => 10,
+        ]);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $secondCategoryItemId,
+            'item_code' => 'GROUPCAT002',
+            'item_name' => '中分類B商品',
+            'location_id' => 2,
+            'location_code1' => 'B',
+            'location_code2' => '01',
+            'location_code3' => '01',
+            'location_no' => 'B0-01-01',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 5,
+            'final_count_quantity' => 4,
+            'cost_price' => 10,
+        ]);
+
+        $pdf = (new InventoryDiffListPdfService)->generate($inventoryCount);
+        $text = $this->extractPdfText($pdf, $pdftotext);
+
+        $this->assertSame(2, $this->pdfPageCount($pdf, $pdfinfo));
+        $this->assertStringContainsString('中分類：未PDF中分類1001', $text);
+        $this->assertStringContainsString('中分類：未PDF中分類1002', $text);
+        $this->assertStringNotContainsString('棚番：A0', $text);
+        $this->assertStringNotContainsString('棚番：B0', $text);
     }
 
     public function test_uncounted_list_excludes_zero_system_quantity_without_difference_and_filters_major_categories(): void
@@ -459,12 +763,96 @@ class InventoryDiffListPdfServiceTest extends TestCase
         $this->assertStringStartsWith('%PDF', $pdf);
     }
 
-    private function diffListItems(WmsInventoryCount $inventoryCount)
+    public function test_multi_count_uncounted_list_uses_selected_round_only(): void
     {
+        $firstInventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => '複数回数別未PDFテスト倉庫',
+            'count_date' => now()->subDay()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+        ]);
+
+        $secondInventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => '複数回数別未PDFテスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+        ]);
+
+        $itemId = $this->createItemInMajorCategory(1001);
+        $countedInSecondStockId = random_int(900000000, 999999999);
+        $uncountedInSecondStockId = $countedInSecondStockId + 1;
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $firstInventoryCount->id,
+            'real_stock_id' => $countedInSecondStockId,
+            'item_id' => $itemId,
+            'item_code' => 'BULKROUND001',
+            'item_name' => '複数選択2回目入力済み',
+            'system_quantity' => 10,
+            'first_count_quantity' => 10,
+            'cost_price' => 10,
+        ]);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $secondInventoryCount->id,
+            'real_stock_id' => $countedInSecondStockId,
+            'item_id' => $itemId,
+            'item_code' => 'BULKROUND001',
+            'item_name' => '複数選択2回目入力済み',
+            'system_quantity' => 10,
+            'second_count_quantity' => 9,
+            'cost_price' => 10,
+        ]);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $firstInventoryCount->id,
+            'real_stock_id' => $uncountedInSecondStockId,
+            'item_id' => $itemId,
+            'item_code' => 'BULKROUND002',
+            'item_name' => '複数選択2回目未入力',
+            'system_quantity' => 10,
+            'first_count_quantity' => 10,
+            'cost_price' => 20,
+        ]);
+
+        $latestUncounted = WmsInventoryCountItem::create([
+            'inventory_count_id' => $secondInventoryCount->id,
+            'real_stock_id' => $uncountedInSecondStockId,
+            'item_id' => $itemId,
+            'item_code' => 'BULKROUND002',
+            'item_name' => '複数選択2回目未入力',
+            'system_quantity' => 10,
+            'final_count_quantity' => 10,
+            'cost_price' => 20,
+        ]);
+
+        $items = $this->multiCountUncountedItems(collect([$firstInventoryCount, $secondInventoryCount]), 2);
+
+        $this->assertSame([$latestUncounted->id], $items->pluck('id')->all());
+        $this->assertFalse($items->contains('real_stock_id', $countedInSecondStockId));
+    }
+
+    private function diffListItems(WmsInventoryCount $inventoryCount, ?int $round = null)
+    {
+        $service = new InventoryDiffListPdfService;
+
+        if ($round !== null) {
+            $property = new ReflectionProperty(InventoryDiffListPdfService::class, 'diffRound');
+            $property->setAccessible(true);
+            $property->setValue($service, $round);
+        }
+
         $method = new ReflectionMethod(InventoryDiffListPdfService::class, 'queryItems');
         $method->setAccessible(true);
 
-        return $method->invoke(new InventoryDiffListPdfService, $inventoryCount);
+        return $method->invoke($service, $inventoryCount);
     }
 
     private function uncountedListItems(WmsInventoryCount $inventoryCount, int $round)
@@ -510,6 +898,32 @@ class InventoryDiffListPdfServiceTest extends TestCase
 
             if (is_file($textPath)) {
                 unlink($textPath);
+            }
+        }
+    }
+
+    private function pdfPageCount(string $pdf, string $pdfinfo): int
+    {
+        $pdfPath = tempnam(sys_get_temp_dir(), 'wms-diff-pdf-');
+
+        try {
+            file_put_contents($pdfPath, $pdf);
+
+            $command = escapeshellarg($pdfinfo).' '.escapeshellarg($pdfPath);
+            exec($command, $output, $exitCode);
+
+            $this->assertSame(0, $exitCode, implode("\n", $output));
+
+            foreach ($output as $line) {
+                if (preg_match('/^Pages:\s+(\d+)/', $line, $matches) === 1) {
+                    return (int) $matches[1];
+                }
+            }
+
+            $this->fail('Could not read PDF page count.');
+        } finally {
+            if (is_file($pdfPath)) {
+                unlink($pdfPath);
             }
         }
     }

@@ -16,6 +16,83 @@ class ViewWmsInventoryCountTest extends TestCase
 
     protected $connectionsToTransact = ['sakemaru'];
 
+    public function test_tab_visibility_uses_original_values_until_inline_save(): void
+    {
+        $blade = file_get_contents(resource_path('views/filament/resources/wms-inventory-count/pages/view-wms-inventory-count.blade.php'));
+
+        $this->assertStringContainsString('row.originalEndDiff', $blade);
+        $this->assertStringContainsString("row.origFirst !== ''", $blade);
+        $this->assertStringContainsString("row.origSecond !== ''", $blade);
+        $this->assertStringContainsString("row.origFinal !== ''", $blade);
+        $this->assertStringContainsString('get originalEndDiff()', $blade);
+        $this->assertStringNotContainsString("this.activeTab === 'diff' && !(row.endDiff", $blade);
+        $this->assertStringNotContainsString("this.activeTab === 'uncounted' && this.activeRound === 1 && row.first !== ''", $blade);
+    }
+
+    public function test_inline_count_inputs_allow_negative_quantities(): void
+    {
+        $blade = file_get_contents(resource_path('views/filament/resources/wms-inventory-count/pages/view-wms-inventory-count.blade.php'));
+
+        $this->assertStringContainsString("value === '-'", $blade);
+        $this->assertStringContainsString("replace(/[^0-9-]/g,'')", $blade);
+        $this->assertStringContainsString("['e','E','+','.']", $blade);
+        $this->assertStringNotContainsString("['e','E','+','-','.']", $blade);
+    }
+
+    public function test_diff_pdf_action_uses_active_count_round(): void
+    {
+        $page = file_get_contents(app_path('Filament/Resources/WmsInventoryCount/Pages/ViewWmsInventoryCount.php'));
+
+        $this->assertStringContainsString('->generate($record, $this->activeCountRound)', $page);
+        $this->assertStringContainsString("\$filename = '棚卸差分確認_'.\$this->activeRoundLabel().'_'.", $page);
+    }
+
+    public function test_uncounted_pdf_action_uses_active_count_round(): void
+    {
+        $page = file_get_contents(app_path('Filament/Resources/WmsInventoryCount/Pages/ViewWmsInventoryCount.php'));
+
+        $this->assertStringContainsString('->generateUncounted($record, $this->activeCountRound)', $page);
+        $this->assertStringContainsString("\$filename = '棚卸未カウント_'.\$this->activeRoundLabel().'_'.", $page);
+    }
+
+    public function test_inline_save_accepts_negative_count_quantity(): void
+    {
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => '負数入力テスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'current_count_round' => 1,
+        ]);
+
+        $item = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999601,
+            'item_code' => 'NEG001',
+            'item_name' => '負数入力対象',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 10,
+            'cost_price' => 10,
+        ]);
+
+        $page = new ViewWmsInventoryCount;
+        $page->record = $inventoryCount;
+        $page->activeCountRound = 1;
+
+        $page->saveInlineChanges([
+            $item->id => ['first' => -3],
+        ]);
+
+        $item->refresh();
+
+        $this->assertSame(-3, $item->first_count_quantity);
+        $this->assertSame(-13, $item->difference_quantity);
+        $this->assertSame(1, $item->input_count);
+    }
+
     public function test_difference_tabs_compare_active_round_with_ending_system_quantity(): void
     {
         if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')) {
