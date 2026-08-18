@@ -99,6 +99,16 @@ class ViewWmsInventoryCountTest extends TestCase
             $this->markTestSkipped('wms_inventory_count_items.ending_system_quantity is not available.');
         }
 
+        foreach ([
+            'first_count_confirmed_system_quantity',
+            'first_count_confirmed_difference_quantity',
+            'first_count_confirmed_difference_amount',
+        ] as $column) {
+            if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', $column)) {
+                $this->markTestSkipped("wms_inventory_count_items.{$column} is not available.");
+            }
+        }
+
         $inventoryCount = WmsInventoryCount::create([
             'count_no' => 'TST-'.Str::upper(Str::random(12)),
             'client_id' => 1,
@@ -179,6 +189,8 @@ class ViewWmsInventoryCountTest extends TestCase
             'system_quantity' => 10,
             'ending_system_quantity' => 8,
             'first_count_quantity' => 8,
+            'difference_quantity' => 99,
+            'difference_amount' => 990,
             'cost_price' => 10,
         ]);
 
@@ -190,6 +202,8 @@ class ViewWmsInventoryCountTest extends TestCase
             'system_quantity' => 10,
             'ending_system_quantity' => 8,
             'first_count_quantity' => 7,
+            'difference_quantity' => 99,
+            'difference_amount' => 990,
             'cost_price' => 10,
         ]);
 
@@ -213,9 +227,84 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertSame(2, $page->activeCountRound);
         $this->assertNotNull($inventoryCount->first_count_confirmed_at);
         $this->assertSame(8, $matched->refresh()->second_count_quantity);
+        $this->assertSame(8, $matched->first_count_confirmed_system_quantity);
+        $this->assertSame(0, $matched->first_count_confirmed_difference_quantity);
+        $this->assertSame('0.00', $matched->first_count_confirmed_difference_amount);
+        $this->assertSame(99, $matched->difference_quantity);
         $this->assertNull($different->refresh()->second_count_quantity);
+        $this->assertSame(8, $different->first_count_confirmed_system_quantity);
+        $this->assertSame(-1, $different->first_count_confirmed_difference_quantity);
+        $this->assertSame('-10.00', $different->first_count_confirmed_difference_amount);
+        $this->assertSame(99, $different->difference_quantity);
         $this->assertNull($uncounted->refresh()->second_count_quantity);
+        $this->assertNull($uncounted->first_count_confirmed_system_quantity);
+        $this->assertNull($uncounted->first_count_confirmed_difference_quantity);
         $this->assertSame(1, $page->countForTab('matched'));
         $this->assertSame(2, $page->countForTab('uncounted'));
+
+        $different->update(['ending_system_quantity' => 12]);
+        $page->setActiveCountRound(1);
+
+        $this->assertSame(1, $page->activeCountRound);
+        $this->assertSame(1, $page->countForTab('diff'));
+        $this->assertSame(1, $page->countForTab('matched'));
+        $this->assertSame(-1, $page->roundDifferenceForDisplay($different->refresh(), 1));
+
+        $confirmedAt = $inventoryCount->refresh()->first_count_confirmed_at;
+        $page->confirmRound(1);
+
+        $this->assertEquals($confirmedAt, $inventoryCount->refresh()->first_count_confirmed_at);
+        $this->assertSame(-1, $different->refresh()->first_count_confirmed_difference_quantity);
+    }
+
+    public function test_reopen_final_round_clears_final_confirmed_difference_snapshot(): void
+    {
+        foreach ([
+            'final_count_confirmed_system_quantity',
+            'final_count_confirmed_difference_quantity',
+            'final_count_confirmed_difference_amount',
+        ] as $column) {
+            if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', $column)) {
+                $this->markTestSkipped("wms_inventory_count_items.{$column} is not available.");
+            }
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => '3回目再開テスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_CHECKED,
+            'current_count_round' => 3,
+            'final_count_confirmed_at' => now(),
+        ]);
+
+        $item = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999504,
+            'item_code' => 'ROUND004',
+            'item_name' => '3回目再開対象',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 8,
+            'final_count_quantity' => 7,
+            'final_count_confirmed_system_quantity' => 8,
+            'final_count_confirmed_difference_quantity' => -1,
+            'final_count_confirmed_difference_amount' => -10,
+            'cost_price' => 10,
+        ]);
+
+        $page = new ViewWmsInventoryCount;
+        $page->record = $inventoryCount;
+        $page->activeCountRound = 3;
+
+        $page->reopenFinalRound();
+
+        $this->assertSame(WmsInventoryCount::STATUS_COUNTING, $inventoryCount->refresh()->status);
+        $this->assertNull($inventoryCount->final_count_confirmed_at);
+        $this->assertNull($item->refresh()->final_count_confirmed_system_quantity);
+        $this->assertNull($item->final_count_confirmed_difference_quantity);
+        $this->assertNull($item->final_count_confirmed_difference_amount);
     }
 }
