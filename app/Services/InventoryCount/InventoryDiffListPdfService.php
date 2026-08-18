@@ -368,13 +368,27 @@ class InventoryDiffListPdfService
     private function attachDiffListValues(WmsInventoryCountItem $item): WmsInventoryCountItem
     {
         $actualQty = $this->actualQuantity($item);
+        $actualRound = $this->actualRound($item);
 
         if ($actualQty !== null) {
             $item->setAttribute('pdf_actual_quantity', $actualQty);
         }
 
-        if ($actualQty !== null && $item->ending_system_quantity !== null) {
-            $endDifferenceQuantity = (float) $actualQty - (float) $item->ending_system_quantity;
+        $useConfirmedSnapshot = $actualRound !== null && $this->isRoundConfirmed($item, $actualRound);
+        $systemQty = $actualRound !== null
+            ? ($useConfirmedSnapshot ? $item->confirmedRoundSystemQuantity($actualRound) : null)
+            : null;
+        $systemQty ??= $item->ending_system_quantity;
+
+        if ($systemQty !== null) {
+            $item->setAttribute('pdf_system_quantity', $systemQty);
+        }
+
+        if ($actualQty !== null && $systemQty !== null) {
+            $endDifferenceQuantity = $actualRound !== null
+                ? ($useConfirmedSnapshot ? $item->confirmedRoundDifference($actualRound) : null)
+                : null;
+            $endDifferenceQuantity ??= (float) $actualQty - (float) $systemQty;
 
             $item->setAttribute('pdf_end_difference_quantity', $endDifferenceQuantity);
         }
@@ -389,13 +403,40 @@ class InventoryDiffListPdfService
 
     private function actualQuantity(WmsInventoryCountItem $item): mixed
     {
+        $actualRound = $this->actualRound($item);
+
+        return $actualRound !== null ? $item->{$this->roundColumn($actualRound)} : null;
+    }
+
+    private function actualRound(WmsInventoryCountItem $item): ?int
+    {
         if ($this->diffRound !== null) {
-            return $item->{$this->roundColumn($this->diffRound)};
+            return $this->diffRound;
         }
 
-        return $item->final_count_quantity
-            ?? $item->second_count_quantity
-            ?? $item->first_count_quantity;
+        return match (true) {
+            $item->final_count_quantity !== null => 3,
+            $item->second_count_quantity !== null => 2,
+            $item->first_count_quantity !== null => 1,
+            default => null,
+        };
+    }
+
+    private function isRoundConfirmed(WmsInventoryCountItem $item, int $round): bool
+    {
+        $inventoryCount = $item->relationLoaded('inventoryCount') ? $item->inventoryCount : null;
+
+        return $inventoryCount?->{$this->roundConfirmedAtColumn($round)} !== null;
+    }
+
+    private function roundConfirmedAtColumn(int $round): string
+    {
+        return match ($round) {
+            1 => 'first_count_confirmed_at',
+            2 => 'second_count_confirmed_at',
+            3 => 'final_count_confirmed_at',
+            default => 'first_count_confirmed_at',
+        };
     }
 
     private function buildHeader(WmsInventoryCount $inventoryCount): array
@@ -838,7 +879,7 @@ class InventoryDiffListPdfService
         $row2X += self::COL_W_INPUT;
         $this->pdf->SetXY($row2X, $y2);
         $systemQty = $this->uncountedRound === null
-            ? $countItem->ending_system_quantity
+            ? ($countItem->getAttribute('pdf_system_quantity') ?? $countItem->ending_system_quantity)
             : $countItem->system_quantity;
         $this->pdf->Cell(
             self::COL_W_SYSTEM,

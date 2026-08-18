@@ -246,11 +246,12 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function setActiveCountRound(int $round): void
     {
-        if ($round !== $this->currentProgressRound()) {
+        if ($round < 1 || $round > $this->currentProgressRound()) {
             return;
         }
 
         $this->activeCountRound = $round;
+        $this->itemPage = 1;
     }
 
     public function activeRoundLabel(): string
@@ -266,6 +267,26 @@ class ViewWmsInventoryCount extends Page implements HasForms
     public function isRoundConfirmed(int $round): bool
     {
         return $this->record->{$this->roundConfirmedAtColumn($round)} !== null;
+    }
+
+    public function roundDifferenceForDisplay(WmsInventoryCountItem $item, int $round): ?int
+    {
+        $confirmedDifference = $this->isRoundConfirmed($round)
+            ? $item->confirmedRoundDifference($round)
+            : null;
+
+        if ($confirmedDifference !== null) {
+            return (int) $confirmedDifference;
+        }
+
+        $countedQty = $item->{$this->roundColumn($round)};
+        $baseQty = $item->ending_system_quantity;
+
+        if ($countedQty === null || $baseQty === null) {
+            return null;
+        }
+
+        return (int) $countedQty - (int) $baseQty;
     }
 
     public function totalCount(): int
@@ -309,16 +330,23 @@ class ViewWmsInventoryCount extends Page implements HasForms
     private function applyTabFilter(\Illuminate\Database\Eloquent\Builder $query, string $tab): void
     {
         $roundColumn = $this->roundColumn($this->activeCountRound);
+        $confirmedDifferenceColumn = $this->roundConfirmedDifferenceQuantityColumn($this->activeCountRound);
+        $useConfirmedDifference = $this->isRoundConfirmed($this->activeCountRound)
+            && $this->inventoryCountItemColumnExists($confirmedDifferenceColumn);
 
         match ($tab) {
-            'diff' => $query
-                ->whereNotNull($roundColumn)
-                ->whereNotNull('ending_system_quantity')
-                ->whereColumn($roundColumn, '!=', 'ending_system_quantity'),
-            'matched' => $query
-                ->whereNotNull($roundColumn)
-                ->whereNotNull('ending_system_quantity')
-                ->whereColumn($roundColumn, 'ending_system_quantity'),
+            'diff' => $useConfirmedDifference
+                ? $query->whereNotNull($roundColumn)->whereNotNull($confirmedDifferenceColumn)->where($confirmedDifferenceColumn, '!=', 0)
+                : $query
+                    ->whereNotNull($roundColumn)
+                    ->whereNotNull('ending_system_quantity')
+                    ->whereColumn($roundColumn, '!=', 'ending_system_quantity'),
+            'matched' => $useConfirmedDifference
+                ? $query->whereNotNull($roundColumn)->where($confirmedDifferenceColumn, 0)
+                : $query
+                    ->whereNotNull($roundColumn)
+                    ->whereNotNull('ending_system_quantity')
+                    ->whereColumn($roundColumn, 'ending_system_quantity'),
             'uncounted' => $query->whereNull($roundColumn),
             default => null,
         };
@@ -339,10 +367,17 @@ class ViewWmsInventoryCount extends Page implements HasForms
         if ($this->sortColumn === 'ending_difference_quantity') {
             $roundColumn = $this->roundColumn($this->activeCountRound);
             $direction = $this->sortDirection === 'desc' ? 'desc' : 'asc';
+            $confirmedDifferenceColumn = $this->roundConfirmedDifferenceQuantityColumn($this->activeCountRound);
 
-            $query
-                ->orderByRaw("CASE WHEN {$roundColumn} IS NULL OR ending_system_quantity IS NULL THEN 1 ELSE 0 END")
-                ->orderByRaw("({$roundColumn} - ending_system_quantity) {$direction}");
+            if ($this->isRoundConfirmed($this->activeCountRound) && $this->inventoryCountItemColumnExists($confirmedDifferenceColumn)) {
+                $query
+                    ->orderByRaw("CASE WHEN {$roundColumn} IS NULL OR {$confirmedDifferenceColumn} IS NULL THEN 1 ELSE 0 END")
+                    ->orderBy($confirmedDifferenceColumn, $direction);
+            } else {
+                $query
+                    ->orderByRaw("CASE WHEN {$roundColumn} IS NULL OR ending_system_quantity IS NULL THEN 1 ELSE 0 END")
+                    ->orderByRaw("({$roundColumn} - ending_system_quantity) {$direction}");
+            }
         } elseif ($this->sortColumn !== '') {
             $query->orderBy($this->sortColumn, $this->sortDirection);
         } else {
@@ -422,6 +457,12 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function saveEditModal(): void
     {
+        if ($this->isRoundConfirmed($this->activeCountRound)) {
+            Notification::make()->danger()->title('確定済みの回数は編集できません')->send();
+
+            return;
+        }
+
         if (! in_array($this->record->status, [
             WmsInventoryCount::STATUS_DRAFT,
             WmsInventoryCount::STATUS_COUNTING,
@@ -502,6 +543,12 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function saveInlineChanges(array $changes): void
     {
+        if ($this->isRoundConfirmed($this->activeCountRound)) {
+            Notification::make()->danger()->title('確定済みの回数は編集できません')->send();
+
+            return;
+        }
+
         if (! in_array($this->record->status, [
             WmsInventoryCount::STATUS_DRAFT,
             WmsInventoryCount::STATUS_COUNTING,
@@ -579,6 +626,12 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function calculateActiveRoundDifferences(): void
     {
+        if ($this->isRoundConfirmed($this->activeCountRound)) {
+            Notification::make()->danger()->title('確定済みの差異は再計算できません')->send();
+
+            return;
+        }
+
         if (! in_array($this->record->status, [
             WmsInventoryCount::STATUS_COUNTING,
             WmsInventoryCount::STATUS_CHECKED,
@@ -669,7 +722,19 @@ class ViewWmsInventoryCount extends Page implements HasForms
             return;
         }
 
-        $this->calculateRoundDifferences($round);
+        if ($this->isRoundConfirmed($round)) {
+            Notification::make()->danger()->title('確定済みの回数は再確定できません')->send();
+
+            return;
+        }
+
+        if (! $this->roundConfirmedDifferenceColumnsExist($round)) {
+            Notification::make()->danger()->title('確定差分保存用のDB列が未作成です')->send();
+
+            return;
+        }
+
+        $this->storeConfirmedRoundDifferences($round);
 
         $updates = [
             $this->roundConfirmedAtColumn($round) => now(),
@@ -721,6 +786,14 @@ class ViewWmsInventoryCount extends Page implements HasForms
             'final_count_confirmed_at' => null,
             'final_count_confirmed_by' => null,
         ]);
+
+        if ($this->roundConfirmedDifferenceColumnsExist(3)) {
+            WmsInventoryCountItem::where('inventory_count_id', $this->record->id)->update([
+                'final_count_confirmed_system_quantity' => null,
+                'final_count_confirmed_difference_quantity' => null,
+                'final_count_confirmed_difference_amount' => null,
+            ]);
+        }
 
         $this->record->refresh();
         $this->activeCountRound = 3;
@@ -775,6 +848,53 @@ class ViewWmsInventoryCount extends Page implements HasForms
         $round = (int) ($this->record->current_count_round ?: 1);
 
         return min(max($round, 1), 3);
+    }
+
+    private function storeConfirmedRoundDifferences(int $round): void
+    {
+        $roundColumn = $this->roundColumn($round);
+        $systemColumn = $this->roundConfirmedSystemQuantityColumn($round);
+        $differenceColumn = $this->roundConfirmedDifferenceQuantityColumn($round);
+        $amountColumn = $this->roundConfirmedDifferenceAmountColumn($round);
+
+        WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
+            ->select([
+                'id',
+                $roundColumn,
+                'system_quantity',
+                'ending_system_quantity',
+                'cost_price',
+                $systemColumn,
+                $differenceColumn,
+                $amountColumn,
+            ])
+            ->chunkById(500, function ($items) use ($roundColumn, $systemColumn, $differenceColumn, $amountColumn) {
+                foreach ($items as $item) {
+                    $countedQty = $item->{$roundColumn};
+                    $confirmedSystemQty = $countedQty === null
+                        ? null
+                        : (int) ($item->ending_system_quantity ?? $item->system_quantity);
+                    $confirmedDifferenceQty = $countedQty === null
+                        ? null
+                        : (int) $countedQty - $confirmedSystemQty;
+                    $confirmedDifferenceAmount = $confirmedDifferenceQty === null
+                        ? null
+                        : $confirmedDifferenceQty * (float) $item->cost_price;
+
+                    if ((string) $item->{$systemColumn} === (string) $confirmedSystemQty
+                        && (string) $item->{$differenceColumn} === (string) $confirmedDifferenceQty
+                        && (string) $item->{$amountColumn} === (string) $confirmedDifferenceAmount
+                    ) {
+                        continue;
+                    }
+
+                    $item->update([
+                        $systemColumn => $confirmedSystemQty,
+                        $differenceColumn => $confirmedDifferenceQty,
+                        $amountColumn => $confirmedDifferenceAmount,
+                    ]);
+                }
+            });
     }
 
     private function calculateRoundDifferences(int $round): void
@@ -844,6 +964,48 @@ class ViewWmsInventoryCount extends Page implements HasForms
             3 => 'final_count_actor_name',
             default => 'first_count_actor_name',
         };
+    }
+
+    private function roundConfirmedSystemQuantityColumn(int $round): string
+    {
+        return match ($round) {
+            1 => 'first_count_confirmed_system_quantity',
+            2 => 'second_count_confirmed_system_quantity',
+            3 => 'final_count_confirmed_system_quantity',
+            default => 'first_count_confirmed_system_quantity',
+        };
+    }
+
+    private function roundConfirmedDifferenceQuantityColumn(int $round): string
+    {
+        return match ($round) {
+            1 => 'first_count_confirmed_difference_quantity',
+            2 => 'second_count_confirmed_difference_quantity',
+            3 => 'final_count_confirmed_difference_quantity',
+            default => 'first_count_confirmed_difference_quantity',
+        };
+    }
+
+    private function roundConfirmedDifferenceAmountColumn(int $round): string
+    {
+        return match ($round) {
+            1 => 'first_count_confirmed_difference_amount',
+            2 => 'second_count_confirmed_difference_amount',
+            3 => 'final_count_confirmed_difference_amount',
+            default => 'first_count_confirmed_difference_amount',
+        };
+    }
+
+    private function roundConfirmedDifferenceColumnsExist(int $round): bool
+    {
+        return $this->inventoryCountItemColumnExists($this->roundConfirmedSystemQuantityColumn($round))
+            && $this->inventoryCountItemColumnExists($this->roundConfirmedDifferenceQuantityColumn($round))
+            && $this->inventoryCountItemColumnExists($this->roundConfirmedDifferenceAmountColumn($round));
+    }
+
+    private function inventoryCountItemColumnExists(string $column): bool
+    {
+        return Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', $column);
     }
 
     private function roundConfirmedAtColumn(int $round): string

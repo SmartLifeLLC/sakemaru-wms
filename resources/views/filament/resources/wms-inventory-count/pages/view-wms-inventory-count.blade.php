@@ -10,6 +10,7 @@
         $pageFirst = $rows->firstItem() ?? 0;
         $pageLast = $rows->lastItem() ?? 0;
         $activeRound = $this->activeCountRound;
+        $progressRound = min(max((int) ($record->current_count_round ?: 1), 1), 3);
         $floorOptions = $this->floorOptions();
         $locationOptions = $this->locationOptions();
         $isEditable = in_array($record->status, [
@@ -327,7 +328,7 @@
                             @foreach ([1 => '1回目', 2 => '2回目', 3 => '3回目'] as $round => $label)
                                 @php
                                     $roundConfirmed = $this->isRoundConfirmed($round);
-                                    $roundAvailable = $round <= $activeRound;
+                                    $roundAvailable = $round <= $progressRound;
                                 @endphp
                                 <button type="button"
                                     wire:click="confirmRound({{ $round }})"
@@ -434,6 +435,12 @@
                                     $initFinal = $row->final_count_quantity !== null ? (string) (int) $row->final_count_quantity : '';
                                     $movementQty = $row->post_count_movement_quantity;
                                     $endingSystemQty = $row->ending_system_quantity;
+                                    $firstConfirmedDiff = $row->confirmedRoundDifference(1);
+                                    $secondConfirmedDiff = $row->confirmedRoundDifference(2);
+                                    $finalConfirmedDiff = $row->confirmedRoundDifference(3);
+                                    $firstConfirmedAmount = $row->getAttribute('first_count_confirmed_difference_amount');
+                                    $secondConfirmedAmount = $row->getAttribute('second_count_confirmed_difference_amount');
+                                    $finalConfirmedAmount = $row->getAttribute('final_count_confirmed_difference_amount');
                                 @endphp
                                 <tr wire:key="ic-row-{{ $row->id }}-r{{ $activeRound }}-u{{ $row->updated_at?->timestamp ?? 0 }}"
                                     x-data="{
@@ -444,6 +451,13 @@
                                         itemName: @js($row->item_name ?: ''),
                                         first: @js($initFirst), second: @js($initSecond), final_: @js($initFinal),
                                         origFirst: @js($initFirst), origSecond: @js($initSecond), origFinal: @js($initFinal),
+                                        firstConfirmed: @js($this->isRoundConfirmed(1)), secondConfirmed: @js($this->isRoundConfirmed(2)), finalConfirmed: @js($this->isRoundConfirmed(3)),
+                                        firstConfirmedDiff: @js($firstConfirmedDiff !== null ? (int) $firstConfirmedDiff : null),
+                                        secondConfirmedDiff: @js($secondConfirmedDiff !== null ? (int) $secondConfirmedDiff : null),
+                                        finalConfirmedDiff: @js($finalConfirmedDiff !== null ? (int) $finalConfirmedDiff : null),
+                                        firstConfirmedAmount: @js($firstConfirmedAmount !== null ? (int) $firstConfirmedAmount : null),
+                                        secondConfirmedAmount: @js($secondConfirmedAmount !== null ? (int) $secondConfirmedAmount : null),
+                                        finalConfirmedAmount: @js($finalConfirmedAmount !== null ? (int) $finalConfirmedAmount : null),
                                         endingSystem: @js($endingSystemQty !== null ? (int) $endingSystemQty : null), cost: {{ (float) $row->cost_price }},
                                         toInt(v) {
                                             v = String(v ?? '');
@@ -461,21 +475,35 @@
                                             if (this.activeRound == 2) return this.toInt(this.origSecond);
                                             return this.toInt(this.origFirst);
                                         },
-                                        get firstDiff() {
-                                            let quantity = this.toInt(this.first);
+                                        diffFor(quantity, confirmed, confirmedDiff) {
+                                            if (confirmed && confirmedDiff !== null) return confirmedDiff;
                                             return quantity !== null && this.endingSystem !== null ? quantity-this.endingSystem : null;
+                                        },
+                                        get firstDiff() {
+                                            return this.diffFor(this.toInt(this.first), this.firstConfirmed, this.firstConfirmedDiff);
                                         },
                                         get secondDiff() {
-                                            let quantity = this.toInt(this.second);
-                                            return quantity !== null && this.endingSystem !== null ? quantity-this.endingSystem : null;
+                                            return this.diffFor(this.toInt(this.second), this.secondConfirmed, this.secondConfirmedDiff);
                                         },
                                         get finalDiff() {
-                                            let quantity = this.toInt(this.final_);
-                                            return quantity !== null && this.endingSystem !== null ? quantity-this.endingSystem : null;
+                                            return this.diffFor(this.toInt(this.final_), this.finalConfirmed, this.finalConfirmedDiff);
                                         },
-                                        get endDiff() { return this.counted!==null && this.endingSystem !== null ? this.counted-this.endingSystem : null; },
-                                        get originalEndDiff() { return this.originalCounted!==null && this.endingSystem !== null ? this.originalCounted-this.endingSystem : null; },
-                                        get endDiffAmt() { return this.endDiff!==null ? Math.round(this.endDiff*this.cost) : null; },
+                                        get endDiff() {
+                                            if (this.activeRound == 3) return this.finalDiff;
+                                            if (this.activeRound == 2) return this.secondDiff;
+                                            return this.firstDiff;
+                                        },
+                                        get originalEndDiff() {
+                                            if (this.activeRound == 3) return this.diffFor(this.toInt(this.origFinal), this.finalConfirmed, this.finalConfirmedDiff);
+                                            if (this.activeRound == 2) return this.diffFor(this.toInt(this.origSecond), this.secondConfirmed, this.secondConfirmedDiff);
+                                            return this.diffFor(this.toInt(this.origFirst), this.firstConfirmed, this.firstConfirmedDiff);
+                                        },
+                                        get endDiffAmt() {
+                                            if (this.activeRound == 3 && this.finalConfirmed && this.finalConfirmedAmount !== null) return this.finalConfirmedAmount;
+                                            if (this.activeRound == 2 && this.secondConfirmed && this.secondConfirmedAmount !== null) return this.secondConfirmedAmount;
+                                            if (this.activeRound == 1 && this.firstConfirmed && this.firstConfirmedAmount !== null) return this.firstConfirmedAmount;
+                                            return this.endDiff!==null ? Math.round(this.endDiff*this.cost) : null;
+                                        },
                                         get changed() { return this.first!==this.origFirst||this.second!==this.origSecond||this.final_!==this.origFinal; },
                                         clean(v) {
                                             v = String(v ?? '')
@@ -508,7 +536,7 @@
                                                 :value="first"
                                                 @input="first=clean($event.target.value); $event.target.value=first; notify()"
                                                 @keydown="if(['e','E','+','.'].includes($event.key)) $event.preventDefault()"
-                                                @disabled($activeRound !== 1)
+                                                @disabled($activeRound !== 1 || $this->isRoundConfirmed(1))
                                                 class="{{ $countInputClass }}" placeholder="-">
                                         </td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums"
@@ -520,7 +548,7 @@
                                                 :value="second"
                                                 @input="second=clean($event.target.value); $event.target.value=second; notify()"
                                                 @keydown="if(['e','E','+','.'].includes($event.key)) $event.preventDefault()"
-                                                @disabled($activeRound !== 2)
+                                                @disabled($activeRound !== 2 || $this->isRoundConfirmed(2))
                                                 class="{{ $countInputClass }}" placeholder="-">
                                         </td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums"
@@ -532,7 +560,7 @@
                                                 :value="final_"
                                                 @input="final_=clean($event.target.value); $event.target.value=final_; notify()"
                                                 @keydown="if(['e','E','+','.'].includes($event.key)) $event.preventDefault()"
-                                                @disabled($activeRound !== 3)
+                                                @disabled($activeRound !== 3 || $this->isRoundConfirmed(3))
                                                 class="{{ $countInputClass }}" placeholder="-">
                                         </td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums"
@@ -548,10 +576,9 @@
                                     @else
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right tabular-nums">{{ $initFirst !== '' ? number_format((int) $initFirst) : '-' }}</td>
                                         @php
-                                            $endingBase = $endingSystemQty !== null ? (int) $endingSystemQty : null;
-                                            $firstDiff = $endingBase !== null && $row->first_count_quantity !== null ? (int) $row->first_count_quantity - $endingBase : null;
-                                            $secondDiff = $endingBase !== null && $row->second_count_quantity !== null ? (int) $row->second_count_quantity - $endingBase : null;
-                                            $finalDiff = $endingBase !== null && $row->final_count_quantity !== null ? (int) $row->final_count_quantity - $endingBase : null;
+                                            $firstDiff = $this->roundDifferenceForDisplay($row, 1);
+                                            $secondDiff = $this->roundDifferenceForDisplay($row, 2);
+                                            $finalDiff = $this->roundDifferenceForDisplay($row, 3);
                                         @endphp
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums {{ $firstDiff !== null && $firstDiff > 0 ? 'text-green-700' : ($firstDiff !== null && $firstDiff < 0 ? 'text-red-700' : '') }}">{{ $firstDiff !== null ? number_format((int) $firstDiff) : '-' }}</td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-slate-600">{{ $row->first_count_actor_name ?: '-' }}</td>
@@ -562,13 +589,15 @@
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums {{ $finalDiff !== null && $finalDiff > 0 ? 'text-green-700' : ($finalDiff !== null && $finalDiff < 0 ? 'text-red-700' : '') }}">{{ $finalDiff !== null ? number_format((int) $finalDiff) : '-' }}</td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-slate-600">{{ $row->final_count_actor_name ?: '-' }}</td>
                                         @php
-                                            $activeQty = match ($activeRound) {
-                                                1 => $row->first_count_quantity,
-                                                2 => $row->second_count_quantity,
-                                                3 => $row->final_count_quantity,
+                                            $diffQty = $this->roundDifferenceForDisplay($row, $activeRound);
+                                            $confirmedAmount = match ($activeRound) {
+                                                1 => $row->getAttribute('first_count_confirmed_difference_amount'),
+                                                2 => $row->getAttribute('second_count_confirmed_difference_amount'),
+                                                3 => $row->getAttribute('final_count_confirmed_difference_amount'),
                                             };
-                                            $diffQty = $endingBase !== null && $activeQty !== null ? (int) $activeQty - $endingBase : null;
-                                            $diffAmount = $diffQty !== null ? (float) $diffQty * (float) $row->cost_price : null;
+                                            $diffAmount = $this->isRoundConfirmed($activeRound) && $confirmedAmount !== null
+                                                ? (float) $confirmedAmount
+                                                : ($diffQty !== null ? (float) $diffQty * (float) $row->cost_price : null);
                                         @endphp
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums {{ $diffQty !== null && $diffQty > 0 ? 'text-green-700' : ($diffQty !== null && $diffQty < 0 ? 'text-red-700' : '') }}">{{ $diffQty !== null ? number_format((int) $diffQty) : '-' }}</td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right tabular-nums {{ $diffAmount !== null && $diffAmount > 0 ? 'text-green-700' : ($diffAmount !== null && $diffAmount < 0 ? 'text-red-700' : '') }}">{{ $diffAmount !== null ? '¥' . number_format((int) $diffAmount) : '-' }}</td>
