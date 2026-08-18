@@ -194,7 +194,15 @@ class InventoryDiffListPdfService
             $query->whereNotNull('ending_system_quantity');
 
             if ($this->diffRound !== null) {
-                $query->whereNotNull($this->roundColumn($this->diffRound));
+                if ($this->diffRound === 2) {
+                    $query->where(function (Builder $query): void {
+                        $query
+                            ->whereNotNull('second_count_quantity')
+                            ->orWhereNotNull('first_count_quantity');
+                    });
+                } else {
+                    $query->whereNotNull($this->roundColumn($this->diffRound));
+                }
             } else {
                 $query->where(function ($query) {
                     $query->whereNotNull('final_count_quantity')
@@ -405,7 +413,7 @@ class InventoryDiffListPdfService
     {
         $actualRound = $this->actualRound($item);
 
-        return $actualRound !== null ? $item->{$this->roundColumn($actualRound)} : null;
+        return $actualRound !== null ? $item->roundQuantity($actualRound) : null;
     }
 
     private function actualRound(WmsInventoryCountItem $item): ?int
