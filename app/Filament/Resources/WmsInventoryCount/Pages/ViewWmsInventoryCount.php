@@ -807,6 +807,19 @@ class ViewWmsInventoryCount extends Page implements HasForms
         WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
             ->whereNotNull($currentColumn)
             ->whereNull($nextColumn)
+            ->where(function ($query) use ($currentColumn) {
+                $query
+                    ->where(function ($query) use ($currentColumn) {
+                        $query
+                            ->whereNotNull('ending_system_quantity')
+                            ->whereColumn($currentColumn, 'ending_system_quantity');
+                    })
+                    ->orWhere(function ($query) use ($currentColumn) {
+                        $query
+                            ->whereNull('ending_system_quantity')
+                            ->whereColumn($currentColumn, 'system_quantity');
+                    });
+            })
             ->update([
                 $nextColumn => DB::raw($currentColumn),
                 'updated_at' => now(),

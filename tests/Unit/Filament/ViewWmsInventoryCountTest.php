@@ -76,4 +76,69 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertSame(1, $page->countForTab('diff'));
         $this->assertSame(1, $page->countForTab('matched'));
     }
+
+    public function test_first_round_confirmation_copies_only_matched_items_to_second_round(): void
+    {
+        if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')) {
+            $this->markTestSkipped('wms_inventory_count_items.ending_system_quantity is not available.');
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => '1回目確定テスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'current_count_round' => 1,
+        ]);
+
+        $matched = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999501,
+            'item_code' => 'ROUND001',
+            'item_name' => '終了理論一致',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 8,
+            'first_count_quantity' => 8,
+            'cost_price' => 10,
+        ]);
+
+        $different = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999502,
+            'item_code' => 'ROUND002',
+            'item_name' => '終了理論差異あり',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 8,
+            'first_count_quantity' => 7,
+            'cost_price' => 10,
+        ]);
+
+        $uncounted = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999503,
+            'item_code' => 'ROUND003',
+            'item_name' => '未入力',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 8,
+            'cost_price' => 10,
+        ]);
+
+        $page = new ViewWmsInventoryCount;
+        $page->record = $inventoryCount;
+        $page->activeCountRound = 1;
+
+        $page->confirmRound(1);
+
+        $this->assertSame(2, $inventoryCount->refresh()->current_count_round);
+        $this->assertSame(2, $page->activeCountRound);
+        $this->assertNotNull($inventoryCount->first_count_confirmed_at);
+        $this->assertSame(8, $matched->refresh()->second_count_quantity);
+        $this->assertNull($different->refresh()->second_count_quantity);
+        $this->assertNull($uncounted->refresh()->second_count_quantity);
+        $this->assertSame(1, $page->countForTab('matched'));
+        $this->assertSame(2, $page->countForTab('uncounted'));
+    }
 }
