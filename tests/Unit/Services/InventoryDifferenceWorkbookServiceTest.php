@@ -27,8 +27,8 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $inventoryCount = WmsInventoryCount::create([
             'count_no' => 'TST-'.Str::upper(Str::random(12)),
             'client_id' => 1,
-            'warehouse_id' => 22,
-            'warehouse_code' => '22',
+            'warehouse_id' => 987654321,
+            'warehouse_code' => '987654321',
             'warehouse_name' => '差異データテスト倉庫',
             'count_date' => '2026-08-19',
             'status' => WmsInventoryCount::STATUS_COUNTING,
@@ -43,6 +43,7 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $zeroSystemItemId = $this->createItemInMajorCategory(1003);
         $excludedCategoryItemId = $this->createItemInMajorCategory(9999);
         $ownedSetItemId = $this->createItemInMajorCategory(1001, true);
+        $nonManagedItemId = $this->createItemInMajorCategory(1001, false, false, 40);
 
         $this->createItemPrice($targetItemId, '2026-08-18', 20);
         $this->createItemPrice($targetItemId, '2026-08-19', 24);
@@ -50,6 +51,11 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $this->createItemPrice($targetItemId, '2026-08-19', 999, false);
         $this->createItemPrice($targetItemId, '2026-08-20', 500);
         $expectedCostPrice = 500;
+        $expectedNonManagedReportAmount = 2600;
+        $expectedMajorStockAmount = (34 * $expectedCostPrice) + $expectedNonManagedReportAmount;
+
+        $this->createReportTrade('PURCHASE', $nonManagedItemId, (int) $inventoryCount->warehouse_id, '2026-08-20', 3000);
+        $this->createReportTrade('EARNING', $nonManagedItemId, (int) $inventoryCount->warehouse_id, '2026-08-20', 1000);
 
         WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
@@ -220,9 +226,9 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertEqualsWithDelta(19.49, $departmentSheet->getColumnDimension('I')->getWidth(), 0.01);
         $this->assertEqualsWithDelta(19.49, $departmentSheet->getColumnDimension('J')->getWidth(), 0.01);
         $this->assertSame('１：酒類', $departmentSheet->getCell('C4')->getValue());
-        $this->assertEquals(34 * $expectedCostPrice, $departmentSheet->getCell('D4')->getValue());
+        $this->assertEquals($expectedMajorStockAmount, $departmentSheet->getCell('D4')->getValue());
         $this->assertEquals(-12 * $expectedCostPrice, $departmentSheet->getCell('E4')->getValue());
-        $this->assertEqualsWithDelta((-12 * $expectedCostPrice) / (34 * $expectedCostPrice), $departmentSheet->getCell('F4')->getValue(), 0.0000001);
+        $this->assertEqualsWithDelta((-12 * $expectedCostPrice) / $expectedMajorStockAmount, $departmentSheet->getCell('F4')->getValue(), 0.0000001);
         $this->assertEquals(-10 * $expectedCostPrice, $departmentSheet->getCell('G4')->getValue());
         $this->assertSame(2, $departmentSheet->getCell('K4')->getValue());
         $this->assertSame(3, $departmentSheet->getCell('L4')->getValue());
@@ -230,7 +236,7 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertEquals(-10 * $expectedCostPrice, $departmentSheet->getCell('N4')->getValue());
         $this->assertSame('合計', $departmentSheet->getCell('C8')->getValue());
         $this->assertSame(5, $departmentSheet->getCell('L8')->getValue());
-        $this->assertEquals(34 * $expectedCostPrice, $departmentSheet->getCell('D8')->getValue());
+        $this->assertEquals($expectedMajorStockAmount, $departmentSheet->getCell('D8')->getValue());
 
         $absoluteDepartmentSheet = $workbook->getSheetByName('部門別(絶対値)');
         $this->assertSame('26.8月実施　在庫差異状況一覧＜絶対値＞', $absoluteDepartmentSheet->getCell('B1')->getValue());
@@ -248,11 +254,11 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertSheetHasMerge($executiveSheet, 'E3:F3');
         $this->assertSheetHasMerge($executiveSheet, 'G3:H3');
         $this->assertSame('１：酒類', $executiveSheet->getCell('C5')->getValue());
-        $this->assertEquals(34 * $expectedCostPrice, $executiveSheet->getCell('D5')->getValue());
+        $this->assertEquals($expectedMajorStockAmount, $executiveSheet->getCell('D5')->getValue());
         $this->assertEquals(-10 * $expectedCostPrice, $executiveSheet->getCell('E5')->getValue());
         $this->assertEquals(10 * $expectedCostPrice, $executiveSheet->getCell('G5')->getValue());
         $this->assertSame('合計', $executiveSheet->getCell('C9')->getValue());
-        $this->assertEquals(34 * $expectedCostPrice, $executiveSheet->getCell('D9')->getValue());
+        $this->assertEquals($expectedMajorStockAmount, $executiveSheet->getCell('D9')->getValue());
         $this->assertEquals(-10 * $expectedCostPrice, $executiveSheet->getCell('E9')->getValue());
         $this->assertEquals(10 * $expectedCostPrice, $executiveSheet->getCell('G9')->getValue());
 
@@ -340,8 +346,8 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $inventoryCount = WmsInventoryCount::create([
             'count_no' => 'TST-'.Str::upper(Str::random(12)),
             'client_id' => 1,
-            'warehouse_id' => 22,
-            'warehouse_code' => '22',
+            'warehouse_id' => 987654322,
+            'warehouse_code' => '987654322',
             'warehouse_name' => '空差異データテスト倉庫',
             'count_date' => now()->toDateString(),
             'status' => WmsInventoryCount::STATUS_COUNTING,
@@ -426,13 +432,18 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         return $rows;
     }
 
-    private function createItemInMajorCategory(int $majorCategoryCode, bool $ownedSet = false): int
-    {
+    private function createItemInMajorCategory(
+        int $majorCategoryCode,
+        bool $ownedSet = false,
+        bool $managedStock = true,
+        ?float $majorCategoryCostRate = null,
+    ): int {
         $majorCategoryId = DB::connection('sakemaru')->table('item_categories')->insertGetId([
             'client_id' => 1,
             'name' => '差異データ大分類'.$majorCategoryCode,
             'code' => $majorCategoryCode,
             'depth' => 1,
+            'cost_rate' => $majorCategoryCostRate,
             'creator_id' => 1,
             'last_updater_id' => 1,
             'created_at' => now(),
@@ -467,6 +478,7 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
             'item_set_id' => $itemSetId,
             'item_category1_id' => $majorCategoryId,
             'item_category2_id' => $middleCategoryId,
+            'is_managed_stock' => $managedStock,
             'container_type_id' => 0,
             'manufacture_type_id' => 0,
             'storage_type_id' => 0,
@@ -515,6 +527,72 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
             'updated_at' => now(),
             'is_created_from_data_transfer' => false,
             'last_updater_id' => 0,
+        ]);
+    }
+
+    private function createReportTrade(
+        string $tradeCategory,
+        int $itemId,
+        int $warehouseId,
+        string $processDate,
+        float $amount,
+    ): void {
+        $tradeId = (int) DB::connection('sakemaru')->table('trades')->insertGetId([
+            'client_id' => 1,
+            'creator_id' => 1,
+            'last_updater_id' => 1,
+            'trade_category' => $tradeCategory,
+            'uuid' => (string) Str::uuid(),
+            'serial_id' => random_int(900000000, 999999999),
+            'subtotal' => $amount,
+            'total' => $amount,
+            'process_date' => $processDate,
+            'rebate_date' => $processDate,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        if ($tradeCategory === 'PURCHASE') {
+            DB::connection('sakemaru')->table('purchases')->insert([
+                'trade_id' => $tradeId,
+                'client_id' => 1,
+                'supplier_id' => 1,
+                'warehouse_id' => $warehouseId,
+                'delivered_date' => $processDate,
+                'account_date' => $processDate,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        } elseif ($tradeCategory === 'EARNING') {
+            DB::connection('sakemaru')->table('earnings')->insert([
+                'trade_id' => $tradeId,
+                'client_id' => 1,
+                'buyer_id' => 1,
+                'warehouse_id' => $warehouseId,
+                'delivered_date' => $processDate,
+                'account_date' => $processDate,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        DB::connection('sakemaru')->table('trade_items')->insert([
+            'client_id' => 1,
+            'trade_id' => $tradeId,
+            'item_id' => $itemId,
+            'item_name' => '非管理品テスト商品',
+            'stock_allocation_id' => 0,
+            'order_quantity_type' => 'PIECE',
+            'quantity' => 1,
+            'quantity_type' => 'PIECE',
+            'capacity_case' => 1,
+            'capacity_carton' => 1,
+            'price' => $amount,
+            'price_category' => 'OTHER',
+            'amount' => $amount,
+            'tax_excluded_amount' => $amount,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
     }
 }

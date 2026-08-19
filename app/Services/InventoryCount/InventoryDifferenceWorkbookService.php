@@ -8,6 +8,7 @@ use App\Models\WmsInventoryCountItem;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -30,6 +31,8 @@ class InventoryDifferenceWorkbookService
         '1006' => '６：アクト商品',
     ];
 
+    private const REPORT_NONMANAGED_PLUG_SUBCATEGORY_CODES = [3110, 3240, 3330, 3520, 3810, 3811];
+
     /**
      * @return non-empty-string
      */
@@ -41,7 +44,10 @@ class InventoryDifferenceWorkbookService
         $allRows = $this->allRows($inventoryCount, $items, $costPrices);
         $diffRows = $this->diffRows($inventoryCount, $items, $costPrices);
         $uncountedRows = $this->uncountedRows($inventoryCount, $items, $costPrices);
-        $departmentRows = $this->departmentRows($allRows);
+        $departmentRows = $this->departmentRows(
+            $allRows,
+            $this->reportStockAmountsByMajorCategory($inventoryCount, $items, $costPrices),
+        );
         $latestConfirmedRound = $this->latestConfirmedRound($inventoryCount);
 
         $departmentSheet = $spreadsheet->getActiveSheet();
@@ -97,7 +103,7 @@ class InventoryDifferenceWorkbookService
         return WmsInventoryCountItem::query()
             ->where('inventory_count_id', $inventoryCount->id)
             ->withoutOwnedSetItems()
-            ->with(['inventoryCount', 'item.item_category1', 'item.item_category2'])
+            ->with(['inventoryCount', 'item.item_category1', 'item.item_category2', 'item.item_category3'])
             ->get()
             ->sort($this->inventoryItemSorter(...))
             ->values();
@@ -299,7 +305,7 @@ class InventoryDifferenceWorkbookService
      * @param  array<int, array<string, mixed>>  $rows
      * @return array<int, array<string, mixed>>
      */
-    private function departmentRows(array $rows): array
+    private function departmentRows(array $rows, array $stockAmountsByMajorCategory = []): array
     {
         $targetRows = collect($rows)
             ->filter(fn (array $row): bool => in_array(trim((string) ($row['大分類CD'] ?? '')), self::REPORT_MAJOR_CATEGORY_CODES, true))
@@ -313,11 +319,18 @@ class InventoryDifferenceWorkbookService
                 ($groupedRows[$code] ?? collect())->all(),
                 $code,
                 self::REPORT_MAJOR_CATEGORY_LABELS[$code],
+                $stockAmountsByMajorCategory[$code] ?? null,
             ))
             ->values()
             ->all();
 
-        $departmentRows[] = $this->departmentRow($targetRows->all(), '合計', '合計');
+        $departmentRows[] = $this->departmentRow(
+            $targetRows->all(),
+            '合計',
+            '合計',
+            collect(self::REPORT_MAJOR_CATEGORY_CODES)
+                ->sum(fn (string $code): float => (float) ($stockAmountsByMajorCategory[$code] ?? 0)),
+        );
 
         return $departmentRows;
     }
@@ -326,9 +339,9 @@ class InventoryDifferenceWorkbookService
      * @param  array<int, array<string, mixed>>  $rows
      * @return array<string, mixed>
      */
-    private function departmentRow(array $rows, ?string $departmentCode = null, ?string $departmentName = null): array
+    private function departmentRow(array $rows, ?string $departmentCode = null, ?string $departmentName = null, float|int|null $stockAmountOverride = null): array
     {
-        $stockAmount = $this->sumRows($rows, 'CP在庫金額') ?? 0;
+        $stockAmount = $stockAmountOverride ?? $this->sumRows($rows, 'CP在庫金額') ?? 0;
         $totalCount = count($rows);
         $row = [
             '部門CD' => $departmentCode ?? (string) ($rows[0]['大分類CD'] ?? ''),
@@ -558,6 +571,10 @@ class InventoryDifferenceWorkbookService
             return null;
         }
 
+        if (! $this->isManagedStockItem($item)) {
+            return 0.0;
+        }
+
         return (float) ($costPrices->get((int) $item->item_id) ?? 0);
     }
 
@@ -584,6 +601,11 @@ class InventoryDifferenceWorkbookService
         foreach ($itemIds->chunk(1000) as $chunkItemIds) {
             $rankedPrices = DB::connection('sakemaru')
                 ->table('item_prices as ip')
+                ->join('items as i', function ($join): void {
+                    $join
+                        ->on('i.id', '=', 'ip.item_id')
+                        ->on('i.client_id', '=', 'ip.client_id');
+                })
                 ->select([
                     'ip.item_id',
                     'ip.cost_unit_price',
@@ -591,7 +613,6 @@ class InventoryDifferenceWorkbookService
                 ])
                 ->whereIn('ip.item_id', $chunkItemIds->all())
                 ->where('ip.client_id', (int) $inventoryCount->client_id)
-                ->where('ip.is_active', true)
                 ->where('ip.start_date', '<=', $priceDate);
 
             DB::connection('sakemaru')
@@ -605,6 +626,373 @@ class InventoryDifferenceWorkbookService
         }
 
         return $costPrices;
+    }
+
+    /**
+     * 在庫金額報告書のカテゴリ評価方法に合わせたCP在庫金額。
+     *
+     * 月末原価スナップショットは使わず、評価単価だけ現在原価に差し替える。
+     * 管理品は棚卸終了理論数×現在原価、非管理品は報告書と同じカテゴリ別流量式で評価する。
+     *
+     * @param  Collection<int, WmsInventoryCountItem>  $items
+     * @param  Collection<int, float>  $costPrices
+     * @return array<string, float>
+     */
+    private function reportStockAmountsByMajorCategory(WmsInventoryCount $inventoryCount, Collection $items, Collection $costPrices): array
+    {
+        $amounts = array_fill_keys(self::REPORT_MAJOR_CATEGORY_CODES, 0.0);
+
+        foreach ($items as $item) {
+            $categoryCode = trim($this->majorCategoryCode($item));
+
+            if (! in_array($categoryCode, self::REPORT_MAJOR_CATEGORY_CODES, true)) {
+                continue;
+            }
+
+            if (! $this->isManagedStockItem($item)) {
+                continue;
+            }
+
+            $quantity = $this->baseSystemQuantity($item);
+
+            if ($quantity === null) {
+                continue;
+            }
+
+            $amounts[$categoryCode] += $quantity * (float) ($this->costPrice($item, $costPrices) ?? 0);
+        }
+
+        foreach ($this->nonManagedReportStockAmountsByMajorCategory($inventoryCount) as $categoryCode => $amount) {
+            if (array_key_exists($categoryCode, $amounts)) {
+                $amounts[$categoryCode] += (float) $amount;
+            }
+        }
+
+        return $amounts;
+    }
+
+    /**
+     * @return array<string, float>
+     */
+    private function nonManagedReportStockAmountsByMajorCategory(WmsInventoryCount $inventoryCount): array
+    {
+        if (! $this->hasReportFlowTables()) {
+            return [];
+        }
+
+        $clientId = (int) $inventoryCount->client_id;
+        $warehouseId = (int) $inventoryCount->warehouse_id;
+
+        if ($clientId <= 0 || $warehouseId <= 0) {
+            return [];
+        }
+
+        $baseDate = $inventoryCount->ending_stock_taken_at
+            ?? $inventoryCount->count_date
+            ?? CarbonImmutable::today();
+        $baseDate = CarbonImmutable::parse($baseDate);
+        $startDate = $baseDate->startOfMonth()->toDateString();
+        $endDate = $baseDate->toDateString();
+
+        $sales = $this->nonManagedSalesAmountsByMajorCategory($clientId, $warehouseId, $startDate, $endDate);
+        $purchase = $this->nonManagedTradeAmountsByMajorCategory('PURCHASE', $clientId, $warehouseId, $startDate, $endDate);
+        $transferIn = $this->nonManagedTransferAmountsByMajorCategory('to_warehouse_id', $clientId, $warehouseId, $startDate, $endDate);
+        $transferOut = $this->nonManagedTransferAmountsByMajorCategory('from_warehouse_id', $clientId, $warehouseId, $startDate, $endDate);
+        $previous = $this->nonManagedPreviousAmountsByMajorCategory($inventoryCount, $baseDate);
+
+        $codes = collect(self::REPORT_MAJOR_CATEGORY_CODES);
+
+        return $codes
+            ->mapWithKeys(function (string $categoryCode) use ($previous, $purchase, $transferIn, $transferOut, $sales): array {
+                $amount = (float) ($previous[$categoryCode] ?? 0)
+                    + (float) ($purchase[$categoryCode] ?? 0)
+                    + (float) ($transferIn[$categoryCode] ?? 0)
+                    - (float) ($transferOut[$categoryCode] ?? 0)
+                    - (float) ($sales[$categoryCode]['amount'] ?? 0)
+                    + (float) ($sales[$categoryCode]['plug'] ?? 0);
+
+                return [$categoryCode => $amount];
+            })
+            ->all();
+    }
+
+    /**
+     * @return array<string, float>
+     */
+    private function nonManagedPreviousAmountsByMajorCategory(WmsInventoryCount $inventoryCount, CarbonImmutable $baseDate): array
+    {
+        $path = database_path('data/nonmanaged_prev/'.$baseDate->format('Y-m').'.csv');
+
+        if (! is_file($path)) {
+            return [];
+        }
+
+        $warehouseCode = trim((string) $inventoryCount->warehouse_code);
+        if ($warehouseCode === '') {
+            $warehouseCode = trim((string) DB::connection('sakemaru')
+                ->table('warehouses')
+                ->where('id', (int) $inventoryCount->warehouse_id)
+                ->value('code'));
+        }
+
+        if ($warehouseCode === '') {
+            return [];
+        }
+
+        $handle = fopen($path, 'r');
+        if ($handle === false) {
+            return [];
+        }
+
+        $amounts = [];
+
+        try {
+            fgetcsv($handle);
+
+            while (($row = fgetcsv($handle)) !== false) {
+                if (! isset($row[0], $row[1], $row[2])) {
+                    continue;
+                }
+
+                if (trim((string) $row[0]) !== $warehouseCode) {
+                    continue;
+                }
+
+                $categoryCode = trim((string) $row[1]);
+                if ($categoryCode === '') {
+                    continue;
+                }
+
+                if (ctype_digit($categoryCode) && (int) $categoryCode < 1000) {
+                    $categoryCode = (string) (1000 + (int) $categoryCode);
+                }
+
+                $amounts[$categoryCode] = (float) ($amounts[$categoryCode] ?? 0) + (float) $row[2];
+            }
+        } finally {
+            fclose($handle);
+        }
+
+        return $amounts;
+    }
+
+    private function hasReportFlowTables(): bool
+    {
+        foreach (['trade_items', 'trades', 'items', 'item_categories', 'earnings', 'purchases', 'stock_transfers'] as $table) {
+            if (! Schema::connection('sakemaru')->hasTable($table)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @return array<string, array{amount: float, plug: float}>
+     */
+    private function nonManagedSalesAmountsByMajorCategory(int $clientId, int $warehouseId, string $startDate, string $endDate): array
+    {
+        $amounts = [];
+        $rateExpression = 'COALESCE(c3.cost_rate, c2.cost_rate, c1.cost_rate, 0)';
+        $plugCodes = implode(',', self::REPORT_NONMANAGED_PLUG_SUBCATEGORY_CODES);
+
+        $earningQuery = DB::connection('sakemaru')
+            ->table('trade_items as ti')
+            ->join('trades as t', function ($join): void {
+                $join
+                    ->on('t.id', '=', 'ti.trade_id')
+                    ->where('t.trade_category', 'EARNING')
+                    ->where('t.is_active', true)
+                    ->where('t.is_latest', true);
+            })
+            ->join('earnings as e', 'e.trade_id', '=', 't.id')
+            ->join('items as i', function ($join): void {
+                $join
+                    ->on('i.id', '=', 'ti.item_id')
+                    ->where('i.is_managed_stock', false);
+            });
+
+        $this->joinReportCategories($earningQuery);
+        $this->excludeOwnedSetParents($earningQuery, 'i');
+
+        $earningRows = $earningQuery
+            ->where('ti.is_active', true)
+            ->where('ti.client_id', $clientId)
+            ->where('t.client_id', $clientId)
+            ->where('e.is_active', true)
+            ->where('e.client_id', $clientId)
+            ->where('e.warehouse_id', $warehouseId)
+            ->where('i.client_id', $clientId)
+            ->whereRaw('COALESCE(e.delivered_date, t.process_date) BETWEEN ? AND ?', [$startDate, $endDate])
+            ->groupBy('c1.code')
+            ->selectRaw("c1.code as category_code, SUM(ti.amount * {$rateExpression} / 100) as amount")
+            ->selectRaw("SUM(CASE WHEN c3.code IN ({$plugCodes}) THEN ti.amount * {$rateExpression} / 100 ELSE 0 END) as plug")
+            ->get();
+
+        $this->mergeNonManagedSalesRows($amounts, $earningRows);
+
+        if (! Schema::connection('sakemaru')->hasTable('ret_pos_item_sale_histories')) {
+            return $amounts;
+        }
+
+        $posQuery = DB::connection('sakemaru')
+            ->table('ret_pos_item_sale_histories as h')
+            ->join('items as i', function ($join): void {
+                $join
+                    ->on('i.id', '=', 'h.item_id')
+                    ->where('i.is_managed_stock', false);
+            });
+
+        $this->joinReportCategories($posQuery);
+        $this->excludeOwnedSetParents($posQuery, 'i');
+
+        $posRows = $posQuery
+            ->where('h.warehouse_id', $warehouseId)
+            ->where('i.client_id', $clientId)
+            ->whereBetween('h.business_date', [$startDate, $endDate])
+            ->groupBy('c1.code')
+            ->selectRaw("c1.code as category_code, SUM(h.sales_amount * {$rateExpression} / 100) as amount")
+            ->selectRaw("SUM(CASE WHEN c3.code IN ({$plugCodes}) THEN h.sales_amount * {$rateExpression} / 100 ELSE 0 END) as plug")
+            ->get();
+
+        $this->mergeNonManagedSalesRows($amounts, $posRows);
+
+        return $amounts;
+    }
+
+    /**
+     * @param  array<string, array{amount: float, plug: float}>  $amounts
+     */
+    private function mergeNonManagedSalesRows(array &$amounts, Collection $rows): void
+    {
+        foreach ($rows as $row) {
+            $categoryCode = trim((string) $row->category_code);
+
+            if ($categoryCode === '') {
+                continue;
+            }
+
+            $amounts[$categoryCode] ??= ['amount' => 0.0, 'plug' => 0.0];
+            $amounts[$categoryCode]['amount'] += (float) ($row->amount ?? 0);
+            $amounts[$categoryCode]['plug'] += (float) ($row->plug ?? 0);
+        }
+    }
+
+    /**
+     * @return array<string, float>
+     */
+    private function nonManagedTradeAmountsByMajorCategory(string $tradeCategory, int $clientId, int $warehouseId, string $startDate, string $endDate): array
+    {
+        $detailTable = match ($tradeCategory) {
+            'PURCHASE' => 'purchases',
+            default => null,
+        };
+
+        if ($detailTable === null) {
+            return [];
+        }
+
+        $query = DB::connection('sakemaru')
+            ->table('trade_items as ti')
+            ->join('trades as t', function ($join) use ($tradeCategory): void {
+                $join
+                    ->on('t.id', '=', 'ti.trade_id')
+                    ->where('t.trade_category', $tradeCategory)
+                    ->where('t.is_active', true)
+                    ->where('t.is_latest', true);
+            })
+            ->join("{$detailTable} as d", function ($join) use ($warehouseId): void {
+                $join
+                    ->on('d.trade_id', '=', 't.id')
+                    ->where('d.is_active', true)
+                    ->where('d.warehouse_id', $warehouseId);
+            })
+            ->join('items as i', function ($join): void {
+                $join
+                    ->on('i.id', '=', 'ti.item_id')
+                    ->where('i.is_managed_stock', false);
+            });
+
+        $this->joinReportCategories($query);
+        $this->excludeOwnedSetParents($query, 'i');
+
+        return $query
+            ->where('ti.is_active', true)
+            ->where('ti.client_id', $clientId)
+            ->where('t.client_id', $clientId)
+            ->where('d.client_id', $clientId)
+            ->where('i.client_id', $clientId)
+            ->whereBetween('t.process_date', [$startDate, $endDate])
+            ->groupBy('c1.code')
+            ->selectRaw('c1.code as category_code, SUM(ti.amount) as amount')
+            ->pluck('amount', 'category_code')
+            ->mapWithKeys(fn ($amount, $categoryCode): array => [trim((string) $categoryCode) => (float) $amount])
+            ->all();
+    }
+
+    /**
+     * @return array<string, float>
+     */
+    private function nonManagedTransferAmountsByMajorCategory(string $warehouseColumn, int $clientId, int $warehouseId, string $startDate, string $endDate): array
+    {
+        if (! in_array($warehouseColumn, ['to_warehouse_id', 'from_warehouse_id'], true)) {
+            return [];
+        }
+
+        $query = DB::connection('sakemaru')
+            ->table('trade_items as ti')
+            ->join('trades as t', function ($join): void {
+                $join
+                    ->on('t.id', '=', 'ti.trade_id')
+                    ->where('t.trade_category', 'STOCK_TRANSFER')
+                    ->where('t.is_active', true);
+            })
+            ->join('stock_transfers as st', function ($join) use ($warehouseColumn, $warehouseId): void {
+                $join
+                    ->on('st.trade_id', '=', 't.id')
+                    ->where("st.{$warehouseColumn}", $warehouseId);
+            })
+            ->join('items as i', function ($join): void {
+                $join
+                    ->on('i.id', '=', 'ti.item_id')
+                    ->where('i.is_managed_stock', false);
+            });
+
+        $this->joinReportCategories($query);
+        $this->excludeOwnedSetParents($query, 'i');
+
+        return $query
+            ->where('ti.is_active', true)
+            ->where('ti.client_id', $clientId)
+            ->where('t.client_id', $clientId)
+            ->where('st.client_id', $clientId)
+            ->where('i.client_id', $clientId)
+            ->whereBetween('t.process_date', [$startDate, $endDate])
+            ->groupBy('c1.code')
+            ->selectRaw('c1.code as category_code, SUM(ti.amount) as amount')
+            ->pluck('amount', 'category_code')
+            ->mapWithKeys(fn ($amount, $categoryCode): array => [trim((string) $categoryCode) => (float) $amount])
+            ->all();
+    }
+
+    private function joinReportCategories($query): void
+    {
+        $query
+            ->leftJoin('item_categories as c1', 'c1.id', '=', 'i.item_category1_id')
+            ->leftJoin('item_categories as c2', 'c2.id', '=', 'i.item_category2_id')
+            ->leftJoin('item_categories as c3', 'c3.id', '=', 'i.item_category3_id');
+    }
+
+    private function excludeOwnedSetParents($query, string $itemAlias): void
+    {
+        $query->whereNotExists(function ($query) use ($itemAlias): void {
+            $query
+                ->selectRaw('1')
+                ->from('item_sets as owned_item_sets')
+                ->whereColumn('owned_item_sets.id', "{$itemAlias}.item_set_id")
+                ->where('owned_item_sets.is_active', true)
+                ->where('owned_item_sets.set_type', 'OWNED');
+        });
     }
 
     private function shouldExportRound(WmsInventoryCount $inventoryCount, int $round): bool
@@ -709,6 +1097,17 @@ class InventoryDifferenceWorkbookService
         }
 
         return $category;
+    }
+
+    private function isManagedStockItem(WmsInventoryCountItem $item): bool
+    {
+        $isManagedStock = $item->item?->is_managed_stock;
+
+        if ($isManagedStock === null) {
+            return true;
+        }
+
+        return (bool) $isManagedStock;
     }
 
     private function majorCategoryCode(WmsInventoryCountItem $item): string
