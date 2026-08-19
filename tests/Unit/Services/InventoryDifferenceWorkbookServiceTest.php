@@ -204,27 +204,57 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
 
         $workbook = $this->loadWorkbook((new InventoryDifferenceWorkbookService)->generate($inventoryCount));
 
-        $this->assertSame(['部門別', '集計', '差異', '未棚'], $workbook->getSheetNames());
+        $this->assertSame(['部門別', '部門別(絶対値)', '社長用', '集計', '差異', '未棚'], $workbook->getSheetNames());
 
         $departmentSheet = $workbook->getSheetByName('部門別');
-        $this->assertSame('8/20終了時点', $departmentSheet->getCell('B3')->getValue());
-        $this->assertSame('プラスマイナス差異', $departmentSheet->getCell('B4')->getValue());
-        $this->assertSame('絶対値差異', $departmentSheet->getCell('D4')->getValue());
-        $this->assertSame('1:酒類', $departmentSheet->getCell('A6')->getValue());
-        $this->assertEquals(-10 * $expectedCostPrice, $departmentSheet->getCell('B6')->getValue());
-        $this->assertEquals(10 * $expectedCostPrice, $departmentSheet->getCell('D6')->getValue());
-        $this->assertSame('1:酒類', $departmentSheet->getCell('C18')->getValue());
-        $this->assertEquals(34 * $expectedCostPrice, $departmentSheet->getCell('D18')->getValue());
-        $this->assertEquals(12 * $expectedCostPrice, $departmentSheet->getCell('E18')->getValue());
-        $this->assertEqualsWithDelta((12 * $expectedCostPrice) / (34 * $expectedCostPrice), $departmentSheet->getCell('F18')->getValue(), 0.0000001);
-        $this->assertEquals(10 * $expectedCostPrice, $departmentSheet->getCell('G18')->getValue());
-        $this->assertSame(2, $departmentSheet->getCell('K18')->getValue());
-        $this->assertSame(3, $departmentSheet->getCell('L18')->getValue());
-        $this->assertEqualsWithDelta(2 / 3, $departmentSheet->getCell('M18')->getValue(), 0.0000001);
-        $this->assertEquals(10 * $expectedCostPrice, $departmentSheet->getCell('N18')->getValue());
-        $this->assertSame('合計', $departmentSheet->getCell('C22')->getValue());
-        $this->assertSame(5, $departmentSheet->getCell('L22')->getValue());
-        $this->assertEquals(34 * $expectedCostPrice, $departmentSheet->getCell('D22')->getValue());
+        $this->assertSame('26.8月実施　在庫差異状況一覧＜+　-＞', $departmentSheet->getCell('B1')->getValue());
+        $this->assertSame('調査(棚卸直後)', $departmentSheet->getCell('E2')->getValue());
+        $this->assertSame('調査(数えミス調査後)', $departmentSheet->getCell('G2')->getValue());
+        $this->assertSame('8/20終了時点', $departmentSheet->getCell('N2')->getValue());
+        $this->assertSame('ｱｲﾃﾑ数', $departmentSheet->getCell('K2')->getValue());
+        $this->assertSheetHasMerge($departmentSheet, 'E2:F2');
+        $this->assertSheetHasMerge($departmentSheet, 'G2:H2');
+        $this->assertSheetHasMerge($departmentSheet, 'I2:J2');
+        $this->assertSheetHasMerge($departmentSheet, 'K2:M2');
+        $this->assertEqualsWithDelta(24.99, $departmentSheet->getColumnDimension('D')->getWidth(), 0.01);
+        $this->assertEqualsWithDelta(19.49, $departmentSheet->getColumnDimension('I')->getWidth(), 0.01);
+        $this->assertEqualsWithDelta(19.49, $departmentSheet->getColumnDimension('J')->getWidth(), 0.01);
+        $this->assertSame('１：酒類', $departmentSheet->getCell('C4')->getValue());
+        $this->assertEquals(34 * $expectedCostPrice, $departmentSheet->getCell('D4')->getValue());
+        $this->assertEquals(-12 * $expectedCostPrice, $departmentSheet->getCell('E4')->getValue());
+        $this->assertEqualsWithDelta((-12 * $expectedCostPrice) / (34 * $expectedCostPrice), $departmentSheet->getCell('F4')->getValue(), 0.0000001);
+        $this->assertEquals(-10 * $expectedCostPrice, $departmentSheet->getCell('G4')->getValue());
+        $this->assertSame(2, $departmentSheet->getCell('K4')->getValue());
+        $this->assertSame(3, $departmentSheet->getCell('L4')->getValue());
+        $this->assertEqualsWithDelta(2 / 3, $departmentSheet->getCell('M4')->getValue(), 0.0000001);
+        $this->assertEquals(-10 * $expectedCostPrice, $departmentSheet->getCell('N4')->getValue());
+        $this->assertSame('合計', $departmentSheet->getCell('C8')->getValue());
+        $this->assertSame(5, $departmentSheet->getCell('L8')->getValue());
+        $this->assertEquals(34 * $expectedCostPrice, $departmentSheet->getCell('D8')->getValue());
+
+        $absoluteDepartmentSheet = $workbook->getSheetByName('部門別(絶対値)');
+        $this->assertSame('26.8月実施　在庫差異状況一覧＜絶対値＞', $absoluteDepartmentSheet->getCell('B1')->getValue());
+        $this->assertEquals(12 * $expectedCostPrice, $absoluteDepartmentSheet->getCell('E4')->getValue());
+        $this->assertEquals(10 * $expectedCostPrice, $absoluteDepartmentSheet->getCell('G4')->getValue());
+        $this->assertEquals(10 * $expectedCostPrice, $absoluteDepartmentSheet->getCell('N4')->getValue());
+
+        $executiveSheet = $workbook->getSheetByName('社長用');
+        $this->assertSame('26.8月実施　在庫差異状況一覧', $executiveSheet->getCell('A1')->getValue());
+        $this->assertSame('8/20終了時点', $executiveSheet->getCell('E2')->getValue());
+        $this->assertSame('プラスマイナス差異', $executiveSheet->getCell('E3')->getValue());
+        $this->assertSame('絶対値差異', $executiveSheet->getCell('G3')->getValue());
+        $this->assertSame('CP在庫金額', $executiveSheet->getCell('D4')->getValue());
+        $this->assertSheetHasMerge($executiveSheet, 'E2:H2');
+        $this->assertSheetHasMerge($executiveSheet, 'E3:F3');
+        $this->assertSheetHasMerge($executiveSheet, 'G3:H3');
+        $this->assertSame('１：酒類', $executiveSheet->getCell('C5')->getValue());
+        $this->assertEquals(34 * $expectedCostPrice, $executiveSheet->getCell('D5')->getValue());
+        $this->assertEquals(-10 * $expectedCostPrice, $executiveSheet->getCell('E5')->getValue());
+        $this->assertEquals(10 * $expectedCostPrice, $executiveSheet->getCell('G5')->getValue());
+        $this->assertSame('合計', $executiveSheet->getCell('C9')->getValue());
+        $this->assertEquals(34 * $expectedCostPrice, $executiveSheet->getCell('D9')->getValue());
+        $this->assertEquals(-10 * $expectedCostPrice, $executiveSheet->getCell('E9')->getValue());
+        $this->assertEquals(10 * $expectedCostPrice, $executiveSheet->getCell('G9')->getValue());
 
         $summaryRows = $this->rowsByColumn($workbook->getSheetByName('集計'), '区分');
         $this->assertArrayHasKey('全体', $summaryRows);
@@ -320,8 +350,10 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
 
         $workbook = $this->loadWorkbook((new InventoryDifferenceWorkbookService)->generate($inventoryCount));
 
-        $this->assertSame(['部門別', '集計', '差異', '未棚'], $workbook->getSheetNames());
-        $this->assertSame(22, $workbook->getSheetByName('部門別')->getHighestRow());
+        $this->assertSame(['部門別', '部門別(絶対値)', '社長用', '集計', '差異', '未棚'], $workbook->getSheetNames());
+        $this->assertSame(8, $workbook->getSheetByName('部門別')->getHighestRow());
+        $this->assertSame(8, $workbook->getSheetByName('部門別(絶対値)')->getHighestRow());
+        $this->assertSame(9, $workbook->getSheetByName('社長用')->getHighestRow());
         $this->assertSame(4, $workbook->getSheetByName('集計')->getHighestRow());
         $this->assertSame(1, $workbook->getSheetByName('差異')->getHighestRow());
         $this->assertSame(1, $workbook->getSheetByName('未棚')->getHighestRow());
@@ -352,6 +384,11 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $rows = $sheet->toArray(null, true, false, false);
 
         return array_values(array_filter($rows[0] ?? [], fn ($value): bool => $value !== null && $value !== ''));
+    }
+
+    private function assertSheetHasMerge(Worksheet $sheet, string $range): void
+    {
+        $this->assertArrayHasKey($range, $sheet->getMergeCells());
     }
 
     /**
