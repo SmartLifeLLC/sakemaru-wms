@@ -27,7 +27,7 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
             'warehouse_id' => 22,
             'warehouse_code' => '22',
             'warehouse_name' => '差異データテスト倉庫',
-            'count_date' => now()->toDateString(),
+            'count_date' => '2026-08-19',
             'status' => WmsInventoryCount::STATUS_COUNTING,
             'current_count_round' => 3,
             'first_count_confirmed_at' => now()->subHour(),
@@ -38,6 +38,12 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $matchedItemId = $this->createItemInMajorCategory(1002);
         $zeroSystemItemId = $this->createItemInMajorCategory(1003);
         $excludedCategoryItemId = $this->createItemInMajorCategory(9999);
+
+        $this->createItemPrice($targetItemId, '2026-08-18', 20);
+        $this->createItemPrice($targetItemId, '2026-08-19', 24);
+        $this->createItemPrice($targetItemId, '2026-08-19', 25);
+        $this->createItemPrice($targetItemId, '2026-08-19', 999, false);
+        $this->createItemPrice($targetItemId, '2026-08-20', 500);
 
         WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
@@ -185,6 +191,10 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertNotContains('ロケ', $diffHeaders);
         $this->assertNotContains('ロットNO', $diffHeaders);
         $this->assertNotContains('賞味期限', $diffHeaders);
+        $this->assertContains('大分類CD', $diffHeaders);
+        $this->assertContains('大分類名', $diffHeaders);
+        $this->assertContains('原価', $diffHeaders);
+        $this->assertContains('CP在庫金額', $diffHeaders);
 
         $diffRows = $this->rowsByItemCode($workbook->getSheetByName('差異'));
         $this->assertArrayHasKey('WB001', $diffRows);
@@ -193,6 +203,10 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertArrayNotHasKey('WB006', $diffRows);
 
         $this->assertSame(12, $diffRows['WB001']['理論在庫']);
+        $this->assertSame('1001', $diffRows['WB001']['大分類CD']);
+        $this->assertSame('差異データ大分類1001', $diffRows['WB001']['大分類名']);
+        $this->assertEquals(25, $diffRows['WB001']['原価']);
+        $this->assertEquals(300, $diffRows['WB001']['CP在庫金額']);
         $this->assertSame(7, $diffRows['WB001']['1回目数量']);
         $this->assertSame(-3, $diffRows['WB001']['1回目±差異']);
         $this->assertSame(3, $diffRows['WB001']['1回目絶対差異']);
@@ -208,6 +222,10 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertNotContains('ロケ', $uncountedHeaders);
         $this->assertNotContains('ロットNO', $uncountedHeaders);
         $this->assertNotContains('賞味期限', $uncountedHeaders);
+        $this->assertContains('大分類CD', $uncountedHeaders);
+        $this->assertContains('大分類名', $uncountedHeaders);
+        $this->assertContains('原価', $uncountedHeaders);
+        $this->assertContains('CP在庫金額', $uncountedHeaders);
 
         $uncountedRows = $this->rowsByItemCode($workbook->getSheetByName('未棚'));
         $this->assertArrayNotHasKey('WB001', $uncountedRows);
@@ -217,6 +235,10 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertArrayHasKey('WB005', $uncountedRows);
         $this->assertArrayNotHasKey('WB006', $uncountedRows);
         $this->assertSame('2回目', $uncountedRows['WB005']['未入力回']);
+        $this->assertSame('1001', $uncountedRows['WB005']['大分類CD']);
+        $this->assertSame('差異データ大分類1001', $uncountedRows['WB005']['大分類名']);
+        $this->assertEquals(25, $uncountedRows['WB005']['原価']);
+        $this->assertEquals(250, $uncountedRows['WB005']['CP在庫金額']);
     }
 
     public function test_difference_workbook_exports_empty_sheets(): void
@@ -340,6 +362,31 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
             'last_updater_id' => 1,
             'created_at' => now(),
             'updated_at' => now(),
+        ]);
+    }
+
+    private function createItemPrice(int $itemId, string $startDate, float $costUnitPrice, bool $isActive = true): int
+    {
+        return (int) DB::connection('sakemaru')->table('item_prices')->insertGetId([
+            'item_id' => $itemId,
+            'start_date' => $startDate,
+            'producer_unit_price' => 0,
+            'producer_case_price' => 0,
+            'producer_crate_price' => 0,
+            'cost_unit_price' => $costUnitPrice,
+            'wholesale_unit_price' => 0,
+            'sale_unit_price' => 0,
+            'sub_unit_price' => 0,
+            'retail_unit_price' => 0,
+            'tax_exempt_unit_price' => 0,
+            'type' => 'EXEMPT',
+            'client_id' => 1,
+            'creator_id' => 0,
+            'is_active' => $isActive,
+            'created_at' => now(),
+            'updated_at' => now(),
+            'is_created_from_data_transfer' => false,
+            'last_updater_id' => 0,
         ]);
     }
 }
