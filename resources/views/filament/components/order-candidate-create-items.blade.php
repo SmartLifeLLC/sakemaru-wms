@@ -46,6 +46,29 @@
         return String(item.contractor_code) === '9012';
     },
 
+    normalizeIntegerInput(value) {
+        const normalized = String(value || '')
+            .replace(/[０-９]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xFEE0))
+            .replace(/\D/g, '');
+
+        return normalized;
+    },
+
+    setQty(item, field, event) {
+        const qty = this.getQty(item.id);
+
+        if (this.isTransferOrderItem(item)) {
+            qty[field] = null;
+            event.target.value = '';
+            return;
+        }
+
+        const normalized = this.normalizeIntegerInput(event.target.value);
+        event.target.value = normalized;
+        qty[field] = normalized === '' ? null : parseInt(normalized, 10);
+        this.onQtyChange();
+    },
+
     formatVolume(item) {
         const packaging = String(item.packaging || '').trim().replace(/[×✕ｘＸ]/g, 'x').replace(/\s*x\s*/ig, 'x');
         const capacityCase = parseInt(item.capacity_case || 0);
@@ -621,23 +644,27 @@
                                 <span class="text-xs font-mono" :class="item.last_30d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_30d_qty || 0"></span>
                             </td>
                             <td class="px-0.5 py-0.5">
-                                <input type="number"
+                                <input type="text"
+                                    inputmode="numeric"
+                                    pattern="[0-9]*"
+                                    autocomplete="off"
                                     :value="getQty(item.id).caseQty"
-                                    @input="if (isTransferOrderItem(item)) { getQty(item.id).caseQty = null; $event.target.value = ''; return; } getQty(item.id).caseQty = $event.target.value ? parseInt($event.target.value) : null; onQtyChange()"
+                                    @input="setQty(item, 'caseQty', $event)"
                                     @keydown.enter.prevent
                                     :disabled="isTransferOrderItem(item)"
-                                    min="0"
                                     placeholder=""
                                     class="w-full border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-xs text-right font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-1 focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed dark:disabled:bg-gray-800/60"
                                 />
                             </td>
                             <td class="px-0.5 py-0.5">
-                                <input type="number"
+                                <input type="text"
+                                    inputmode="numeric"
+                                    pattern="[0-9]*"
+                                    autocomplete="off"
                                     :value="getQty(item.id).pieceQty"
-                                    @input="if (isTransferOrderItem(item)) { getQty(item.id).pieceQty = null; $event.target.value = ''; return; } getQty(item.id).pieceQty = $event.target.value ? parseInt($event.target.value) : null; onQtyChange()"
+                                    @input="setQty(item, 'pieceQty', $event)"
                                     @keydown.enter.prevent
                                     :disabled="isTransferOrderItem(item)"
-                                    min="0"
                                     placeholder=""
                                     class="w-full border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-xs text-right font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-1 focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed dark:disabled:bg-gray-800/60"
                                 />
