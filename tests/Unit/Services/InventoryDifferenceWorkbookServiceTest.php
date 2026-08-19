@@ -38,6 +38,7 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $matchedItemId = $this->createItemInMajorCategory(1002);
         $zeroSystemItemId = $this->createItemInMajorCategory(1003);
         $excludedCategoryItemId = $this->createItemInMajorCategory(9999);
+        $ownedSetItemId = $this->createItemInMajorCategory(1001, true);
 
         $this->createItemPrice($targetItemId, '2026-08-18', 20);
         $this->createItemPrice($targetItemId, '2026-08-19', 24);
@@ -179,6 +180,23 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
             'input_count' => 3,
         ]);
 
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => random_int(900000000, 999999999),
+            'item_id' => $ownedSetItemId,
+            'item_code' => 'WBOWN001',
+            'item_name' => '自社セット対象外商品',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 8,
+            'first_count_quantity' => 10,
+            'first_count_confirmed_system_quantity' => 8,
+            'first_count_confirmed_difference_quantity' => 2,
+            'first_count_confirmed_difference_amount' => 20,
+            'cost_price' => 10,
+            'difference_quantity' => 2,
+            'input_count' => 1,
+        ]);
+
         $workbook = $this->loadWorkbook((new InventoryDifferenceWorkbookService)->generate($inventoryCount));
 
         $this->assertSame(['差異', '未棚'], $workbook->getSheetNames());
@@ -201,6 +219,7 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertArrayNotHasKey('WB002', $diffRows);
         $this->assertArrayNotHasKey('WB005', $diffRows);
         $this->assertArrayNotHasKey('WB006', $diffRows);
+        $this->assertArrayNotHasKey('WBOWN001', $diffRows);
 
         $this->assertSame(12, $diffRows['WB001']['理論在庫']);
         $this->assertSame('1001', $diffRows['WB001']['大分類CD']);
@@ -234,6 +253,7 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertArrayNotHasKey('WB004', $uncountedRows);
         $this->assertArrayHasKey('WB005', $uncountedRows);
         $this->assertArrayNotHasKey('WB006', $uncountedRows);
+        $this->assertArrayNotHasKey('WBOWN001', $uncountedRows);
         $this->assertSame('2回目', $uncountedRows['WB005']['未入力回']);
         $this->assertSame('1001', $uncountedRows['WB005']['大分類CD']);
         $this->assertSame('差異データ大分類1001', $uncountedRows['WB005']['大分類名']);
@@ -315,7 +335,7 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         return $rows;
     }
 
-    private function createItemInMajorCategory(int $majorCategoryCode): int
+    private function createItemInMajorCategory(int $majorCategoryCode, bool $ownedSet = false): int
     {
         $majorCategoryId = DB::connection('sakemaru')->table('item_categories')->insertGetId([
             'client_id' => 1,
@@ -340,6 +360,8 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
             'updated_at' => now(),
         ]);
 
+        $itemSetId = $ownedSet ? $this->createOwnedItemSet() : null;
+
         return DB::connection('sakemaru')->table('items')->insertGetId([
             'name_main' => '差異データ対象商品'.Str::upper(Str::random(8)),
             'code' => random_int(800000000, 899999999),
@@ -351,6 +373,7 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
             'packaging' => '1',
             'nickname' => '差異データ対象',
             'client_id' => 1,
+            'item_set_id' => $itemSetId,
             'item_category1_id' => $majorCategoryId,
             'item_category2_id' => $middleCategoryId,
             'container_type_id' => 0,
@@ -359,6 +382,20 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
             'measurement_unit_weight' => 0,
             'measurement_case_weight' => 0,
             'order_rank' => 'ORDER_MANUAL',
+            'last_updater_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    private function createOwnedItemSet(): int
+    {
+        return (int) DB::connection('sakemaru')->table('item_sets')->insertGetId([
+            'description' => '棚卸対象外自社セット',
+            'set_type' => 'OWNED',
+            'is_active' => true,
+            'client_id' => 1,
+            'creator_id' => 1,
             'last_updater_id' => 1,
             'created_at' => now(),
             'updated_at' => now(),

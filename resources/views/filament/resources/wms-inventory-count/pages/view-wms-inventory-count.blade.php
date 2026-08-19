@@ -367,6 +367,7 @@
                         {{ $this->getAction('resumeCurrentStockSavedForCounting') }}
                         {{ $this->getAction('refreshCurrentStock') }}
                         {{ $this->getAction('refreshDailySnapshotStock') }}
+                        {{ $this->getAction('refreshSecondRoundConfirmedDifferences') }}
                         {{ $this->getAction('calculatePostCountMovements') }}
                         {{ $this->getAction('restoreCancelledForCounting') }}
                         {{ $this->getAction('fillUncountedWithZero') }}

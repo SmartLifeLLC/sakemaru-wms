@@ -148,6 +148,59 @@ class InventoryCountServiceTest extends TestCase
         $this->assertSame(11, $insertedLedgerOnlyItem->ending_system_quantity);
     }
 
+    public function test_take_snapshot_excludes_owned_set_items(): void
+    {
+        if (! Schema::connection('sakemaru')->hasTable('stats_item_stock_opening_balances')) {
+            $this->markTestSkipped('stats_item_stock_opening_balances table is not available.');
+        }
+
+        if (! Schema::connection('sakemaru')->hasTable('item_sets')
+            || ! Schema::connection('sakemaru')->hasColumn('items', 'item_set_id')
+        ) {
+            $this->markTestSkipped('item set tables are not available.');
+        }
+
+        $items = $this->ledgerTestItems();
+        if ($items->isEmpty()) {
+            $this->markTestSkipped('items table does not have enough ledger-testable rows.');
+        }
+
+        $clientId = (int) $items[0]->client_id;
+        $warehouseId = 990129;
+        $ownedSetItemId = $this->createOwnedSetItem($clientId);
+
+        $this->createOpeningBalance($clientId, $warehouseId, $items[0], 17);
+        $this->createOpeningBalance($clientId, $warehouseId, (object) [
+            'id' => $ownedSetItemId,
+            'code' => 'OWNED-SET-TEST',
+            'name' => '自社セット対象外',
+        ], 9);
+
+        $this->createRealStock($items[0]->id, 3, $clientId, $warehouseId);
+        $this->createRealStock($ownedSetItemId, 9, $clientId, $warehouseId);
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => $clientId,
+            'warehouse_id' => $warehouseId,
+            'warehouse_code' => (string) $warehouseId,
+            'warehouse_name' => '自社セット除外テスト倉庫',
+            'count_date' => InventoryCountLedgerBalanceService::OPENING_DATE,
+            'status' => WmsInventoryCount::STATUS_DRAFT,
+        ]);
+
+        (new InventoryCountService)->takeSnapshot($inventoryCount);
+
+        $this->assertTrue(WmsInventoryCountItem::query()
+            ->where('inventory_count_id', $inventoryCount->id)
+            ->where('item_id', $items[0]->id)
+            ->exists());
+        $this->assertFalse(WmsInventoryCountItem::query()
+            ->where('inventory_count_id', $inventoryCount->id)
+            ->where('item_id', $ownedSetItemId)
+            ->exists());
+    }
+
     public function test_save_current_stock_only_marks_status_and_does_not_update_count_items(): void
     {
         $realStockId = $this->createRealStock(999001, 99);
@@ -303,6 +356,83 @@ class InventoryCountServiceTest extends TestCase
         $this->assertNotNull($insertedItem);
         $this->assertSame(0, $insertedItem->system_quantity);
         $this->assertSame(12, $insertedItem->ending_system_quantity);
+    }
+
+    public function test_refresh_system_quantities_excludes_owned_set_items(): void
+    {
+        foreach ([
+            'wms_inventory_counts' => 'ending_stock_taken_at',
+            'wms_inventory_count_items' => 'ending_system_quantity',
+        ] as $table => $column) {
+            if (! Schema::connection('sakemaru')->hasColumn($table, $column)) {
+                $this->markTestSkipped("{$table}.{$column} is not available.");
+            }
+        }
+
+        if (! Schema::connection('sakemaru')->hasTable('item_sets')
+            || ! Schema::connection('sakemaru')->hasColumn('items', 'item_set_id')
+        ) {
+            $this->markTestSkipped('item set tables are not available.');
+        }
+
+        $items = $this->ledgerTestItems();
+        if ($items->isEmpty()) {
+            $this->markTestSkipped('items table does not have enough ledger-testable rows.');
+        }
+
+        $clientId = (int) $items[0]->client_id;
+        $warehouseId = 990023;
+        $visibleRealStockId = $this->createRealStock((int) $items[0]->id, 9, $clientId, $warehouseId);
+        $ownedExistingItemId = $this->createOwnedSetItem($clientId);
+        $ownedExistingRealStockId = $this->createRealStock($ownedExistingItemId, 15, $clientId, $warehouseId);
+        $ownedMissingItemId = $this->createOwnedSetItem($clientId);
+        $ownedMissingRealStockId = $this->createRealStock($ownedMissingItemId, 21, $clientId, $warehouseId);
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => $clientId,
+            'warehouse_id' => $warehouseId,
+            'warehouse_code' => (string) $warehouseId,
+            'warehouse_name' => '終了時在庫自社セット除外テスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+        ]);
+
+        $visibleItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => $visibleRealStockId,
+            'item_id' => (int) $items[0]->id,
+            'item_code' => (string) $items[0]->code,
+            'item_name' => (string) $items[0]->name,
+            'system_quantity' => 1,
+            'ending_system_quantity' => 2,
+            'cost_price' => 10,
+        ]);
+
+        $ownedExistingItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => $ownedExistingRealStockId,
+            'item_id' => $ownedExistingItemId,
+            'item_code' => 'OWNED-EXISTING',
+            'item_name' => '既存自社セット対象外',
+            'system_quantity' => 1,
+            'ending_system_quantity' => 2,
+            'cost_price' => 10,
+        ]);
+
+        $result = (new InventoryCountService)->refreshSystemQuantities($inventoryCount);
+
+        $visibleItem->refresh();
+        $ownedExistingItem->refresh();
+
+        $this->assertSame(1, $result['updated_items']);
+        $this->assertSame(0, $result['inserted_items']);
+        $this->assertSame(9, $visibleItem->ending_system_quantity);
+        $this->assertSame(2, $ownedExistingItem->ending_system_quantity);
+        $this->assertFalse(WmsInventoryCountItem::query()
+            ->where('inventory_count_id', $inventoryCount->id)
+            ->where('real_stock_id', $ownedMissingRealStockId)
+            ->exists());
     }
 
     public function test_refresh_system_quantities_from_daily_snapshot_uses_latest_snapshot_on_or_before_selected_date(): void
@@ -536,6 +666,291 @@ class InventoryCountServiceTest extends TestCase
         $this->assertSame('8.000', (string) $insertedBackup->new_ending_system_quantity);
     }
 
+    public function test_refresh_ending_system_quantities_from_ledger_excludes_owned_set_items(): void
+    {
+        foreach ([
+            'wms_inventory_counts' => 'ending_stock_taken_at',
+            'wms_inventory_count_items' => 'ending_system_quantity',
+        ] as $table => $column) {
+            if (! Schema::connection('sakemaru')->hasColumn($table, $column)) {
+                $this->markTestSkipped("{$table}.{$column} is not available.");
+            }
+        }
+
+        foreach ([
+            'wms_inventory_count_theory_update_runs',
+            'wms_inventory_count_theory_update_rows',
+        ] as $table) {
+            if (! Schema::connection('sakemaru')->hasTable($table)) {
+                $this->markTestSkipped("{$table} is not available.");
+            }
+        }
+
+        if (! Schema::connection('sakemaru')->hasTable('stats_item_stock_opening_balances')) {
+            $this->markTestSkipped('stats_item_stock_opening_balances table is not available.');
+        }
+
+        if (! Schema::connection('sakemaru')->hasTable('item_sets')
+            || ! Schema::connection('sakemaru')->hasColumn('items', 'item_set_id')
+        ) {
+            $this->markTestSkipped('item set tables are not available.');
+        }
+
+        $items = $this->ledgerTestItems();
+        if ($items->isEmpty()) {
+            $this->markTestSkipped('items table does not have enough ledger-testable rows.');
+        }
+
+        $clientId = (int) $items[0]->client_id;
+        $warehouseId = 990132;
+        $ownedItemId = $this->createOwnedSetItem($clientId);
+
+        $this->createOpeningBalance($clientId, $warehouseId, $items[0], 17);
+        $this->createOpeningBalance($clientId, $warehouseId, (object) [
+            'id' => $ownedItemId,
+            'code' => 'OWNED-LEDGER',
+            'name' => '自社セット受払対象外',
+        ], 9);
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => $clientId,
+            'warehouse_id' => $warehouseId,
+            'warehouse_code' => (string) $warehouseId,
+            'warehouse_name' => '理論在庫自社セット除外テスト倉庫',
+            'count_date' => InventoryCountLedgerBalanceService::OPENING_DATE,
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+        ]);
+
+        $visibleItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $items[0]->id,
+            'item_code' => (string) $items[0]->code,
+            'item_name' => (string) $items[0]->name,
+            'system_quantity' => 5,
+            'ending_system_quantity' => 2,
+            'cost_price' => 10,
+        ]);
+
+        $ownedItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $ownedItemId,
+            'item_code' => 'OWNED-LEDGER',
+            'item_name' => '自社セット受払対象外',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 2,
+            'cost_price' => 10,
+        ]);
+
+        $result = (new InventoryCountService)->refreshEndingSystemQuantitiesFromLedger(
+            $inventoryCount,
+            InventoryCountLedgerBalanceService::OPENING_DATE,
+        );
+
+        $visibleItem->refresh();
+        $ownedItem->refresh();
+
+        $this->assertSame(1, $result['updated_items']);
+        $this->assertSame(0, $result['inserted_items']);
+        $this->assertSame(1, $result['skipped_items']);
+        $this->assertSame(17, $visibleItem->ending_system_quantity);
+        $this->assertSame(2, $ownedItem->ending_system_quantity);
+    }
+
+    public function test_refresh_second_round_confirmed_differences_uses_current_ending_theory_with_backup(): void
+    {
+        foreach ([
+            ['wms_inventory_counts', 'ending_stock_taken_at'],
+            ['wms_inventory_count_items', 'ending_system_quantity'],
+            ['wms_inventory_count_items', 'second_count_confirmed_system_quantity'],
+            ['wms_inventory_count_items', 'second_count_confirmed_difference_quantity'],
+            ['wms_inventory_count_items', 'second_count_confirmed_difference_amount'],
+        ] as [$table, $column]) {
+            if (! Schema::connection('sakemaru')->hasColumn($table, $column)) {
+                $this->markTestSkipped("{$table}.{$column} is not available.");
+            }
+        }
+
+        foreach ([
+            'wms_inventory_count_theory_update_runs',
+            'wms_inventory_count_theory_update_rows',
+        ] as $table) {
+            if (! Schema::connection('sakemaru')->hasTable($table)) {
+                $this->markTestSkipped("{$table} is not available.");
+            }
+        }
+
+        if (! Schema::connection('sakemaru')->hasTable('item_sets')
+            || ! Schema::connection('sakemaru')->hasColumn('items', 'item_set_id')
+        ) {
+            $this->markTestSkipped('item set tables are not available.');
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 990130,
+            'warehouse_code' => '990130',
+            'warehouse_name' => '2回目差異再計算テスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'current_count_round' => 3,
+            'ending_stock_taken_at' => now(),
+            'first_count_confirmed_at' => now()->subHour(),
+            'second_count_confirmed_at' => now(),
+        ]);
+
+        $fallbackFromFirst = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999701,
+            'item_code' => 'ROUND201',
+            'item_name' => '2回目未入力1回目採用',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 3,
+            'first_count_quantity' => 5,
+            'final_count_quantity' => 9,
+            'cost_price' => 10,
+            'first_count_confirmed_difference_quantity' => 99,
+            'second_count_confirmed_system_quantity' => 8,
+            'second_count_confirmed_difference_quantity' => -3,
+            'second_count_confirmed_difference_amount' => -30,
+        ]);
+
+        $uncounted = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999702,
+            'item_code' => 'ROUND202',
+            'item_name' => '未入力クリア対象',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 4,
+            'cost_price' => 10,
+            'second_count_confirmed_system_quantity' => 8,
+            'second_count_confirmed_difference_quantity' => -8,
+            'second_count_confirmed_difference_amount' => -80,
+        ]);
+
+        $matched = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999703,
+            'item_code' => 'ROUND203',
+            'item_name' => '2回目一致',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 7,
+            'first_count_quantity' => 6,
+            'second_count_quantity' => 7,
+            'cost_price' => 20,
+            'second_count_confirmed_system_quantity' => 8,
+            'second_count_confirmed_difference_quantity' => -1,
+            'second_count_confirmed_difference_amount' => -20,
+        ]);
+
+        $owned = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $this->createOwnedSetItem(1),
+            'item_code' => 'OWNED-ROUND2',
+            'item_name' => '自社セット対象外',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 1,
+            'first_count_quantity' => 1,
+            'second_count_quantity' => 1,
+            'cost_price' => 10,
+            'second_count_confirmed_system_quantity' => 10,
+            'second_count_confirmed_difference_quantity' => -9,
+            'second_count_confirmed_difference_amount' => -90,
+        ]);
+
+        $result = (new InventoryCountService)->refreshSecondRoundConfirmedDifferences($inventoryCount);
+
+        $fallbackFromFirst->refresh();
+        $uncounted->refresh();
+        $matched->refresh();
+        $owned->refresh();
+
+        $this->assertSame(3, $result['target_items']);
+        $this->assertSame(2, $result['counted_items']);
+        $this->assertSame(1, $result['uncounted_items']);
+        $this->assertSame(1, $result['difference_items']);
+        $this->assertSame(3, $result['updated_items']);
+        $this->assertSame(3, $result['backed_up_rows']);
+        $this->assertSame(3, $fallbackFromFirst->second_count_confirmed_system_quantity);
+        $this->assertSame(2, $fallbackFromFirst->second_count_confirmed_difference_quantity);
+        $this->assertSame('20.00', $fallbackFromFirst->second_count_confirmed_difference_amount);
+        $this->assertNull($fallbackFromFirst->second_count_quantity);
+        $this->assertSame(9, $fallbackFromFirst->final_count_quantity);
+        $this->assertSame(99, $fallbackFromFirst->first_count_confirmed_difference_quantity);
+        $this->assertNull($uncounted->second_count_confirmed_system_quantity);
+        $this->assertNull($uncounted->second_count_confirmed_difference_quantity);
+        $this->assertNull($uncounted->second_count_confirmed_difference_amount);
+        $this->assertSame(7, $matched->second_count_confirmed_system_quantity);
+        $this->assertSame(0, $matched->second_count_confirmed_difference_quantity);
+        $this->assertSame('0.00', $matched->second_count_confirmed_difference_amount);
+        $this->assertSame(10, $owned->second_count_confirmed_system_quantity);
+        $this->assertSame(-9, $owned->second_count_confirmed_difference_quantity);
+
+        $run = DB::connection('sakemaru')
+            ->table('wms_inventory_count_theory_update_runs')
+            ->where('id', $result['backup_run_id'])
+            ->first();
+
+        $this->assertNotNull($run);
+        $this->assertSame('round2_diff_refresh', $run->update_type);
+        $this->assertSame('finished', $run->status);
+        $this->assertSame(3, (int) $run->calculated_item_count);
+        $this->assertSame(3, (int) $run->updated_items);
+
+        $backup = DB::connection('sakemaru')
+            ->table('wms_inventory_count_theory_update_rows')
+            ->where('run_id', $result['backup_run_id'])
+            ->where('inventory_count_item_id', $fallbackFromFirst->id)
+            ->first();
+
+        $this->assertNotNull($backup);
+        $oldValues = json_decode($backup->old_values, true);
+        $this->assertEquals(-3, (float) $oldValues['second_count_confirmed_difference_quantity']);
+    }
+
+    public function test_refresh_second_round_confirmed_differences_rejects_final_confirmed_inventory_count(): void
+    {
+        foreach ([
+            ['wms_inventory_counts', 'ending_stock_taken_at'],
+            ['wms_inventory_count_items', 'ending_system_quantity'],
+            ['wms_inventory_count_items', 'second_count_confirmed_system_quantity'],
+            ['wms_inventory_count_items', 'second_count_confirmed_difference_quantity'],
+            ['wms_inventory_count_items', 'second_count_confirmed_difference_amount'],
+        ] as [$table, $column]) {
+            if (! Schema::connection('sakemaru')->hasColumn($table, $column)) {
+                $this->markTestSkipped("{$table}.{$column} is not available.");
+            }
+        }
+
+        foreach ([
+            'wms_inventory_count_theory_update_runs',
+            'wms_inventory_count_theory_update_rows',
+        ] as $table) {
+            if (! Schema::connection('sakemaru')->hasTable($table)) {
+                $this->markTestSkipped("{$table} is not available.");
+            }
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 990131,
+            'warehouse_code' => '990131',
+            'warehouse_name' => '2回目差異再計算不可テスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_CHECKED,
+            'current_count_round' => 3,
+            'second_count_confirmed_at' => now()->subHour(),
+            'final_count_confirmed_at' => now(),
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('3回目確定後は2回目確定差異を再計算できません。');
+
+        (new InventoryCountService)->refreshSecondRoundConfirmedDifferences($inventoryCount);
+    }
+
     public function test_post_count_movement_calculation_only_updates_counted_rows(): void
     {
         foreach ([
@@ -646,6 +1061,104 @@ class InventoryCountServiceTest extends TestCase
         }
     }
 
+    public function test_calculate_differences_excludes_owned_set_items(): void
+    {
+        if (! Schema::connection('sakemaru')->hasTable('item_sets')
+            || ! Schema::connection('sakemaru')->hasColumn('items', 'item_set_id')
+        ) {
+            $this->markTestSkipped('item set tables are not available.');
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => '自社セット差異除外テスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+        ]);
+
+        $visibleItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999810,
+            'item_code' => 'VISIBLE-DIFF',
+            'item_name' => '通常差異対象',
+            'system_quantity' => 5,
+            'final_count_quantity' => 7,
+            'difference_quantity' => null,
+            'cost_price' => 10,
+        ]);
+
+        $ownedItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $this->createOwnedSetItem(1),
+            'item_code' => 'OWNED-DIFF',
+            'item_name' => '自社セット差異対象外',
+            'system_quantity' => 5,
+            'final_count_quantity' => 7,
+            'difference_quantity' => 99,
+            'difference_amount' => 990,
+            'cost_price' => 10,
+        ]);
+
+        (new InventoryCountService)->calculateDifferences($inventoryCount);
+
+        $this->assertSame(2, $visibleItem->refresh()->difference_quantity);
+        $this->assertSame('20.00', $visibleItem->difference_amount);
+        $this->assertSame(99, $ownedItem->refresh()->difference_quantity);
+        $this->assertSame('990.00', $ownedItem->difference_amount);
+    }
+
+    public function test_inventory_adjustment_excluded_summary_excludes_owned_set_items(): void
+    {
+        if (! Schema::connection('sakemaru')->hasTable('item_sets')
+            || ! Schema::connection('sakemaru')->hasColumn('items', 'item_set_id')
+        ) {
+            $this->markTestSkipped('item set tables are not available.');
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => '自社セット実棚除外テスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_CHECKED,
+        ]);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999811,
+            'item_code' => '400001',
+            'item_name' => '通常実棚除外対象',
+            'system_quantity' => 5,
+            'final_count_quantity' => 3,
+            'difference_quantity' => -2,
+            'difference_amount' => -20,
+            'cost_price' => 10,
+        ]);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $this->createOwnedSetItem(1),
+            'item_code' => '400002',
+            'item_name' => '自社セット実棚対象外',
+            'system_quantity' => 5,
+            'final_count_quantity' => 10,
+            'difference_quantity' => 5,
+            'difference_amount' => 50,
+            'cost_price' => 10,
+        ]);
+
+        $summary = (new InventoryCountService)->inventoryAdjustmentExcludedSummary($inventoryCount);
+
+        $this->assertSame(1, $summary['detail_count']);
+        $this->assertSame(1, $summary['item_count']);
+        $this->assertSame(['400001'], collect($summary['items'])->pluck('item_code')->all());
+    }
+
     private function createRealStock(int $itemId, int $currentQuantity, int $clientId = 1, int $warehouseId = 22, int $stockAllocationId = 0): int
     {
         return (int) DB::connection('sakemaru')
@@ -678,6 +1191,45 @@ class InventoryCountServiceTest extends TestCase
             'item_name' => (string) $item->name,
             'stock_allocation_id' => 0,
             'opening_quantity' => $quantity,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    private function createOwnedSetItem(int $clientId): int
+    {
+        $itemSetId = DB::connection('sakemaru')->table('item_sets')->insertGetId([
+            'description' => '棚卸対象外自社セット',
+            'set_type' => 'OWNED',
+            'is_active' => true,
+            'client_id' => $clientId,
+            'creator_id' => 1,
+            'last_updater_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return (int) DB::connection('sakemaru')->table('items')->insertGetId([
+            'name_main' => '自社セット対象外'.Str::upper(Str::random(8)),
+            'code' => random_int(800000000, 899999999),
+            'type' => 'NOT_ALCOHOL',
+            'manufacturer_id' => 0,
+            'volume' => 1,
+            'capacity_case' => 1,
+            'creator_id' => 1,
+            'packaging' => '1',
+            'nickname' => '自社セット対象外',
+            'client_id' => $clientId,
+            'item_set_id' => $itemSetId,
+            'item_category1_id' => 0,
+            'item_category2_id' => 0,
+            'container_type_id' => 0,
+            'manufacture_type_id' => 0,
+            'storage_type_id' => 0,
+            'measurement_unit_weight' => 0,
+            'measurement_case_weight' => 0,
+            'order_rank' => 'ORDER_MANUAL',
+            'last_updater_id' => 1,
             'created_at' => now(),
             'updated_at' => now(),
         ]);

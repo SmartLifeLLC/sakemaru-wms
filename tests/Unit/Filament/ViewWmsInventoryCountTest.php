@@ -3,9 +3,12 @@
 namespace Tests\Unit\Filament;
 
 use App\Filament\Resources\WmsInventoryCount\Pages\ViewWmsInventoryCount;
+use App\Filament\Resources\WmsInventoryCount\Pages\ViewWmsInventoryCountLogs;
 use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
+use App\Models\WmsInventoryCountItemLog;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -76,6 +79,23 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertNotFalse($bladeUncountedPosition);
         $this->assertNotFalse($bladeWorkbookPosition);
         $this->assertGreaterThan($bladeUncountedPosition, $bladeWorkbookPosition);
+    }
+
+    public function test_second_round_difference_refresh_action_is_available_in_details(): void
+    {
+        $page = file_get_contents(app_path('Filament/Resources/WmsInventoryCount/Pages/ViewWmsInventoryCount.php'));
+
+        $this->assertStringContainsString("Action::make('refreshSecondRoundConfirmedDifferences')", $page);
+        $this->assertStringContainsString('refreshSecondRoundConfirmedDifferences($record)', $page);
+        $this->assertStringContainsString('->label(\'2回目差異再計算\')', $page);
+
+        $blade = file_get_contents(resource_path('views/filament/resources/wms-inventory-count/pages/view-wms-inventory-count.blade.php'));
+        $theoryRefreshPosition = strpos($blade, "\$this->getAction('refreshDailySnapshotStock')");
+        $differenceRefreshPosition = strpos($blade, "\$this->getAction('refreshSecondRoundConfirmedDifferences')");
+
+        $this->assertNotFalse($theoryRefreshPosition);
+        $this->assertNotFalse($differenceRefreshPosition);
+        $this->assertGreaterThan($theoryRefreshPosition, $differenceRefreshPosition);
     }
 
     public function test_inline_save_accepts_negative_count_quantity(): void
@@ -429,5 +449,164 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertNull($item->refresh()->final_count_confirmed_system_quantity);
         $this->assertNull($item->final_count_confirmed_difference_quantity);
         $this->assertNull($item->final_count_confirmed_difference_amount);
+    }
+
+    public function test_owned_set_items_are_excluded_from_inventory_count_rows(): void
+    {
+        if (! Schema::connection('sakemaru')->hasTable('item_sets')
+            || ! Schema::connection('sakemaru')->hasColumn('items', 'item_set_id')
+        ) {
+            $this->markTestSkipped('item set tables are not available.');
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => '自社セット除外テスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'current_count_round' => 1,
+        ]);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999901,
+            'item_code' => 'VISIBLE001',
+            'item_name' => '通常棚卸対象',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 3,
+            'first_count_quantity' => 5,
+            'cost_price' => 10,
+        ]);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $this->createOwnedSetItem(),
+            'item_code' => 'OWNEDSET001',
+            'item_name' => '自社セット対象外',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 3,
+            'first_count_quantity' => 5,
+            'cost_price' => 10,
+        ]);
+
+        $page = new ViewWmsInventoryCount;
+        $page->record = $inventoryCount;
+        $page->activeCountRound = 1;
+
+        $this->assertSame(1, $page->totalCount());
+        $this->assertSame(1, $page->countForTab('diff'));
+        $this->assertSame(['VISIBLE001'], collect($page->rows()->items())->pluck('item_code')->all());
+    }
+
+    public function test_owned_set_items_are_excluded_from_inventory_count_logs(): void
+    {
+        if (! Schema::connection('sakemaru')->hasTable('item_sets')
+            || ! Schema::connection('sakemaru')->hasColumn('items', 'item_set_id')
+        ) {
+            $this->markTestSkipped('item set tables are not available.');
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => '自社セットログ除外テスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'current_count_round' => 1,
+        ]);
+
+        $visibleItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999902,
+            'item_code' => 'VISIBLELOG',
+            'item_name' => '通常ログ対象',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 3,
+            'first_count_quantity' => 4,
+            'cost_price' => 10,
+        ]);
+
+        $ownedItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $this->createOwnedSetItem(),
+            'item_code' => 'OWNEDLOG',
+            'item_name' => '自社セットログ対象外',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 3,
+            'first_count_quantity' => 4,
+            'cost_price' => 10,
+        ]);
+
+        WmsInventoryCountItemLog::create([
+            'inventory_count_item_id' => $visibleItem->id,
+            'device_id' => 'WEB',
+            'user_id' => null,
+            'count_round' => 1,
+            'old_quantity' => null,
+            'new_quantity' => 4,
+            'request_uuid' => (string) Str::uuid(),
+            'created_at' => now(),
+        ]);
+
+        WmsInventoryCountItemLog::create([
+            'inventory_count_item_id' => $ownedItem->id,
+            'device_id' => 'WEB',
+            'user_id' => null,
+            'count_round' => 1,
+            'old_quantity' => null,
+            'new_quantity' => 4,
+            'request_uuid' => (string) Str::uuid(),
+            'created_at' => now(),
+        ]);
+
+        $page = new ViewWmsInventoryCountLogs;
+        $page->record = $inventoryCount;
+
+        $this->assertSame(1, $page->totalLogCount());
+        $this->assertSame([$visibleItem->id], collect($page->logs()->items())->pluck('inventory_count_item_id')->all());
+    }
+
+    private function createOwnedSetItem(): int
+    {
+        $itemSetId = DB::connection('sakemaru')->table('item_sets')->insertGetId([
+            'description' => '棚卸対象外自社セット',
+            'set_type' => 'OWNED',
+            'is_active' => true,
+            'client_id' => 1,
+            'creator_id' => 1,
+            'last_updater_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return (int) DB::connection('sakemaru')->table('items')->insertGetId([
+            'name_main' => '自社セット対象外'.Str::upper(Str::random(8)),
+            'code' => random_int(800000000, 899999999),
+            'type' => 'NOT_ALCOHOL',
+            'manufacturer_id' => 0,
+            'volume' => 1,
+            'capacity_case' => 1,
+            'creator_id' => 1,
+            'packaging' => '1',
+            'nickname' => '自社セット対象外',
+            'client_id' => 1,
+            'item_set_id' => $itemSetId,
+            'item_category1_id' => 0,
+            'item_category2_id' => 0,
+            'container_type_id' => 0,
+            'manufacture_type_id' => 0,
+            'storage_type_id' => 0,
+            'measurement_unit_weight' => 0,
+            'measurement_case_weight' => 0,
+            'order_rank' => 'ORDER_MANUAL',
+            'last_updater_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 }

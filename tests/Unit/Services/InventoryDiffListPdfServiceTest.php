@@ -79,12 +79,25 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'cost_price' => 40,
         ]);
 
+        $ownedSetItemId = $this->createItemInMajorCategory(1001, true);
+        $ownedSetItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $ownedSetItemId,
+            'item_code' => 'PDFOWN001',
+            'item_name' => '自社セット対象外',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 3,
+            'final_count_quantity' => 5,
+            'cost_price' => 10,
+        ]);
+
         $items = $this->diffListItems($inventoryCount);
 
         $this->assertSame([$endOnly->id], $items->pluck('id')->all());
         $this->assertFalse($items->contains('id', $startOnly->id));
         $this->assertFalse($items->contains('id', $matched->id));
         $this->assertFalse($items->contains('id', $noEndingStock->id));
+        $this->assertFalse($items->contains('id', $ownedSetItem->id));
 
         $endOnlyRow = $items->firstWhere('id', $endOnly->id);
 
@@ -1070,7 +1083,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
         }
     }
 
-    private function createItemInMajorCategory(int $majorCategoryCode): int
+    private function createItemInMajorCategory(int $majorCategoryCode, bool $ownedSet = false): int
     {
         $majorCategoryId = DB::connection('sakemaru')->table('item_categories')->insertGetId([
             'client_id' => 1,
@@ -1095,6 +1108,8 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'updated_at' => now(),
         ]);
 
+        $itemSetId = $ownedSet ? $this->createOwnedItemSet() : null;
+
         return DB::connection('sakemaru')->table('items')->insertGetId([
             'name_main' => '未PDF対象商品'.Str::upper(Str::random(8)),
             'code' => random_int(800000000, 899999999),
@@ -1106,6 +1121,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'packaging' => '1',
             'nickname' => '未PDF対象',
             'client_id' => 1,
+            'item_set_id' => $itemSetId,
             'item_category1_id' => $majorCategoryId,
             'item_category2_id' => $middleCategoryId,
             'container_type_id' => 0,
@@ -1114,6 +1130,20 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'measurement_unit_weight' => 0,
             'measurement_case_weight' => 0,
             'order_rank' => 'ORDER_MANUAL',
+            'last_updater_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    private function createOwnedItemSet(): int
+    {
+        return (int) DB::connection('sakemaru')->table('item_sets')->insertGetId([
+            'description' => '棚卸対象外自社セット',
+            'set_type' => 'OWNED',
+            'is_active' => true,
+            'client_id' => 1,
+            'creator_id' => 1,
             'last_updater_id' => 1,
             'created_at' => now(),
             'updated_at' => now(),

@@ -3,8 +3,11 @@
 namespace App\Models;
 
 use App\Models\Sakemaru\Item;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class WmsInventoryCountItem extends WmsModel
 {
@@ -93,6 +96,30 @@ class WmsInventoryCountItem extends WmsModel
     public function item(): BelongsTo
     {
         return $this->belongsTo(Item::class, 'item_id');
+    }
+
+    public function scopeWithoutOwnedSetItems(Builder $query): Builder
+    {
+        if (! Schema::connection('sakemaru')->hasTable('item_sets')
+            || ! Schema::connection('sakemaru')->hasColumn('items', 'item_set_id')
+        ) {
+            return $query;
+        }
+
+        $table = $this->getTable();
+
+        return $query->whereNotExists(function ($query) use ($table): void {
+            $query
+                ->select(DB::raw(1))
+                ->from('items as owned_set_items')
+                ->join('item_sets as owned_item_sets', function ($join): void {
+                    $join
+                        ->on('owned_item_sets.id', '=', 'owned_set_items.item_set_id')
+                        ->where('owned_item_sets.is_active', true)
+                        ->where('owned_item_sets.set_type', 'OWNED');
+                })
+                ->whereColumn('owned_set_items.id', "{$table}.item_id");
+        });
     }
 
     public function calculateDifference(): ?float

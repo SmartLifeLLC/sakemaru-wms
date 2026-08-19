@@ -183,6 +183,7 @@ class InventoryDiffListPdfService
     private function queryItems(WmsInventoryCount $inventoryCount): Collection
     {
         $query = WmsInventoryCountItem::where('inventory_count_id', $inventoryCount->id)
+            ->withoutOwnedSetItems()
             ->with(['inventoryCount', 'item.item_category2']);
 
         if ($this->uncountedRound !== null) {
@@ -261,6 +262,7 @@ class InventoryDiffListPdfService
 
         return WmsInventoryCountItem::with(['inventoryCount', 'item.item_category2'])
             ->whereIn('inventory_count_id', $inventoryCountIds)
+            ->withoutOwnedSetItems()
             ->tap(fn (Builder $query) => $this->applyUncountedTargetFilters($query))
             ->get()
             ->groupBy(fn (WmsInventoryCountItem $item): string => $this->inventoryItemKey($item))

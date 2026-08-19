@@ -41,6 +41,7 @@ class InventoryCountMovementService
 
             $itemIds = WmsInventoryCountItem::query()
                 ->where('inventory_count_id', $inventoryCount->id)
+                ->withoutOwnedSetItems()
                 ->where(function ($query) {
                     $query
                         ->whereNotNull('first_count_quantity')
@@ -56,6 +57,7 @@ class InventoryCountMovementService
 
             WmsInventoryCountItem::query()
                 ->where('inventory_count_id', $inventoryCount->id)
+                ->withoutOwnedSetItems()
                 ->update([
                     'post_count_movement_quantity' => null,
                     'updated_at' => now(),
@@ -81,6 +83,7 @@ class InventoryCountMovementService
                 foreach ($chunkItemIds as $itemId) {
                     WmsInventoryCountItem::query()
                         ->where('inventory_count_id', $inventoryCount->id)
+                        ->withoutOwnedSetItems()
                         ->where('item_id', $itemId)
                         ->where(function ($query) {
                             $query

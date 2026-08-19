@@ -3,13 +3,23 @@
 namespace Tests\Unit\Http\Controllers\Api;
 
 use App\Http\Controllers\Api\InventoryCountController;
+use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
 use App\Services\InventoryCount\InventoryCountService;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use ReflectionMethod;
 use Tests\TestCase;
 
 class InventoryCountControllerTest extends TestCase
 {
+    use DatabaseTransactions;
+
+    protected $connectionsToTransact = ['sakemaru'];
+
     public function test_piece_jan_package_quantity_uses_item_capacity_case(): void
     {
         $this->assertSame(12, $this->packageQuantity((object) [
@@ -60,6 +70,55 @@ class InventoryCountControllerTest extends TestCase
         $this->assertSame(8, $payload['system_quantity_end']);
     }
 
+    public function test_show_counts_exclude_owned_set_items(): void
+    {
+        if (! Schema::connection('sakemaru')->hasTable('item_sets')
+            || ! Schema::connection('sakemaru')->hasColumn('items', 'item_set_id')
+        ) {
+            $this->markTestSkipped('item set tables are not available.');
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => 'API自社セット除外テスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+        ]);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999801,
+            'item_code' => 'API-VISIBLE',
+            'item_name' => 'API通常棚卸対象',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 5,
+            'first_count_quantity' => 5,
+            'cost_price' => 10,
+        ]);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $this->createOwnedSetItem(),
+            'item_code' => 'API-OWNED',
+            'item_name' => 'API自社セット対象外',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 5,
+            'cost_price' => 10,
+        ]);
+
+        $response = (new InventoryCountController(new InventoryCountService))
+            ->show(Request::create('/api/wms/inventory-counts/'.$inventoryCount->id, 'GET'), (int) $inventoryCount->id);
+
+        $payload = $response->getData(true);
+
+        $this->assertSame(1, $payload['result']['data']['inventory_count']['total_items']);
+        $this->assertSame(1, $payload['result']['data']['inventory_count']['counted_items']);
+        $this->assertSame(0, $payload['result']['data']['inventory_count']['uncounted_items']);
+    }
+
     private function packageQuantity(object $row): int
     {
         $controller = new InventoryCountController(new InventoryCountService);
@@ -67,5 +126,44 @@ class InventoryCountControllerTest extends TestCase
         $method->setAccessible(true);
 
         return $method->invoke($controller, $row);
+    }
+
+    private function createOwnedSetItem(): int
+    {
+        $itemSetId = DB::connection('sakemaru')->table('item_sets')->insertGetId([
+            'description' => '棚卸対象外自社セット',
+            'set_type' => 'OWNED',
+            'is_active' => true,
+            'client_id' => 1,
+            'creator_id' => 1,
+            'last_updater_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return (int) DB::connection('sakemaru')->table('items')->insertGetId([
+            'name_main' => 'API自社セット対象外'.Str::upper(Str::random(8)),
+            'code' => random_int(800000000, 899999999),
+            'type' => 'NOT_ALCOHOL',
+            'manufacturer_id' => 0,
+            'volume' => 1,
+            'capacity_case' => 1,
+            'creator_id' => 1,
+            'packaging' => '1',
+            'nickname' => 'API自社セット対象外',
+            'client_id' => 1,
+            'item_set_id' => $itemSetId,
+            'item_category1_id' => 0,
+            'item_category2_id' => 0,
+            'container_type_id' => 0,
+            'manufacture_type_id' => 0,
+            'storage_type_id' => 0,
+            'measurement_unit_weight' => 0,
+            'measurement_case_weight' => 0,
+            'order_rank' => 'ORDER_MANUAL',
+            'last_updater_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 }
