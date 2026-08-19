@@ -11,6 +11,8 @@ use TCPDF;
 
 class InventoryDiffListPdfService
 {
+    private const UNCOUNTED_TARGET_MAJOR_CATEGORY_CODES = [1001, 1002, 1003, 1006];
+
     private const FONT_SIZE_TITLE = 18;
 
     private const FONT_SIZE_HEADER = 9;
@@ -182,12 +184,13 @@ class InventoryDiffListPdfService
     {
         $query = WmsInventoryCountItem::where('inventory_count_id', $inventoryCount->id)
             ->withoutOwnedSetItems()
-            ->with(['inventoryCount', 'item.item_category2']);
+            ->with(['inventoryCount', 'item.item_category1', 'item.item_category2']);
 
         if ($this->uncountedRound !== null) {
             $roundColumn = $this->roundColumn($this->uncountedRound);
 
             $query->whereNull($roundColumn);
+            $this->applyUncountedTargetFilters($query);
         } else {
             $query->whereNotNull('ending_system_quantity');
 
@@ -257,9 +260,13 @@ class InventoryDiffListPdfService
 
         $roundColumn = $this->roundColumn($round);
 
-        return WmsInventoryCountItem::with(['inventoryCount', 'item.item_category2'])
+        $query = WmsInventoryCountItem::with(['inventoryCount', 'item.item_category1', 'item.item_category2'])
             ->whereIn('inventory_count_id', $inventoryCountIds)
-            ->withoutOwnedSetItems()
+            ->withoutOwnedSetItems();
+
+        $this->applyUncountedTargetFilters($query);
+
+        return $query
             ->get()
             ->groupBy(fn (WmsInventoryCountItem $item): string => $this->inventoryItemKey($item))
             ->filter(fn (Collection $items): bool => $items->every(
@@ -269,6 +276,23 @@ class InventoryDiffListPdfService
             ->values()
             ->sort($this->inventoryItemSorter(...))
             ->values();
+    }
+
+    private function applyUncountedTargetFilters(Builder $query): void
+    {
+        $query
+            ->whereHas('item.item_category1', function (Builder $query): void {
+                $query->whereIn('code', self::UNCOUNTED_TARGET_MAJOR_CATEGORY_CODES);
+            })
+            ->where(function (Builder $query): void {
+                $query
+                    ->where('system_quantity', '!=', 0)
+                    ->orWhere(function (Builder $query): void {
+                        $query
+                            ->whereNotNull('difference_quantity')
+                            ->where('difference_quantity', '!=', 0);
+                    });
+            });
     }
 
     private function inventoryItemKey(WmsInventoryCountItem $item): string

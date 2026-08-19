@@ -702,7 +702,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
         $this->assertStringNotContainsString('棚番：B0', $text);
     }
 
-    public function test_uncounted_list_uses_same_null_round_condition_as_screen_tab(): void
+    public function test_uncounted_list_filters_pdf_target_categories_and_zero_theory_zero_difference_items(): void
     {
         $inventoryCount = WmsInventoryCount::create([
             'count_no' => 'TST-'.Str::upper(Str::random(12)),
@@ -787,8 +787,8 @@ class InventoryDiffListPdfServiceTest extends TestCase
 
         $this->assertTrue($items->contains('id', $target->id));
         $this->assertTrue($items->contains('id', $zeroSystemQuantityWithDifference->id));
-        $this->assertTrue($items->contains('id', $zeroSystemQuantityWithoutDifference->id));
-        $this->assertTrue($items->contains('id', $excludedCategory->id));
+        $this->assertFalse($items->contains('id', $zeroSystemQuantityWithoutDifference->id));
+        $this->assertFalse($items->contains('id', $excludedCategory->id));
         $this->assertFalse($items->contains('id', $counted->id));
         $this->assertFalse($items->contains('id', $ownedSetItem->id));
     }
@@ -917,11 +917,11 @@ class InventoryDiffListPdfServiceTest extends TestCase
 
         $items = $this->multiCountUncountedItems(collect([$firstInventoryCount, $secondInventoryCount]), 1);
 
-        $this->assertCount(4, $items);
+        $this->assertCount(2, $items);
         $this->assertTrue($items->contains('id', $latestUncounted->id));
         $this->assertTrue($items->contains('id', $zeroSystemQuantityWithDifference->id));
-        $this->assertTrue($items->contains('id', $zeroSystemQuantityWithoutDifference->id));
-        $this->assertTrue($items->contains('id', $excludedCategory->id));
+        $this->assertFalse($items->contains('id', $zeroSystemQuantityWithoutDifference->id));
+        $this->assertFalse($items->contains('id', $excludedCategory->id));
         $this->assertFalse($items->contains('real_stock_id', $countedStockId));
         $this->assertFalse($items->contains('real_stock_id', $zeroCountedStockId));
 

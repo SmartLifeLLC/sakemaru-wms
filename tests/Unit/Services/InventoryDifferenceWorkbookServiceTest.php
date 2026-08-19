@@ -35,6 +35,7 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
             'current_count_round' => 3,
             'first_count_confirmed_at' => now()->subHour(),
             'second_count_confirmed_at' => now(),
+            'ending_stock_taken_at' => now(),
         ]);
 
         $targetItemId = $this->createItemInMajorCategory(1001);
@@ -205,23 +206,25 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
 
         $this->assertSame(['部門別', '集計', '差異', '未棚'], $workbook->getSheetNames());
 
-        $departmentRows = $this->rowsByColumn($workbook->getSheetByName('部門別'), '部門CD');
-        $this->assertArrayHasKey('1001', $departmentRows);
-        $this->assertArrayHasKey('合計', $departmentRows);
-        $this->assertSame('差異データ大分類1001', $departmentRows['1001']['部門名']);
-        $this->assertSame(3, $departmentRows['1001']['総数']);
-        $this->assertEquals(34 * $expectedCostPrice, $departmentRows['1001']['CP在庫金額']);
-        $this->assertSame(2, $departmentRows['1001']['1回目差異数']);
-        $this->assertEqualsWithDelta(2 / 3, $departmentRows['1001']['1回目差異率'], 0.0000001);
-        $this->assertEquals(-12 * $expectedCostPrice, $departmentRows['1001']['1回目±不明差異金額']);
-        $this->assertEqualsWithDelta((-12 * $expectedCostPrice) / (34 * $expectedCostPrice), $departmentRows['1001']['1回目±在庫差異率'], 0.0000001);
-        $this->assertEquals(12 * $expectedCostPrice, $departmentRows['1001']['1回目絶対値不明差異金額']);
-        $this->assertEqualsWithDelta((12 * $expectedCostPrice) / (34 * $expectedCostPrice), $departmentRows['1001']['1回目絶対値在庫差異率'], 0.0000001);
-        $this->assertSame(2, $departmentRows['1001']['2回目差異数']);
-        $this->assertEquals(-10 * $expectedCostPrice, $departmentRows['1001']['2回目±不明差異金額']);
-        $this->assertEquals(10 * $expectedCostPrice, $departmentRows['1001']['2回目絶対値不明差異金額']);
-        $this->assertSame(6, $departmentRows['合計']['総数']);
-        $this->assertEquals(34 * $expectedCostPrice, $departmentRows['合計']['CP在庫金額']);
+        $departmentSheet = $workbook->getSheetByName('部門別');
+        $this->assertSame('8/20終了時点', $departmentSheet->getCell('B3')->getValue());
+        $this->assertSame('プラスマイナス差異', $departmentSheet->getCell('B4')->getValue());
+        $this->assertSame('絶対値差異', $departmentSheet->getCell('D4')->getValue());
+        $this->assertSame('1:酒類', $departmentSheet->getCell('A6')->getValue());
+        $this->assertEquals(-10 * $expectedCostPrice, $departmentSheet->getCell('B6')->getValue());
+        $this->assertEquals(10 * $expectedCostPrice, $departmentSheet->getCell('D6')->getValue());
+        $this->assertSame('1:酒類', $departmentSheet->getCell('C18')->getValue());
+        $this->assertEquals(34 * $expectedCostPrice, $departmentSheet->getCell('D18')->getValue());
+        $this->assertEquals(12 * $expectedCostPrice, $departmentSheet->getCell('E18')->getValue());
+        $this->assertEqualsWithDelta((12 * $expectedCostPrice) / (34 * $expectedCostPrice), $departmentSheet->getCell('F18')->getValue(), 0.0000001);
+        $this->assertEquals(10 * $expectedCostPrice, $departmentSheet->getCell('G18')->getValue());
+        $this->assertSame(2, $departmentSheet->getCell('K18')->getValue());
+        $this->assertSame(3, $departmentSheet->getCell('L18')->getValue());
+        $this->assertEqualsWithDelta(2 / 3, $departmentSheet->getCell('M18')->getValue(), 0.0000001);
+        $this->assertEquals(10 * $expectedCostPrice, $departmentSheet->getCell('N18')->getValue());
+        $this->assertSame('合計', $departmentSheet->getCell('C22')->getValue());
+        $this->assertSame(5, $departmentSheet->getCell('L22')->getValue());
+        $this->assertEquals(34 * $expectedCostPrice, $departmentSheet->getCell('D22')->getValue());
 
         $summaryRows = $this->rowsByColumn($workbook->getSheetByName('集計'), '区分');
         $this->assertArrayHasKey('全体', $summaryRows);
@@ -290,13 +293,11 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $uncountedRows = $this->rowsByItemCode($workbook->getSheetByName('未棚'));
         $this->assertArrayNotHasKey('WB001', $uncountedRows);
         $this->assertArrayNotHasKey('WB002', $uncountedRows);
-        $this->assertArrayHasKey('WB003', $uncountedRows);
-        $this->assertArrayHasKey('WB004', $uncountedRows);
+        $this->assertArrayNotHasKey('WB003', $uncountedRows);
+        $this->assertArrayNotHasKey('WB004', $uncountedRows);
         $this->assertArrayHasKey('WB005', $uncountedRows);
         $this->assertArrayNotHasKey('WB006', $uncountedRows);
         $this->assertArrayNotHasKey('WBOWN001', $uncountedRows);
-        $this->assertSame('1回目,2回目', $uncountedRows['WB003']['未入力回']);
-        $this->assertSame('1回目,2回目', $uncountedRows['WB004']['未入力回']);
         $this->assertSame('2回目', $uncountedRows['WB005']['未入力回']);
         $this->assertSame('1001', $uncountedRows['WB005']['大分類CD']);
         $this->assertSame('差異データ大分類1001', $uncountedRows['WB005']['大分類名']);
@@ -320,7 +321,7 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $workbook = $this->loadWorkbook((new InventoryDifferenceWorkbookService)->generate($inventoryCount));
 
         $this->assertSame(['部門別', '集計', '差異', '未棚'], $workbook->getSheetNames());
-        $this->assertSame(2, $workbook->getSheetByName('部門別')->getHighestRow());
+        $this->assertSame(22, $workbook->getSheetByName('部門別')->getHighestRow());
         $this->assertSame(4, $workbook->getSheetByName('集計')->getHighestRow());
         $this->assertSame(1, $workbook->getSheetByName('差異')->getHighestRow());
         $this->assertSame(1, $workbook->getSheetByName('未棚')->getHighestRow());

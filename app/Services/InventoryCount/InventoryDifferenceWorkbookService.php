@@ -12,6 +12,7 @@ use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -19,6 +20,15 @@ use RuntimeException;
 
 class InventoryDifferenceWorkbookService
 {
+    private const REPORT_MAJOR_CATEGORY_CODES = ['1001', '1002', '1003', '1006'];
+
+    private const REPORT_MAJOR_CATEGORY_LABELS = [
+        '1001' => '1:酒類',
+        '1002' => '2:飲料・食品',
+        '1003' => '3:ギフト',
+        '1006' => '6:アクト商品',
+    ];
+
     /**
      * @return non-empty-string
      */
@@ -33,7 +43,7 @@ class InventoryDifferenceWorkbookService
 
         $departmentSheet = $spreadsheet->getActiveSheet();
         $departmentSheet->setTitle('部門別');
-        $this->writeRows($departmentSheet, $this->departmentColumns(), $this->departmentRows($allRows));
+        $this->writeDepartmentReport($departmentSheet, $inventoryCount, $this->departmentRows($allRows), $this->latestConfirmedRound($inventoryCount));
 
         $summarySheet = $spreadsheet->createSheet();
         $summarySheet->setTitle('集計');
@@ -117,11 +127,31 @@ class InventoryDifferenceWorkbookService
      */
     private function uncountedRows(WmsInventoryCount $inventoryCount, Collection $items, Collection $costPrices): array
     {
+        $uncountedRound = $this->latestConfirmedRound($inventoryCount);
+
+        if ($uncountedRound === null) {
+            return [];
+        }
+
         return $items
-            ->map(fn (WmsInventoryCountItem $item): array => $this->buildUncountedRow($inventoryCount, $item, $costPrices))
-            ->filter(fn (array $row): bool => filled($row['未入力回']))
+            ->filter(fn (WmsInventoryCountItem $item): bool => $this->isUncountedTargetItem($item))
+            ->filter(fn (WmsInventoryCountItem $item): bool => $this->physicalRoundQuantity($item, $uncountedRound) === null)
+            ->map(fn (WmsInventoryCountItem $item): array => $this->buildUncountedRow($inventoryCount, $item, $costPrices, $uncountedRound))
             ->values()
             ->all();
+    }
+
+    private function isUncountedTargetItem(WmsInventoryCountItem $item): bool
+    {
+        if (! in_array($this->majorCategoryCode($item), self::REPORT_MAJOR_CATEGORY_CODES, true)) {
+            return false;
+        }
+
+        $systemQuantity = $item->system_quantity;
+        $differenceQuantity = $item->difference_quantity;
+
+        return (float) ($systemQuantity ?? 0) !== 0.0
+            || ($differenceQuantity !== null && (float) $differenceQuantity !== 0.0);
     }
 
     /**
@@ -177,39 +207,6 @@ class InventoryDifferenceWorkbookService
             ['区分', '件数', 'CP在庫金額'],
             $this->roundAmountColumns(),
         );
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function departmentColumns(): array
-    {
-        return array_merge(
-            ['部門CD', '部門名', '総数', 'CP在庫金額'],
-            $this->departmentRoundColumns(),
-        );
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function departmentRoundColumns(): array
-    {
-        $columns = [];
-
-        foreach ([1, 2, 3] as $round) {
-            array_push(
-                $columns,
-                "{$round}回目差異数",
-                "{$round}回目差異率",
-                "{$round}回目±不明差異金額",
-                "{$round}回目±在庫差異率",
-                "{$round}回目絶対値不明差異金額",
-                "{$round}回目絶対値在庫差異率",
-            );
-        }
-
-        return $columns;
     }
 
     /**
@@ -293,14 +290,23 @@ class InventoryDifferenceWorkbookService
      */
     private function departmentRows(array $rows): array
     {
-        $departmentRows = collect($rows)
+        $targetRows = collect($rows)
+            ->filter(fn (array $row): bool => in_array(trim((string) ($row['大分類CD'] ?? '')), self::REPORT_MAJOR_CATEGORY_CODES, true))
+            ->values();
+        $groupedRows = $targetRows
             ->groupBy(fn (array $row): string => trim((string) ($row['大分類CD'] ?? '')))
-            ->sortKeysUsing(fn (string $a, string $b): int => $this->categoryCodeSortValue($a) <=> $this->categoryCodeSortValue($b))
-            ->map(fn (Collection $departmentRows): array => $this->departmentRow($departmentRows->all()))
+            ->all();
+
+        $departmentRows = collect(self::REPORT_MAJOR_CATEGORY_CODES)
+            ->map(fn (string $code): array => $this->departmentRow(
+                ($groupedRows[$code] ?? collect())->all(),
+                $code,
+                self::REPORT_MAJOR_CATEGORY_LABELS[$code],
+            ))
             ->values()
             ->all();
 
-        $departmentRows[] = $this->departmentRow($rows, '合計', '合計');
+        $departmentRows[] = $this->departmentRow($targetRows->all(), '合計', '合計');
 
         return $departmentRows;
     }
@@ -339,15 +345,6 @@ class InventoryDifferenceWorkbookService
         }
 
         return $row;
-    }
-
-    private function categoryCodeSortValue(string $code): array
-    {
-        if ($code === '') {
-            return [1, ''];
-        }
-
-        return [0, str_pad($code, 20, '0', STR_PAD_LEFT)];
     }
 
     private function amountRate(float|int|null $amount, float|int|null $stockAmount): ?float
@@ -404,11 +401,12 @@ class InventoryDifferenceWorkbookService
     /**
      * @return array<string, mixed>
      */
-    private function buildUncountedRow(WmsInventoryCount $inventoryCount, WmsInventoryCountItem $item, Collection $costPrices): array
+    private function buildUncountedRow(WmsInventoryCount $inventoryCount, WmsInventoryCountItem $item, Collection $costPrices, ?int $uncountedRound = null): array
     {
         $costPrice = $this->costPrice($item, $costPrices);
         $row = $this->baseRow($inventoryCount, $item, $costPrices, $costPrice);
         $uncountedRounds = [];
+        $roundsToCheck = $uncountedRound === null ? [1, 2, 3] : [$uncountedRound];
 
         foreach ([1, 2, 3] as $round) {
             $values = $this->roundValues($inventoryCount, $item, $round, $costPrice);
@@ -419,7 +417,7 @@ class InventoryDifferenceWorkbookService
             $row["{$round}回目±差異金額"] = $values['difference_amount'];
             $row["{$round}回目絶対差異金額"] = $values['absolute_difference_amount'];
 
-            if ($this->shouldExportRound($inventoryCount, $round) && $this->physicalRoundQuantity($item, $round) === null) {
+            if (in_array($round, $roundsToCheck, true) && $this->shouldExportRound($inventoryCount, $round) && $this->physicalRoundQuantity($item, $round) === null) {
                 $uncountedRounds[] = "{$round}回目";
             }
         }
@@ -603,6 +601,17 @@ class InventoryDifferenceWorkbookService
         return $this->isRoundConfirmed($inventoryCount, $round);
     }
 
+    private function latestConfirmedRound(WmsInventoryCount $inventoryCount): ?int
+    {
+        foreach ([3, 2, 1] as $round) {
+            if ($this->isRoundConfirmed($inventoryCount, $round)) {
+                return $round;
+            }
+        }
+
+        return null;
+    }
+
     private function isRoundConfirmed(WmsInventoryCount $inventoryCount, int $round): bool
     {
         return $inventoryCount->{$this->roundConfirmedAtColumn($round)} !== null;
@@ -735,6 +744,270 @@ class InventoryDifferenceWorkbookService
             (string) ($category?->code ?? ''),
             (int) ($category?->id ?? 0),
         ];
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    private function writeDepartmentReport(Worksheet $sheet, WmsInventoryCount $inventoryCount, array $rows, ?int $latestRound): void
+    {
+        $currentLabel = $this->departmentReportCurrentLabel($inventoryCount);
+        $currentRound = $latestRound ?? 1;
+        $detailStartRow = 14;
+
+        $sheet->setCellValue('A1', '棚卸差異状況一覧');
+        $sheet->setCellValue('I1', now()->format('Y/m/d H:i'));
+
+        $this->writeDepartmentTopSection($sheet, $rows, $currentLabel, $currentRound);
+        $this->writeDepartmentDetailSection($sheet, $inventoryCount, $rows, $currentLabel, $currentRound, $detailStartRow);
+        $this->styleDepartmentReport($sheet, count($rows), $detailStartRow);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    private function writeDepartmentTopSection(Worksheet $sheet, array $rows, string $currentLabel, int $currentRound): void
+    {
+        $sheet->mergeCells('B3:E3');
+        $sheet->mergeCells('F3:G3');
+        $sheet->mergeCells('H3:I3');
+        $sheet->mergeCells('B4:C4');
+        $sheet->mergeCells('D4:E4');
+
+        $sheet->setCellValue('B3', $currentLabel);
+        $sheet->setCellValue('F3', '前回9月調査（最終）');
+        $sheet->setCellValue('H3', '前回3月調査（最終）');
+        $sheet->setCellValue('B4', 'プラスマイナス差異');
+        $sheet->setCellValue('D4', '絶対値差異');
+        $sheet->setCellValue('F4', 'プラスマイナス差異');
+        $sheet->setCellValue('G4', '絶対値差異');
+        $sheet->setCellValue('H4', 'プラスマイナス差異');
+        $sheet->setCellValue('I4', '絶対値差異');
+        $sheet->setCellValue('B5', '不明差異金額');
+        $sheet->setCellValue('C5', '在庫差異率(%)');
+        $sheet->setCellValue('D5', '不明差異金額');
+        $sheet->setCellValue('E5', '在庫差異率(%)');
+        $sheet->setCellValue('F5', '不明差異金額');
+        $sheet->setCellValue('G5', '不明差異金額');
+        $sheet->setCellValue('H5', '不明差異金額');
+        $sheet->setCellValue('I5', '不明差異金額');
+
+        $rowIndex = 6;
+        foreach ($rows as $row) {
+            $sheet->setCellValue("A{$rowIndex}", $row['部門名'] ?? '');
+            $this->setReportCellValue($sheet, "B{$rowIndex}", $row["{$currentRound}回目±不明差異金額"] ?? null);
+            $this->setReportCellValue($sheet, "C{$rowIndex}", $row["{$currentRound}回目±在庫差異率"] ?? null);
+            $this->setReportCellValue($sheet, "D{$rowIndex}", $row["{$currentRound}回目絶対値不明差異金額"] ?? null);
+            $this->setReportCellValue($sheet, "E{$rowIndex}", $row["{$currentRound}回目絶対値在庫差異率"] ?? null);
+
+            $rowIndex++;
+        }
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    private function writeDepartmentDetailSection(
+        Worksheet $sheet,
+        WmsInventoryCount $inventoryCount,
+        array $rows,
+        string $currentLabel,
+        int $currentRound,
+        int $sectionStartRow,
+    ): void {
+        $groupRow = $sectionStartRow + 2;
+        $headerRow = $sectionStartRow + 3;
+        $dataStartRow = $sectionStartRow + 4;
+
+        $sheet->setCellValue("A{$sectionStartRow}", '棚卸差異状況一覧');
+        $sheet->setCellValue("S{$sectionStartRow}", now()->format('Y/m/d H:i'));
+
+        foreach ([
+            "E{$groupRow}:F{$groupRow}" => '調査(棚卸直後)',
+            "G{$groupRow}:H{$groupRow}" => '調査(数えミス調査後)',
+            "I{$groupRow}:J{$groupRow}" => '調査（差異調査）',
+            "K{$groupRow}:M{$groupRow}" => 'アイテム数',
+            "N{$groupRow}:O{$groupRow}" => $currentLabel,
+            "P{$groupRow}:Q{$groupRow}" => '前回9月調査（最終）',
+            "R{$groupRow}:S{$groupRow}" => '棚卸日',
+        ] as $range => $label) {
+            $sheet->mergeCells($range);
+            $sheet->setCellValue(explode(':', $range)[0], $label);
+        }
+
+        $headers = [
+            'C' => '部門',
+            'D' => 'CP在庫金額',
+            'E' => '不明差異金額',
+            'F' => '在庫差異率(%)',
+            'G' => '不明差異金額',
+            'H' => '在庫差異率(%)',
+            'I' => '不明差異金額',
+            'J' => '在庫差異率(%)',
+            'K' => '差異数',
+            'L' => '総数',
+            'M' => '差異率',
+            'N' => '不明差異金額',
+            'O' => '在庫差異率(%)',
+            'P' => '不明差異金額',
+            'Q' => '在庫差異率(%)',
+            'R' => '前回',
+            'S' => '今回',
+        ];
+
+        foreach ($headers as $column => $label) {
+            $sheet->setCellValue("{$column}{$headerRow}", $label);
+        }
+
+        $countDate = $inventoryCount->count_date?->format('Y/m/d') ?? '';
+        $rowIndex = $dataStartRow;
+
+        foreach ($rows as $index => $row) {
+            if ($index === 0) {
+                $sheet->setCellValue("A{$rowIndex}", $inventoryCount->warehouse_name ?? '');
+                $sheet->setCellValue("B{$rowIndex}", filled($inventoryCount->warehouse_code) ? '<'.$inventoryCount->warehouse_code.'>' : '');
+            }
+
+            $sheet->setCellValue("C{$rowIndex}", $row['部門名'] ?? '');
+            $this->setReportCellValue($sheet, "D{$rowIndex}", $row['CP在庫金額'] ?? null);
+            $this->setReportCellValue($sheet, "E{$rowIndex}", $row['1回目絶対値不明差異金額'] ?? null);
+            $this->setReportCellValue($sheet, "F{$rowIndex}", $row['1回目絶対値在庫差異率'] ?? null);
+            $this->setReportCellValue($sheet, "G{$rowIndex}", $row['2回目絶対値不明差異金額'] ?? null);
+            $this->setReportCellValue($sheet, "H{$rowIndex}", $row['2回目絶対値在庫差異率'] ?? null);
+            $this->setReportCellValue($sheet, "I{$rowIndex}", $row['3回目絶対値不明差異金額'] ?? null);
+            $this->setReportCellValue($sheet, "J{$rowIndex}", $row['3回目絶対値在庫差異率'] ?? null);
+            $this->setReportCellValue($sheet, "K{$rowIndex}", $row["{$currentRound}回目差異数"] ?? null);
+            $this->setReportCellValue($sheet, "L{$rowIndex}", $row['総数'] ?? null);
+            $this->setReportCellValue($sheet, "M{$rowIndex}", $row["{$currentRound}回目差異率"] ?? null);
+            $this->setReportCellValue($sheet, "N{$rowIndex}", $row["{$currentRound}回目絶対値不明差異金額"] ?? null);
+            $this->setReportCellValue($sheet, "O{$rowIndex}", $row["{$currentRound}回目絶対値在庫差異率"] ?? null);
+            $sheet->setCellValue("S{$rowIndex}", $countDate);
+
+            $rowIndex++;
+        }
+    }
+
+    private function setReportCellValue(Worksheet $sheet, string $cell, mixed $value): void
+    {
+        if ($value === null || $value === '') {
+            $sheet->setCellValue($cell, null);
+
+            return;
+        }
+
+        $sheet->setCellValue($cell, $value);
+    }
+
+    private function departmentReportCurrentLabel(WmsInventoryCount $inventoryCount): string
+    {
+        $date = $inventoryCount->ending_stock_taken_at ?? $inventoryCount->count_date;
+
+        return $date === null ? '今回終了時点' : $date->format('n/j').'終了時点';
+    }
+
+    private function styleDepartmentReport(Worksheet $sheet, int $rowCount, int $detailStartRow): void
+    {
+        $topLastRow = 5 + $rowCount;
+        $detailGroupRow = $detailStartRow + 2;
+        $detailHeaderRow = $detailStartRow + 3;
+        $detailLastRow = $detailStartRow + 3 + $rowCount;
+
+        $sheet->freezePane('A6');
+
+        foreach ([
+            'A' => 16,
+            'B' => 10,
+            'C' => 20,
+            'D' => 14,
+            'E' => 14,
+            'F' => 13,
+            'G' => 14,
+            'H' => 13,
+            'I' => 14,
+            'J' => 13,
+            'K' => 9,
+            'L' => 9,
+            'M' => 10,
+            'N' => 14,
+            'O' => 13,
+            'P' => 14,
+            'Q' => 13,
+            'R' => 11,
+            'S' => 11,
+        ] as $column => $width) {
+            $sheet->getColumnDimension($column)->setWidth($width);
+        }
+
+        $headerStyle = [
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'D9D9D9'],
+            ],
+            'alignment' => [
+                'horizontal' => Alignment::HORIZONTAL_CENTER,
+                'vertical' => Alignment::VERTICAL_CENTER,
+            ],
+            'borders' => [
+                'allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => '555555']],
+            ],
+        ];
+
+        $sheet->getStyle('A3:I5')->applyFromArray($headerStyle);
+        $sheet->getStyle("C{$detailGroupRow}:S{$detailHeaderRow}")->applyFromArray($headerStyle);
+
+        foreach (["A6:I{$topLastRow}", "A{$detailStartRow}:S{$detailLastRow}"] as $range) {
+            $sheet->getStyle($range)->applyFromArray([
+                'borders' => [
+                    'allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => '808080']],
+                ],
+                'alignment' => [
+                    'vertical' => Alignment::VERTICAL_CENTER,
+                ],
+            ]);
+        }
+
+        $sheet->getStyle("A{$topLastRow}:I{$topLastRow}")->getFont()->setBold(true);
+        $sheet->getStyle("C{$detailLastRow}:S{$detailLastRow}")->getFont()->setBold(true);
+        $sheet->getStyle("A1:S{$detailLastRow}")->getFont()->setName('Yu Gothic')->setSize(10);
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(12);
+        $sheet->getStyle("A{$detailStartRow}")->getFont()->setBold(true)->setSize(12);
+
+        foreach (['B', 'D', 'F', 'G', 'H', 'I'] as $column) {
+            $sheet->getStyle("{$column}6:{$column}{$topLastRow}")
+                ->getNumberFormat()
+                ->setFormatCode('#,##0');
+        }
+
+        foreach (['C', 'E'] as $column) {
+            $sheet->getStyle("{$column}6:{$column}{$topLastRow}")
+                ->getNumberFormat()
+                ->setFormatCode('0.00%');
+        }
+
+        foreach (['D', 'E', 'G', 'I', 'N', 'P'] as $column) {
+            $sheet->getStyle("{$column}".($detailHeaderRow + 1).":{$column}{$detailLastRow}")
+                ->getNumberFormat()
+                ->setFormatCode('#,##0');
+        }
+
+        foreach (['F', 'H', 'J', 'M', 'O', 'Q'] as $column) {
+            $sheet->getStyle("{$column}".($detailHeaderRow + 1).":{$column}{$detailLastRow}")
+                ->getNumberFormat()
+                ->setFormatCode('0.00%');
+        }
+
+        foreach (['K', 'L'] as $column) {
+            $sheet->getStyle("{$column}".($detailHeaderRow + 1).":{$column}{$detailLastRow}")
+                ->getNumberFormat()
+                ->setFormatCode('0');
+        }
+
+        $sheet->getStyle("A3:S{$detailLastRow}")
+            ->getAlignment()
+            ->setWrapText(true);
+        $sheet->getStyle("A6:A{$topLastRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
+        $sheet->getStyle('C'.($detailHeaderRow + 1).":C{$detailLastRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
     }
 
     /**
