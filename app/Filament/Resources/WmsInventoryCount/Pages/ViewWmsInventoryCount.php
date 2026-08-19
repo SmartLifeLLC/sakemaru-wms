@@ -201,7 +201,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function floorOptions(): array
     {
-        return WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
+        return $this->inventoryCountItemsQuery()
             ->whereNotNull('floor_name')
             ->distinct()
             ->orderBy('floor_name')
@@ -211,7 +211,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function locationOptions(): array
     {
-        return WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
+        return $this->inventoryCountItemsQuery()
             ->whereNotNull('location_no')
             ->distinct()
             ->orderBy('location_no')
@@ -221,7 +221,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function rows(): LengthAwarePaginator
     {
-        $query = WmsInventoryCountItem::where('inventory_count_id', $this->record->id);
+        $query = $this->inventoryCountItemsQuery();
         $this->applyFilters($query);
         $this->applyTabFilter($query, $this->listTab);
         $this->applySort($query);
@@ -297,7 +297,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function countForTab(string $tab): int
     {
-        $query = WmsInventoryCountItem::where('inventory_count_id', $this->record->id);
+        $query = $this->inventoryCountItemsQuery();
         $this->applyFilters($query);
         $this->applyTabFilter($query, $tab);
 
@@ -306,11 +306,17 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     private function filteredQuery(): \Illuminate\Database\Eloquent\Builder
     {
-        $query = WmsInventoryCountItem::where('inventory_count_id', $this->record->id);
+        $query = $this->inventoryCountItemsQuery();
         $this->applyFilters($query);
         $this->applyTabFilter($query, $this->listTab);
 
         return $query;
+    }
+
+    private function inventoryCountItemsQuery(): \Illuminate\Database\Eloquent\Builder
+    {
+        return WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
+            ->withoutOwnedSetItems();
     }
 
     private function applyFilters(\Illuminate\Database\Eloquent\Builder $query): void
@@ -443,7 +449,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function openEditModal(int $itemId): void
     {
-        $item = WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
+        $item = $this->inventoryCountItemsQuery()
             ->where('id', $itemId)
             ->first();
 
@@ -473,7 +479,9 @@ class ViewWmsInventoryCount extends Page implements HasForms
             return null;
         }
 
-        return WmsInventoryCountItem::find($this->editItemId);
+        return $this->inventoryCountItemsQuery()
+            ->whereKey($this->editItemId)
+            ->first();
     }
 
     public function saveEditModal(): void
@@ -494,7 +502,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
             return;
         }
 
-        $item = WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
+        $item = $this->inventoryCountItemsQuery()
             ->where('id', $this->editItemId)
             ->first();
 
@@ -587,7 +595,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
         }
 
         foreach ($changes as $itemId => $data) {
-            $item = WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
+            $item = $this->inventoryCountItemsQuery()
                 ->where('id', (int) $itemId)
                 ->first();
 
@@ -691,7 +699,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
         $actorName = $this->currentWebActorName();
         $count = 0;
 
-        WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
+        $this->inventoryCountItemsQuery()
             ->whereNull($roundColumn)
             ->chunkById(500, function ($items) use ($round, $roundColumn, $actorColumn, $actorName, &$count) {
                 foreach ($items as $item) {
@@ -820,7 +828,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
         ]);
 
         if ($this->roundConfirmedDifferenceColumnsExist(3)) {
-            WmsInventoryCountItem::where('inventory_count_id', $this->record->id)->update([
+            $this->inventoryCountItemsQuery()->update([
                 'final_count_confirmed_system_quantity' => null,
                 'final_count_confirmed_difference_quantity' => null,
                 'final_count_confirmed_difference_amount' => null,
@@ -884,55 +892,12 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     private function storeConfirmedRoundDifferences(int $round): void
     {
-        $roundColumn = $this->roundColumn($round);
-        $systemColumn = $this->roundConfirmedSystemQuantityColumn($round);
-        $differenceColumn = $this->roundConfirmedDifferenceQuantityColumn($round);
-        $amountColumn = $this->roundConfirmedDifferenceAmountColumn($round);
-
-        WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
-            ->select([
-                'id',
-                'first_count_quantity',
-                $roundColumn,
-                'system_quantity',
-                'ending_system_quantity',
-                'cost_price',
-                $systemColumn,
-                $differenceColumn,
-                $amountColumn,
-            ])
-            ->chunkById(500, function ($items) use ($round, $systemColumn, $differenceColumn, $amountColumn) {
-                foreach ($items as $item) {
-                    $countedQty = $item->roundQuantity($round);
-                    $confirmedSystemQty = $countedQty === null
-                        ? null
-                        : (int) ($item->ending_system_quantity ?? $item->system_quantity);
-                    $confirmedDifferenceQty = $countedQty === null
-                        ? null
-                        : (int) $countedQty - $confirmedSystemQty;
-                    $confirmedDifferenceAmount = $confirmedDifferenceQty === null
-                        ? null
-                        : $confirmedDifferenceQty * (float) $item->cost_price;
-
-                    if ((string) $item->{$systemColumn} === (string) $confirmedSystemQty
-                        && (string) $item->{$differenceColumn} === (string) $confirmedDifferenceQty
-                        && (string) $item->{$amountColumn} === (string) $confirmedDifferenceAmount
-                    ) {
-                        continue;
-                    }
-
-                    $item->update([
-                        $systemColumn => $confirmedSystemQty,
-                        $differenceColumn => $confirmedDifferenceQty,
-                        $amountColumn => $confirmedDifferenceAmount,
-                    ]);
-                }
-            });
+        (new InventoryCountService)->storeConfirmedRoundDifferences($this->record, $round);
     }
 
     private function fillMissingSecondRoundQuantitiesFromFirst(): void
     {
-        WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
+        $this->inventoryCountItemsQuery()
             ->whereNull('second_count_quantity')
             ->whereNotNull('first_count_quantity')
             ->update([
@@ -943,7 +908,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     private function calculateRoundDifferences(int $round): void
     {
-        WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
+        $this->inventoryCountItemsQuery()
             ->chunkById(500, function ($items) use ($round) {
                 foreach ($items as $item) {
                     $countedQty = $item->roundQuantity($round);
@@ -966,7 +931,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
         $currentColumn = $this->roundColumn($round);
         $nextColumn = $this->roundColumn($round + 1);
 
-        WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
+        $this->inventoryCountItemsQuery()
             ->when($round === 2, fn ($query) => $query->where(function ($query) use ($currentColumn) {
                 $query->whereNotNull($currentColumn)
                     ->orWhereNotNull('first_count_quantity');
@@ -1259,6 +1224,43 @@ class ViewWmsInventoryCount extends Page implements HasForms
                         Notification::make()
                             ->danger()
                             ->title('理論在庫を更新できません')
+                            ->body($e->getMessage())
+                            ->send();
+                    }
+                }),
+
+            Action::make('refreshSecondRoundConfirmedDifferences')
+                ->label('2回目差異再計算')
+                ->icon('heroicon-o-calculator')
+                ->color('warning')
+                ->visible(fn () => $record->second_count_confirmed_at !== null
+                    && $record->final_count_confirmed_at === null
+                    && ! $record->isCurrentStockSaved()
+                    && ! in_array($record->status, [
+                        WmsInventoryCount::STATUS_CONFIRMED,
+                        WmsInventoryCount::STATUS_CANCELLED,
+                    ], true))
+                ->requiresConfirmation()
+                ->modalHeading('2回目差異再計算')
+                ->modalDescription('現在の理論在庫を基準に、2回目確定時の理論在庫・差異数量・差異金額を再保存します。1回目確定差異、入力数量、3回目数量は変更しません。更新前の行はバックアップします。')
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('再計算する')->color('danger'))
+                ->modalCancelActionLabel('再計算せず閉じる')
+                ->action(function () use ($record) {
+                    try {
+                        $result = (new InventoryCountService)->refreshSecondRoundConfirmedDifferences($record);
+                        $this->record->refresh();
+                        $this->itemPage = 1;
+
+                        Notification::make()
+                            ->success()
+                            ->title('2回目確定差異を再計算しました')
+                            ->body("対象: {$result['target_items']}件 / 差異あり: {$result['difference_items']}件 / 更新: {$result['updated_items']}件 / バックアップID: {$result['backup_run_id']}")
+                            ->send();
+                    } catch (\Throwable $e) {
+                        Notification::make()
+                            ->danger()
+                            ->title('2回目確定差異を再計算できません')
                             ->body($e->getMessage())
                             ->send();
                     }

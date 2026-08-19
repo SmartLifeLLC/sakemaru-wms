@@ -66,6 +66,7 @@ class InventoryDifferenceWorkbookService
     {
         return WmsInventoryCountItem::query()
             ->where('inventory_count_id', $inventoryCount->id)
+            ->withoutOwnedSetItems()
             ->with(['inventoryCount', 'item.item_category1', 'item.item_category2'])
             ->get()
             ->sort($this->inventoryItemSorter(...))

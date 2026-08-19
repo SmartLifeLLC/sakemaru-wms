@@ -70,11 +70,11 @@ class WmsInventoryCountTable
                 TextColumn::make('progress')
                     ->label('進捗')
                     ->state(function (WmsInventoryCount $record) {
-                        $total = $record->items()->count();
+                        $total = $record->items()->withoutOwnedSetItems()->count();
                         if ($total === 0) {
                             return '-';
                         }
-                        $counted = $record->items()->whereNotNull('first_count_quantity')->count();
+                        $counted = $record->items()->withoutOwnedSetItems()->whereNotNull('first_count_quantity')->count();
 
                         return "{$counted}/{$total}";
                     }),

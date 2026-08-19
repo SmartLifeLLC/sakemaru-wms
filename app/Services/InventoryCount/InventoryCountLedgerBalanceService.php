@@ -124,7 +124,9 @@ class InventoryCountLedgerBalanceService
             $query->whereRaw("COALESCE(i.type, '') <> 'CONTAINER'");
         }
 
-        if (Schema::connection('sakemaru')->hasTable('item_sets')) {
+        if (Schema::connection('sakemaru')->hasTable('item_sets')
+            && in_array('item_set_id', $itemColumns, true)
+        ) {
             $query
                 ->leftJoin('item_sets as item_set', function ($join) {
                     $join->on('item_set.id', '=', 'i.item_set_id')

@@ -16,6 +16,7 @@ class WmsInventoryCountItemTable
     {
         return $table
             ->striped()
+            ->modifyQueryUsing(fn ($query) => $query->withoutOwnedSetItems())
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
@@ -159,6 +160,7 @@ class WmsInventoryCountItemTable
                 SelectFilter::make('floor_name')
                     ->label('フロア')
                     ->options(fn () => WmsInventoryCountItem::query()
+                        ->withoutOwnedSetItems()
                         ->distinct()
                         ->whereNotNull('floor_name')
                         ->pluck('floor_name', 'floor_name')
@@ -167,6 +169,7 @@ class WmsInventoryCountItemTable
                 SelectFilter::make('location_code1')
                     ->label('エリア')
                     ->options(fn () => WmsInventoryCountItem::query()
+                        ->withoutOwnedSetItems()
                         ->distinct()
                         ->whereNotNull('location_code1')
                         ->pluck('location_code1', 'location_code1')

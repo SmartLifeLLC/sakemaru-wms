@@ -135,6 +135,7 @@ class InventoryInstructionSheetPdfService
     public function getCategoryOptions(WmsInventoryCount $inventoryCount): array
     {
         $itemIds = WmsInventoryCountItem::where('inventory_count_id', $inventoryCount->id)
+            ->withoutOwnedSetItems()
             ->whereNotNull('item_id')
             ->distinct()
             ->pluck('item_id');
@@ -171,6 +172,7 @@ class InventoryInstructionSheetPdfService
         bool $excludeDepartmentSystemItems = true,
     ): Collection {
         $query = WmsInventoryCountItem::where('inventory_count_id', $inventoryCount->id)
+            ->withoutOwnedSetItems()
             ->with(['item.item_category2']);
 
         if ($categoryIds !== null && $categoryIds !== []) {

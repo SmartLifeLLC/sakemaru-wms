@@ -32,4 +32,12 @@ class ListWmsInventoryCountsTest extends TestCase
             strtolower($query->toSql())
         );
     }
+
+    public function test_inventory_count_progress_excludes_owned_set_items(): void
+    {
+        $table = file_get_contents(app_path('Filament/Resources/WmsInventoryCount/Tables/WmsInventoryCountTable.php'));
+
+        $this->assertStringContainsString('$record->items()->withoutOwnedSetItems()->count()', $table);
+        $this->assertStringContainsString('$record->items()->withoutOwnedSetItems()->whereNotNull(\'first_count_quantity\')->count()', $table);
+    }
 }
