@@ -51,11 +51,10 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $this->createItemPrice($targetItemId, '2026-08-19', 999, false);
         $this->createItemPrice($targetItemId, '2026-08-20', 500);
         $expectedCostPrice = 500;
-        $expectedNonManagedReportAmount = 2600;
-        $expectedMajorStockAmount = (34 * $expectedCostPrice) + $expectedNonManagedReportAmount;
-
-        $this->createReportTrade('PURCHASE', $nonManagedItemId, (int) $inventoryCount->warehouse_id, '2026-08-20', 3000);
-        $this->createReportTrade('EARNING', $nonManagedItemId, (int) $inventoryCount->warehouse_id, '2026-08-20', 1000);
+        $expectedNonManagedCostPrice = 80;
+        $expectedNonManagedStockAmount = 13 * $expectedNonManagedCostPrice;
+        $expectedMajorStockAmount = (34 * $expectedCostPrice) + $expectedNonManagedStockAmount;
+        $this->createItemPrice($nonManagedItemId, '2026-08-20', 999, true, 200);
 
         WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
@@ -208,6 +207,31 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
             'input_count' => 1,
         ]);
 
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => random_int(900000000, 999999999),
+            'item_id' => $nonManagedItemId,
+            'item_code' => 'WB007',
+            'item_name' => '非管理品販売価格評価商品',
+            'location_id' => 7,
+            'location_code1' => 'A',
+            'location_code2' => '01',
+            'location_code3' => '07',
+            'location_no' => 'A0-01-07',
+            'system_quantity' => 13,
+            'ending_system_quantity' => 13,
+            'first_count_quantity' => 13,
+            'second_count_quantity' => 13,
+            'first_count_confirmed_system_quantity' => 13,
+            'first_count_confirmed_difference_quantity' => 0,
+            'first_count_confirmed_difference_amount' => 0,
+            'second_count_confirmed_system_quantity' => 13,
+            'second_count_confirmed_difference_quantity' => 0,
+            'second_count_confirmed_difference_amount' => 0,
+            'cost_price' => 999,
+            'input_count' => 2,
+        ]);
+
         $workbook = $this->loadWorkbook((new InventoryDifferenceWorkbookService)->generate($inventoryCount));
 
         $this->assertSame(['部門別', '部門別(絶対値)', '社長用', '集計', '差異', '未棚'], $workbook->getSheetNames());
@@ -231,11 +255,11 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertEqualsWithDelta((-12 * $expectedCostPrice) / $expectedMajorStockAmount, $departmentSheet->getCell('F4')->getValue(), 0.0000001);
         $this->assertEquals(-10 * $expectedCostPrice, $departmentSheet->getCell('G4')->getValue());
         $this->assertSame(2, $departmentSheet->getCell('K4')->getValue());
-        $this->assertSame(3, $departmentSheet->getCell('L4')->getValue());
-        $this->assertEqualsWithDelta(2 / 3, $departmentSheet->getCell('M4')->getValue(), 0.0000001);
+        $this->assertSame(4, $departmentSheet->getCell('L4')->getValue());
+        $this->assertEqualsWithDelta(2 / 4, $departmentSheet->getCell('M4')->getValue(), 0.0000001);
         $this->assertEquals(-10 * $expectedCostPrice, $departmentSheet->getCell('N4')->getValue());
         $this->assertSame('合計', $departmentSheet->getCell('C8')->getValue());
-        $this->assertSame(5, $departmentSheet->getCell('L8')->getValue());
+        $this->assertSame(6, $departmentSheet->getCell('L8')->getValue());
         $this->assertEquals($expectedMajorStockAmount, $departmentSheet->getCell('D8')->getValue());
 
         $absoluteDepartmentSheet = $workbook->getSheetByName('部門別(絶対値)');
@@ -266,7 +290,7 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertArrayHasKey('全体', $summaryRows);
         $this->assertArrayHasKey('差異あり', $summaryRows);
         $this->assertArrayHasKey('未棚', $summaryRows);
-        $this->assertEquals(34 * $expectedCostPrice, $summaryRows['全体']['CP在庫金額']);
+        $this->assertEquals((34 * $expectedCostPrice) + $expectedNonManagedStockAmount, $summaryRows['全体']['CP在庫金額']);
         $this->assertEquals(12 * $expectedCostPrice, $summaryRows['差異あり']['CP在庫金額']);
         $this->assertEquals(10 * $expectedCostPrice, $summaryRows['未棚']['CP在庫金額']);
         $this->assertEquals(-12 * $expectedCostPrice, $summaryRows['全体']['1回目±差異金額']);
@@ -505,7 +529,7 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         ]);
     }
 
-    private function createItemPrice(int $itemId, string $startDate, float $costUnitPrice, bool $isActive = true): int
+    private function createItemPrice(int $itemId, string $startDate, float $costUnitPrice, bool $isActive = true, float $saleUnitPrice = 0): int
     {
         return (int) DB::connection('sakemaru')->table('item_prices')->insertGetId([
             'item_id' => $itemId,
@@ -515,7 +539,7 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
             'producer_crate_price' => 0,
             'cost_unit_price' => $costUnitPrice,
             'wholesale_unit_price' => 0,
-            'sale_unit_price' => 0,
+            'sale_unit_price' => $saleUnitPrice,
             'sub_unit_price' => 0,
             'retail_unit_price' => 0,
             'tax_exempt_unit_price' => 0,
