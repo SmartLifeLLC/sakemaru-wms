@@ -30,6 +30,8 @@ class ViewWmsInventoryCount extends Page implements HasForms
 {
     use InteractsWithForms;
 
+    private const UNCOUNTED_TARGET_MAJOR_CATEGORY_CODES = [1001, 1002, 1003, 1006];
+
     protected static string $resource = WmsInventoryCountResource::class;
 
     protected string $view = 'filament.resources.wms-inventory-count.pages.view-wms-inventory-count';
@@ -341,6 +343,13 @@ class ViewWmsInventoryCount extends Page implements HasForms
         $useConfirmedDifference = $this->isRoundConfirmed($this->activeCountRound)
             && $this->inventoryCountItemColumnExists($confirmedDifferenceColumn);
 
+        if ($tab === 'uncounted') {
+            $query->whereNull($roundColumn);
+            $this->applyUncountedTargetFilters($query);
+
+            return;
+        }
+
         match ($tab) {
             'diff' => $useConfirmedDifference
                 ? $query->whereNotNull($confirmedDifferenceColumn)->where($confirmedDifferenceColumn, '!=', 0)
@@ -370,9 +379,25 @@ class ViewWmsInventoryCount extends Page implements HasForms
                     ->whereNotNull($roundColumn)
                     ->whereNotNull('ending_system_quantity')
                     ->whereColumn($roundColumn, 'ending_system_quantity')),
-            'uncounted' => $query->whereNull($roundColumn),
             default => null,
         };
+    }
+
+    private function applyUncountedTargetFilters(\Illuminate\Database\Eloquent\Builder $query): void
+    {
+        $query
+            ->whereHas('item.item_category1', function (\Illuminate\Database\Eloquent\Builder $query): void {
+                $query->whereIn('code', self::UNCOUNTED_TARGET_MAJOR_CATEGORY_CODES);
+            })
+            ->where(function (\Illuminate\Database\Eloquent\Builder $query): void {
+                $query
+                    ->where('system_quantity', '!=', 0)
+                    ->orWhere(function (\Illuminate\Database\Eloquent\Builder $query): void {
+                        $query
+                            ->whereNotNull('difference_quantity')
+                            ->where('difference_quantity', '!=', 0);
+                    });
+            });
     }
 
     private function applySort(\Illuminate\Database\Eloquent\Builder $query): void

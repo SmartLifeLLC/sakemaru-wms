@@ -223,10 +223,11 @@ class ViewWmsInventoryCountTest extends TestCase
             'status' => WmsInventoryCount::STATUS_COUNTING,
             'current_count_round' => 1,
         ]);
+        $targetCategoryItemId = $this->createItemInMajorCategory(1001);
 
         $matched = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
-            'item_id' => 999501,
+            'item_id' => $targetCategoryItemId,
             'item_code' => 'ROUND001',
             'item_name' => '終了理論一致',
             'system_quantity' => 10,
@@ -239,7 +240,7 @@ class ViewWmsInventoryCountTest extends TestCase
 
         $different = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
-            'item_id' => 999502,
+            'item_id' => $targetCategoryItemId,
             'item_code' => 'ROUND002',
             'item_name' => '終了理論差異あり',
             'system_quantity' => 10,
@@ -252,7 +253,7 @@ class ViewWmsInventoryCountTest extends TestCase
 
         $uncounted = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
-            'item_id' => 999503,
+            'item_id' => $targetCategoryItemId,
             'item_code' => 'ROUND003',
             'item_name' => '未入力',
             'system_quantity' => 10,
@@ -324,10 +325,11 @@ class ViewWmsInventoryCountTest extends TestCase
             'current_count_round' => 2,
             'first_count_confirmed_at' => now(),
         ]);
+        $targetCategoryItemId = $this->createItemInMajorCategory(1001);
 
         $fallbackMatched = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
-            'item_id' => 999505,
+            'item_id' => $targetCategoryItemId,
             'item_code' => 'ROUND005',
             'item_name' => '2回目未入力1回目一致',
             'system_quantity' => 10,
@@ -338,7 +340,7 @@ class ViewWmsInventoryCountTest extends TestCase
 
         $fallbackDifferent = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
-            'item_id' => 999506,
+            'item_id' => $targetCategoryItemId,
             'item_code' => 'ROUND006',
             'item_name' => '2回目未入力1回目差異',
             'system_quantity' => 10,
@@ -349,7 +351,7 @@ class ViewWmsInventoryCountTest extends TestCase
 
         $secondDifferent = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
-            'item_id' => 999507,
+            'item_id' => $targetCategoryItemId,
             'item_code' => 'ROUND007',
             'item_name' => '2回目入力差異',
             'system_quantity' => 10,
@@ -361,7 +363,7 @@ class ViewWmsInventoryCountTest extends TestCase
 
         $uncounted = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
-            'item_id' => 999508,
+            'item_id' => $targetCategoryItemId,
             'item_code' => 'ROUND008',
             'item_name' => '2回目未入力1回目なし',
             'system_quantity' => 10,
@@ -569,6 +571,45 @@ class ViewWmsInventoryCountTest extends TestCase
 
         $this->assertSame(1, $page->totalLogCount());
         $this->assertSame([$visibleItem->id], collect($page->logs()->items())->pluck('inventory_count_item_id')->all());
+    }
+
+    private function createItemInMajorCategory(int $majorCategoryCode): int
+    {
+        $majorCategoryId = DB::connection('sakemaru')->table('item_categories')->insertGetId([
+            'client_id' => 1,
+            'name' => '未カウント対象大分類'.$majorCategoryCode,
+            'code' => $majorCategoryCode,
+            'depth' => 1,
+            'creator_id' => 1,
+            'last_updater_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return (int) DB::connection('sakemaru')->table('items')->insertGetId([
+            'name_main' => '未カウント対象'.Str::upper(Str::random(8)),
+            'code' => random_int(800000000, 899999999),
+            'type' => 'NOT_ALCOHOL',
+            'manufacturer_id' => 0,
+            'volume' => 1,
+            'capacity_case' => 1,
+            'creator_id' => 1,
+            'packaging' => '1',
+            'nickname' => '未カウント対象',
+            'client_id' => 1,
+            'item_set_id' => null,
+            'item_category1_id' => $majorCategoryId,
+            'item_category2_id' => 0,
+            'container_type_id' => 0,
+            'manufacture_type_id' => 0,
+            'storage_type_id' => 0,
+            'measurement_unit_weight' => 0,
+            'measurement_case_weight' => 0,
+            'order_rank' => 'ORDER_MANUAL',
+            'last_updater_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     private function createOwnedSetItem(): int
