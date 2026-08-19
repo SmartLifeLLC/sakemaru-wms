@@ -645,8 +645,7 @@
                             </td>
                             <td class="px-0.5 py-0.5">
                                 <input type="text"
-                                    inputmode="numeric"
-                                    pattern="[0-9]*"
+                                    inputmode="text"
                                     autocomplete="off"
                                     :value="getQty(item.id).caseQty"
                                     @input="setQty(item, 'caseQty', $event)"
@@ -658,8 +657,7 @@
                             </td>
                             <td class="px-0.5 py-0.5">
                                 <input type="text"
-                                    inputmode="numeric"
-                                    pattern="[0-9]*"
+                                    inputmode="text"
                                     autocomplete="off"
                                     :value="getQty(item.id).pieceQty"
                                     @input="setQty(item, 'pieceQty', $event)"
