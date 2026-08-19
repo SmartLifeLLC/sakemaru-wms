@@ -19,8 +19,6 @@ use RuntimeException;
 
 class InventoryDifferenceWorkbookService
 {
-    private const UNCOUNTED_TARGET_CATEGORY_CODES = [1001, 1002, 1003, 1006];
-
     /**
      * @return non-empty-string
      */
@@ -29,14 +27,20 @@ class InventoryDifferenceWorkbookService
         $items = $this->queryItems($inventoryCount);
         $costPrices = $this->costPricesByItem($items, $inventoryCount);
         $spreadsheet = new Spreadsheet;
+        $diffRows = $this->diffRows($inventoryCount, $items, $costPrices);
+        $uncountedRows = $this->uncountedRows($inventoryCount, $items, $costPrices);
 
-        $diffSheet = $spreadsheet->getActiveSheet();
+        $summarySheet = $spreadsheet->getActiveSheet();
+        $summarySheet->setTitle('集計');
+        $this->writeRows($summarySheet, $this->summaryColumns(), $this->summaryRows($inventoryCount, $items, $costPrices, $diffRows, $uncountedRows));
+
+        $diffSheet = $spreadsheet->createSheet();
         $diffSheet->setTitle('差異');
-        $this->writeRows($diffSheet, $this->diffColumns(), $this->diffRows($inventoryCount, $items, $costPrices));
+        $this->writeRows($diffSheet, $this->diffColumns(), $diffRows);
 
         $uncountedSheet = $spreadsheet->createSheet();
         $uncountedSheet->setTitle('未棚');
-        $this->writeRows($uncountedSheet, $this->uncountedColumns(), $this->uncountedRows($inventoryCount, $items, $costPrices));
+        $this->writeRows($uncountedSheet, $this->uncountedColumns(), $uncountedRows);
 
         $spreadsheet->setActiveSheetIndex(0);
 
@@ -96,7 +100,6 @@ class InventoryDifferenceWorkbookService
     private function uncountedRows(WmsInventoryCount $inventoryCount, Collection $items, Collection $costPrices): array
     {
         return $items
-            ->filter(fn (WmsInventoryCountItem $item): bool => $this->isUncountedPdfTarget($item))
             ->map(fn (WmsInventoryCountItem $item): array => $this->buildUncountedRow($inventoryCount, $item, $costPrices))
             ->filter(fn (array $row): bool => filled($row['未入力回']))
             ->values()
@@ -150,19 +153,112 @@ class InventoryDifferenceWorkbookService
     /**
      * @return array<int, string>
      */
+    private function summaryColumns(): array
+    {
+        return array_merge(
+            ['区分', '件数', 'CP在庫金額'],
+            $this->roundAmountColumns(),
+        );
+    }
+
+    /**
+     * @return array<int, string>
+     */
     private function roundColumns(): array
     {
         return [
             '1回目数量',
             '1回目±差異',
             '1回目絶対差異',
+            '1回目±差異金額',
+            '1回目絶対差異金額',
             '2回目数量',
             '2回目±差異',
             '2回目絶対差異',
+            '2回目±差異金額',
+            '2回目絶対差異金額',
             '3回目数量',
             '3回目±差異',
             '3回目絶対差異',
+            '3回目±差異金額',
+            '3回目絶対差異金額',
         ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function roundAmountColumns(): array
+    {
+        return [
+            '1回目±差異金額',
+            '1回目絶対差異金額',
+            '2回目±差異金額',
+            '2回目絶対差異金額',
+            '3回目±差異金額',
+            '3回目絶対差異金額',
+        ];
+    }
+
+    /**
+     * @param  Collection<int, WmsInventoryCountItem>  $items
+     * @param  Collection<int, float>  $costPrices
+     * @param  array<int, array<string, mixed>>  $diffRows
+     * @param  array<int, array<string, mixed>>  $uncountedRows
+     * @return array<int, array<string, mixed>>
+     */
+    private function summaryRows(
+        WmsInventoryCount $inventoryCount,
+        Collection $items,
+        Collection $costPrices,
+        array $diffRows,
+        array $uncountedRows,
+    ): array {
+        $allRows = $items
+            ->map(fn (WmsInventoryCountItem $item): array => $this->buildDiffRow($inventoryCount, $item, $costPrices))
+            ->values()
+            ->all();
+
+        return [
+            $this->summaryRow('全体', $allRows),
+            $this->summaryRow('差異あり', $diffRows),
+            $this->summaryRow('未棚', $uncountedRows),
+        ];
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<string, mixed>
+     */
+    private function summaryRow(string $label, array $rows): array
+    {
+        $row = [
+            '区分' => $label,
+            '件数' => count($rows),
+            'CP在庫金額' => $this->sumRows($rows, 'CP在庫金額'),
+        ];
+
+        foreach ($this->roundAmountColumns() as $column) {
+            $row[$column] = $this->sumRows($rows, $column);
+        }
+
+        return $row;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    private function sumRows(array $rows, string $column): float|int|null
+    {
+        $values = collect($rows)
+            ->pluck($column)
+            ->filter(fn ($value): bool => $value !== null && $value !== '');
+
+        if ($values->isEmpty()) {
+            return null;
+        }
+
+        return $values->sum(fn ($value): float => (float) $value);
     }
 
     /**
@@ -170,14 +266,17 @@ class InventoryDifferenceWorkbookService
      */
     private function buildDiffRow(WmsInventoryCount $inventoryCount, WmsInventoryCountItem $item, Collection $costPrices): array
     {
-        $row = $this->baseRow($inventoryCount, $item, $costPrices);
+        $costPrice = $this->costPrice($item, $costPrices);
+        $row = $this->baseRow($inventoryCount, $item, $costPrices, $costPrice);
 
         foreach ([1, 2, 3] as $round) {
-            $values = $this->roundValues($inventoryCount, $item, $round);
+            $values = $this->roundValues($inventoryCount, $item, $round, $costPrice);
 
             $row["{$round}回目数量"] = $values['quantity'];
             $row["{$round}回目±差異"] = $values['difference'];
             $row["{$round}回目絶対差異"] = $values['absolute_difference'];
+            $row["{$round}回目±差異金額"] = $values['difference_amount'];
+            $row["{$round}回目絶対差異金額"] = $values['absolute_difference_amount'];
 
         }
 
@@ -189,15 +288,18 @@ class InventoryDifferenceWorkbookService
      */
     private function buildUncountedRow(WmsInventoryCount $inventoryCount, WmsInventoryCountItem $item, Collection $costPrices): array
     {
-        $row = $this->baseRow($inventoryCount, $item, $costPrices);
+        $costPrice = $this->costPrice($item, $costPrices);
+        $row = $this->baseRow($inventoryCount, $item, $costPrices, $costPrice);
         $uncountedRounds = [];
 
         foreach ([1, 2, 3] as $round) {
-            $values = $this->roundValues($inventoryCount, $item, $round);
+            $values = $this->roundValues($inventoryCount, $item, $round, $costPrice);
 
             $row["{$round}回目数量"] = $values['quantity'];
             $row["{$round}回目±差異"] = $values['difference'];
             $row["{$round}回目絶対差異"] = $values['absolute_difference'];
+            $row["{$round}回目±差異金額"] = $values['difference_amount'];
+            $row["{$round}回目絶対差異金額"] = $values['absolute_difference_amount'];
 
             if ($this->shouldExportRound($inventoryCount, $round) && $this->physicalRoundQuantity($item, $round) === null) {
                 $uncountedRounds[] = "{$round}回目";
@@ -212,10 +314,10 @@ class InventoryDifferenceWorkbookService
     /**
      * @return array<string, mixed>
      */
-    private function baseRow(WmsInventoryCount $inventoryCount, WmsInventoryCountItem $item, Collection $costPrices): array
+    private function baseRow(WmsInventoryCount $inventoryCount, WmsInventoryCountItem $item, Collection $costPrices, ?float $costPrice = null): array
     {
         $systemQuantity = $this->baseSystemQuantity($item);
-        $costPrice = $this->costPrice($item, $costPrices);
+        $costPrice ??= $this->costPrice($item, $costPrices);
 
         return [
             '棚卸しNo' => $inventoryCount->count_no ?? '',
@@ -247,24 +349,24 @@ class InventoryDifferenceWorkbookService
     }
 
     /**
-     * @return array{quantity: ?int, difference: ?int, absolute_difference: ?int}
+     * @return array{quantity: ?int, difference: ?int, absolute_difference: ?int, difference_amount: ?float, absolute_difference_amount: ?float}
      */
-    private function roundValues(WmsInventoryCount $inventoryCount, WmsInventoryCountItem $item, int $round): array
+    private function roundValues(WmsInventoryCount $inventoryCount, WmsInventoryCountItem $item, int $round, ?float $costPrice = null): array
     {
         if (! $this->shouldExportRound($inventoryCount, $round)) {
-            return ['quantity' => null, 'difference' => null, 'absolute_difference' => null];
+            return ['quantity' => null, 'difference' => null, 'absolute_difference' => null, 'difference_amount' => null, 'absolute_difference_amount' => null];
         }
 
         $quantity = $this->roundQuantity($item, $round);
 
         if ($quantity === null) {
-            return ['quantity' => null, 'difference' => null, 'absolute_difference' => null];
+            return ['quantity' => null, 'difference' => null, 'absolute_difference' => null, 'difference_amount' => null, 'absolute_difference_amount' => null];
         }
 
         $systemQuantity = $this->systemQuantityForRound($inventoryCount, $item, $round);
 
         if ($systemQuantity === null) {
-            return ['quantity' => $quantity, 'difference' => null, 'absolute_difference' => null];
+            return ['quantity' => $quantity, 'difference' => null, 'absolute_difference' => null, 'difference_amount' => null, 'absolute_difference_amount' => null];
         }
 
         $difference = $this->isRoundConfirmed($inventoryCount, $round)
@@ -272,11 +374,14 @@ class InventoryDifferenceWorkbookService
             : null;
         $difference ??= $quantity - $systemQuantity;
         $difference = (int) $difference;
+        $differenceAmount = $costPrice === null ? null : $difference * $costPrice;
 
         return [
             'quantity' => $quantity,
             'difference' => $difference,
             'absolute_difference' => abs($difference),
+            'difference_amount' => $differenceAmount,
+            'absolute_difference_amount' => $differenceAmount === null ? null : abs($differenceAmount),
         ];
     }
 
@@ -346,7 +451,7 @@ class InventoryDifferenceWorkbookService
             return collect();
         }
 
-        $priceDate = CarbonImmutable::parse($inventoryCount->count_date)->toDateString();
+        $priceDate = CarbonImmutable::today()->toDateString();
         $costPrices = collect();
 
         foreach ($itemIds->chunk(1000) as $chunkItemIds) {
@@ -358,6 +463,7 @@ class InventoryDifferenceWorkbookService
                     DB::raw('ROW_NUMBER() OVER (PARTITION BY ip.item_id ORDER BY ip.start_date DESC, ip.id DESC) as price_rank'),
                 ])
                 ->whereIn('ip.item_id', $chunkItemIds->all())
+                ->where('ip.client_id', (int) $inventoryCount->client_id)
                 ->where('ip.is_active', true)
                 ->where('ip.start_date', '<=', $priceDate);
 
@@ -392,18 +498,6 @@ class InventoryDifferenceWorkbookService
             3 => 'final_count_confirmed_at',
             default => 'first_count_confirmed_at',
         };
-    }
-
-    private function isUncountedPdfTarget(WmsInventoryCountItem $item): bool
-    {
-        $majorCategoryCode = $item->item?->item_category1?->code;
-
-        if (! in_array((int) $majorCategoryCode, self::UNCOUNTED_TARGET_CATEGORY_CODES, true)) {
-            return false;
-        }
-
-        return (int) ($item->system_quantity ?? 0) !== 0
-            || (float) ($item->difference_quantity ?? 0) !== 0.0;
     }
 
     private function inventoryItemSorter(WmsInventoryCountItem $a, WmsInventoryCountItem $b): int
@@ -585,7 +679,15 @@ class InventoryDifferenceWorkbookService
                 continue;
             }
 
-            if (str_contains($label, '±差異')) {
+            if (str_contains($label, '±差異金額')) {
+                $sheet->getStyle("{$column}2:{$column}{$lastRow}")
+                    ->getNumberFormat()
+                    ->setFormatCode('+#,##0;-#,##0;0');
+            } elseif (str_contains($label, '金額')) {
+                $sheet->getStyle("{$column}2:{$column}{$lastRow}")
+                    ->getNumberFormat()
+                    ->setFormatCode('#,##0');
+            } elseif (str_contains($label, '±差異')) {
                 $sheet->getStyle("{$column}2:{$column}{$lastRow}")
                     ->getNumberFormat()
                     ->setFormatCode('+0;-0;0');
@@ -605,6 +707,7 @@ class InventoryDifferenceWorkbookService
     {
         return in_array($label, [
             '未入力回',
+            '区分',
             '棚卸しNo',
             '棚卸日',
             '倉庫CD',
@@ -619,7 +722,8 @@ class InventoryDifferenceWorkbookService
     private function isIntegerColumn(string $label): bool
     {
         return $label === '理論在庫'
-            || $label === 'CP在庫金額'
+            || $label === '件数'
+            || str_contains($label, '金額')
             || $label === '入力回数'
             || str_contains($label, '数量')
             || str_contains($label, '絶対差異');
@@ -638,8 +742,9 @@ class InventoryDifferenceWorkbookService
             '棚卸しNo' => 24,
             '倉庫名' => 18,
             '未入力回' => 16,
+            '区分' => 14,
             '原価', 'CP在庫金額' => 14,
-            default => str_contains($label, '絶対差異') ? 13 : 11,
+            default => str_contains($label, '金額') ? 16 : (str_contains($label, '絶対差異') ? 13 : 11),
         };
     }
 }
