@@ -27,12 +27,17 @@ class InventoryDifferenceWorkbookService
         $items = $this->queryItems($inventoryCount);
         $costPrices = $this->costPricesByItem($items, $inventoryCount);
         $spreadsheet = new Spreadsheet;
+        $allRows = $this->allRows($inventoryCount, $items, $costPrices);
         $diffRows = $this->diffRows($inventoryCount, $items, $costPrices);
         $uncountedRows = $this->uncountedRows($inventoryCount, $items, $costPrices);
 
-        $summarySheet = $spreadsheet->getActiveSheet();
+        $departmentSheet = $spreadsheet->getActiveSheet();
+        $departmentSheet->setTitle('部門別');
+        $this->writeRows($departmentSheet, $this->departmentColumns(), $this->departmentRows($allRows));
+
+        $summarySheet = $spreadsheet->createSheet();
         $summarySheet->setTitle('集計');
-        $this->writeRows($summarySheet, $this->summaryColumns(), $this->summaryRows($inventoryCount, $items, $costPrices, $diffRows, $uncountedRows));
+        $this->writeRows($summarySheet, $this->summaryColumns(), $this->summaryRows($allRows, $diffRows, $uncountedRows));
 
         $diffSheet = $spreadsheet->createSheet();
         $diffSheet->setTitle('差異');
@@ -75,6 +80,19 @@ class InventoryDifferenceWorkbookService
             ->get()
             ->sort($this->inventoryItemSorter(...))
             ->values();
+    }
+
+    /**
+     * @param  Collection<int, WmsInventoryCountItem>  $items
+     * @param  Collection<int, float>  $costPrices
+     * @return array<int, array<string, mixed>>
+     */
+    private function allRows(WmsInventoryCount $inventoryCount, Collection $items, Collection $costPrices): array
+    {
+        return $items
+            ->map(fn (WmsInventoryCountItem $item): array => $this->buildDiffRow($inventoryCount, $item, $costPrices))
+            ->values()
+            ->all();
     }
 
     /**
@@ -164,6 +182,39 @@ class InventoryDifferenceWorkbookService
     /**
      * @return array<int, string>
      */
+    private function departmentColumns(): array
+    {
+        return array_merge(
+            ['部門CD', '部門名', '総数', 'CP在庫金額'],
+            $this->departmentRoundColumns(),
+        );
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function departmentRoundColumns(): array
+    {
+        $columns = [];
+
+        foreach ([1, 2, 3] as $round) {
+            array_push(
+                $columns,
+                "{$round}回目差異数",
+                "{$round}回目差異率",
+                "{$round}回目±不明差異金額",
+                "{$round}回目±在庫差異率",
+                "{$round}回目絶対値不明差異金額",
+                "{$round}回目絶対値在庫差異率",
+            );
+        }
+
+        return $columns;
+    }
+
+    /**
+     * @return array<int, string>
+     */
     private function roundColumns(): array
     {
         return [
@@ -201,24 +252,15 @@ class InventoryDifferenceWorkbookService
     }
 
     /**
-     * @param  Collection<int, WmsInventoryCountItem>  $items
-     * @param  Collection<int, float>  $costPrices
      * @param  array<int, array<string, mixed>>  $diffRows
      * @param  array<int, array<string, mixed>>  $uncountedRows
      * @return array<int, array<string, mixed>>
      */
     private function summaryRows(
-        WmsInventoryCount $inventoryCount,
-        Collection $items,
-        Collection $costPrices,
+        array $allRows,
         array $diffRows,
         array $uncountedRows,
     ): array {
-        $allRows = $items
-            ->map(fn (WmsInventoryCountItem $item): array => $this->buildDiffRow($inventoryCount, $item, $costPrices))
-            ->values()
-            ->all();
-
         return [
             $this->summaryRow('全体', $allRows),
             $this->summaryRow('差異あり', $diffRows),
@@ -243,6 +285,82 @@ class InventoryDifferenceWorkbookService
         }
 
         return $row;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function departmentRows(array $rows): array
+    {
+        $departmentRows = collect($rows)
+            ->groupBy(fn (array $row): string => trim((string) ($row['大分類CD'] ?? '')))
+            ->sortKeysUsing(fn (string $a, string $b): int => $this->categoryCodeSortValue($a) <=> $this->categoryCodeSortValue($b))
+            ->map(fn (Collection $departmentRows): array => $this->departmentRow($departmentRows->all()))
+            ->values()
+            ->all();
+
+        $departmentRows[] = $this->departmentRow($rows, '合計', '合計');
+
+        return $departmentRows;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<string, mixed>
+     */
+    private function departmentRow(array $rows, ?string $departmentCode = null, ?string $departmentName = null): array
+    {
+        $stockAmount = $this->sumRows($rows, 'CP在庫金額') ?? 0;
+        $totalCount = count($rows);
+        $row = [
+            '部門CD' => $departmentCode ?? (string) ($rows[0]['大分類CD'] ?? ''),
+            '部門名' => $departmentName ?? (string) ($rows[0]['大分類名'] ?? '分類なし'),
+            '総数' => $totalCount,
+            'CP在庫金額' => $stockAmount,
+        ];
+
+        foreach ([1, 2, 3] as $round) {
+            $differenceColumn = "{$round}回目±差異";
+            $signedAmountColumn = "{$round}回目±差異金額";
+            $absoluteAmountColumn = "{$round}回目絶対差異金額";
+            $signedAmount = $this->sumRows($rows, $signedAmountColumn);
+            $absoluteAmount = $this->sumRows($rows, $absoluteAmountColumn);
+            $differenceCount = collect($rows)
+                ->filter(fn (array $row): bool => ($row[$differenceColumn] ?? null) !== null && (int) $row[$differenceColumn] !== 0)
+                ->count();
+
+            $row["{$round}回目差異数"] = $differenceCount;
+            $row["{$round}回目差異率"] = $totalCount === 0 ? 0 : $differenceCount / $totalCount;
+            $row["{$round}回目±不明差異金額"] = $signedAmount;
+            $row["{$round}回目±在庫差異率"] = $this->amountRate($signedAmount, $stockAmount);
+            $row["{$round}回目絶対値不明差異金額"] = $absoluteAmount;
+            $row["{$round}回目絶対値在庫差異率"] = $this->amountRate($absoluteAmount, $stockAmount);
+        }
+
+        return $row;
+    }
+
+    private function categoryCodeSortValue(string $code): array
+    {
+        if ($code === '') {
+            return [1, ''];
+        }
+
+        return [0, str_pad($code, 20, '0', STR_PAD_LEFT)];
+    }
+
+    private function amountRate(float|int|null $amount, float|int|null $stockAmount): ?float
+    {
+        if ($amount === null) {
+            return null;
+        }
+
+        if ((float) $stockAmount === 0.0) {
+            return 0.0;
+        }
+
+        return (float) $amount / (float) $stockAmount;
     }
 
     /**
@@ -687,6 +805,10 @@ class InventoryDifferenceWorkbookService
                 $sheet->getStyle("{$column}2:{$column}{$lastRow}")
                     ->getNumberFormat()
                     ->setFormatCode('#,##0');
+            } elseif ($this->isPercentColumn($label)) {
+                $sheet->getStyle("{$column}2:{$column}{$lastRow}")
+                    ->getNumberFormat()
+                    ->setFormatCode('0.00%');
             } elseif (str_contains($label, '±差異')) {
                 $sheet->getStyle("{$column}2:{$column}{$lastRow}")
                     ->getNumberFormat()
@@ -708,6 +830,8 @@ class InventoryDifferenceWorkbookService
         return in_array($label, [
             '未入力回',
             '区分',
+            '部門CD',
+            '部門名',
             '棚卸しNo',
             '棚卸日',
             '倉庫CD',
@@ -723,10 +847,17 @@ class InventoryDifferenceWorkbookService
     {
         return $label === '理論在庫'
             || $label === '件数'
+            || $label === '総数'
+            || str_contains($label, '差異数')
             || str_contains($label, '金額')
             || $label === '入力回数'
             || str_contains($label, '数量')
             || str_contains($label, '絶対差異');
+    }
+
+    private function isPercentColumn(string $label): bool
+    {
+        return str_contains($label, '差異率');
     }
 
     private function isDecimalColumn(string $label): bool
@@ -743,8 +874,9 @@ class InventoryDifferenceWorkbookService
             '倉庫名' => 18,
             '未入力回' => 16,
             '区分' => 14,
+            '部門名' => 20,
             '原価', 'CP在庫金額' => 14,
-            default => str_contains($label, '金額') ? 16 : (str_contains($label, '絶対差異') ? 13 : 11),
+            default => str_contains($label, '金額') ? 18 : (str_contains($label, '差異率') ? 14 : (str_contains($label, '絶対差異') ? 13 : 11)),
         };
     }
 }

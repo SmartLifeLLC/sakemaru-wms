@@ -203,7 +203,25 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
 
         $workbook = $this->loadWorkbook((new InventoryDifferenceWorkbookService)->generate($inventoryCount));
 
-        $this->assertSame(['集計', '差異', '未棚'], $workbook->getSheetNames());
+        $this->assertSame(['部門別', '集計', '差異', '未棚'], $workbook->getSheetNames());
+
+        $departmentRows = $this->rowsByColumn($workbook->getSheetByName('部門別'), '部門CD');
+        $this->assertArrayHasKey('1001', $departmentRows);
+        $this->assertArrayHasKey('合計', $departmentRows);
+        $this->assertSame('差異データ大分類1001', $departmentRows['1001']['部門名']);
+        $this->assertSame(3, $departmentRows['1001']['総数']);
+        $this->assertEquals(34 * $expectedCostPrice, $departmentRows['1001']['CP在庫金額']);
+        $this->assertSame(2, $departmentRows['1001']['1回目差異数']);
+        $this->assertEqualsWithDelta(2 / 3, $departmentRows['1001']['1回目差異率'], 0.0000001);
+        $this->assertEquals(-12 * $expectedCostPrice, $departmentRows['1001']['1回目±不明差異金額']);
+        $this->assertEqualsWithDelta((-12 * $expectedCostPrice) / (34 * $expectedCostPrice), $departmentRows['1001']['1回目±在庫差異率'], 0.0000001);
+        $this->assertEquals(12 * $expectedCostPrice, $departmentRows['1001']['1回目絶対値不明差異金額']);
+        $this->assertEqualsWithDelta((12 * $expectedCostPrice) / (34 * $expectedCostPrice), $departmentRows['1001']['1回目絶対値在庫差異率'], 0.0000001);
+        $this->assertSame(2, $departmentRows['1001']['2回目差異数']);
+        $this->assertEquals(-10 * $expectedCostPrice, $departmentRows['1001']['2回目±不明差異金額']);
+        $this->assertEquals(10 * $expectedCostPrice, $departmentRows['1001']['2回目絶対値不明差異金額']);
+        $this->assertSame(6, $departmentRows['合計']['総数']);
+        $this->assertEquals(34 * $expectedCostPrice, $departmentRows['合計']['CP在庫金額']);
 
         $summaryRows = $this->rowsByColumn($workbook->getSheetByName('集計'), '区分');
         $this->assertArrayHasKey('全体', $summaryRows);
@@ -301,7 +319,8 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
 
         $workbook = $this->loadWorkbook((new InventoryDifferenceWorkbookService)->generate($inventoryCount));
 
-        $this->assertSame(['集計', '差異', '未棚'], $workbook->getSheetNames());
+        $this->assertSame(['部門別', '集計', '差異', '未棚'], $workbook->getSheetNames());
+        $this->assertSame(2, $workbook->getSheetByName('部門別')->getHighestRow());
         $this->assertSame(4, $workbook->getSheetByName('集計')->getHighestRow());
         $this->assertSame(1, $workbook->getSheetByName('差異')->getHighestRow());
         $this->assertSame(1, $workbook->getSheetByName('未棚')->getHighestRow());
