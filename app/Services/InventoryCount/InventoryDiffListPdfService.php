@@ -11,8 +11,6 @@ use TCPDF;
 
 class InventoryDiffListPdfService
 {
-    private const UNCOUNTED_TARGET_CATEGORY_CODES = [1001, 1002, 1003, 1006];
-
     private const FONT_SIZE_TITLE = 18;
 
     private const FONT_SIZE_HEADER = 9;
@@ -190,7 +188,6 @@ class InventoryDiffListPdfService
             $roundColumn = $this->roundColumn($this->uncountedRound);
 
             $query->whereNull($roundColumn);
-            $this->applyUncountedTargetFilters($query);
         } else {
             $query->whereNotNull('ending_system_quantity');
 
@@ -263,7 +260,6 @@ class InventoryDiffListPdfService
         return WmsInventoryCountItem::with(['inventoryCount', 'item.item_category2'])
             ->whereIn('inventory_count_id', $inventoryCountIds)
             ->withoutOwnedSetItems()
-            ->tap(fn (Builder $query) => $this->applyUncountedTargetFilters($query))
             ->get()
             ->groupBy(fn (WmsInventoryCountItem $item): string => $this->inventoryItemKey($item))
             ->filter(fn (Collection $items): bool => $items->every(
@@ -273,21 +269,6 @@ class InventoryDiffListPdfService
             ->values()
             ->sort($this->inventoryItemSorter(...))
             ->values();
-    }
-
-    private function applyUncountedTargetFilters(Builder $query): void
-    {
-        $query
-            ->whereHas('item.item_category1', fn (Builder $query) => $query->whereIn('code', self::UNCOUNTED_TARGET_CATEGORY_CODES))
-            ->where(function (Builder $query): void {
-                $query
-                    ->where('system_quantity', '!=', 0)
-                    ->orWhere(function (Builder $query): void {
-                        $query
-                            ->whereNotNull('difference_quantity')
-                            ->where('difference_quantity', '!=', 0);
-                    });
-            });
     }
 
     private function inventoryItemKey(WmsInventoryCountItem $item): string

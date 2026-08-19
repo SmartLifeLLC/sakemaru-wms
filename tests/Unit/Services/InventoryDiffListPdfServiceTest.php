@@ -702,7 +702,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
         $this->assertStringNotContainsString('棚番：B0', $text);
     }
 
-    public function test_uncounted_list_excludes_zero_system_quantity_without_difference_and_filters_major_categories(): void
+    public function test_uncounted_list_uses_same_null_round_condition_as_screen_tab(): void
     {
         $inventoryCount = WmsInventoryCount::create([
             'count_no' => 'TST-'.Str::upper(Str::random(12)),
@@ -719,6 +719,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
         $zeroSystemQuantityWithDifferenceItemId = $this->createItemInMajorCategory(1006);
         $excludedItemId = $this->createItemInMajorCategory(9999);
         $countedItemId = $this->createItemInMajorCategory(1003);
+        $ownedSetItemId = $this->createItemInMajorCategory(1001, true);
 
         $target = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
@@ -772,13 +773,24 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'cost_price' => 50,
         ]);
 
+        $ownedSetItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => $target->real_stock_id + 5,
+            'item_id' => $ownedSetItemId,
+            'item_code' => 'UNC006',
+            'item_name' => '自社セット未入力',
+            'system_quantity' => 10,
+            'cost_price' => 60,
+        ]);
+
         $items = $this->uncountedListItems($inventoryCount, 1);
 
         $this->assertTrue($items->contains('id', $target->id));
         $this->assertTrue($items->contains('id', $zeroSystemQuantityWithDifference->id));
-        $this->assertFalse($items->contains('id', $zeroSystemQuantityWithoutDifference->id));
-        $this->assertFalse($items->contains('id', $excludedCategory->id));
+        $this->assertTrue($items->contains('id', $zeroSystemQuantityWithoutDifference->id));
+        $this->assertTrue($items->contains('id', $excludedCategory->id));
         $this->assertFalse($items->contains('id', $counted->id));
+        $this->assertFalse($items->contains('id', $ownedSetItem->id));
     }
 
     public function test_multi_count_uncounted_list_excludes_items_counted_in_any_selected_count(): void
@@ -893,7 +905,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'cost_price' => 50,
         ]);
 
-        WmsInventoryCountItem::create([
+        $excludedCategory = WmsInventoryCountItem::create([
             'inventory_count_id' => $secondInventoryCount->id,
             'real_stock_id' => $excludedCategoryStockId,
             'item_id' => $excludedItemId,
@@ -905,13 +917,13 @@ class InventoryDiffListPdfServiceTest extends TestCase
 
         $items = $this->multiCountUncountedItems(collect([$firstInventoryCount, $secondInventoryCount]), 1);
 
-        $this->assertCount(2, $items);
+        $this->assertCount(4, $items);
         $this->assertTrue($items->contains('id', $latestUncounted->id));
         $this->assertTrue($items->contains('id', $zeroSystemQuantityWithDifference->id));
+        $this->assertTrue($items->contains('id', $zeroSystemQuantityWithoutDifference->id));
+        $this->assertTrue($items->contains('id', $excludedCategory->id));
         $this->assertFalse($items->contains('real_stock_id', $countedStockId));
         $this->assertFalse($items->contains('real_stock_id', $zeroCountedStockId));
-        $this->assertFalse($items->contains('real_stock_id', $zeroSystemQuantityWithoutDifference->real_stock_id));
-        $this->assertFalse($items->contains('real_stock_id', $excludedCategoryStockId));
 
         $pdf = (new InventoryDiffListPdfService)->generateUncountedForCounts(collect([$firstInventoryCount, $secondInventoryCount]), 1);
 
