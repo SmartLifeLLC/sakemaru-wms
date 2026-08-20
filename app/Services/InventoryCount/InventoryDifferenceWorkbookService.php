@@ -495,6 +495,12 @@ class InventoryDifferenceWorkbookService
         }
 
         $quantity = $this->roundQuantity($item, $round);
+        $usesZeroQuantityForUncounted = false;
+
+        if ($quantity === null && $this->isUncountedTargetItem($item)) {
+            $quantity = 0;
+            $usesZeroQuantityForUncounted = true;
+        }
 
         if ($quantity === null) {
             return ['quantity' => null, 'difference' => null, 'absolute_difference' => null, 'difference_amount' => null, 'absolute_difference_amount' => null];
@@ -506,7 +512,7 @@ class InventoryDifferenceWorkbookService
             return ['quantity' => $quantity, 'difference' => null, 'absolute_difference' => null, 'difference_amount' => null, 'absolute_difference_amount' => null];
         }
 
-        $difference = $this->isRoundConfirmed($inventoryCount, $round)
+        $difference = ! $usesZeroQuantityForUncounted && $this->isRoundConfirmed($inventoryCount, $round)
             ? $item->confirmedRoundDifference($round)
             : null;
         $difference ??= $quantity - $systemQuantity;
