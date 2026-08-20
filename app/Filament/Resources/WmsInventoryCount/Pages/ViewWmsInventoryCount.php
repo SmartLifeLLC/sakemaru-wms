@@ -962,23 +962,6 @@ class ViewWmsInventoryCount extends Page implements HasForms
                     ->orWhereNotNull('first_count_quantity');
             }), fn ($query) => $query->whereNotNull($currentColumn))
             ->whereNull($nextColumn)
-            ->where(function ($query) use ($round, $currentColumn) {
-                $countExpression = $round === 2
-                    ? 'COALESCE(second_count_quantity, first_count_quantity)'
-                    : $currentColumn;
-
-                $query
-                    ->where(function ($query) use ($countExpression) {
-                        $query
-                            ->whereNotNull('ending_system_quantity')
-                            ->whereRaw("{$countExpression} = ending_system_quantity");
-                    })
-                    ->orWhere(function ($query) use ($countExpression) {
-                        $query
-                            ->whereNull('ending_system_quantity')
-                            ->whereRaw("{$countExpression} = system_quantity");
-                    });
-            })
             ->update([
                 $nextColumn => DB::raw($round === 2 ? 'COALESCE(second_count_quantity, first_count_quantity)' : $currentColumn),
                 'updated_at' => now(),

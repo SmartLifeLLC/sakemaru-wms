@@ -207,7 +207,7 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertSame(1, $page->countForTab('matched'));
     }
 
-    public function test_first_round_confirmation_copies_only_matched_items_to_second_round(): void
+    public function test_first_round_confirmation_copies_counted_items_to_second_round(): void
     {
         if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')) {
             $this->markTestSkipped('wms_inventory_count_items.ending_system_quantity is not available.');
@@ -275,7 +275,7 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertSame(0, $matched->first_count_confirmed_difference_quantity);
         $this->assertSame('0.00', $matched->first_count_confirmed_difference_amount);
         $this->assertSame(99, $matched->difference_quantity);
-        $this->assertNull($different->refresh()->second_count_quantity);
+        $this->assertSame(7, $different->refresh()->second_count_quantity);
         $this->assertSame(8, $different->first_count_confirmed_system_quantity);
         $this->assertSame(-1, $different->first_count_confirmed_difference_quantity);
         $this->assertSame('-10.00', $different->first_count_confirmed_difference_amount);
@@ -284,7 +284,7 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertNull($uncounted->first_count_confirmed_system_quantity);
         $this->assertNull($uncounted->first_count_confirmed_difference_quantity);
         $this->assertSame(1, $page->countForTab('matched'));
-        $this->assertSame(2, $page->countForTab('uncounted'));
+        $this->assertSame(1, $page->countForTab('uncounted'));
 
         $different->update(['ending_system_quantity' => 12]);
         $page->setActiveCountRound(1);
@@ -388,10 +388,11 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertSame(7, $fallbackDifferent->second_count_quantity);
         $this->assertSame(-1, $fallbackDifferent->second_count_confirmed_difference_quantity);
         $this->assertSame('-10.00', $fallbackDifferent->second_count_confirmed_difference_amount);
-        $this->assertNull($fallbackDifferent->final_count_quantity);
+        $this->assertSame(7, $fallbackDifferent->final_count_quantity);
         $this->assertSame(8, $secondDifferent->refresh()->second_count_confirmed_system_quantity);
         $this->assertSame(-2, $secondDifferent->second_count_confirmed_difference_quantity);
         $this->assertSame('-40.00', $secondDifferent->second_count_confirmed_difference_amount);
+        $this->assertSame(6, $secondDifferent->final_count_quantity);
         $this->assertNull($uncounted->refresh()->second_count_confirmed_difference_quantity);
 
         $page->setActiveCountRound(2);
