@@ -37,6 +37,7 @@ class WmsInventoryCount extends WmsModel
         'snapshot_taken_at',
         'started_at',
         'current_stock_saved_at',
+        'ending_stock_taken_at',
         'stock_movement_from_at',
         'stock_movement_calculated_at',
         'confirmed_at',
@@ -72,6 +73,7 @@ class WmsInventoryCount extends WmsModel
         'snapshot_taken_at' => 'datetime',
         'started_at' => 'datetime',
         'current_stock_saved_at' => 'datetime',
+        'ending_stock_taken_at' => 'datetime',
         'stock_movement_from_at' => 'datetime',
         'stock_movement_calculated_at' => 'datetime',
         'confirmed_at' => 'datetime',
@@ -173,9 +175,7 @@ class WmsInventoryCount extends WmsModel
 
     public static function defaultStatusFilterValues(): array
     {
-        return [
-            self::STATUS_DRAFT,
-        ];
+        return [];
     }
 
     public function getDisplayStatusAttribute(): string

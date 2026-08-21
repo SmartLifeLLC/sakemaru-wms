@@ -10,6 +10,7 @@
         $pageFirst = $rows->firstItem() ?? 0;
         $pageLast = $rows->lastItem() ?? 0;
         $activeRound = $this->activeCountRound;
+        $progressRound = min(max((int) ($record->current_count_round ?: 1), 1), 3);
         $floorOptions = $this->floorOptions();
         $locationOptions = $this->locationOptions();
         $isEditable = in_array($record->status, [
@@ -33,6 +34,7 @@
 
     <div x-data="{
         filtersOpen: true,
+        detailsOpen: false,
         locationPickerOpen: false,
         activeTab: @entangle('listTab'),
         activeRound: @entangle('activeCountRound'),
@@ -47,11 +49,11 @@
             return keyword === '' || this.normalize(value).includes(keyword);
         },
         rowVisible(row) {
-            if (this.activeTab === 'diff' && !(row.diff !== null && row.diff !== 0)) return false;
-            if (this.activeTab === 'matched' && !(row.diff !== null && row.diff === 0)) return false;
-            if (this.activeTab === 'uncounted' && this.activeRound === 1 && row.first !== '') return false;
-            if (this.activeTab === 'uncounted' && this.activeRound === 2 && row.second !== '') return false;
-            if (this.activeTab === 'uncounted' && this.activeRound === 3 && row.final_ !== '') return false;
+            if (this.activeTab === 'diff' && !(row.originalEndDiff !== null && row.originalEndDiff !== 0)) return false;
+            if (this.activeTab === 'matched' && !(row.originalEndDiff !== null && row.originalEndDiff === 0)) return false;
+            if (this.activeTab === 'uncounted' && this.activeRound === 1 && row.origFirst !== '') return false;
+            if (this.activeTab === 'uncounted' && this.activeRound === 2 && row.origSecond !== '') return false;
+            if (this.activeTab === 'uncounted' && this.activeRound === 3 && row.origFinal !== '') return false;
             if (!this.includes(row.location, this.filters.locationText)) return false;
             if (this.selectedLocations.length && !this.selectedLocations.includes(row.location)) return false;
             return true;
@@ -71,10 +73,16 @@
         setChange(id, field, value, origFirst, origSecond, origFinal, first, second, final_) {
             let changed = (first !== origFirst || second !== origSecond || final_ !== origFinal);
             if (changed) {
-                this.changes[id] = { first: first === '' ? null : parseInt(first), second: second === '' ? null : parseInt(second), final: final_ === '' ? null : parseInt(final_) };
+                this.changes[id] = { first: this.parseQuantity(first), second: this.parseQuantity(second), final: this.parseQuantity(final_) };
             } else {
                 delete this.changes[id];
             }
+        },
+        parseQuantity(value) {
+            value = String(value ?? '');
+            if (value === '' || value === '-') return null;
+            let number = parseInt(value, 10);
+            return Number.isNaN(number) ? null : number;
         },
         get changeCount() { return Object.keys(this.changes).length; },
         focusItemCodeFilter() {
@@ -113,6 +121,16 @@
                     @if ($record->handy_reception)
                         <span class="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">
                             HANDY受付中
+                        </span>
+                    @endif
+                    @if ($record->snapshot_taken_at)
+                        <span class="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-bold text-slate-700">
+                            在庫取得(開始) {{ $record->snapshot_taken_at->format('m/d H:i') }}
+                        </span>
+                    @endif
+                    @if ($record->ending_stock_taken_at)
+                        <span class="rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-bold text-purple-700">
+                            在庫取得(終了) {{ $record->ending_stock_taken_at->format('m/d H:i') }}
                         </span>
                     @endif
                     @if ($record->stock_movement_from_at)
@@ -285,15 +303,7 @@
                     </div>
                 </div>
                 <div class="flex flex-wrap items-center justify-end gap-2 pb-2">
-                    {{ $this->getAction('viewLogs') }}
                     {{ $this->getAction('addSingleItem') }}
-                    {{ $this->getAction('saveCurrentStock') }}
-                    {{ $this->getAction('resumeCurrentStockSavedForCounting') }}
-                    {{ $this->getAction('refreshCurrentStock') }}
-                    {{ $this->getAction('refreshDailySnapshotStock') }}
-                    {{ $this->getAction('calculatePostCountMovements') }}
-                    {{ $this->getAction('downloadInstructionPdf') }}
-                    {{ $this->getAction('downloadInstructionSheet') }}
                     {{ $this->getAction('toggleHandyReception') }}
                     @if ($record->status === \App\Models\WmsInventoryCount::STATUS_DRAFT)
                         {{ $this->getAction('startCounting') }}
@@ -318,7 +328,7 @@
                             @foreach ([1 => '1回目', 2 => '2回目', 3 => '3回目'] as $round => $label)
                                 @php
                                     $roundConfirmed = $this->isRoundConfirmed($round);
-                                    $roundAvailable = $round <= $activeRound;
+                                    $roundAvailable = $round <= $progressRound;
                                 @endphp
                                 <button type="button"
                                     wire:click="confirmRound({{ $round }})"
@@ -329,23 +339,45 @@
                             @endforeach
                         </div>
                     @endif
+                    {{ $this->getAction('downloadInstructionSheet') }}
+                    {{ $this->getAction('downloadDiffListPdf') }}
                     @if ($record->status !== \App\Models\WmsInventoryCount::STATUS_DRAFT)
-                        {{ $this->getAction('downloadDiffListPdf') }}
                         {{ $this->getAction('downloadUncountedListPdf') }}
-                        {{ $this->getAction('restoreCancelledForCounting') }}
-                        {{ $this->getAction('fillUncountedWithZero') }}
+                        {{ $this->getAction('downloadDifferenceWorkbook') }}
                     @endif
                     @if ($record->status === \App\Models\WmsInventoryCount::STATUS_CHECKED)
                         {{ $this->getAction('reopenFinalRound') }}
                         {{ $this->getAction('confirm') }}
                     @endif
-                    @if (! in_array($record->status, [
-                        \App\Models\WmsInventoryCount::STATUS_CONFIRMED,
-                        \App\Models\WmsInventoryCount::STATUS_CANCELLED,
-                    ], true))
-                        {{ $this->getAction('cancel') }}
-                    @endif
+                    <button type="button"
+                        @click="detailsOpen = ! detailsOpen"
+                        class="inline-flex items-center gap-2 rounded-md border border-green-300 px-3 py-1.5 text-sm font-bold text-white shadow-sm hover:bg-green-800"
+                        :class="detailsOpen ? 'bg-green-900' : 'bg-green-800/60'">
+                        <x-filament::icon icon="heroicon-m-ellipsis-horizontal-circle" class="h-4 w-4" />
+                        <span>詳細</span>
+                        <x-filament::icon icon="heroicon-m-chevron-down" class="h-4 w-4 transition" x-bind:class="{ 'rotate-180': detailsOpen }" />
+                    </button>
                     <div wire:loading class="text-xs">読込中...</div>
+                </div>
+                <div x-show="detailsOpen" x-collapse x-cloak class="border-t border-green-600/60 bg-green-800/50 px-3 py-2">
+                    <div class="flex flex-wrap items-center justify-end gap-2">
+                        {{ $this->getAction('viewLogs') }}
+                        {{ $this->getAction('downloadInstructionPdf') }}
+                        {{ $this->getAction('saveCurrentStock') }}
+                        {{ $this->getAction('resumeCurrentStockSavedForCounting') }}
+                        {{ $this->getAction('refreshCurrentStock') }}
+                        {{ $this->getAction('refreshDailySnapshotStock') }}
+                        {{ $this->getAction('refreshSecondRoundConfirmedDifferences') }}
+                        {{ $this->getAction('calculatePostCountMovements') }}
+                        {{ $this->getAction('restoreCancelledForCounting') }}
+                        {{ $this->getAction('fillUncountedWithZero') }}
+                        @if (! in_array($record->status, [
+                            \App\Models\WmsInventoryCount::STATUS_CONFIRMED,
+                            \App\Models\WmsInventoryCount::STATUS_CANCELLED,
+                        ], true))
+                            {{ $this->getAction('cancel') }}
+                        @endif
+                    </div>
                 </div>
             </div>
 
@@ -373,28 +405,28 @@
                                     </button>
                                 </th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">
-                                    <button type="button" wire:click="sortBy('system_quantity')" class="inline-flex items-center gap-1 font-bold hover:text-sky-700">
-                                        <span>理論数量</span>
-                                        <span class="text-[10px]">{{ $this->sortIndicator('system_quantity') }}</span>
+                                    <button type="button" wire:click="sortBy('ending_system_quantity')" class="inline-flex items-center gap-1 font-bold hover:text-sky-700">
+                                        <span>理論在庫</span>
+                                        <span class="text-[10px]">{{ $this->sortIndicator('ending_system_quantity') }}</span>
                                     </button>
                                 </th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">受払合計</th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">1回目</th>
-                                <th class="border border-slate-300 px-2 py-2 text-right">1回目差分</th>
+                                <th class="border border-slate-300 px-2 py-2 text-right">1回目終了差分</th>
                                 <th class="border border-slate-300 px-2 py-2 text-left">1回目入力者</th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">2回目</th>
-                                <th class="border border-slate-300 px-2 py-2 text-right">2回目差分</th>
+                                <th class="border border-slate-300 px-2 py-2 text-right">2回目終了差分</th>
                                 <th class="border border-slate-300 px-2 py-2 text-left">2回目入力者</th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">3回目</th>
-                                <th class="border border-slate-300 px-2 py-2 text-right">3回目差分</th>
+                                <th class="border border-slate-300 px-2 py-2 text-right">3回目終了差分</th>
                                 <th class="border border-slate-300 px-2 py-2 text-left">3回目入力者</th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">
-                                    <button type="button" wire:click="sortBy('difference_quantity')" class="inline-flex items-center gap-1 font-bold hover:text-sky-700">
-                                        <span>差異数量</span>
-                                        <span class="text-[10px]">{{ $this->sortIndicator('difference_quantity') }}</span>
+                                    <button type="button" wire:click="sortBy('ending_difference_quantity')" class="inline-flex items-center gap-1 font-bold hover:text-sky-700">
+                                        <span>終了差異数量</span>
+                                        <span class="text-[10px]">{{ $this->sortIndicator('ending_difference_quantity') }}</span>
                                     </button>
                                 </th>
-                                <th class="border border-slate-300 px-2 py-2 text-right">差異金額</th>
+                                <th class="border border-slate-300 px-2 py-2 text-right">終了差異金額</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -404,6 +436,13 @@
                                     $initSecond = $row->second_count_quantity !== null ? (string) (int) $row->second_count_quantity : '';
                                     $initFinal = $row->final_count_quantity !== null ? (string) (int) $row->final_count_quantity : '';
                                     $movementQty = $row->post_count_movement_quantity;
+                                    $endingSystemQty = $row->ending_system_quantity;
+                                    $firstConfirmedDiff = $row->confirmedRoundDifference(1);
+                                    $secondConfirmedDiff = $row->confirmedRoundDifference(2);
+                                    $finalConfirmedDiff = $row->confirmedRoundDifference(3);
+                                    $firstConfirmedAmount = $row->getAttribute('first_count_confirmed_difference_amount');
+                                    $secondConfirmedAmount = $row->getAttribute('second_count_confirmed_difference_amount');
+                                    $finalConfirmedAmount = $row->getAttribute('final_count_confirmed_difference_amount');
                                 @endphp
                                 <tr wire:key="ic-row-{{ $row->id }}-r{{ $activeRound }}-u{{ $row->updated_at?->timestamp ?? 0 }}"
                                     x-data="{
@@ -414,20 +453,69 @@
                                         itemName: @js($row->item_name ?: ''),
                                         first: @js($initFirst), second: @js($initSecond), final_: @js($initFinal),
                                         origFirst: @js($initFirst), origSecond: @js($initSecond), origFinal: @js($initFinal),
-                                        system: {{ (int) $row->system_quantity }}, cost: {{ (float) $row->cost_price }},
-                                        toInt(v) { return v === '' ? null : parseInt(v); },
+                                        firstConfirmed: @js($this->isRoundConfirmed(1)), secondConfirmed: @js($this->isRoundConfirmed(2)), finalConfirmed: @js($this->isRoundConfirmed(3)),
+                                        firstConfirmedDiff: @js($firstConfirmedDiff !== null ? (int) $firstConfirmedDiff : null),
+                                        secondConfirmedDiff: @js($secondConfirmedDiff !== null ? (int) $secondConfirmedDiff : null),
+                                        finalConfirmedDiff: @js($finalConfirmedDiff !== null ? (int) $finalConfirmedDiff : null),
+                                        firstConfirmedAmount: @js($firstConfirmedAmount !== null ? (int) $firstConfirmedAmount : null),
+                                        secondConfirmedAmount: @js($secondConfirmedAmount !== null ? (int) $secondConfirmedAmount : null),
+                                        finalConfirmedAmount: @js($finalConfirmedAmount !== null ? (int) $finalConfirmedAmount : null),
+                                        endingSystem: @js($endingSystemQty !== null ? (int) $endingSystemQty : null), cost: {{ (float) $row->cost_price }},
+                                        toInt(v) {
+                                            v = String(v ?? '');
+                                            if (v === '' || v === '-') return null;
+                                            let number = parseInt(v, 10);
+                                            return Number.isNaN(number) ? null : number;
+                                        },
                                         get counted() {
                                             if (this.activeRound == 3) return this.toInt(this.final_);
-                                            if (this.activeRound == 2) return this.toInt(this.second);
+                                            if (this.activeRound == 2) return this.toInt(this.second) ?? this.toInt(this.first);
                                             return this.toInt(this.first);
                                         },
-                                        get firstDiff() { return this.first !== '' ? this.toInt(this.first)-this.system : null; },
-                                        get secondDiff() { return this.second !== '' ? this.toInt(this.second)-this.system : null; },
-                                        get finalDiff() { return this.final_ !== '' ? this.toInt(this.final_)-this.system : null; },
-                                        get diff() { return this.counted!==null ? this.counted-this.system : null; },
-                                        get diffAmt() { return this.diff!==null ? Math.round(this.diff*this.cost) : null; },
+                                        get originalCounted() {
+                                            if (this.activeRound == 3) return this.toInt(this.origFinal);
+                                            if (this.activeRound == 2) return this.toInt(this.origSecond) ?? this.toInt(this.origFirst);
+                                            return this.toInt(this.origFirst);
+                                        },
+                                        diffFor(quantity, confirmed, confirmedDiff) {
+                                            if (confirmed && confirmedDiff !== null) return confirmedDiff;
+                                            return quantity !== null && this.endingSystem !== null ? quantity-this.endingSystem : null;
+                                        },
+                                        get firstDiff() {
+                                            return this.diffFor(this.toInt(this.first), this.firstConfirmed, this.firstConfirmedDiff);
+                                        },
+                                        get secondDiff() {
+                                            return this.diffFor(this.toInt(this.second) ?? this.toInt(this.first), this.secondConfirmed, this.secondConfirmedDiff);
+                                        },
+                                        get finalDiff() {
+                                            return this.diffFor(this.toInt(this.final_), this.finalConfirmed, this.finalConfirmedDiff);
+                                        },
+                                        get endDiff() {
+                                            if (this.activeRound == 3) return this.finalDiff;
+                                            if (this.activeRound == 2) return this.secondDiff;
+                                            return this.firstDiff;
+                                        },
+                                        get originalEndDiff() {
+                                            if (this.activeRound == 3) return this.diffFor(this.toInt(this.origFinal), this.finalConfirmed, this.finalConfirmedDiff);
+                                            if (this.activeRound == 2) return this.diffFor(this.toInt(this.origSecond) ?? this.toInt(this.origFirst), this.secondConfirmed, this.secondConfirmedDiff);
+                                            return this.diffFor(this.toInt(this.origFirst), this.firstConfirmed, this.firstConfirmedDiff);
+                                        },
+                                        get endDiffAmt() {
+                                            if (this.activeRound == 3 && this.finalConfirmed && this.finalConfirmedAmount !== null) return this.finalConfirmedAmount;
+                                            if (this.activeRound == 2 && this.secondConfirmed && this.secondConfirmedAmount !== null) return this.secondConfirmedAmount;
+                                            if (this.activeRound == 1 && this.firstConfirmed && this.firstConfirmedAmount !== null) return this.firstConfirmedAmount;
+                                            return this.endDiff!==null ? Math.round(this.endDiff*this.cost) : null;
+                                        },
                                         get changed() { return this.first!==this.origFirst||this.second!==this.origSecond||this.final_!==this.origFinal; },
-                                        clean(v) { return v.replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/[^0-9]/g,''); },
+                                        clean(v) {
+                                            v = String(v ?? '')
+                                                .replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0))
+                                                .replace(/[−－ー―]/g,'-')
+                                                .replace(/[^0-9-]/g,'');
+                                            let negative = v.includes('-');
+                                            v = v.replace(/-/g,'');
+                                            return (negative ? '-' : '') + v;
+                                        },
                                         notify() { $dispatch('count-update',{id:{{ $row->id }},origFirst:this.origFirst,origSecond:this.origSecond,origFinal:this.origFinal,first:this.first,second:this.second,final:this.final_}); }
                                     }"
                                     x-show="rowVisible($data)"
@@ -438,7 +526,9 @@
                                     <td class="whitespace-nowrap border border-slate-300 px-2 py-1 font-mono">{{ $row->location_no ?: '-' }}</td>
                                     <td class="whitespace-nowrap border border-slate-300 px-2 py-1 font-mono">{{ $row->item_code ?: '-' }}</td>
                                     <td class="min-w-[240px] border border-slate-300 px-2 py-1">{{ $row->item_name ?: '-' }}</td>
-                                    <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums">{{ number_format((int) $row->system_quantity) }}</td>
+                                    <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums {{ $endingSystemQty !== null && (int) $endingSystemQty !== (int) $row->system_quantity ? 'text-purple-700' : 'text-slate-700' }}">
+                                        {{ $endingSystemQty !== null ? number_format((int) $endingSystemQty) : '-' }}
+                                    </td>
                                     <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums {{ $movementQty !== null && (int) $movementQty > 0 ? 'text-green-700' : ($movementQty !== null && (int) $movementQty < 0 ? 'text-red-700' : 'text-slate-500') }}">
                                         {{ $movementQty !== null ? number_format((int) $movementQty) : '-' }}
                                     </td>
@@ -447,8 +537,8 @@
                                             <input type="text" inputmode="numeric"
                                                 :value="first"
                                                 @input="first=clean($event.target.value); $event.target.value=first; notify()"
-                                                @keydown="if(['e','E','+','-','.'].includes($event.key)) $event.preventDefault()"
-                                                @disabled($activeRound !== 1)
+                                                @keydown="if(['e','E','+','.'].includes($event.key)) $event.preventDefault()"
+                                                @disabled($activeRound !== 1 || $this->isRoundConfirmed(1))
                                                 class="{{ $countInputClass }}" placeholder="-">
                                         </td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums"
@@ -459,8 +549,8 @@
                                             <input type="text" inputmode="numeric"
                                                 :value="second"
                                                 @input="second=clean($event.target.value); $event.target.value=second; notify()"
-                                                @keydown="if(['e','E','+','-','.'].includes($event.key)) $event.preventDefault()"
-                                                @disabled($activeRound !== 2)
+                                                @keydown="if(['e','E','+','.'].includes($event.key)) $event.preventDefault()"
+                                                @disabled($activeRound !== 2 || $this->isRoundConfirmed(2))
                                                 class="{{ $countInputClass }}" placeholder="-">
                                         </td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums"
@@ -471,8 +561,8 @@
                                             <input type="text" inputmode="numeric"
                                                 :value="final_"
                                                 @input="final_=clean($event.target.value); $event.target.value=final_; notify()"
-                                                @keydown="if(['e','E','+','-','.'].includes($event.key)) $event.preventDefault()"
-                                                @disabled($activeRound !== 3)
+                                                @keydown="if(['e','E','+','.'].includes($event.key)) $event.preventDefault()"
+                                                @disabled($activeRound !== 3 || $this->isRoundConfirmed(3))
                                                 class="{{ $countInputClass }}" placeholder="-">
                                         </td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums"
@@ -480,17 +570,17 @@
                                             x-text="finalDiff !== null ? new Intl.NumberFormat().format(finalDiff) : '-'"></td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-slate-600">{{ $row->final_count_actor_name ?: '-' }}</td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums"
-                                            :class="{ 'text-green-700': diff > 0, 'text-red-700': diff < 0 }"
-                                            x-text="diff !== null ? new Intl.NumberFormat().format(diff) : '-'"></td>
+                                            :class="{ 'text-green-700': endDiff > 0, 'text-red-700': endDiff < 0 }"
+                                            x-text="endDiff !== null ? new Intl.NumberFormat().format(endDiff) : '-'"></td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right tabular-nums"
-                                            :class="{ 'text-green-700': diffAmt > 0, 'text-red-700': diffAmt < 0 }"
-                                            x-text="diffAmt !== null ? '¥' + new Intl.NumberFormat().format(diffAmt) : '-'"></td>
+                                            :class="{ 'text-green-700': endDiffAmt > 0, 'text-red-700': endDiffAmt < 0 }"
+                                            x-text="endDiffAmt !== null ? '¥' + new Intl.NumberFormat().format(endDiffAmt) : '-'"></td>
                                     @else
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right tabular-nums">{{ $initFirst !== '' ? number_format((int) $initFirst) : '-' }}</td>
                                         @php
-                                            $firstDiff = $row->roundDifference(1);
-                                            $secondDiff = $row->roundDifference(2);
-                                            $finalDiff = $row->roundDifference(3);
+                                            $firstDiff = $this->roundDifferenceForDisplay($row, 1);
+                                            $secondDiff = $this->roundDifferenceForDisplay($row, 2);
+                                            $finalDiff = $this->roundDifferenceForDisplay($row, 3);
                                         @endphp
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums {{ $firstDiff !== null && $firstDiff > 0 ? 'text-green-700' : ($firstDiff !== null && $firstDiff < 0 ? 'text-red-700' : '') }}">{{ $firstDiff !== null ? number_format((int) $firstDiff) : '-' }}</td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-slate-600">{{ $row->first_count_actor_name ?: '-' }}</td>
@@ -500,9 +590,19 @@
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums">{{ $initFinal !== '' ? number_format((int) $initFinal) : '-' }}</td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums {{ $finalDiff !== null && $finalDiff > 0 ? 'text-green-700' : ($finalDiff !== null && $finalDiff < 0 ? 'text-red-700' : '') }}">{{ $finalDiff !== null ? number_format((int) $finalDiff) : '-' }}</td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-slate-600">{{ $row->final_count_actor_name ?: '-' }}</td>
-                                        @php $diffQty = $row->difference_quantity; @endphp
+                                        @php
+                                            $diffQty = $this->roundDifferenceForDisplay($row, $activeRound);
+                                            $confirmedAmount = match ($activeRound) {
+                                                1 => $row->getAttribute('first_count_confirmed_difference_amount'),
+                                                2 => $row->getAttribute('second_count_confirmed_difference_amount'),
+                                                3 => $row->getAttribute('final_count_confirmed_difference_amount'),
+                                            };
+                                            $diffAmount = $this->isRoundConfirmed($activeRound) && $confirmedAmount !== null
+                                                ? (float) $confirmedAmount
+                                                : ($diffQty !== null ? (float) $diffQty * (float) $row->cost_price : null);
+                                        @endphp
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums {{ $diffQty !== null && $diffQty > 0 ? 'text-green-700' : ($diffQty !== null && $diffQty < 0 ? 'text-red-700' : '') }}">{{ $diffQty !== null ? number_format((int) $diffQty) : '-' }}</td>
-                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right tabular-nums {{ $row->difference_amount !== null && (float) $row->difference_amount > 0 ? 'text-green-700' : ($row->difference_amount !== null && (float) $row->difference_amount < 0 ? 'text-red-700' : '') }}">{{ $row->difference_amount !== null ? '¥' . number_format((int) $row->difference_amount) : '-' }}</td>
+                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right tabular-nums {{ $diffAmount !== null && $diffAmount > 0 ? 'text-green-700' : ($diffAmount !== null && $diffAmount < 0 ? 'text-red-700' : '') }}">{{ $diffAmount !== null ? '¥' . number_format((int) $diffAmount) : '-' }}</td>
                                     @endif
                                 </tr>
                             @endforeach

@@ -5,8 +5,11 @@ namespace App\Filament\Resources\WmsInventoryCount\Tables;
 use App\Enums\PaginationOptions;
 use App\Models\WmsInventoryCount;
 use App\Services\InventoryCount\InventoryCountService;
+use App\Services\InventoryCount\InventoryDiffListPdfService;
 use App\Services\InventoryCount\InventoryInstructionSheetPdfService;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
+use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -17,6 +20,7 @@ use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 
 class WmsInventoryCountTable
 {
@@ -46,6 +50,17 @@ class WmsInventoryCountTable
                     ->date('Y/m/d')
                     ->sortable(),
 
+                TextColumn::make('snapshot_taken_at')
+                    ->label('在庫取得(開始)')
+                    ->dateTime('m/d H:i')
+                    ->placeholder('-')
+                    ->sortable(),
+
+                TextColumn::make('ending_stock_taken_at')
+                    ->label('在庫取得(終了)')
+                    ->dateTime('m/d H:i')
+                    ->placeholder('-'),
+
                 TextColumn::make('status')
                     ->label('ステータス')
                     ->badge()
@@ -55,11 +70,11 @@ class WmsInventoryCountTable
                 TextColumn::make('progress')
                     ->label('進捗')
                     ->state(function (WmsInventoryCount $record) {
-                        $total = $record->items()->count();
+                        $total = $record->items()->withoutOwnedSetItems()->count();
                         if ($total === 0) {
                             return '-';
                         }
-                        $counted = $record->items()->whereNotNull('first_count_quantity')->count();
+                        $counted = $record->items()->withoutOwnedSetItems()->whereNotNull('first_count_quantity')->count();
 
                         return "{$counted}/{$total}";
                     }),
@@ -78,14 +93,13 @@ class WmsInventoryCountTable
                     ->label('ステータス')
                     ->multiple()
                     ->options(WmsInventoryCount::statusFilterOptions())
-                    ->default(WmsInventoryCount::defaultStatusFilterValues())
                     ->query(function (Builder $query, array $data): Builder {
                         $statuses = $data['values'] ?? [];
 
                         return WmsInventoryCount::applyDisplayStatusFilter($query, $statuses);
                     }),
             ])
-            ->defaultSort('id', 'desc')
+            ->defaultSort(fn (Builder $query): Builder => static::applyDefaultOrder($query))
             ->recordActions([
                 static::getInstructionSheetAction(),
 
@@ -95,8 +109,10 @@ class WmsInventoryCountTable
                     ->color('gray')
                     ->url(fn (WmsInventoryCount $record) => route('filament.admin.resources.wms-inventory-counts.view', $record)),
             ], position: RecordActionsPosition::AfterColumns)
-            ->toolbarActions([
-                static::getCreateAction(),
+            ->bulkActions([
+                BulkActionGroup::make([
+                    static::getBulkUncountedListPdfAction(),
+                ]),
             ])
             ->extraAttributes(['class' => 'sticky-actions']);
     }
@@ -109,6 +125,13 @@ class WmsInventoryCountTable
     protected static function defaultStatusFilterValues(): array
     {
         return WmsInventoryCount::defaultStatusFilterValues();
+    }
+
+    public static function applyDefaultOrder(Builder $query): Builder
+    {
+        return $query
+            ->orderByDesc('count_date')
+            ->orderByDesc('id');
     }
 
     protected static function getInstructionSheetAction(): Action
@@ -146,7 +169,76 @@ class WmsInventoryCountTable
             });
     }
 
-    protected static function getCreateAction(): Action
+    protected static function getBulkUncountedListPdfAction(): BulkAction
+    {
+        return BulkAction::make('downloadBulkUncountedListPdf')
+            ->label('未PDF出力')
+            ->icon('heroicon-o-document-arrow-down')
+            ->color('gray')
+            ->modalHeading('選択棚卸しの未PDF出力')
+            ->modalDescription(function (Collection $records): string {
+                $total = $records->count();
+                $draftCount = $records
+                    ->filter(fn (WmsInventoryCount $record): bool => $record->status === WmsInventoryCount::STATUS_DRAFT)
+                    ->count();
+                $targetCount = $total - $draftCount;
+
+                return "選択: {$total}件 / 出力対象: {$targetCount}件"
+                    .($draftCount > 0 ? "（下書き{$draftCount}件は除外）" : '');
+            })
+            ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+            ->modalFooterActionsAlignment(Alignment::End)
+            ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('未PDF出力')->color('danger'))
+            ->modalCancelActionLabel('出力せず閉じる')
+            ->schema([
+                Select::make('round')
+                    ->label('入力回')
+                    ->options([
+                        1 => '1回目',
+                        2 => '2回目',
+                        3 => '3回目',
+                    ])
+                    ->default(1)
+                    ->required(),
+            ])
+            ->action(function (Collection $records, array $data) {
+                $targetRecords = $records
+                    ->filter(fn (WmsInventoryCount $record): bool => $record->status !== WmsInventoryCount::STATUS_DRAFT)
+                    ->values();
+
+                if ($targetRecords->isEmpty()) {
+                    Notification::make()
+                        ->warning()
+                        ->title('出力対象の棚卸しがありません')
+                        ->body('下書き以外の棚卸しを選択してください。')
+                        ->send();
+
+                    return null;
+                }
+
+                try {
+                    $round = (int) ($data['round'] ?? 1);
+                    $pdfContent = (new InventoryDiffListPdfService)->generateUncountedForCounts($targetRecords, $round);
+                    $filename = '棚卸未カウント_複数_'.$round.'回目_'.now()->format('YmdHis').'.pdf';
+
+                    return response()->streamDownload(
+                        fn () => print ($pdfContent),
+                        $filename,
+                        ['Content-Type' => 'application/pdf']
+                    );
+                } catch (\Throwable $e) {
+                    Notification::make()
+                        ->danger()
+                        ->title('未PDFを生成できません')
+                        ->body($e->getMessage())
+                        ->send();
+
+                    return null;
+                }
+            });
+    }
+
+    public static function getCreateAction(): Action
     {
         return Action::make('createInventoryCount')
             ->label('棚卸し作成')
