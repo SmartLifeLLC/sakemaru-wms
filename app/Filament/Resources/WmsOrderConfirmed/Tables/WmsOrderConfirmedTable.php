@@ -5,6 +5,8 @@ namespace App\Filament\Resources\WmsOrderConfirmed\Tables;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\LotStatus;
+use App\Enums\AutoOrder\OrderChannel;
+use App\Enums\AutoOrder\OrderDataFileChannel;
 use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
@@ -561,9 +563,16 @@ class WmsOrderConfirmedTable
                         ->requiresConfirmation()
                         ->modalHeading('発注データを生成')
                         ->modalDescription(fn (Collection $records) => "選択した {$records->count()} 件から、FAX / MAIL / CSV 用の発注データを生成します。確定済み以外の候補は除外されます。同じ候補で生成済みの未使用ファイル（未ダウンロード・未送信）は新しいファイルに置き換えられます。1000件を超える場合は条件を絞ってください。")
+                        ->schema([
+                            Textarea::make('communication_notes')
+                                ->label('連絡事項')
+                                ->rows(4)
+                                ->maxLength(500)
+                                ->helperText('生成するFAX PDFの通信欄に表示します。空欄の場合は空の通信欄になります。'),
+                        ])
                         ->modalSubmitActionLabel('データ生成')
                         ->modalCancelActionLabel('生成せず閉じる')
-                        ->action(function (Collection $records) {
+                        ->action(function (Collection $records, array $data) {
                             if ($records->count() > 1000) {
                                 Notification::make()
                                     ->title('選択件数が多すぎます')
@@ -576,7 +585,10 @@ class WmsOrderConfirmedTable
 
                             $candidateIds = $records->pluck('id')->map(fn ($id) => (int) $id)->all();
                             $result = app(OrderDataFileService::class)
-                                ->generateCsvFilesForCandidates($candidateIds);
+                                ->generateCsvFilesForCandidates(
+                                    $candidateIds,
+                                    communicationNotes: $data['communication_notes'] ?? null,
+                                );
 
                             $fileCount = $result['total_files'] ?? count($result['files'] ?? []);
                             $totalOrders = collect($result['files'] ?? [])->sum('order_count');
@@ -645,6 +657,7 @@ class WmsOrderConfirmedTable
                             $excludedAlreadyGenerated = $result['excluded_already_generated'] ?? 0;
                             $excludedNotConfirmed = $result['excluded_not_confirmed'] ?? 0;
                             $excludedMissing = $result['excluded_missing'] ?? 0;
+                            $excludedFaxChannel = $result['excluded_fax_channel'] ?? 0;
                             $excludedNotJxTarget = $result['excluded_not_jx_target'] ?? 0;
                             $excludedMissingOrderingCode = $result['excluded_missing_ordering_code'] ?? 0;
                             $skippedCount = $result['skipped_count'] ?? max(0, $eligibleCount - $totalOrders);
@@ -657,8 +670,8 @@ class WmsOrderConfirmedTable
                                     '「発注データファイル」画面の送信前タブから送信してください。',
                                 ];
 
-                                if ($excludedAlreadyGenerated > 0 || $excludedNotConfirmed > 0 || $excludedMissing > 0 || $excludedNotJxTarget > 0 || $excludedMissingOrderingCode > 0) {
-                                    $bodyLines[] = "除外: 生成済み {$excludedAlreadyGenerated}件 / 確定済み以外 {$excludedNotConfirmed}件 / JX対象外 {$excludedNotJxTarget}件 / JX発注CD未設定 {$excludedMissingOrderingCode}件 / 不明 {$excludedMissing}件";
+                                if ($excludedAlreadyGenerated > 0 || $excludedNotConfirmed > 0 || $excludedMissing > 0 || $excludedFaxChannel > 0 || $excludedNotJxTarget > 0 || $excludedMissingOrderingCode > 0) {
+                                    $bodyLines[] = "除外: 生成済み {$excludedAlreadyGenerated}件 / 確定済み以外 {$excludedNotConfirmed}件 / FAX発注 {$excludedFaxChannel}件 / JX対象外 {$excludedNotJxTarget}件 / JX発注CD未設定 {$excludedMissingOrderingCode}件 / 不明 {$excludedMissing}件";
                                 }
 
                                 if ($skippedCount > 0) {
@@ -676,8 +689,8 @@ class WmsOrderConfirmedTable
                                     "選択: {$selectedCount}件 / JX対象: {$jxTargetCount}件 / 生成対象: {$eligibleCount}件",
                                 ];
 
-                                if ($excludedAlreadyGenerated > 0 || $excludedNotConfirmed > 0 || $excludedMissing > 0 || $excludedNotJxTarget > 0 || $excludedMissingOrderingCode > 0) {
-                                    $bodyLines[] = "除外: 生成済み {$excludedAlreadyGenerated}件 / 確定済み以外 {$excludedNotConfirmed}件 / JX対象外 {$excludedNotJxTarget}件 / JX発注CD未設定 {$excludedMissingOrderingCode}件 / 不明 {$excludedMissing}件";
+                                if ($excludedAlreadyGenerated > 0 || $excludedNotConfirmed > 0 || $excludedMissing > 0 || $excludedFaxChannel > 0 || $excludedNotJxTarget > 0 || $excludedMissingOrderingCode > 0) {
+                                    $bodyLines[] = "除外: 生成済み {$excludedAlreadyGenerated}件 / 確定済み以外 {$excludedNotConfirmed}件 / FAX発注 {$excludedFaxChannel}件 / JX対象外 {$excludedNotJxTarget}件 / JX発注CD未設定 {$excludedMissingOrderingCode}件 / 不明 {$excludedMissing}件";
                                 }
 
                                 if ($skippedCount > 0) {
@@ -881,6 +894,16 @@ class WmsOrderConfirmedTable
                     ->whereColumn('wms_order_data_files.warehouse_id', "{$table}.warehouse_id")
                     ->whereColumn('wms_order_data_files.contractor_id', "{$table}.contractor_id")
                     ->whereColumn('wms_order_data_files.expected_arrival_date', "{$table}.expected_arrival_date")
+                    ->where(function ($query) use ($table): void {
+                        $query
+                            ->whereNull("{$table}.order_channel")
+                            ->orWhere("{$table}.order_channel", OrderChannel::FAX->value);
+                    })
+                    ->where(function ($query): void {
+                        $query
+                            ->whereNull('wms_order_data_files.order_channel')
+                            ->orWhere('wms_order_data_files.order_channel', OrderDataFileChannel::FAX->value);
+                    })
                     ->where(function ($query) use ($table) {
                         $query
                             ->whereRaw("JSON_CONTAINS(wms_order_data_files.candidate_ids, JSON_ARRAY({$table}.id))")

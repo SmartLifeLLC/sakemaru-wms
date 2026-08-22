@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsOrderForJx;
 
 use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\AutoOrder\OrderChannel;
 use App\Enums\EMenu;
 use App\Filament\Resources\WmsOrderConfirmed\Tables\WmsOrderConfirmedTable;
 use App\Filament\Resources\WmsOrderForJx\Pages\ListWmsOrderForJx;
@@ -63,6 +64,11 @@ class WmsOrderForJxResource extends AdminResource
         // 発注確定済み（CONFIRMED）と送信済み（EXECUTED）を表示
         return parent::getEloquentQuery()
             ->whereIn('status', [CandidateStatus::CONFIRMED, CandidateStatus::EXECUTED])
+            ->where(function (Builder $query): void {
+                $query
+                    ->whereNull('order_channel')
+                    ->orWhere('order_channel', OrderChannel::EOS->value);
+            })
             ->with([
                 'warehouse',
                 'item',

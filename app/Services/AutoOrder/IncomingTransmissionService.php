@@ -293,14 +293,14 @@ class IncomingTransmissionService
 
     private function resolvePurchaseTransmissionSupplierId(WmsOrderIncomingSchedule $schedule): ?int
     {
+        if ($schedule->supplier_id && $this->getSupplierCodeById((int) $schedule->supplier_id)) {
+            return (int) $schedule->supplier_id;
+        }
+
         $contractorSupplierId = $this->resolveContractorSupplierId($schedule);
 
         if ($contractorSupplierId && $this->getSupplierCodeById($contractorSupplierId)) {
             return $contractorSupplierId;
-        }
-
-        if ($schedule->supplier_id && $this->getSupplierCodeById((int) $schedule->supplier_id)) {
-            return (int) $schedule->supplier_id;
         }
 
         if ($this->requiresConfirmedSupplier($schedule)) {
