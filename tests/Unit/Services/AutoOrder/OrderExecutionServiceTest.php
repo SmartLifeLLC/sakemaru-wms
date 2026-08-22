@@ -92,6 +92,22 @@ class OrderExecutionServiceTest extends TestCase
         $this->assertSame('2026-05-20', $baseDate->format('Y-m-d'));
     }
 
+    public function test_candidate_supplier_id_is_preferred_when_resolving_supplier(): void
+    {
+        $service = new OrderExecutionService($this->createMock(OrderAuditService::class));
+        $candidate = new WmsOrderCandidate([
+            'warehouse_id' => 999999991,
+            'item_id' => 999999991,
+            'contractor_id' => 999999991,
+            'supplier_id' => 999999992,
+        ]);
+
+        $method = new \ReflectionMethod($service, 'getSupplierIdFromCandidate');
+        $method->setAccessible(true);
+
+        $this->assertSame(999999992, $method->invoke($service, $candidate));
+    }
+
     public function test_jx_generated_confirmed_candidate_is_not_reconfirmed(): void
     {
         $this->skipWhenSakemaruTestDatabaseIsUnavailable();

@@ -95,16 +95,8 @@ class InventoryCountService
 
         $stockItemIds = DB::connection('sakemaru')
             ->table('real_stocks as rs')
-            ->leftJoin($lotRanked, function ($join) {
-                $join->on('lot.real_stock_id', '=', 'rs.id')
-                    ->where('lot.rn', '=', 1);
-            })
             ->where('rs.client_id', $clientId)
             ->where('rs.warehouse_id', $warehouseId)
-            ->where(function ($query) {
-                $query->where('rs.current_quantity', '!=', 0)
-                    ->orWhereNotNull('lot.real_stock_id');
-            })
             ->distinct()
             ->pluck('rs.item_id')
             ->map(fn ($itemId): int => (int) $itemId)
@@ -134,10 +126,6 @@ class InventoryCountService
             ->where('rs.client_id', $clientId)
             ->where('rs.warehouse_id', $warehouseId)
             ->whereIn('rs.item_id', $eligibleItemIds)
-            ->where(function ($query) {
-                $query->where('rs.current_quantity', '!=', 0)
-                    ->orWhereNotNull('lot.real_stock_id');
-            })
             ->select([
                 'rs.id as real_stock_id',
                 'rs.item_id',
