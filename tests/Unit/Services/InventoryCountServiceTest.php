@@ -93,6 +93,42 @@ class InventoryCountServiceTest extends TestCase
         $this->assertSame(8, $missingLedgerRow->ending_system_quantity);
     }
 
+    public function test_take_snapshot_includes_zero_real_stock_without_active_lot(): void
+    {
+        $items = $this->ledgerTestItems();
+        if ($items->isEmpty()) {
+            $this->markTestSkipped('items table does not have enough ledger-testable rows.');
+        }
+
+        $item = $items[0];
+        $clientId = (int) $item->client_id;
+        $warehouseId = 990130;
+        $realStockId = $this->createRealStock($item->id, 0, $clientId, $warehouseId);
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => $clientId,
+            'warehouse_id' => $warehouseId,
+            'warehouse_code' => (string) $warehouseId,
+            'warehouse_name' => 'ゼロ在庫行生成テスト倉庫',
+            'count_date' => InventoryCountLedgerBalanceService::OPENING_DATE,
+            'status' => WmsInventoryCount::STATUS_DRAFT,
+        ]);
+
+        $inserted = (new InventoryCountService)->takeSnapshot($inventoryCount);
+
+        $countItem = WmsInventoryCountItem::query()
+            ->where('inventory_count_id', $inventoryCount->id)
+            ->where('real_stock_id', $realStockId)
+            ->first();
+
+        $this->assertSame(1, $inserted);
+        $this->assertNotNull($countItem);
+        $this->assertSame($item->id, $countItem->item_id);
+        $this->assertSame(0, $countItem->system_quantity);
+        $this->assertSame(0, $countItem->ending_system_quantity);
+    }
+
     public function test_add_single_item_uses_ledger_balance_for_starting_system_quantity(): void
     {
         if (! Schema::connection('sakemaru')->hasTable('stats_item_stock_opening_balances')) {
