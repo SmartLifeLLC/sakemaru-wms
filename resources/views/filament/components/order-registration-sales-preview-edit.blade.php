@@ -443,12 +443,12 @@
                     <col class="logistics-candidate-number-col" style="width: 92px !important;">
                     <col class="logistics-candidate-number-col" style="width: 110px !important;">
                     <col class="logistics-candidate-date-col" style="width: 136px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
                     <col class="logistics-candidate-date-col" style="width: 136px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
                 </colgroup>
                 <thead class="sticky top-0 z-10 bg-slate-100 text-slate-700 shadow-sm dark:bg-slate-800 dark:text-slate-200">
                     <tr>
@@ -474,12 +474,12 @@
                                 <x-order-registration.column-help-heading label="納品予定日" align="center" />
                             </div>
                         </th>
+                        <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold"><x-order-registration.column-help-heading label="予定日" align="center" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="1週" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="2週" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="3週" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="前月" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold"><x-order-registration.column-help-heading label="備考" align="center" /></th>
-                        <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold"><x-order-registration.column-help-heading label="予定日" align="center" /></th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
@@ -518,7 +518,7 @@
                                     pattern="[0-9]*"
                                     autocomplete="off"
                                     x-model="row.input_order_case_qty"
-                                    x-bind:disabled="isRowDisabled(row) || Number(row.input_order_piece_qty || 0) > 0"
+                                    x-bind:disabled="isRowDisabled(row)"
                                     x-on:focus="$event.target.select()"
                                     x-on:input.debounce.150ms="cleanQuantity(row, 'input_order_case_qty', 'input_order_piece_qty'); sync()"
                                     x-on:blur="commitQuantity(row, 'input_order_case_qty', 'input_order_piece_qty')"
@@ -540,7 +540,7 @@
                                     pattern="[0-9]*"
                                     autocomplete="off"
                                     x-model="row.input_order_piece_qty"
-                                    x-bind:disabled="isRowDisabled(row) || Number(row.input_order_case_qty || 0) > 0"
+                                    x-bind:disabled="isRowDisabled(row)"
                                     x-on:focus="$event.target.select()"
                                     x-on:input.debounce.150ms="cleanQuantity(row, 'input_order_piece_qty', 'input_order_case_qty'); sync()"
                                     x-on:blur="commitQuantity(row, 'input_order_piece_qty', 'input_order_case_qty')"
@@ -579,13 +579,6 @@
                                     <div x-text="formatShortDate(row.incoming_expected_arrival_date)"></div>
                                 </div>
                             </td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.sales_week1_qty)"></td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.sales_week2_qty)"></td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.sales_week3_qty)"></td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.previous_month_sales_qty)"></td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-center">
-                                <button type="button" x-on:click.stop="openNoteModal(row.item_contractor_note)" class="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">表示</button>
-                            </td>
                             <td class="whitespace-nowrap px-1 py-1.5 text-center">
                                 <input
                                     type="date"
@@ -594,6 +587,13 @@
                                     x-on:change="setRowExpectedArrivalDate(row, $event.target.value)"
                                     class="w-[128px] rounded-md border border-slate-300 bg-white px-1 py-0.5 text-xs font-mono text-slate-900 shadow-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-primary-500 dark:focus:ring-primary-900 dark:disabled:border-slate-700 dark:disabled:bg-slate-800"
                                 >
+                            </td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.sales_week1_qty)"></td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.sales_week2_qty)"></td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.sales_week3_qty)"></td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.previous_month_sales_qty)"></td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-center">
+                                <button type="button" x-on:click.stop="openNoteModal(row.item_contractor_note)" class="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">表示</button>
                             </td>
                         </tr>
                     </template>

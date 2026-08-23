@@ -2020,6 +2020,38 @@ class WmsOrderRegistration extends AdminPage
         $this->resetLineContractorFilterIfInvalid();
     }
 
+    public function setLineOrderQuantity(int $index, string $quantityTypeValue, mixed $quantity): void
+    {
+        if (! isset($this->lines[$index])) {
+            return;
+        }
+
+        $quantityType = QuantityType::tryFrom($quantityTypeValue);
+        if (! $quantityType) {
+            return;
+        }
+
+        $line = $this->lines[$index];
+        $orderQuantity = $this->normalizeLineOrderQuantity($quantity);
+        $line['quantity_type'] = $quantityType->value;
+        $line['quantity_type_label'] = $quantityType->name();
+        $line['order_quantity'] = $orderQuantity;
+        $line['total_piece_quantity'] = $quantityType === QuantityType::CASE
+            ? $orderQuantity * max(1, (int) ($line['capacity_case'] ?? 1))
+            : $orderQuantity;
+
+        $purchasePrice = $this->purchasePriceForLine(
+            (int) ($line['item_id'] ?? 0),
+            (int) ($line['supplier_partner_id'] ?? 0),
+            (int) ($line['warehouse_id'] ?? $this->warehouseId ?? 0),
+            $quantityType,
+        );
+        $line['purchase_unit_price'] = $purchasePrice['price'];
+        $line['purchase_unit_price_source'] = $purchasePrice['source'];
+
+        $this->lines[$index] = $line;
+    }
+
     public function openLineDuplicateModal(int $index): void
     {
         if (! isset($this->lines[$index])) {
@@ -2539,6 +2571,13 @@ class WmsOrderRegistration extends AdminPage
                 : ($prices['unit_price'] ?? 0)),
             'source' => (string) ($prices['source'] ?? 'NONE'),
         ];
+    }
+
+    private function normalizeLineOrderQuantity(mixed $quantity): int
+    {
+        $value = preg_replace('/[^0-9]/', '', mb_convert_kana((string) $quantity, 'as'));
+
+        return $value === '' ? 0 : max(0, (int) $value);
     }
 
     private function resetLineContractorFilterIfInvalid(): void
