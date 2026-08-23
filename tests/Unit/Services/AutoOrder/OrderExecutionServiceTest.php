@@ -156,7 +156,7 @@ class OrderExecutionServiceTest extends TestCase
     private function createCandidate(CandidateStatus $status, ?int $documentId = null): WmsOrderCandidate
     {
         return WmsOrderCandidate::query()->create([
-            'batch_code' => 'TEXEC'.now()->format('YmdHisv').random_int(100, 999),
+            'batch_code' => 'TEXEC'.now()->format('His').random_int(100, 999),
             'warehouse_id' => 999999991,
             'item_id' => 999999991,
             'item_code' => 'TEST-EXEC',

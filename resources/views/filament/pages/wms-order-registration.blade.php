@@ -412,15 +412,15 @@
                             <span class="font-mono text-base text-slate-950 dark:text-white">{{ number_format(count($lines)) }}</span>
                             件
                         </span>
-                        <span class="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
-                            表示合計数量（総バラ合計）
-                            <span class="font-mono text-lg font-bold text-sky-950 dark:text-sky-100">{{ number_format($visibleLineTotalPieces) }}</span>
-                            バラ
-                        </span>
                         <span class="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200">
                             総ケース数
                             <span class="font-mono text-lg font-bold text-indigo-950 dark:text-indigo-100">{{ $visibleLineTotalCasesLabel }}</span>
                             ケース
+                        </span>
+                        <span class="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+                            表示合計数量（総バラ合計）
+                            <span class="font-mono text-lg font-bold text-sky-950 dark:text-sky-100">{{ number_format($visibleLineTotalPieces) }}</span>
+                            バラ
                         </span>
                         <span class="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
                             表示合計
@@ -453,10 +453,10 @@
                             <th class="whitespace-nowrap px-3 py-2 text-left">商品CD</th>
                             <th class="min-w-72 px-3 py-2 text-left">商品名</th>
                             <th class="whitespace-nowrap px-3 py-2 text-right">入数</th>
-                            <th class="whitespace-nowrap px-3 py-2 text-center">単位</th>
-                            <th class="whitespace-nowrap px-3 py-2 text-right">発注数</th>
-                            <th class="whitespace-nowrap px-3 py-2 text-right">総バラ数</th>
+                            <th class="whitespace-nowrap border-l-2 border-slate-300 bg-amber-100 px-3 py-2 text-right text-amber-900 dark:border-slate-600 dark:bg-amber-900/40 dark:text-amber-100">ケース</th>
+                            <th class="whitespace-nowrap bg-amber-100 px-3 py-2 text-right text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">バラ</th>
                             <th class="whitespace-nowrap px-3 py-2 text-right">総ケース数</th>
+                            <th class="whitespace-nowrap px-3 py-2 text-right">総バラ数</th>
                             <th class="whitespace-nowrap px-3 py-2 text-right">仕入原価</th>
                             <th class="whitespace-nowrap px-3 py-2 text-right">合計金額</th>
                             <th class="whitespace-nowrap px-3 py-2 text-center">納入先</th>
@@ -481,6 +481,12 @@
                                 $warehouseCode = $formatWarehouseCode($line['warehouse_id'] ?? null);
                                 $warehouseName = $warehouseNameForLine($line);
                                 $orderChannelValue = (string) ($line['order_channel'] ?? \App\Enums\AutoOrder\OrderChannel::EOS->value);
+                                $lineCaseQuantity = ($line['quantity_type'] ?? '') === \App\Enums\QuantityType::CASE->value && $orderQuantity > 0
+                                    ? $orderQuantity
+                                    : '';
+                                $linePieceQuantity = ($line['quantity_type'] ?? '') === \App\Enums\QuantityType::PIECE->value && $orderQuantity > 0
+                                    ? $orderQuantity
+                                    : '';
                                 $orderChannelSelectClass = $orderChannelValue === \App\Enums\AutoOrder\OrderChannel::FAX->value
                                     ? 'border-green-300 bg-green-100 text-green-700 dark:border-green-700 dark:bg-green-900/40 dark:text-green-200'
                                     : 'border-blue-300 bg-blue-100 text-blue-700 dark:border-blue-700 dark:bg-blue-900/40 dark:text-blue-200';
@@ -529,17 +535,30 @@
                                 <td class="whitespace-nowrap px-3 py-2 font-mono text-xs">{{ $line['item_code'] }}</td>
                                 <td class="px-3 py-2">{{ $line['item_name'] }}</td>
                                 <td class="whitespace-nowrap px-3 py-2 text-right">{{ number_format($capacityCase) }}</td>
-                                <td class="whitespace-nowrap px-3 py-2 text-center">{{ $line['quantity_type_label'] }}</td>
-                                <td class="whitespace-nowrap px-3 py-2 text-right">
+                                <td class="whitespace-nowrap border-l-2 border-slate-300 bg-amber-50 px-2 py-2 text-center dark:border-slate-600 dark:bg-amber-950/30">
                                     <input
-                                        type="number"
-                                        min="1"
-                                        wire:model.live="lines.{{ $index }}.order_quantity"
-                                        class="w-20 rounded-md border-slate-300 text-right text-sm dark:border-gray-600 dark:bg-gray-900"
+                                        type="text"
+                                        inputmode="numeric"
+                                        pattern="[0-9]*"
+                                        autocomplete="off"
+                                        value="{{ $lineCaseQuantity }}"
+                                        wire:change="setLineOrderQuantity({{ $index }}, 'CASE', $event.target.value)"
+                                        class="w-[58px] rounded-md border-2 border-amber-300 bg-white px-1 py-0.5 text-right text-sm font-semibold text-slate-900 shadow-sm focus:border-amber-500 focus:ring-2 focus:ring-amber-200 dark:border-amber-700 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-amber-500 dark:focus:ring-amber-900"
                                     >
                                 </td>
-                                <td class="whitespace-nowrap px-3 py-2 text-right font-mono font-bold text-sky-700 dark:text-sky-300">{{ number_format($totalPieces) }}</td>
+                                <td class="whitespace-nowrap bg-amber-50 px-2 py-2 text-center dark:bg-amber-950/30">
+                                    <input
+                                        type="text"
+                                        inputmode="numeric"
+                                        pattern="[0-9]*"
+                                        autocomplete="off"
+                                        value="{{ $linePieceQuantity }}"
+                                        wire:change="setLineOrderQuantity({{ $index }}, 'PIECE', $event.target.value)"
+                                        class="w-[58px] rounded-md border-2 border-amber-300 bg-white px-1 py-0.5 text-right text-sm font-semibold text-slate-900 shadow-sm focus:border-amber-500 focus:ring-2 focus:ring-amber-200 dark:border-amber-700 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-amber-500 dark:focus:ring-amber-900"
+                                    >
+                                </td>
                                 <td class="whitespace-nowrap px-3 py-2 text-right font-mono font-bold text-indigo-700 dark:text-indigo-300">{{ $totalCasesLabel }}</td>
+                                <td class="whitespace-nowrap px-3 py-2 text-right font-mono font-bold text-sky-700 dark:text-sky-300">{{ number_format($totalPieces) }}</td>
                                 <td class="whitespace-nowrap px-3 py-2 text-right font-mono">¥{{ number_format($purchaseUnitPrice, 0) }}</td>
                                 <td class="whitespace-nowrap px-3 py-2 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300">¥{{ number_format($lineTotalAmount, 0) }}</td>
                                 <td class="whitespace-nowrap px-3 py-2 text-center">

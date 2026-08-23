@@ -6,7 +6,9 @@ use App\Contracts\OrderFileGeneratorInterface;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\EOrderFileGenerator;
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
+use App\Enums\AutoOrder\TransmissionDocumentType;
 use App\Enums\EWMSClient;
+use App\Enums\QuantityType;
 use App\Models\Sakemaru\Contractor;
 use App\Models\User;
 use App\Models\WmsOrderCandidate;
@@ -480,19 +482,49 @@ class OrderTransmissionServiceTest extends TestCase
      */
     public function it_can_link_candidates_to_documents(): void
     {
-        // ドキュメントに紐付いている発注候補を確認
-        $linkedCandidates = WmsOrderCandidate::whereNotNull('wms_order_jx_document_id')
-            ->limit(5)
-            ->get();
+        $batchCode = 'TLINK'.now()->format('His').random_int(100, 999);
+        $document = WmsOrderJxDocument::query()->create([
+            'batch_code' => $batchCode,
+            'warehouse_id' => 999999991,
+            'contractor_id' => 999999991,
+            'order_date' => '2026-08-04',
+            'expected_arrival_date' => '2026-08-05',
+            'document_type' => TransmissionDocumentType::PURCHASE->value,
+            'status' => TransmissionDocumentStatus::PENDING->value,
+            'file_path' => 'tests/jx-orders/link-test.dat',
+            'file_size' => 128,
+            'record_count' => 1,
+            'order_count' => 1,
+            'encoding' => 'SJIS-win',
+        ]);
+        $candidate = WmsOrderCandidate::query()->create([
+            'batch_code' => $batchCode,
+            'warehouse_id' => 999999991,
+            'item_id' => 999999991,
+            'item_code' => 'TEST-LINK',
+            'contractor_id' => 999999991,
+            'suggested_quantity' => 1,
+            'order_quantity' => 1,
+            'purchase_unit' => 1,
+            'quantity_type' => QuantityType::CASE->value,
+            'expected_arrival_date' => '2026-08-05',
+            'status' => CandidateStatus::CONFIRMED->value,
+            'lot_status' => 'RAW',
+            'wms_order_jx_document_id' => $document->id,
+            'modified_at' => now(),
+        ]);
 
-        // 紐付いた候補がなくてもテストは成功
-        $this->assertGreaterThanOrEqual(0, $linkedCandidates->count());
+        try {
+            $linkedCandidate = WmsOrderCandidate::with('jxDocument')->find($candidate->id);
 
-        foreach ($linkedCandidates as $candidate) {
-            $document = WmsOrderJxDocument::find($candidate->wms_order_jx_document_id);
-            if ($document) {
-                $this->assertEquals($candidate->batch_code, $document->batch_code);
-            }
+            $this->assertNotNull($linkedCandidate);
+            $this->assertNotNull($linkedCandidate->jxDocument);
+            $this->assertSame($document->id, $linkedCandidate->jxDocument->id);
+            $this->assertSame($batchCode, $linkedCandidate->batch_code);
+            $this->assertSame($batchCode, $linkedCandidate->jxDocument->batch_code);
+        } finally {
+            $candidate->delete();
+            $document->delete();
         }
     }
 
