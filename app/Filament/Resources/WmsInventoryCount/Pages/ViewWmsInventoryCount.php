@@ -32,6 +32,8 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     private const UNCOUNTED_TARGET_MAJOR_CATEGORY_CODES = [1001, 1002, 1003, 1006];
 
+    private const LIST_TABS = ['all', 'diff', 'matched', 'unmanaged'];
+
     protected static string $resource = WmsInventoryCountResource::class;
 
     protected string $view = 'filament.resources.wms-inventory-count.pages.view-wms-inventory-count';
@@ -115,7 +117,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function setListTab(string $tab): void
     {
-        if (! in_array($tab, ['all', 'diff', 'matched', 'uncounted'], true)) {
+        if (! in_array($tab, self::LIST_TABS, true)) {
             return;
         }
         $this->listTab = $tab;
@@ -124,7 +126,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function updatedListTab(string $tab): void
     {
-        if (! in_array($tab, ['all', 'diff', 'matched', 'uncounted'], true)) {
+        if (! in_array($tab, self::LIST_TABS, true)) {
             $this->listTab = 'all';
         }
 
@@ -282,8 +284,13 @@ class ViewWmsInventoryCount extends Page implements HasForms
             return (int) $confirmedDifference;
         }
 
-        $countedQty = $item->roundQuantity($round);
-        $baseQty = $item->ending_system_quantity;
+        $countedQty = $this->physicalRoundQuantityForDisplay($item, $round);
+        if ($countedQty === null) {
+            $countedQty = $this->isUncountedTargetItemForDisplay($item)
+                ? 0
+                : $item->roundQuantity($round);
+        }
+        $baseQty = $item->ending_system_quantity ?? $item->system_quantity;
 
         if ($countedQty === null || $baseQty === null) {
             return null;
@@ -306,6 +313,41 @@ class ViewWmsInventoryCount extends Page implements HasForms
         return $query->count();
     }
 
+    public function isUncountedTargetItemForDisplay(WmsInventoryCountItem $item): bool
+    {
+        $majorCategoryCode = $item->item?->item_category1?->code;
+        if (! in_array((int) $majorCategoryCode, self::UNCOUNTED_TARGET_MAJOR_CATEGORY_CODES, true)) {
+            return false;
+        }
+
+        $systemQuantity = $item->ending_system_quantity ?? $item->system_quantity;
+        $differenceQuantity = $item->difference_quantity;
+
+        return (float) ($systemQuantity ?? 0) !== 0.0
+            || ($differenceQuantity !== null && (float) $differenceQuantity !== 0.0);
+    }
+
+    public function isUnmanagedStockItemForDisplay(WmsInventoryCountItem $item): bool
+    {
+        if (! Schema::connection('sakemaru')->hasColumn('items', 'is_managed_stock')) {
+            return false;
+        }
+
+        $isManagedStock = $item->item?->is_managed_stock;
+
+        return $isManagedStock !== null && ! (bool) $isManagedStock;
+    }
+
+    private function physicalRoundQuantityForDisplay(WmsInventoryCountItem $item, int $round): ?int
+    {
+        return match ($round) {
+            1 => $item->first_count_quantity,
+            2 => $item->second_count_quantity,
+            3 => $item->final_count_quantity,
+            default => null,
+        };
+    }
+
     private function filteredQuery(): \Illuminate\Database\Eloquent\Builder
     {
         $query = $this->inventoryCountItemsQuery();
@@ -318,7 +360,8 @@ class ViewWmsInventoryCount extends Page implements HasForms
     private function inventoryCountItemsQuery(): \Illuminate\Database\Eloquent\Builder
     {
         return WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
-            ->withoutOwnedSetItems();
+            ->withoutOwnedSetItems()
+            ->with(['item.item_category1']);
     }
 
     private function applyFilters(\Illuminate\Database\Eloquent\Builder $query): void
@@ -343,44 +386,103 @@ class ViewWmsInventoryCount extends Page implements HasForms
         $useConfirmedDifference = $this->isRoundConfirmed($this->activeCountRound)
             && $this->inventoryCountItemColumnExists($confirmedDifferenceColumn);
 
-        if ($tab === 'uncounted') {
-            $query->whereNull($roundColumn);
-            $this->applyUncountedTargetFilters($query);
+        if ($tab === 'unmanaged') {
+            $query->unmanagedStockItems();
 
             return;
         }
 
-        match ($tab) {
-            'diff' => $useConfirmedDifference
-                ? $query->whereNotNull($confirmedDifferenceColumn)->where($confirmedDifferenceColumn, '!=', 0)
-                : ($this->activeCountRound === 2
-                    ? $query
-                        ->where(function ($query) use ($roundColumn) {
-                            $query->whereNotNull($roundColumn)
-                                ->orWhereNotNull('first_count_quantity');
-                        })
-                        ->whereNotNull('ending_system_quantity')
-                        ->whereRaw('COALESCE(second_count_quantity, first_count_quantity) != ending_system_quantity')
-                : $query
-                    ->whereNotNull($roundColumn)
-                    ->whereNotNull('ending_system_quantity')
-                    ->whereColumn($roundColumn, '!=', 'ending_system_quantity')),
-            'matched' => $useConfirmedDifference
-                ? $query->whereNotNull($confirmedDifferenceColumn)->where($confirmedDifferenceColumn, 0)
-                : ($this->activeCountRound === 2
-                    ? $query
-                        ->where(function ($query) use ($roundColumn) {
-                            $query->whereNotNull($roundColumn)
-                                ->orWhereNotNull('first_count_quantity');
-                        })
-                        ->whereNotNull('ending_system_quantity')
-                        ->whereRaw('COALESCE(second_count_quantity, first_count_quantity) = ending_system_quantity')
-                : $query
-                    ->whereNotNull($roundColumn)
-                    ->whereNotNull('ending_system_quantity')
-                    ->whereColumn($roundColumn, 'ending_system_quantity')),
-            default => null,
-        };
+        if (! in_array($tab, ['diff', 'matched'], true)) {
+            return;
+        }
+
+        $query->managedStockItems();
+
+        if ($tab === 'diff') {
+            $query->where(function (\Illuminate\Database\Eloquent\Builder $query) use ($roundColumn, $confirmedDifferenceColumn, $useConfirmedDifference): void {
+                $query->where(function (\Illuminate\Database\Eloquent\Builder $query) use ($roundColumn, $confirmedDifferenceColumn, $useConfirmedDifference): void {
+                    $this->applyDifferenceTabCondition($query, $roundColumn, $confirmedDifferenceColumn, $useConfirmedDifference);
+                })->orWhere(function (\Illuminate\Database\Eloquent\Builder $query) use ($roundColumn): void {
+                    $query->whereNull($roundColumn);
+                    $this->applyUncountedTargetFilters($query);
+                });
+            });
+
+            return;
+        }
+
+        $query->where(function (\Illuminate\Database\Eloquent\Builder $query) use ($roundColumn): void {
+            $query
+                ->whereNotNull($roundColumn)
+                ->orWhere(function (\Illuminate\Database\Eloquent\Builder $query): void {
+                    $this->applyNotUncountedTargetFilters($query);
+                });
+        });
+        $this->applyMatchedTabCondition($query, $roundColumn, $confirmedDifferenceColumn, $useConfirmedDifference);
+    }
+
+    private function applyDifferenceTabCondition(
+        \Illuminate\Database\Eloquent\Builder $query,
+        string $roundColumn,
+        string $confirmedDifferenceColumn,
+        bool $useConfirmedDifference,
+    ): void {
+        $systemQuantityExpression = $this->systemQuantityExpression();
+
+        if ($useConfirmedDifference) {
+            $query->whereNotNull($confirmedDifferenceColumn)->where($confirmedDifferenceColumn, '!=', 0);
+
+            return;
+        }
+
+        if ($this->activeCountRound === 2) {
+            $query
+                ->where(function ($query) use ($roundColumn) {
+                    $query->whereNotNull($roundColumn)
+                        ->orWhereNotNull('first_count_quantity');
+                })
+                ->whereRaw("{$systemQuantityExpression} IS NOT NULL")
+                ->whereRaw("COALESCE(second_count_quantity, first_count_quantity) != {$systemQuantityExpression}");
+
+            return;
+        }
+
+        $query
+            ->whereNotNull($roundColumn)
+            ->whereRaw("{$systemQuantityExpression} IS NOT NULL")
+            ->whereRaw("{$roundColumn} != {$systemQuantityExpression}");
+    }
+
+    private function applyMatchedTabCondition(
+        \Illuminate\Database\Eloquent\Builder $query,
+        string $roundColumn,
+        string $confirmedDifferenceColumn,
+        bool $useConfirmedDifference,
+    ): void {
+        $systemQuantityExpression = $this->systemQuantityExpression();
+
+        if ($useConfirmedDifference) {
+            $query->whereNotNull($confirmedDifferenceColumn)->where($confirmedDifferenceColumn, 0);
+
+            return;
+        }
+
+        if ($this->activeCountRound === 2) {
+            $query
+                ->where(function ($query) use ($roundColumn) {
+                    $query->whereNotNull($roundColumn)
+                        ->orWhereNotNull('first_count_quantity');
+                })
+                ->whereRaw("{$systemQuantityExpression} IS NOT NULL")
+                ->whereRaw("COALESCE(second_count_quantity, first_count_quantity) = {$systemQuantityExpression}");
+
+            return;
+        }
+
+        $query
+            ->whereNotNull($roundColumn)
+            ->whereRaw("{$systemQuantityExpression} IS NOT NULL")
+            ->whereRaw("{$roundColumn} = {$systemQuantityExpression}");
     }
 
     private function applyUncountedTargetFilters(\Illuminate\Database\Eloquent\Builder $query): void
@@ -390,14 +492,40 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 $query->whereIn('code', self::UNCOUNTED_TARGET_MAJOR_CATEGORY_CODES);
             })
             ->where(function (\Illuminate\Database\Eloquent\Builder $query): void {
+                $systemQuantityExpression = $this->systemQuantityExpression();
+
                 $query
-                    ->where('system_quantity', '!=', 0)
+                    ->whereRaw("{$systemQuantityExpression} != 0")
                     ->orWhere(function (\Illuminate\Database\Eloquent\Builder $query): void {
                         $query
                             ->whereNotNull('difference_quantity')
                             ->where('difference_quantity', '!=', 0);
                     });
             });
+    }
+
+    private function applyNotUncountedTargetFilters(\Illuminate\Database\Eloquent\Builder $query): void
+    {
+        $systemQuantityExpression = $this->systemQuantityExpression();
+
+        $query->where(function (\Illuminate\Database\Eloquent\Builder $query) use ($systemQuantityExpression): void {
+            $query
+                ->whereDoesntHave('item.item_category1', function (\Illuminate\Database\Eloquent\Builder $query): void {
+                    $query->whereIn('code', self::UNCOUNTED_TARGET_MAJOR_CATEGORY_CODES);
+                })
+                ->orWhere(function (\Illuminate\Database\Eloquent\Builder $query) use ($systemQuantityExpression): void {
+                    $query
+                        ->whereHas('item.item_category1', function (\Illuminate\Database\Eloquent\Builder $query): void {
+                            $query->whereIn('code', self::UNCOUNTED_TARGET_MAJOR_CATEGORY_CODES);
+                        })
+                        ->whereRaw("{$systemQuantityExpression} = 0")
+                        ->where(function (\Illuminate\Database\Eloquent\Builder $query): void {
+                            $query
+                                ->whereNull('difference_quantity')
+                                ->orWhere('difference_quantity', 0);
+                        });
+                });
+        });
     }
 
     private function applySort(\Illuminate\Database\Eloquent\Builder $query): void
@@ -416,6 +544,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
             $roundColumn = $this->roundColumn($this->activeCountRound);
             $direction = $this->sortDirection === 'desc' ? 'desc' : 'asc';
             $confirmedDifferenceColumn = $this->roundConfirmedDifferenceQuantityColumn($this->activeCountRound);
+            $systemQuantityExpression = $this->systemQuantityExpression();
 
             if ($this->isRoundConfirmed($this->activeCountRound) && $this->inventoryCountItemColumnExists($confirmedDifferenceColumn)) {
                 $query
@@ -423,12 +552,12 @@ class ViewWmsInventoryCount extends Page implements HasForms
                     ->orderBy($confirmedDifferenceColumn, $direction);
             } elseif ($this->activeCountRound === 2) {
                 $query
-                    ->orderByRaw('CASE WHEN COALESCE(second_count_quantity, first_count_quantity) IS NULL OR ending_system_quantity IS NULL THEN 1 ELSE 0 END')
-                    ->orderByRaw("(COALESCE(second_count_quantity, first_count_quantity) - ending_system_quantity) {$direction}");
+                    ->orderByRaw("CASE WHEN COALESCE(second_count_quantity, first_count_quantity) IS NULL OR {$systemQuantityExpression} IS NULL THEN 1 ELSE 0 END")
+                    ->orderByRaw("(COALESCE(second_count_quantity, first_count_quantity) - {$systemQuantityExpression}) {$direction}");
             } else {
                 $query
-                    ->orderByRaw("CASE WHEN {$roundColumn} IS NULL OR ending_system_quantity IS NULL THEN 1 ELSE 0 END")
-                    ->orderByRaw("({$roundColumn} - ending_system_quantity) {$direction}");
+                    ->orderByRaw("CASE WHEN {$roundColumn} IS NULL OR {$systemQuantityExpression} IS NULL THEN 1 ELSE 0 END")
+                    ->orderByRaw("({$roundColumn} - {$systemQuantityExpression}) {$direction}");
             }
         } elseif ($this->sortColumn !== '') {
             $query->orderBy($this->sortColumn, $this->sortDirection);
@@ -452,6 +581,13 @@ class ViewWmsInventoryCount extends Page implements HasForms
     private function sortableColumns(): array
     {
         return ['item_code', 'item_name', 'ending_system_quantity', 'ending_difference_quantity'];
+    }
+
+    private function systemQuantityExpression(): string
+    {
+        return $this->inventoryCountItemColumnExists('ending_system_quantity')
+            ? 'COALESCE(ending_system_quantity, system_quantity)'
+            : 'system_quantity';
     }
 
     private function applyTextFilter(\Illuminate\Database\Eloquent\Builder $query, string $value, array $columns): void

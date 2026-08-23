@@ -37,10 +37,14 @@ class InventoryDifferenceWorkbookService
     {
         $items = $this->queryItems($inventoryCount);
         $costPrices = $this->costPricesByItem($items, $inventoryCount);
+        $managedItems = $items
+            ->filter(fn (WmsInventoryCountItem $item): bool => $this->isManagedStockItem($item))
+            ->values();
         $spreadsheet = new Spreadsheet;
-        $allRows = $this->allRows($inventoryCount, $items, $costPrices);
-        $diffRows = $this->diffRows($inventoryCount, $items, $costPrices);
-        $uncountedRows = $this->uncountedRows($inventoryCount, $items, $costPrices);
+        $allRows = $this->allRows($inventoryCount, $managedItems, $costPrices);
+        $stockAmountRows = $this->allRows($inventoryCount, $items, $costPrices);
+        $diffRows = $this->diffRows($inventoryCount, $managedItems, $costPrices);
+        $uncountedRows = $this->uncountedRows($inventoryCount, $managedItems, $costPrices);
         $departmentRows = $this->departmentRows(
             $allRows,
             $this->reportStockAmountsByMajorCategory($items, $costPrices),
@@ -61,7 +65,7 @@ class InventoryDifferenceWorkbookService
 
         $summarySheet = $spreadsheet->createSheet();
         $summarySheet->setTitle('集計');
-        $this->writeRows($summarySheet, $this->summaryColumns(), $this->summaryRows($allRows, $diffRows, $uncountedRows));
+        $this->writeRows($summarySheet, $this->summaryColumns(), $this->summaryRows($allRows, $diffRows, $uncountedRows, $stockAmountRows));
 
         $diffSheet = $spreadsheet->createSheet();
         $diffSheet->setTitle('差異');
@@ -70,6 +74,12 @@ class InventoryDifferenceWorkbookService
         $uncountedSheet = $spreadsheet->createSheet();
         $uncountedSheet->setTitle('未棚');
         $this->writeRows($uncountedSheet, $this->uncountedColumns(), $uncountedRows);
+
+        foreach ([1 => '１回目', 2 => '２回目', 3 => '３回目'] as $round => $sheetTitle) {
+            $topListSheet = $spreadsheet->createSheet();
+            $topListSheet->setTitle($sheetTitle);
+            $this->writeTopListRows($topListSheet, $this->topListRows($inventoryCount, $diffRows, $round));
+        }
 
         $spreadsheet->setActiveSheetIndex(0);
 
@@ -127,7 +137,7 @@ class InventoryDifferenceWorkbookService
     private function diffRows(WmsInventoryCount $inventoryCount, Collection $items, Collection $costPrices): array
     {
         return $items
-            ->filter(fn (WmsInventoryCountItem $item): bool => $item->ending_system_quantity !== null)
+            ->filter(fn (WmsInventoryCountItem $item): bool => $this->baseSystemQuantity($item) !== null)
             ->filter(fn (WmsInventoryCountItem $item): bool => $this->hasRoundDifference($inventoryCount, $item))
             ->map(fn (WmsInventoryCountItem $item): array => $this->buildDiffRow($inventoryCount, $item, $costPrices))
             ->values()
@@ -161,7 +171,7 @@ class InventoryDifferenceWorkbookService
             return false;
         }
 
-        $systemQuantity = $item->system_quantity;
+        $systemQuantity = $this->baseSystemQuantity($item);
         $differenceQuantity = $item->difference_quantity;
 
         return (float) ($systemQuantity ?? 0) !== 0.0
@@ -271,9 +281,10 @@ class InventoryDifferenceWorkbookService
         array $allRows,
         array $diffRows,
         array $uncountedRows,
+        array $stockAmountRows,
     ): array {
         return [
-            $this->summaryRow('全体', $allRows),
+            $this->summaryRow('全体', $allRows, $this->sumRows($stockAmountRows, 'CP在庫金額')),
             $this->summaryRow('差異あり', $diffRows),
             $this->summaryRow('未棚', $uncountedRows),
         ];
@@ -283,12 +294,12 @@ class InventoryDifferenceWorkbookService
      * @param  array<int, array<string, mixed>>  $rows
      * @return array<string, mixed>
      */
-    private function summaryRow(string $label, array $rows): array
+    private function summaryRow(string $label, array $rows, float|int|null $stockAmountOverride = null): array
     {
         $row = [
             '区分' => $label,
             '件数' => count($rows),
-            'CP在庫金額' => $this->sumRows($rows, 'CP在庫金額'),
+            'CP在庫金額' => $stockAmountOverride ?? $this->sumRows($rows, 'CP在庫金額'),
         ];
 
         foreach ($this->roundAmountColumns() as $column) {
@@ -494,10 +505,11 @@ class InventoryDifferenceWorkbookService
             return ['quantity' => null, 'difference' => null, 'absolute_difference' => null, 'difference_amount' => null, 'absolute_difference_amount' => null];
         }
 
-        $quantity = $this->roundQuantity($item, $round);
+        $physicalQuantity = $this->physicalRoundQuantity($item, $round);
+        $quantity = $physicalQuantity ?? $this->roundQuantity($item, $round);
         $usesZeroQuantityForUncounted = false;
 
-        if ($quantity === null && $this->isUncountedTargetItem($item)) {
+        if ($physicalQuantity === null && $this->isUncountedTargetItem($item)) {
             $quantity = 0;
             $usesZeroQuantityForUncounted = true;
         }
@@ -1472,6 +1484,112 @@ class InventoryDifferenceWorkbookService
             ->setWrapText(true);
         $sheet->getStyle("A6:A{$topLastRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
         $sheet->getStyle('C'.($detailHeaderRow + 1).":C{$detailLastRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $diffRows
+     * @return array<int, array<string, mixed>>
+     */
+    private function topListRows(WmsInventoryCount $inventoryCount, array $diffRows, int $round): array
+    {
+        $quantityColumn = "{$round}回目±差異";
+        $absoluteAmountColumn = "{$round}回目絶対差異金額";
+        $signedAmountColumn = "{$round}回目±差異金額";
+
+        return collect($diffRows)
+            ->filter(fn (array $row): bool => ($row[$quantityColumn] ?? null) !== null && (int) $row[$quantityColumn] !== 0)
+            ->map(fn (array $row): array => [
+                '店舗ＣＤ' => $inventoryCount->warehouse_code ?? '',
+                '単品ＣＤ' => $row['商品CD'] ?? '',
+                '表示正式名称' => $row['商品名'] ?? '',
+                '差異数' => (int) ($row[$quantityColumn] ?? 0),
+                '絶対値差異' => (float) ($row[$absoluteAmountColumn] ?? 0),
+                '＋-差異' => (float) ($row[$signedAmountColumn] ?? 0),
+            ])
+            ->sort(fn (array $a, array $b): int => [
+                -1 * (float) abs($a['絶対値差異'] ?? 0),
+                (string) ($a['単品ＣＤ'] ?? ''),
+            ] <=> [
+                -1 * (float) abs($b['絶対値差異'] ?? 0),
+                (string) ($b['単品ＣＤ'] ?? ''),
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    private function writeTopListRows(Worksheet $sheet, array $rows): void
+    {
+        $columns = ['店舗ＣＤ', '単品ＣＤ', '表示正式名称', '差異数', '絶対値差異', '＋-差異'];
+
+        foreach ($columns as $index => $label) {
+            $sheet->setCellValue([$index + 1, 1], $label);
+        }
+
+        $rowIndex = 2;
+        foreach ($rows as $row) {
+            foreach ($columns as $columnIndex => $label) {
+                $excelColumn = $columnIndex + 1;
+                $value = $row[$label] ?? null;
+
+                if ($value === null || $value === '') {
+                    $sheet->setCellValue([$excelColumn, $rowIndex], null);
+                } elseif (in_array($label, ['店舗ＣＤ', '単品ＣＤ', '表示正式名称'], true)) {
+                    $sheet->setCellValueExplicit([$excelColumn, $rowIndex], (string) $value, DataType::TYPE_STRING);
+                } else {
+                    $sheet->setCellValue([$excelColumn, $rowIndex], $value);
+                }
+            }
+
+            $rowIndex++;
+        }
+
+        $this->styleTopListSheet($sheet, count($rows));
+    }
+
+    private function styleTopListSheet(Worksheet $sheet, int $rowCount): void
+    {
+        $lastRow = max($rowCount + 1, 1);
+
+        $sheet->freezePane('A2');
+        $sheet->setAutoFilter("A1:F{$lastRow}");
+        $sheet->getStyle('A1:F1')->applyFromArray([
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'D9D9D9'],
+            ],
+        ]);
+        $sheet->getStyle("A1:F{$lastRow}")
+            ->getAlignment()
+            ->setVertical(Alignment::VERTICAL_TOP);
+
+        foreach ([
+            'A' => 8,
+            'B' => 10,
+            'C' => 57,
+            'D' => 9,
+            'E' => 12,
+            'F' => 12,
+        ] as $column => $width) {
+            $sheet->getColumnDimension($column)->setWidth($width);
+        }
+
+        if ($rowCount === 0) {
+            return;
+        }
+
+        $sheet->getStyle("D2:D{$lastRow}")
+            ->getNumberFormat()
+            ->setFormatCode('#,##0;(#,##0);0');
+        $sheet->getStyle("E2:E{$lastRow}")
+            ->getNumberFormat()
+            ->setFormatCode('#,##0');
+        $sheet->getStyle("F2:F{$lastRow}")
+            ->getNumberFormat()
+            ->setFormatCode('#,##0;(#,##0);0');
     }
 
     /**

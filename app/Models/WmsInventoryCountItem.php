@@ -122,6 +122,40 @@ class WmsInventoryCountItem extends WmsModel
         });
     }
 
+    public function scopeManagedStockItems(Builder $query): Builder
+    {
+        if (! Schema::connection('sakemaru')->hasColumn('items', 'is_managed_stock')) {
+            return $query;
+        }
+
+        $table = $this->getTable();
+
+        return $query->whereNotExists(function ($query) use ($table): void {
+            $query
+                ->select(DB::raw(1))
+                ->from('items as unmanaged_stock_items')
+                ->whereColumn('unmanaged_stock_items.id', "{$table}.item_id")
+                ->where('unmanaged_stock_items.is_managed_stock', false);
+        });
+    }
+
+    public function scopeUnmanagedStockItems(Builder $query): Builder
+    {
+        if (! Schema::connection('sakemaru')->hasColumn('items', 'is_managed_stock')) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        $table = $this->getTable();
+
+        return $query->whereExists(function ($query) use ($table): void {
+            $query
+                ->select(DB::raw(1))
+                ->from('items as unmanaged_stock_items')
+                ->whereColumn('unmanaged_stock_items.id', "{$table}.item_id")
+                ->where('unmanaged_stock_items.is_managed_stock', false);
+        });
+    }
+
     public function calculateDifference(): ?float
     {
         $finalQty = $this->final_count_quantity

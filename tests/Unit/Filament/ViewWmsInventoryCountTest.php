@@ -24,12 +24,12 @@ class ViewWmsInventoryCountTest extends TestCase
         $blade = file_get_contents(resource_path('views/filament/resources/wms-inventory-count/pages/view-wms-inventory-count.blade.php'));
 
         $this->assertStringContainsString('row.originalEndDiff', $blade);
-        $this->assertStringContainsString("row.origFirst !== ''", $blade);
-        $this->assertStringContainsString("row.origSecond !== ''", $blade);
-        $this->assertStringContainsString("row.origFinal !== ''", $blade);
+        $this->assertStringContainsString('row.originalUncounted', $blade);
+        $this->assertStringContainsString("this.activeTab === 'unmanaged'", $blade);
+        $this->assertStringContainsString('row.unmanagedStock', $blade);
         $this->assertStringContainsString('get originalEndDiff()', $blade);
         $this->assertStringNotContainsString("this.activeTab === 'diff' && !(row.endDiff", $blade);
-        $this->assertStringNotContainsString("this.activeTab === 'uncounted' && this.activeRound === 1 && row.first !== ''", $blade);
+        $this->assertStringNotContainsString("this.activeTab === 'uncounted'", $blade);
     }
 
     public function test_inline_count_inputs_allow_negative_quantities(): void
@@ -199,12 +199,37 @@ class ViewWmsInventoryCountTest extends TestCase
             'cost_price' => 30,
         ]);
 
+        $targetCategoryItemId = $this->createItemInMajorCategory(1001);
+        $uncountedTarget = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $targetCategoryItemId,
+            'item_code' => 'TAB004',
+            'item_name' => '未カウント差異扱い',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 5,
+            'cost_price' => 40,
+        ]);
+
+        $unmanagedItemId = $this->createItemInMajorCategory(1001, false);
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $unmanagedItemId,
+            'item_code' => 'TAB005',
+            'item_name' => '在庫管理対象外',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 5,
+            'first_count_quantity' => 0,
+            'cost_price' => 50,
+        ]);
+
         $page = new ViewWmsInventoryCount;
         $page->record = $inventoryCount;
         $page->activeCountRound = 1;
 
-        $this->assertSame(1, $page->countForTab('diff'));
+        $this->assertSame(3, $page->countForTab('diff'));
         $this->assertSame(1, $page->countForTab('matched'));
+        $this->assertSame(1, $page->countForTab('unmanaged'));
+        $this->assertSame(-5, $page->roundDifferenceForDisplay($uncountedTarget->refresh(), 1));
     }
 
     public function test_first_round_confirmation_copies_counted_items_to_second_round(): void
@@ -284,13 +309,14 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertNull($uncounted->first_count_confirmed_system_quantity);
         $this->assertNull($uncounted->first_count_confirmed_difference_quantity);
         $this->assertSame(1, $page->countForTab('matched'));
-        $this->assertSame(1, $page->countForTab('uncounted'));
+        $this->assertSame(2, $page->countForTab('diff'));
+        $this->assertSame(0, $page->countForTab('unmanaged'));
 
         $different->update(['ending_system_quantity' => 12]);
         $page->setActiveCountRound(1);
 
         $this->assertSame(1, $page->activeCountRound);
-        $this->assertSame(1, $page->countForTab('diff'));
+        $this->assertSame(2, $page->countForTab('diff'));
         $this->assertSame(1, $page->countForTab('matched'));
         $this->assertSame(-1, $page->roundDifferenceForDisplay($different->refresh(), 1));
 
@@ -397,10 +423,11 @@ class ViewWmsInventoryCountTest extends TestCase
 
         $page->setActiveCountRound(2);
 
-        $this->assertSame(2, $page->countForTab('diff'));
+        $this->assertSame(3, $page->countForTab('diff'));
         $this->assertSame(1, $page->countForTab('matched'));
-        $this->assertSame(1, $page->countForTab('uncounted'));
+        $this->assertSame(0, $page->countForTab('unmanaged'));
         $this->assertSame(-1, $page->roundDifferenceForDisplay($fallbackDifferent->refresh(), 2));
+        $this->assertSame(-8, $page->roundDifferenceForDisplay($uncounted->refresh(), 2));
     }
 
     public function test_reopen_final_round_clears_final_confirmed_difference_snapshot(): void
@@ -574,7 +601,7 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertSame([$visibleItem->id], collect($page->logs()->items())->pluck('inventory_count_item_id')->all());
     }
 
-    private function createItemInMajorCategory(int $majorCategoryCode): int
+    private function createItemInMajorCategory(int $majorCategoryCode, bool $managedStock = true): int
     {
         $majorCategoryId = DB::connection('sakemaru')->table('item_categories')->insertGetId([
             'client_id' => 1,
@@ -587,7 +614,7 @@ class ViewWmsInventoryCountTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        return (int) DB::connection('sakemaru')->table('items')->insertGetId([
+        $itemData = [
             'name_main' => '未カウント対象'.Str::upper(Str::random(8)),
             'code' => random_int(800000000, 899999999),
             'type' => 'NOT_ALCOHOL',
@@ -610,7 +637,13 @@ class ViewWmsInventoryCountTest extends TestCase
             'last_updater_id' => 1,
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
+        ];
+
+        if (Schema::connection('sakemaru')->hasColumn('items', 'is_managed_stock')) {
+            $itemData['is_managed_stock'] = $managedStock;
+        }
+
+        return (int) DB::connection('sakemaru')->table('items')->insertGetId($itemData);
     }
 
     private function createOwnedSetItem(): int

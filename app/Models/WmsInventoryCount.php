@@ -62,6 +62,7 @@ class WmsInventoryCount extends WmsModel
         'final_count_confirmed_at',
         'final_count_confirmed_by',
         'memo',
+        'is_all_store_difference_target',
         'created_by',
     ];
 
@@ -85,6 +86,7 @@ class WmsInventoryCount extends WmsModel
         'first_count_confirmed_at' => 'datetime',
         'second_count_confirmed_at' => 'datetime',
         'final_count_confirmed_at' => 'datetime',
+        'is_all_store_difference_target' => 'boolean',
     ];
 
     public function items(): HasMany

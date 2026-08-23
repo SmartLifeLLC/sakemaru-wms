@@ -91,18 +91,96 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'cost_price' => 10,
         ]);
 
+        $unmanagedItemId = $this->createItemInMajorCategory(1001, false, false);
+        $unmanagedItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $unmanagedItemId,
+            'item_code' => 'PDFUNMANAGED001',
+            'item_name' => '在庫管理対象外',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 3,
+            'final_count_quantity' => 5,
+            'cost_price' => 10,
+        ]);
+
         $items = $this->diffListItems($inventoryCount);
 
-        $this->assertSame([$endOnly->id], $items->pluck('id')->all());
+        $this->assertSame([$endOnly->id, $noEndingStock->id], $items->pluck('id')->all());
         $this->assertFalse($items->contains('id', $startOnly->id));
         $this->assertFalse($items->contains('id', $matched->id));
-        $this->assertFalse($items->contains('id', $noEndingStock->id));
         $this->assertFalse($items->contains('id', $ownedSetItem->id));
+        $this->assertFalse($items->contains('id', $unmanagedItem->id));
 
         $endOnlyRow = $items->firstWhere('id', $endOnly->id);
+        $noEndingStockRow = $items->firstWhere('id', $noEndingStock->id);
 
         $this->assertEquals(2.0, $endOnlyRow->getAttribute('pdf_end_difference_quantity'));
         $this->assertNull($endOnlyRow->getAttribute('pdf_start_difference_quantity'));
+        $this->assertEquals(4.0, $noEndingStockRow->getAttribute('pdf_end_difference_quantity'));
+    }
+
+    public function test_diff_list_includes_uncounted_selected_round_as_zero_and_excludes_unmanaged_items(): void
+    {
+        if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')) {
+            $this->markTestSkipped('wms_inventory_count_items.ending_system_quantity is not available.');
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => 'PDF未入力差異テスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'current_count_round' => 1,
+        ]);
+
+        $managedItemId = $this->createItemInMajorCategory(1001);
+        $unmanagedItemId = $this->createItemInMajorCategory(1001, false, false);
+
+        $uncounted = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $managedItemId,
+            'item_code' => 'PDFUNC001',
+            'item_name' => '差分PDF未入力0扱い',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 5,
+            'cost_price' => 10,
+        ]);
+
+        $uncountedWithFallbackSystem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $managedItemId,
+            'item_code' => 'PDFUNC000',
+            'item_name' => '差分PDF未入力開始理論0扱い',
+            'system_quantity' => 7,
+            'ending_system_quantity' => null,
+            'cost_price' => 10,
+        ]);
+
+        $unmanaged = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $unmanagedItemId,
+            'item_code' => 'PDFUNC002',
+            'item_name' => '差分PDF管理対象外',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 5,
+            'cost_price' => 10,
+        ]);
+
+        $items = $this->diffListItems($inventoryCount, 1);
+        $row = $items->firstWhere('id', $uncounted->id);
+        $fallbackRow = $items->firstWhere('id', $uncountedWithFallbackSystem->id);
+
+        $this->assertSame([$uncountedWithFallbackSystem->id, $uncounted->id], $items->pluck('id')->all());
+        $this->assertFalse($items->contains('id', $unmanaged->id));
+        $this->assertSame(0, $row->getAttribute('pdf_actual_quantity'));
+        $this->assertSame(5, (int) $row->getAttribute('pdf_system_quantity'));
+        $this->assertEquals(-5.0, $row->getAttribute('pdf_end_difference_quantity'));
+        $this->assertSame(0, $fallbackRow->getAttribute('pdf_actual_quantity'));
+        $this->assertSame(7, (int) $fallbackRow->getAttribute('pdf_system_quantity'));
+        $this->assertEquals(-7.0, $fallbackRow->getAttribute('pdf_end_difference_quantity'));
     }
 
     public function test_diff_list_for_second_round_adopts_first_quantity_when_second_is_blank(): void
@@ -437,7 +515,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        DB::connection('sakemaru')->table('item_search_information')->insert([
+        $searchInformationData = [
             'client_id' => 1,
             'item_id' => $itemId,
             'code_type' => 'OTHER',
@@ -448,7 +526,13 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'last_updater_id' => 1,
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
+        ];
+
+        if (Schema::connection('sakemaru')->hasColumn('item_search_information', 'priority')) {
+            $searchInformationData['priority'] = 1;
+        }
+
+        DB::connection('sakemaru')->table('item_search_information')->insert($searchInformationData);
 
         $inventoryCount = WmsInventoryCount::create([
             'count_no' => 'TST-'.Str::upper(Str::random(12)),
@@ -720,6 +804,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
         $excludedItemId = $this->createItemInMajorCategory(9999);
         $countedItemId = $this->createItemInMajorCategory(1003);
         $ownedSetItemId = $this->createItemInMajorCategory(1001, true);
+        $unmanagedItemId = $this->createItemInMajorCategory(1001, false, false);
 
         $target = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
@@ -783,6 +868,16 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'cost_price' => 60,
         ]);
 
+        $unmanagedItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => $target->real_stock_id + 6,
+            'item_id' => $unmanagedItemId,
+            'item_code' => 'UNC007',
+            'item_name' => '在庫管理対象外未入力',
+            'system_quantity' => 10,
+            'cost_price' => 70,
+        ]);
+
         $items = $this->uncountedListItems($inventoryCount, 1);
 
         $this->assertTrue($items->contains('id', $target->id));
@@ -791,6 +886,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
         $this->assertFalse($items->contains('id', $excludedCategory->id));
         $this->assertFalse($items->contains('id', $counted->id));
         $this->assertFalse($items->contains('id', $ownedSetItem->id));
+        $this->assertFalse($items->contains('id', $unmanagedItem->id));
     }
 
     public function test_multi_count_uncounted_list_excludes_items_counted_in_any_selected_count(): void
@@ -1095,7 +1191,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
         }
     }
 
-    private function createItemInMajorCategory(int $majorCategoryCode, bool $ownedSet = false): int
+    private function createItemInMajorCategory(int $majorCategoryCode, bool $ownedSet = false, bool $managedStock = true): int
     {
         $majorCategoryId = DB::connection('sakemaru')->table('item_categories')->insertGetId([
             'client_id' => 1,
@@ -1122,7 +1218,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
 
         $itemSetId = $ownedSet ? $this->createOwnedItemSet() : null;
 
-        return DB::connection('sakemaru')->table('items')->insertGetId([
+        $itemData = [
             'name_main' => '未PDF対象商品'.Str::upper(Str::random(8)),
             'code' => random_int(800000000, 899999999),
             'type' => 'NOT_ALCOHOL',
@@ -1145,7 +1241,13 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'last_updater_id' => 1,
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
+        ];
+
+        if (Schema::connection('sakemaru')->hasColumn('items', 'is_managed_stock')) {
+            $itemData['is_managed_stock'] = $managedStock;
+        }
+
+        return DB::connection('sakemaru')->table('items')->insertGetId($itemData);
     }
 
     private function createOwnedItemSet(): int
