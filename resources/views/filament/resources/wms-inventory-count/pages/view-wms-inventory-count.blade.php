@@ -6,7 +6,7 @@
         $allCount = $this->countForTab('all');
         $diffCount = $this->countForTab('diff');
         $matchedCount = $this->countForTab('matched');
-        $uncountedCount = $this->countForTab('uncounted');
+        $unmanagedCount = $this->countForTab('unmanaged');
         $pageFirst = $rows->firstItem() ?? 0;
         $pageLast = $rows->lastItem() ?? 0;
         $activeRound = $this->activeCountRound;
@@ -49,11 +49,9 @@
             return keyword === '' || this.normalize(value).includes(keyword);
         },
         rowVisible(row) {
-            if (this.activeTab === 'diff' && !(row.originalEndDiff !== null && row.originalEndDiff !== 0)) return false;
-            if (this.activeTab === 'matched' && !(row.originalEndDiff !== null && row.originalEndDiff === 0)) return false;
-            if (this.activeTab === 'uncounted' && this.activeRound === 1 && row.origFirst !== '') return false;
-            if (this.activeTab === 'uncounted' && this.activeRound === 2 && row.origSecond !== '') return false;
-            if (this.activeTab === 'uncounted' && this.activeRound === 3 && row.origFinal !== '') return false;
+            if (this.activeTab === 'diff' && !((row.originalEndDiff !== null && row.originalEndDiff !== 0) || row.originalUncounted)) return false;
+            if (this.activeTab === 'matched' && !(row.originalEndDiff !== null && row.originalEndDiff === 0 && !row.originalUncounted)) return false;
+            if (this.activeTab === 'unmanaged' && !row.unmanagedStock) return false;
             if (!this.includes(row.location, this.filters.locationText)) return false;
             if (this.selectedLocations.length && !this.selectedLocations.includes(row.location)) return false;
             return true;
@@ -142,7 +140,7 @@
                         全{{ number_format($allCount) }}件
                         / 差異{{ number_format($diffCount) }}件
                         / 差異なし{{ number_format($matchedCount) }}件
-                        / 未カウント{{ number_format($uncountedCount) }}件
+                        / 在庫管理対象外{{ number_format($unmanagedCount) }}件
                         / 表示{{ number_format($pageFirst) }}-{{ number_format($pageLast) }}件
                     </span>
                 </div>
@@ -249,14 +247,14 @@
                         </span>
                     </button>
                     <button type="button"
-                        wire:click="setListTab('uncounted')"
-                        @click="activeTab = 'uncounted'"
+                        wire:click="setListTab('unmanaged')"
+                        @click="activeTab = 'unmanaged'"
                         class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition"
-                        :class="activeTab === 'uncounted' ? 'border-slate-200 border-b-white bg-white text-amber-700 shadow-sm' : 'border-green-700 bg-green-800 text-white/85 hover:bg-green-900 hover:text-white'">
-                        <span x-show="activeTab === 'uncounted'" class="absolute inset-x-2 top-0 h-0.5 rounded-full bg-amber-500"></span>
-                        <span>未カウント</span>
-                        <span class="rounded-full px-2 py-0.5 text-[11px] font-black tabular-nums" :class="activeTab === 'uncounted' ? 'bg-amber-100 text-amber-700' : 'bg-white/15 text-white ring-1 ring-white/25'">
-                            {{ number_format($uncountedCount) }}
+                        :class="activeTab === 'unmanaged' ? 'border-slate-200 border-b-white bg-white text-amber-700 shadow-sm' : 'border-green-700 bg-green-800 text-white/85 hover:bg-green-900 hover:text-white'">
+                        <span x-show="activeTab === 'unmanaged'" class="absolute inset-x-2 top-0 h-0.5 rounded-full bg-amber-500"></span>
+                        <span>在庫管理対象外</span>
+                        <span class="rounded-full px-2 py-0.5 text-[11px] font-black tabular-nums" :class="activeTab === 'unmanaged' ? 'bg-amber-100 text-amber-700' : 'bg-white/15 text-white ring-1 ring-white/25'">
+                            {{ number_format($unmanagedCount) }}
                         </span>
                     </button>
                     </div>
@@ -436,7 +434,7 @@
                                     $initSecond = $row->second_count_quantity !== null ? (string) (int) $row->second_count_quantity : '';
                                     $initFinal = $row->final_count_quantity !== null ? (string) (int) $row->final_count_quantity : '';
                                     $movementQty = $row->post_count_movement_quantity;
-                                    $endingSystemQty = $row->ending_system_quantity;
+                                    $endingSystemQty = $row->ending_system_quantity ?? $row->system_quantity;
                                     $firstConfirmedDiff = $row->confirmedRoundDifference(1);
                                     $secondConfirmedDiff = $row->confirmedRoundDifference(2);
                                     $finalConfirmedDiff = $row->confirmedRoundDifference(3);
@@ -451,6 +449,8 @@
                                         location: @js($row->location_no ?: ''),
                                         itemCode: @js($row->item_code ?: ''),
                                         itemName: @js($row->item_name ?: ''),
+                                        unmanagedStock: @js($this->isUnmanagedStockItemForDisplay($row)),
+                                        uncountedTarget: @js($this->isUncountedTargetItemForDisplay($row)),
                                         first: @js($initFirst), second: @js($initSecond), final_: @js($initFinal),
                                         origFirst: @js($initFirst), origSecond: @js($initSecond), origFinal: @js($initFinal),
                                         firstConfirmed: @js($this->isRoundConfirmed(1)), secondConfirmed: @js($this->isRoundConfirmed(2)), finalConfirmed: @js($this->isRoundConfirmed(3)),
@@ -473,22 +473,38 @@
                                             return this.toInt(this.first);
                                         },
                                         get originalCounted() {
-                                            if (this.activeRound == 3) return this.toInt(this.origFinal);
-                                            if (this.activeRound == 2) return this.toInt(this.origSecond) ?? this.toInt(this.origFirst);
-                                            return this.toInt(this.origFirst);
+                                            return this.quantityForRound(this.activeRound, false);
                                         },
-                                        diffFor(quantity, confirmed, confirmedDiff) {
+                                        physicalQuantityForRound(round, current) {
+                                            if (round == 3) return this.toInt(current ? this.final_ : this.origFinal);
+                                            if (round == 2) return this.toInt(current ? this.second : this.origSecond);
+                                            return this.toInt(current ? this.first : this.origFirst);
+                                        },
+                                        quantityForRound(round, current) {
+                                            let physical = this.physicalQuantityForRound(round, current);
+                                            if (physical !== null) return physical;
+                                            if (round == 2 && !this.uncountedTarget) return this.toInt(current ? this.first : this.origFirst);
+                                            return null;
+                                        },
+                                        isUncountedForRound(round, current) {
+                                            return this.uncountedTarget && this.physicalQuantityForRound(round, current) === null;
+                                        },
+                                        get originalUncounted() {
+                                            return this.isUncountedForRound(this.activeRound, false);
+                                        },
+                                        diffFor(quantity, confirmed, confirmedDiff, uncounted) {
                                             if (confirmed && confirmedDiff !== null) return confirmedDiff;
+                                            if (quantity === null && uncounted) quantity = 0;
                                             return quantity !== null && this.endingSystem !== null ? quantity-this.endingSystem : null;
                                         },
                                         get firstDiff() {
-                                            return this.diffFor(this.toInt(this.first), this.firstConfirmed, this.firstConfirmedDiff);
+                                            return this.diffFor(this.quantityForRound(1, true), this.firstConfirmed, this.firstConfirmedDiff, this.isUncountedForRound(1, true));
                                         },
                                         get secondDiff() {
-                                            return this.diffFor(this.toInt(this.second) ?? this.toInt(this.first), this.secondConfirmed, this.secondConfirmedDiff);
+                                            return this.diffFor(this.quantityForRound(2, true), this.secondConfirmed, this.secondConfirmedDiff, this.isUncountedForRound(2, true));
                                         },
                                         get finalDiff() {
-                                            return this.diffFor(this.toInt(this.final_), this.finalConfirmed, this.finalConfirmedDiff);
+                                            return this.diffFor(this.quantityForRound(3, true), this.finalConfirmed, this.finalConfirmedDiff, this.isUncountedForRound(3, true));
                                         },
                                         get endDiff() {
                                             if (this.activeRound == 3) return this.finalDiff;
@@ -496,9 +512,9 @@
                                             return this.firstDiff;
                                         },
                                         get originalEndDiff() {
-                                            if (this.activeRound == 3) return this.diffFor(this.toInt(this.origFinal), this.finalConfirmed, this.finalConfirmedDiff);
-                                            if (this.activeRound == 2) return this.diffFor(this.toInt(this.origSecond) ?? this.toInt(this.origFirst), this.secondConfirmed, this.secondConfirmedDiff);
-                                            return this.diffFor(this.toInt(this.origFirst), this.firstConfirmed, this.firstConfirmedDiff);
+                                            if (this.activeRound == 3) return this.diffFor(this.quantityForRound(3, false), this.finalConfirmed, this.finalConfirmedDiff, this.isUncountedForRound(3, false));
+                                            if (this.activeRound == 2) return this.diffFor(this.quantityForRound(2, false), this.secondConfirmed, this.secondConfirmedDiff, this.isUncountedForRound(2, false));
+                                            return this.diffFor(this.quantityForRound(1, false), this.firstConfirmed, this.firstConfirmedDiff, this.isUncountedForRound(1, false));
                                         },
                                         get endDiffAmt() {
                                             if (this.activeRound == 3 && this.finalConfirmed && this.finalConfirmedAmount !== null) return this.finalConfirmedAmount;

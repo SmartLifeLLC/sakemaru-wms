@@ -29,6 +29,7 @@ class ListWmsInventoryCounts extends ListRecords
     {
         return [
             WmsInventoryCountTable::getCreateAction(),
+            WmsInventoryCountTable::getAllStoreDifferenceWorkbookAction(),
         ];
     }
 

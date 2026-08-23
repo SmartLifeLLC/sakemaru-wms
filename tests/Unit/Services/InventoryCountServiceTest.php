@@ -237,6 +237,46 @@ class InventoryCountServiceTest extends TestCase
             ->exists());
     }
 
+    public function test_take_snapshot_excludes_unmanaged_stock_items(): void
+    {
+        if (! Schema::connection('sakemaru')->hasColumn('items', 'is_managed_stock')) {
+            $this->markTestSkipped('items.is_managed_stock is not available.');
+        }
+
+        $items = $this->ledgerTestItems();
+        if ($items->isEmpty()) {
+            $this->markTestSkipped('items table does not have enough ledger-testable rows.');
+        }
+
+        $clientId = (int) $items[0]->client_id;
+        $warehouseId = 990133;
+        $unmanagedItemId = $this->createUnmanagedStockItem($clientId);
+
+        $this->createRealStock($items[0]->id, 3, $clientId, $warehouseId);
+        $this->createRealStock($unmanagedItemId, 9, $clientId, $warehouseId);
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => $clientId,
+            'warehouse_id' => $warehouseId,
+            'warehouse_code' => (string) $warehouseId,
+            'warehouse_name' => '在庫管理対象外除外テスト倉庫',
+            'count_date' => InventoryCountLedgerBalanceService::OPENING_DATE,
+            'status' => WmsInventoryCount::STATUS_DRAFT,
+        ]);
+
+        (new InventoryCountService)->takeSnapshot($inventoryCount);
+
+        $this->assertTrue(WmsInventoryCountItem::query()
+            ->where('inventory_count_id', $inventoryCount->id)
+            ->where('item_id', $items[0]->id)
+            ->exists());
+        $this->assertFalse(WmsInventoryCountItem::query()
+            ->where('inventory_count_id', $inventoryCount->id)
+            ->where('item_id', $unmanagedItemId)
+            ->exists());
+    }
+
     public function test_save_current_stock_only_marks_status_and_does_not_update_count_items(): void
     {
         $realStockId = $this->createRealStock(999001, 99);
@@ -468,6 +508,81 @@ class InventoryCountServiceTest extends TestCase
         $this->assertFalse(WmsInventoryCountItem::query()
             ->where('inventory_count_id', $inventoryCount->id)
             ->where('real_stock_id', $ownedMissingRealStockId)
+            ->exists());
+    }
+
+    public function test_refresh_system_quantities_excludes_unmanaged_stock_items(): void
+    {
+        foreach ([
+            'wms_inventory_counts' => 'ending_stock_taken_at',
+            'wms_inventory_count_items' => 'ending_system_quantity',
+        ] as $table => $column) {
+            if (! Schema::connection('sakemaru')->hasColumn($table, $column)) {
+                $this->markTestSkipped("{$table}.{$column} is not available.");
+            }
+        }
+
+        if (! Schema::connection('sakemaru')->hasColumn('items', 'is_managed_stock')) {
+            $this->markTestSkipped('items.is_managed_stock is not available.');
+        }
+
+        $items = $this->ledgerTestItems();
+        if ($items->isEmpty()) {
+            $this->markTestSkipped('items table does not have enough ledger-testable rows.');
+        }
+
+        $clientId = (int) $items[0]->client_id;
+        $warehouseId = 990134;
+        $visibleRealStockId = $this->createRealStock((int) $items[0]->id, 9, $clientId, $warehouseId);
+        $unmanagedExistingItemId = $this->createUnmanagedStockItem($clientId);
+        $unmanagedExistingRealStockId = $this->createRealStock($unmanagedExistingItemId, 15, $clientId, $warehouseId);
+        $unmanagedMissingItemId = $this->createUnmanagedStockItem($clientId);
+        $unmanagedMissingRealStockId = $this->createRealStock($unmanagedMissingItemId, 21, $clientId, $warehouseId);
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => $clientId,
+            'warehouse_id' => $warehouseId,
+            'warehouse_code' => (string) $warehouseId,
+            'warehouse_name' => '終了時在庫管理対象外除外テスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+        ]);
+
+        $visibleItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => $visibleRealStockId,
+            'item_id' => (int) $items[0]->id,
+            'item_code' => (string) $items[0]->code,
+            'item_name' => (string) $items[0]->name,
+            'system_quantity' => 1,
+            'ending_system_quantity' => 2,
+            'cost_price' => 10,
+        ]);
+
+        $unmanagedExistingItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => $unmanagedExistingRealStockId,
+            'item_id' => $unmanagedExistingItemId,
+            'item_code' => 'UNMANAGED-EXISTING',
+            'item_name' => '既存在庫管理対象外',
+            'system_quantity' => 1,
+            'ending_system_quantity' => 2,
+            'cost_price' => 10,
+        ]);
+
+        $result = (new InventoryCountService)->refreshSystemQuantities($inventoryCount);
+
+        $visibleItem->refresh();
+        $unmanagedExistingItem->refresh();
+
+        $this->assertSame(1, $result['updated_items']);
+        $this->assertSame(0, $result['inserted_items']);
+        $this->assertSame(9, $visibleItem->ending_system_quantity);
+        $this->assertSame(2, $unmanagedExistingItem->ending_system_quantity);
+        $this->assertFalse(WmsInventoryCountItem::query()
+            ->where('inventory_count_id', $inventoryCount->id)
+            ->where('real_stock_id', $unmanagedMissingRealStockId)
             ->exists());
     }
 
@@ -1265,6 +1380,35 @@ class InventoryCountServiceTest extends TestCase
             'measurement_unit_weight' => 0,
             'measurement_case_weight' => 0,
             'order_rank' => 'ORDER_MANUAL',
+            'last_updater_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    private function createUnmanagedStockItem(int $clientId): int
+    {
+        return (int) DB::connection('sakemaru')->table('items')->insertGetId([
+            'name_main' => '在庫管理対象外'.Str::upper(Str::random(8)),
+            'code' => random_int(800000000, 899999999),
+            'type' => 'NOT_ALCOHOL',
+            'manufacturer_id' => 0,
+            'volume' => 1,
+            'capacity_case' => 1,
+            'creator_id' => 1,
+            'packaging' => '1',
+            'nickname' => '在庫管理対象外',
+            'client_id' => $clientId,
+            'item_set_id' => 0,
+            'item_category1_id' => 0,
+            'item_category2_id' => 0,
+            'container_type_id' => 0,
+            'manufacture_type_id' => 0,
+            'storage_type_id' => 0,
+            'measurement_unit_weight' => 0,
+            'measurement_case_weight' => 0,
+            'order_rank' => 'ORDER_MANUAL',
+            'is_managed_stock' => false,
             'last_updater_id' => 1,
             'created_at' => now(),
             'updated_at' => now(),

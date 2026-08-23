@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsInventoryCount\Tables;
 
 use App\Enums\PaginationOptions;
 use App\Models\WmsInventoryCount;
+use App\Services\InventoryCount\AllStoreInventoryDifferenceWorkbookService;
 use App\Services\InventoryCount\InventoryCountService;
 use App\Services\InventoryCount\InventoryDiffListPdfService;
 use App\Services\InventoryCount\InventoryInstructionSheetPdfService;
@@ -16,11 +17,13 @@ use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\ToggleColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
 
 class WmsInventoryCountTable
 {
@@ -39,6 +42,10 @@ class WmsInventoryCountTable
                 TextColumn::make('warehouse_name')
                     ->label('倉庫')
                     ->sortable(),
+
+                ToggleColumn::make('is_all_store_difference_target')
+                    ->label('全店差異')
+                    ->visible(fn (): bool => static::hasAllStoreDifferenceTargetColumn()),
 
                 TextColumn::make('memo')
                     ->label('メモ')
@@ -238,6 +245,64 @@ class WmsInventoryCountTable
             });
     }
 
+    public static function getAllStoreDifferenceWorkbookAction(): Action
+    {
+        return Action::make('downloadAllStoreDifferenceWorkbook')
+            ->label('全店差異表')
+            ->icon('heroicon-o-table-cells')
+            ->color('gray')
+            ->visible(fn (): bool => static::hasAllStoreDifferenceTargetColumn())
+            ->modalHeading('全店差異表ダウンロード')
+            ->modalDescription(function (): string {
+                $targetCount = WmsInventoryCount::query()
+                    ->where('is_all_store_difference_target', true)
+                    ->count();
+
+                return "全店差異対象がONの棚卸し {$targetCount} 件を対象に、店舗別の差異数量とカテゴリ別ランキングを出力します。";
+            })
+            ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+            ->modalFooterActionsAlignment(Alignment::End)
+            ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('ダウンロード')->color('danger'))
+            ->modalCancelActionLabel('ダウンロードせず閉じる')
+            ->requiresConfirmation()
+            ->action(function () {
+                $targetRecords = WmsInventoryCount::query()
+                    ->where('is_all_store_difference_target', true)
+                    ->get()
+                    ->sort(fn (WmsInventoryCount $a, WmsInventoryCount $b): int => static::warehouseSortValues($a) <=> static::warehouseSortValues($b))
+                    ->values();
+
+                if ($targetRecords->isEmpty()) {
+                    Notification::make()
+                        ->warning()
+                        ->title('全店差異表の対象がありません')
+                        ->body('棚卸し一覧で全店差異対象をONにしてください。')
+                        ->send();
+
+                    return null;
+                }
+
+                try {
+                    $xlsxContent = (new AllStoreInventoryDifferenceWorkbookService)->generate($targetRecords);
+                    $filename = '全店差異表_'.now()->format('YmdHis').'.xlsx';
+
+                    return response()->streamDownload(
+                        fn () => print ($xlsxContent),
+                        $filename,
+                        ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
+                    );
+                } catch (\Throwable $e) {
+                    Notification::make()
+                        ->danger()
+                        ->title('全店差異表を生成できません')
+                        ->body($e->getMessage())
+                        ->send();
+
+                    return null;
+                }
+            });
+    }
+
     public static function getCreateAction(): Action
     {
         return Action::make('createInventoryCount')
@@ -294,5 +359,25 @@ class WmsInventoryCountTable
 
                 return redirect()->route('filament.admin.resources.wms-inventory-counts.view', $count);
             });
+    }
+
+    private static function hasAllStoreDifferenceTargetColumn(): bool
+    {
+        return Schema::connection('sakemaru')->hasColumn('wms_inventory_counts', 'is_all_store_difference_target');
+    }
+
+    /**
+     * @return array<int, int|string>
+     */
+    private static function warehouseSortValues(WmsInventoryCount $record): array
+    {
+        $code = trim((string) ($record->warehouse_code ?? ''));
+
+        return [
+            preg_match('/^\d+$/', $code) === 1 ? 0 : 1,
+            preg_match('/^\d+$/', $code) === 1 ? (int) $code : $code,
+            $code,
+            (int) $record->id,
+        ];
     }
 }

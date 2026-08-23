@@ -117,6 +117,7 @@ class InventoryCountService
             ->table('real_stocks as rs')
             ->join('items as i', 'i.id', '=', 'rs.item_id')
             ->tap(fn ($query) => $this->excludeOwnedSetItemsFromItemQuery($query, 'i'))
+            ->tap(fn ($query) => $this->excludeUnmanagedStockItemsFromItemQuery($query, 'i'))
             ->leftJoin($lotRanked, function ($join) {
                 $join->on('lot.real_stock_id', '=', 'rs.id')
                     ->where('lot.rn', '=', 1);
@@ -829,6 +830,7 @@ class InventoryCountService
         WmsInventoryCountItem::query()
             ->where('inventory_count_id', $inventoryCount->id)
             ->withoutOwnedSetItems()
+            ->managedStockItems()
             ->whereNotNull('real_stock_id')
             ->select([
                 'id',
@@ -1021,6 +1023,7 @@ class InventoryCountService
             ->table('real_stocks as rs')
             ->join('items as i', 'i.id', '=', 'rs.item_id')
             ->tap(fn ($query) => $this->excludeOwnedSetItemsFromItemQuery($query, 'i'))
+            ->tap(fn ($query) => $this->excludeUnmanagedStockItemsFromItemQuery($query, 'i'))
             ->leftJoin($lotRanked, function ($join) {
                 $join->on('lot.real_stock_id', '=', 'rs.id')
                     ->where('lot.rn', '=', 1);
@@ -1742,6 +1745,19 @@ class InventoryCountService
             });
     }
 
+    private function excludeUnmanagedStockItemsFromItemQuery($query, string $itemTableAlias): void
+    {
+        if (! Schema::connection('sakemaru')->hasColumn('items', 'is_managed_stock')) {
+            return;
+        }
+
+        $query->where(function ($query) use ($itemTableAlias): void {
+            $query
+                ->whereNull("{$itemTableAlias}.is_managed_stock")
+                ->orWhere("{$itemTableAlias}.is_managed_stock", true);
+        });
+    }
+
     private function confirmUncountedItemsAsCurrentQuantity(WmsInventoryCount $inventoryCount): void
     {
         $inventoryCount->items()
@@ -1975,6 +1991,7 @@ class InventoryCountService
             ->where('ici.difference_quantity', '!=', 0);
 
         $this->excludeOwnedSetCountItemsFromQuery($query, 'ici');
+        $this->excludeUnmanagedStockCountItemsFromQuery($query, 'ici');
 
         return $query;
     }
@@ -1998,6 +2015,21 @@ class InventoryCountService
                         ->where('owned_item_sets.set_type', 'OWNED');
                 })
                 ->whereColumn('owned_set_items.id', "{$countItemTableAlias}.item_id");
+        });
+    }
+
+    private function excludeUnmanagedStockCountItemsFromQuery($query, string $countItemTableAlias): void
+    {
+        if (! Schema::connection('sakemaru')->hasColumn('items', 'is_managed_stock')) {
+            return;
+        }
+
+        $query->whereNotExists(function ($query) use ($countItemTableAlias): void {
+            $query
+                ->select(DB::raw(1))
+                ->from('items as unmanaged_stock_items')
+                ->whereColumn('unmanaged_stock_items.id', "{$countItemTableAlias}.item_id")
+                ->where('unmanaged_stock_items.is_managed_stock', false);
         });
     }
 

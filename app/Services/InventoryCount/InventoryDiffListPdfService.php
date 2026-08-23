@@ -7,6 +7,7 @@ use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
 use TCPDF;
 
 class InventoryDiffListPdfService
@@ -184,6 +185,7 @@ class InventoryDiffListPdfService
     {
         $query = WmsInventoryCountItem::where('inventory_count_id', $inventoryCount->id)
             ->withoutOwnedSetItems()
+            ->managedStockItems()
             ->with(['inventoryCount', 'item.item_category1', 'item.item_category2']);
 
         if ($this->uncountedRound !== null) {
@@ -191,26 +193,14 @@ class InventoryDiffListPdfService
 
             $query->whereNull($roundColumn);
             $this->applyUncountedTargetFilters($query);
-        } else {
-            $query->whereNotNull('ending_system_quantity');
+        } elseif ($this->diffRound === null) {
+            $query->whereRaw($this->systemQuantityExpression().' IS NOT NULL');
 
-            if ($this->diffRound !== null) {
-                if ($this->diffRound === 2) {
-                    $query->where(function (Builder $query): void {
-                        $query
-                            ->whereNotNull('second_count_quantity')
-                            ->orWhereNotNull('first_count_quantity');
-                    });
-                } else {
-                    $query->whereNotNull($this->roundColumn($this->diffRound));
-                }
-            } else {
-                $query->where(function ($query) {
-                    $query->whereNotNull('final_count_quantity')
-                        ->orWhereNotNull('second_count_quantity')
-                        ->orWhereNotNull('first_count_quantity');
-                });
-            }
+            $query->where(function ($query) {
+                $query->whereNotNull('final_count_quantity')
+                    ->orWhereNotNull('second_count_quantity')
+                    ->orWhereNotNull('first_count_quantity');
+            });
         }
 
         $items = $query
@@ -262,7 +252,8 @@ class InventoryDiffListPdfService
 
         $query = WmsInventoryCountItem::with(['inventoryCount', 'item.item_category1', 'item.item_category2'])
             ->whereIn('inventory_count_id', $inventoryCountIds)
-            ->withoutOwnedSetItems();
+            ->withoutOwnedSetItems()
+            ->managedStockItems();
 
         $this->applyUncountedTargetFilters($query);
 
@@ -280,13 +271,15 @@ class InventoryDiffListPdfService
 
     private function applyUncountedTargetFilters(Builder $query): void
     {
+        $systemQuantityExpression = $this->systemQuantityExpression();
+
         $query
             ->whereHas('item.item_category1', function (Builder $query): void {
                 $query->whereIn('code', self::UNCOUNTED_TARGET_MAJOR_CATEGORY_CODES);
             })
-            ->where(function (Builder $query): void {
+            ->where(function (Builder $query) use ($systemQuantityExpression): void {
                 $query
-                    ->where('system_quantity', '!=', 0)
+                    ->whereRaw("{$systemQuantityExpression} != 0")
                     ->orWhere(function (Builder $query): void {
                         $query
                             ->whereNotNull('difference_quantity')
@@ -393,7 +386,7 @@ class InventoryDiffListPdfService
         $systemQty = $actualRound !== null
             ? ($useConfirmedSnapshot ? $item->confirmedRoundSystemQuantity($actualRound) : null)
             : null;
-        $systemQty ??= $item->ending_system_quantity;
+        $systemQty ??= $item->ending_system_quantity ?? $item->system_quantity;
 
         if ($systemQty !== null) {
             $item->setAttribute('pdf_system_quantity', $systemQty);
@@ -420,7 +413,58 @@ class InventoryDiffListPdfService
     {
         $actualRound = $this->actualRound($item);
 
-        return $actualRound !== null ? $item->roundQuantity($actualRound) : null;
+        if ($actualRound === null) {
+            return null;
+        }
+
+        $physicalQuantity = $this->physicalRoundQuantity($item, $actualRound);
+        if ($physicalQuantity !== null) {
+            return $physicalQuantity;
+        }
+
+        $usesConfirmedSnapshot = $this->isRoundConfirmed($item, $actualRound)
+            && $item->confirmedRoundDifference($actualRound) !== null;
+
+        if ($usesConfirmedSnapshot) {
+            return $item->roundQuantity($actualRound);
+        }
+
+        if ($this->diffRound !== null && $this->isUncountedTargetItem($item)) {
+            return 0;
+        }
+
+        return $item->roundQuantity($actualRound);
+    }
+
+    private function physicalRoundQuantity(WmsInventoryCountItem $item, int $round): ?int
+    {
+        return match ($round) {
+            1 => $item->first_count_quantity,
+            2 => $item->second_count_quantity,
+            3 => $item->final_count_quantity,
+            default => null,
+        };
+    }
+
+    private function isUncountedTargetItem(WmsInventoryCountItem $item): bool
+    {
+        $majorCategoryCode = $item->item?->item_category1?->code;
+        if (! in_array((int) $majorCategoryCode, self::UNCOUNTED_TARGET_MAJOR_CATEGORY_CODES, true)) {
+            return false;
+        }
+
+        $systemQuantity = $item->ending_system_quantity ?? $item->system_quantity;
+        $differenceQuantity = $item->difference_quantity;
+
+        return (float) ($systemQuantity ?? 0) !== 0.0
+            || ($differenceQuantity !== null && (float) $differenceQuantity !== 0.0);
+    }
+
+    private function systemQuantityExpression(): string
+    {
+        return Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')
+            ? 'COALESCE(ending_system_quantity, system_quantity)'
+            : 'system_quantity';
     }
 
     private function actualRound(WmsInventoryCountItem $item): ?int
