@@ -234,6 +234,61 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertSame(-5, $page->roundDifferenceForDisplay($uncountedTarget->refresh(), 1));
     }
 
+    public function test_active_round_difference_recalculation_uses_ending_system_quantity_without_touching_confirmed_snapshot(): void
+    {
+        foreach ([
+            'ending_system_quantity',
+            'first_count_confirmed_system_quantity',
+            'first_count_confirmed_difference_quantity',
+            'first_count_confirmed_difference_amount',
+        ] as $column) {
+            if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', $column)) {
+                $this->markTestSkipped("wms_inventory_count_items.{$column} is not available.");
+            }
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => '現在回差異再計算テスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'current_count_round' => 1,
+        ]);
+
+        $item = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999406,
+            'item_code' => 'RECALC001',
+            'item_name' => '現在回差異再計算',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 8,
+            'first_count_quantity' => 7,
+            'difference_quantity' => 99,
+            'difference_amount' => 990,
+            'first_count_confirmed_system_quantity' => 10,
+            'first_count_confirmed_difference_quantity' => -3,
+            'first_count_confirmed_difference_amount' => -30,
+            'cost_price' => 10,
+        ]);
+
+        $page = new ViewWmsInventoryCount;
+        $page->record = $inventoryCount;
+        $page->activeCountRound = 1;
+
+        $page->calculateActiveRoundDifferences();
+
+        $item->refresh();
+
+        $this->assertSame(-1, $item->difference_quantity);
+        $this->assertSame('-10.00', $item->difference_amount);
+        $this->assertSame(10, $item->first_count_confirmed_system_quantity);
+        $this->assertSame(-3, $item->first_count_confirmed_difference_quantity);
+        $this->assertSame('-30.00', $item->first_count_confirmed_difference_amount);
+    }
+
     public function test_first_round_confirmation_copies_counted_items_to_second_round(): void
     {
         if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')) {

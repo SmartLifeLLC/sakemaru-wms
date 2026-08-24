@@ -719,12 +719,10 @@ class ViewWmsInventoryCount extends Page implements HasForms
             $finalQty = $final ?? $second ?? $first;
             if ($finalQty !== null) {
                 $item->final_count_quantity = $finalQty;
-                $item->difference_quantity = $finalQty - (int) $item->system_quantity;
-                $item->difference_amount = $item->difference_quantity * (float) $item->cost_price;
+                $this->setLiveDifference($item, (int) $finalQty);
             } else {
                 $item->final_count_quantity = null;
-                $item->difference_quantity = null;
-                $item->difference_amount = null;
+                $this->setLiveDifference($item, null);
             }
         }
 
@@ -806,13 +804,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 2 => $second ?? $first,
                 3 => $final,
             };
-            if ($countedQty !== null) {
-                $item->difference_quantity = $countedQty - (int) $item->system_quantity;
-                $item->difference_amount = $item->difference_quantity * (float) $item->cost_price;
-            } else {
-                $item->difference_quantity = null;
-                $item->difference_amount = null;
-            }
+            $this->setLiveDifference($item, $countedQty);
 
             $item->save();
             $this->writeWebCountLogs($item, [
@@ -881,8 +873,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
                     $item->{$actorColumn} = $actorName;
                     $item->last_counted_at = now();
                     $item->input_count = ($item->input_count ?? 0) + 1;
-                    $item->difference_quantity = 0 - (int) $item->system_quantity;
-                    $item->difference_amount = $item->difference_quantity * (float) $item->cost_price;
+                    $this->setLiveDifference($item, 0);
                     $item->save();
 
                     $this->writeWebCountLogs($item, [
@@ -1087,16 +1078,29 @@ class ViewWmsInventoryCount extends Page implements HasForms
                     $countedQty = $item->roundQuantity($round);
 
                     if ($countedQty === null) {
-                        $item->difference_quantity = null;
-                        $item->difference_amount = null;
+                        $this->setLiveDifference($item, null);
                     } else {
-                        $item->difference_quantity = (int) $countedQty - (int) $item->system_quantity;
-                        $item->difference_amount = (float) $item->difference_quantity * (float) $item->cost_price;
+                        $this->setLiveDifference($item, (int) $countedQty);
                     }
 
                     $item->save();
                 }
             });
+    }
+
+    private function setLiveDifference(WmsInventoryCountItem $item, ?int $countedQty): void
+    {
+        $systemQty = $item->ending_system_quantity ?? $item->system_quantity;
+
+        if ($countedQty === null || $systemQty === null) {
+            $item->difference_quantity = null;
+            $item->difference_amount = null;
+
+            return;
+        }
+
+        $item->difference_quantity = (int) $countedQty - (int) $systemQty;
+        $item->difference_amount = (float) $item->difference_quantity * (float) $item->cost_price;
     }
 
     private function seedNextRoundQuantity(int $round): void
