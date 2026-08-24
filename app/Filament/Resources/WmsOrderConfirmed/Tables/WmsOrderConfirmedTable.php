@@ -5,7 +5,8 @@ namespace App\Filament\Resources\WmsOrderConfirmed\Tables;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\LotStatus;
-use App\Enums\AutoOrder\TransmissionDocumentStatus;
+use App\Enums\AutoOrder\OrderChannel;
+use App\Enums\AutoOrder\OrderDataFileChannel;
 use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
@@ -14,7 +15,6 @@ use App\Filament\Concerns\HasOptimizedFilters;
 use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsOrderConfirmationWaitingTable;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderIncomingSchedule;
-use App\Models\WmsOrderJxDocument;
 use App\Services\AutoOrder\OrderCancellationService;
 use App\Services\AutoOrder\OrderDataFileService;
 use App\Services\AutoOrder\OrderTransmissionService;
@@ -563,9 +563,16 @@ class WmsOrderConfirmedTable
                         ->requiresConfirmation()
                         ->modalHeading('発注データを生成')
                         ->modalDescription(fn (Collection $records) => "選択した {$records->count()} 件から、FAX / MAIL / CSV 用の発注データを生成します。確定済み以外の候補は除外されます。同じ候補で生成済みの未使用ファイル（未ダウンロード・未送信）は新しいファイルに置き換えられます。1000件を超える場合は条件を絞ってください。")
+                        ->schema([
+                            Textarea::make('communication_notes')
+                                ->label('連絡事項')
+                                ->rows(4)
+                                ->maxLength(500)
+                                ->helperText('生成するFAX PDFの通信欄に表示します。空欄の場合は空の通信欄になります。'),
+                        ])
                         ->modalSubmitActionLabel('データ生成')
                         ->modalCancelActionLabel('生成せず閉じる')
-                        ->action(function (Collection $records) {
+                        ->action(function (Collection $records, array $data) {
                             if ($records->count() > 1000) {
                                 Notification::make()
                                     ->title('選択件数が多すぎます')
@@ -578,7 +585,10 @@ class WmsOrderConfirmedTable
 
                             $candidateIds = $records->pluck('id')->map(fn ($id) => (int) $id)->all();
                             $result = app(OrderDataFileService::class)
-                                ->generateCsvFilesForCandidates($candidateIds);
+                                ->generateCsvFilesForCandidates(
+                                    $candidateIds,
+                                    communicationNotes: $data['communication_notes'] ?? null,
+                                );
 
                             $fileCount = $result['total_files'] ?? count($result['files'] ?? []);
                             $totalOrders = collect($result['files'] ?? [])->sum('order_count');
@@ -631,7 +641,7 @@ class WmsOrderConfirmedTable
                         ->color('success')
                         ->requiresConfirmation()
                         ->modalHeading('JXファイル生成（送信しない）')
-                        ->modalDescription(fn (Collection $records) => "選択した {$records->count()} 件からJXファイルを生成します。送信はされません。生成後「発注データファイル」画面から送信してください。")
+                        ->modalDescription(fn (Collection $records) => "選択した {$records->count()} 件のうち、JX未生成の確定済み候補だけを対象にJXファイルを生成します。送信はされません。生成後「発注データファイル」画面から送信してください。")
                         ->modalSubmitActionLabel('JXファイル生成')
                         ->modalCancelActionLabel('生成せず閉じる')
                         ->action(function (Collection $records) {
@@ -641,18 +651,55 @@ class WmsOrderConfirmedTable
 
                             $fileCount = count($result['files'] ?? []);
                             $totalOrders = $result['total_orders'] ?? 0;
+                            $selectedCount = $result['selected_count'] ?? count($candidateIds);
+                            $eligibleCount = $result['eligible_count'] ?? $totalOrders;
+                            $jxTargetCount = $result['jx_target_count'] ?? $eligibleCount;
+                            $excludedAlreadyGenerated = $result['excluded_already_generated'] ?? 0;
+                            $excludedNotConfirmed = $result['excluded_not_confirmed'] ?? 0;
+                            $excludedMissing = $result['excluded_missing'] ?? 0;
+                            $excludedFaxChannel = $result['excluded_fax_channel'] ?? 0;
+                            $excludedNotJxTarget = $result['excluded_not_jx_target'] ?? 0;
+                            $excludedMissingOrderingCode = $result['excluded_missing_ordering_code'] ?? 0;
+                            $skippedCount = $result['skipped_count'] ?? max(0, $eligibleCount - $totalOrders);
 
                             if ($fileCount > 0) {
                                 $documentIds = collect($result['files'])->pluck('document_id')->filter()->implode(', ');
+                                $bodyLines = [
+                                    "選択: {$selectedCount}件 / JX対象: {$jxTargetCount}件 / 生成対象: {$eligibleCount}件 / 発注数: {$totalOrders}件",
+                                    "伝票ID: {$documentIds}",
+                                    '「発注データファイル」画面の送信前タブから送信してください。',
+                                ];
+
+                                if ($excludedAlreadyGenerated > 0 || $excludedNotConfirmed > 0 || $excludedMissing > 0 || $excludedFaxChannel > 0 || $excludedNotJxTarget > 0 || $excludedMissingOrderingCode > 0) {
+                                    $bodyLines[] = "除外: 生成済み {$excludedAlreadyGenerated}件 / 確定済み以外 {$excludedNotConfirmed}件 / FAX発注 {$excludedFaxChannel}件 / JX対象外 {$excludedNotJxTarget}件 / JX発注CD未設定 {$excludedMissingOrderingCode}件 / 不明 {$excludedMissing}件";
+                                }
+
+                                if ($skippedCount > 0) {
+                                    $bodyLines[] = "未出力: {$skippedCount}件（JX発注コード未設定など）";
+                                }
+
                                 Notification::make()
                                     ->title("JXファイルを生成しました（{$fileCount}件）")
-                                    ->body("発注数: {$totalOrders} / 伝票ID: {$documentIds}\n「発注データファイル」画面の送信前タブから送信してください。")
+                                    ->body(implode("\n", $bodyLines))
                                     ->success()
                                     ->send();
                             } else {
+                                $bodyLines = [
+                                    $result['errors'][0] ?? '確定済みの発注候補がありません',
+                                    "選択: {$selectedCount}件 / JX対象: {$jxTargetCount}件 / 生成対象: {$eligibleCount}件",
+                                ];
+
+                                if ($excludedAlreadyGenerated > 0 || $excludedNotConfirmed > 0 || $excludedMissing > 0 || $excludedFaxChannel > 0 || $excludedNotJxTarget > 0 || $excludedMissingOrderingCode > 0) {
+                                    $bodyLines[] = "除外: 生成済み {$excludedAlreadyGenerated}件 / 確定済み以外 {$excludedNotConfirmed}件 / FAX発注 {$excludedFaxChannel}件 / JX対象外 {$excludedNotJxTarget}件 / JX発注CD未設定 {$excludedMissingOrderingCode}件 / 不明 {$excludedMissing}件";
+                                }
+
+                                if ($skippedCount > 0) {
+                                    $bodyLines[] = "未出力: {$skippedCount}件（JX発注CD未設定など）";
+                                }
+
                                 Notification::make()
                                     ->title('生成対象がありません')
-                                    ->body($result['errors'][0] ?? '確定済みの発注候補がありません')
+                                    ->body(implode("\n", $bodyLines))
                                     ->warning()
                                     ->send();
                             }
@@ -746,23 +793,7 @@ class WmsOrderConfirmedTable
 
     private static function cancelPendingJxDocument(int $documentId): void
     {
-        $document = WmsOrderJxDocument::query()
-            ->whereKey($documentId)
-            ->where('status', TransmissionDocumentStatus::PENDING->value)
-            ->first();
-
-        if (! $document) {
-            return;
-        }
-
-        WmsOrderCandidate::query()
-            ->where('wms_order_jx_document_id', $documentId)
-            ->update(['wms_order_jx_document_id' => null]);
-
-        $document->update([
-            'status' => TransmissionDocumentStatus::CANCELLED,
-            'error_message' => '入荷予定日変更により再生成が必要になりました',
-        ]);
+        app(OrderTransmissionService::class)->cancelPendingJxDocumentAndRestoreCandidates($documentId);
     }
 
     private static function calculateExpirationDate(WmsOrderCandidate $candidate, string $arrivalDate): ?string
@@ -863,6 +894,16 @@ class WmsOrderConfirmedTable
                     ->whereColumn('wms_order_data_files.warehouse_id', "{$table}.warehouse_id")
                     ->whereColumn('wms_order_data_files.contractor_id', "{$table}.contractor_id")
                     ->whereColumn('wms_order_data_files.expected_arrival_date', "{$table}.expected_arrival_date")
+                    ->where(function ($query) use ($table): void {
+                        $query
+                            ->whereNull("{$table}.order_channel")
+                            ->orWhere("{$table}.order_channel", OrderChannel::FAX->value);
+                    })
+                    ->where(function ($query): void {
+                        $query
+                            ->whereNull('wms_order_data_files.order_channel')
+                            ->orWhere('wms_order_data_files.order_channel', OrderDataFileChannel::FAX->value);
+                    })
                     ->where(function ($query) use ($table) {
                         $query
                             ->whereRaw("JSON_CONTAINS(wms_order_data_files.candidate_ids, JSON_ARRAY({$table}.id))")
@@ -900,8 +941,8 @@ class WmsOrderConfirmedTable
                 $table = (new WmsOrderCandidate)->getTable();
 
                 return $query
-                    ->when($data['confirmed_from'] ?? null, fn (Builder $q, $date) => $q->whereDate("{$table}.modified_at", '>=', $date))
-                    ->when($data['confirmed_until'] ?? null, fn (Builder $q, $date) => $q->whereDate("{$table}.modified_at", '<=', $date));
+                    ->when($data['confirmed_from'] ?? null, fn (Builder $q, $date) => $q->where("{$table}.modified_at", '>=', \Carbon\Carbon::parse($date)->startOfDay()))
+                    ->when($data['confirmed_until'] ?? null, fn (Builder $q, $date) => $q->where("{$table}.modified_at", '<', \Carbon\Carbon::parse($date)->addDay()->startOfDay()));
             })
             ->indicateUsing(function (array $data): array {
                 $indicators = [];

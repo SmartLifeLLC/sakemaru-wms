@@ -2,8 +2,10 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\IncomingController;
+use App\Http\Controllers\Api\IncomingV2Controller;
 use App\Http\Controllers\Api\InventoryCountController;
 use App\Http\Controllers\Api\MasterDataController;
+use App\Http\Controllers\Api\OutboundInspectionController;
 use App\Http\Controllers\Api\PickingRouteController;
 use App\Http\Controllers\Api\PickingTaskController;
 use App\Http\Controllers\Api\ProxyShipmentController;
@@ -43,6 +45,7 @@ Route::middleware('api.key')->group(function () {
         Route::post('/picking/tasks/{itemResultId}/update', [PickingTaskController::class, 'updateItemResult']);
         Route::post('/picking/tasks/{itemResultId}/cancel', [PickingTaskController::class, 'cancelItemResult']);
         Route::post('/picking/tasks/{id}/complete', [PickingTaskController::class, 'complete']);
+        Route::get('/outbound-inspections/snapshot', [OutboundInspectionController::class, 'snapshot']);
 
         // Incoming (入荷) endpoints
         Route::get('/incoming/schedules', [IncomingController::class, 'index']);
@@ -53,6 +56,11 @@ Route::middleware('api.key')->group(function () {
         Route::post('/incoming/work-items/{id}/complete', [IncomingController::class, 'completeWork']);
         Route::delete('/incoming/work-items/{id}', [IncomingController::class, 'cancelWork']);
         Route::get('/incoming/locations', [IncomingController::class, 'searchLocations']);
+
+        // Incoming v2 endpoints for offline app inspection and EOS-safe history recording
+        Route::get('/v2/incoming/snapshot', [IncomingV2Controller::class, 'snapshot']);
+        Route::get('/v2/incoming/item-master', [IncomingV2Controller::class, 'itemMaster']);
+        Route::post('/v2/incoming/inspection-batches/sync', [IncomingV2Controller::class, 'sync']);
 
         // Proxy shipment (横持ち出荷) endpoints
         Route::get('/proxy-shipments', [ProxyShipmentController::class, 'index']);

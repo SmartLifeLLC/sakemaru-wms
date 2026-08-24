@@ -44,11 +44,12 @@ class RegisterReceivedIncomingPurchasesCommand extends Command
         if (! empty($skipped)) {
             $this->warn('マスタまたは日付不足によりスキップされる入荷予定があります。');
             $this->table(
-                ['ID', '倉庫CD', '仕入先CD', '商品CD', '発注日', '入荷日時日付'],
+                ['ID', '倉庫CD', '仕入先CD', '伝票番号', '商品CD', '発注日', '入荷日'],
                 collect($skipped)->take(20)->map(fn (array $row): array => [
                     $row['id'],
                     $row['warehouse_code'] ?: '-',
                     $row['supplier_code'] ?: '-',
+                    $row['slip_number'] ?: '-',
                     $row['item_code'] ?: '-',
                     $row['process_date'] ?: '-',
                     $row['delivered_date'] ?: '-',
@@ -150,8 +151,9 @@ class RegisterReceivedIncomingPurchasesCommand extends Command
             $supplierCode = trim((string) $schedule->supplier_code);
             $warehouseCode = trim((string) $schedule->warehouse_code);
             $itemCode = trim((string) ($schedule->master_item_code ?: $schedule->item_code));
+            $slipNumber = trim((string) $schedule->slip_number);
             $processDate = $this->dateOnly($schedule->order_date);
-            $deliveredDate = $this->dateOnly($schedule->confirmed_at);
+            $deliveredDate = $this->dateOnly($schedule->actual_arrival_date) ?? $this->dateOnly($schedule->confirmed_at);
             $accountDate = $deliveredDate;
 
             if (
@@ -159,6 +161,7 @@ class RegisterReceivedIncomingPurchasesCommand extends Command
                 || $supplierCode === ''
                 || $warehouseCode === ''
                 || $itemCode === ''
+                || $slipNumber === ''
                 || $processDate === null
                 || $deliveredDate === null
                 || $accountDate === null
@@ -167,6 +170,7 @@ class RegisterReceivedIncomingPurchasesCommand extends Command
                     'id' => $schedule->id,
                     'warehouse_code' => $warehouseCode,
                     'supplier_code' => $supplierCode,
+                    'slip_number' => $slipNumber,
                     'item_code' => $itemCode,
                     'process_date' => $processDate,
                     'delivered_date' => $deliveredDate,
@@ -179,6 +183,7 @@ class RegisterReceivedIncomingPurchasesCommand extends Command
                 'schedule' => $schedule,
                 'warehouse_code' => $warehouseCode,
                 'supplier_code' => $supplierCode,
+                'slip_number' => $slipNumber,
                 'process_date' => $processDate,
                 'delivered_date' => $deliveredDate,
                 'account_date' => $accountDate,
@@ -187,7 +192,7 @@ class RegisterReceivedIncomingPurchasesCommand extends Command
         })->filter();
 
         return [
-            $rows->groupBy(fn (array $row): string => "{$row['warehouse_code']}|{$row['supplier_code']}|{$row['process_date']}|{$row['delivered_date']}|{$row['account_date']}"),
+            $rows->groupBy(fn (array $row): string => "{$row['warehouse_code']}|{$row['supplier_code']}|{$row['slip_number']}|{$row['process_date']}|{$row['delivered_date']}|{$row['account_date']}"),
             $skipped,
         ];
     }
@@ -212,6 +217,7 @@ class RegisterReceivedIncomingPurchasesCommand extends Command
                 $first = $chunk->first();
                 $queueId = DB::connection('sakemaru')->table('purchase_create_queue')->insertGetId([
                     'request_uuid' => Str::uuid()->toString(),
+                    'slip_number' => $first['slip_number'],
                     'delivered_date' => $first['delivered_date'],
                     'items' => json_encode($this->buildPurchaseData($chunk), JSON_UNESCAPED_UNICODE),
                     'status' => 'BEFORE',
@@ -254,6 +260,7 @@ class RegisterReceivedIncomingPurchasesCommand extends Command
             'account_date' => $first['account_date'],
             'supplier_code' => $first['supplier_code'],
             'warehouse_code' => $first['warehouse_code'],
+            'slip_number' => $first['slip_number'],
             'note' => 'JX受信データ一括登録 / '.now()->format('Y-m-d H:i:s'),
             'details' => $rows->map(fn (array $row): array => $this->buildDetail($row))->values()->all(),
         ];

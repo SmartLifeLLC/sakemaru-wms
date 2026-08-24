@@ -369,7 +369,7 @@ class WmsOrderDocumentsTable
                         ->color('success')
                         ->requiresConfirmation()
                         ->modalHeading('選択データをJX送信')
-                        ->modalDescription(fn (Collection $records) => "選択した {$records->count()} 件の発注データに含まれるCSV明細だけをJX送信します。選択外の確定済みデータは送信しません。")
+                        ->modalDescription(fn (Collection $records) => "選択した {$records->count()} 件の発注データのうち、JX対象は個別に送信し、JX対象外は送信せず失敗完了にします。選択外の確定済みデータは処理しません。")
                         ->modalSubmitActionLabel('JX送信')
                         ->modalCancelActionLabel('送信せず閉じる')
                         ->action(function (Collection $records) {
@@ -390,6 +390,21 @@ class WmsOrderDocumentsTable
                                 Notification::make()
                                     ->title("JX送信完了（{$count}件）")
                                     ->success()
+                                    ->send();
+                            }
+
+                            if (! empty($result['completed'])) {
+                                $count = $result['completed_order_count'] ?? count($result['completed']);
+                                Notification::make()
+                                    ->title("JX対象外を失敗完了にしました（{$count}件）")
+                                    ->warning()
+                                    ->send();
+                            }
+
+                            if (! empty($result['skipped'])) {
+                                Notification::make()
+                                    ->title('送信中または処理済みのデータをスキップしました（'.count($result['skipped']).'件）')
+                                    ->warning()
                                     ->send();
                             }
 

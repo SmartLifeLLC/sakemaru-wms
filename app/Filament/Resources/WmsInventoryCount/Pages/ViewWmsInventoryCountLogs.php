@@ -9,6 +9,8 @@ use Filament\Resources\Pages\Page;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class ViewWmsInventoryCountLogs extends Page
 {
@@ -185,11 +187,37 @@ class ViewWmsInventoryCountLogs extends Page
 
     private function baseLogQuery(): Builder
     {
-        return WmsInventoryCountItemLog::query()
+        $query = WmsInventoryCountItemLog::query()
             ->select('wms_inventory_count_item_logs.*')
             ->join('wms_inventory_count_items', 'wms_inventory_count_items.id', '=', 'wms_inventory_count_item_logs.inventory_count_item_id')
             ->where('wms_inventory_count_items.inventory_count_id', $this->record->id)
             ->with(['countItem', 'picker', 'user']);
+
+        $this->excludeOwnedSetCountItemsFromQuery($query, 'wms_inventory_count_items');
+
+        return $query;
+    }
+
+    private function excludeOwnedSetCountItemsFromQuery(Builder $query, string $countItemTableAlias): void
+    {
+        if (! Schema::connection('sakemaru')->hasTable('item_sets')
+            || ! Schema::connection('sakemaru')->hasColumn('items', 'item_set_id')
+        ) {
+            return;
+        }
+
+        $query->whereNotExists(function ($query) use ($countItemTableAlias): void {
+            $query
+                ->select(DB::raw(1))
+                ->from('items as owned_set_items')
+                ->join('item_sets as owned_item_sets', function ($join): void {
+                    $join
+                        ->on('owned_item_sets.id', '=', 'owned_set_items.item_set_id')
+                        ->where('owned_item_sets.is_active', true)
+                        ->where('owned_item_sets.set_type', 'OWNED');
+                })
+                ->whereColumn('owned_set_items.id', "{$countItemTableAlias}.item_id");
+        });
     }
 
     private function applyFilters(Builder $query): void

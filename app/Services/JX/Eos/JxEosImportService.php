@@ -8,6 +8,7 @@ use App\Models\WmsJxEosLine;
 use App\Models\WmsJxEosSlip;
 use App\Models\WmsJxTransmissionLog;
 use App\Models\WmsOrderJxSetting;
+use App\Services\AutoOrder\IncomingReceivedQuantityNormalizer;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -389,9 +390,11 @@ class JxEosImportService
         $packQuantity = $this->toInt($this->trimField($record, 88, 6));
         $caseQuantity = $this->toInt($this->trimField($record, 94, 7));
         $pieceQuantity = $this->toInt($this->trimField($record, 101, 7));
+        $janCode = $this->trimField($record, 69, 13);
         $unitPriceRaw = $this->toInt($this->trimField($record, 108, 10));
         $unitPrice = round($unitPriceRaw / 100, 2);
-        $totalQuantity = $packQuantity > 0 ? ($caseQuantity * $packQuantity) + $pieceQuantity : $pieceQuantity;
+        $totalQuantity = app(IncomingReceivedQuantityNormalizer::class)
+            ->normalize($caseQuantity, $pieceQuantity, $packQuantity, $janCode);
 
         return WmsJxEosLine::create([
             'import_batch_id' => $batch->id,
@@ -403,7 +406,7 @@ class JxEosImportService
             'line_number' => $this->toInt($this->trimField($record, 3, 2)),
             'data_type' => $this->trimField($record, 1, 2),
             'product_name' => $this->convertToUtf8($this->trimField($record, 5, 64)),
-            'jan_code' => $this->trimField($record, 69, 13),
+            'jan_code' => $janCode,
             'item_code' => $this->trimField($record, 82, 6),
             'pack_quantity' => $packQuantity,
             'case_quantity' => $caseQuantity,
@@ -411,12 +414,17 @@ class JxEosImportService
             'total_quantity' => $totalQuantity,
             'unit_price_raw' => $unitPriceRaw,
             'unit_price' => $unitPrice,
-            'amount' => round($totalQuantity * $unitPrice, 2),
+            'amount' => round($this->pricedQuantity($caseQuantity, $pieceQuantity) * $unitPrice, 2),
             'is_shortage' => $caseQuantity === 0 && $pieceQuantity === 0,
             'line_hash' => hash('sha256', $log->id.'|'.$sourceRecordNo.'|'.$record),
             'raw_record_hash' => hash('sha256', $record),
             'raw_record_base64' => base64_encode($record),
         ]);
+    }
+
+    private function pricedQuantity(int $caseQuantity, int $pieceQuantity): int
+    {
+        return $caseQuantity > 0 ? $caseQuantity : $pieceQuantity;
     }
 
     private function detectJxSetting(?string $finetCode): ?WmsOrderJxSetting

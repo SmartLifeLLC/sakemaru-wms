@@ -31,6 +31,10 @@ class StockTransferLotAllocationService
             return $existing;
         }
 
+        $item = $this->itemForCapacity($itemId);
+        $unitSize = $this->unitSizeFor($quantityType, $tradeItem, $item);
+        $expectedPieces = $this->expectedPieces($tradeItem, $needQty, $unitSize);
+
         $allocations = $this->stockTransferLotAllocations($stockTransferId, $tradeItemId);
         if ($allocations->isEmpty()) {
             Log::warning('Stock transfer lot allocations are missing; marking transfer line as shortage.', [
@@ -53,10 +57,6 @@ class StockTransferLotAllocationService
 
             return $this->result(0, $needQty);
         }
-
-        $item = $this->itemForCapacity($itemId);
-        $unitSize = $this->unitSizeFor($quantityType, $tradeItem, $item);
-        $expectedPieces = $this->expectedPieces($tradeItem, $needQty, $unitSize);
 
         $stlaPieces = 0;
         $shortagePieces = 0;
@@ -95,7 +95,7 @@ class StockTransferLotAllocationService
 
             $stlaPieces += $pieces;
 
-            if ($this->sourceLotRepresentsShortage($allocation)) {
+            if ($this->sourceLotRepresentsShortage($allocation, $item)) {
                 $shortagePieces += $pieces;
 
                 continue;
@@ -307,7 +307,7 @@ class StockTransferLotAllocationService
         return DB::connection('sakemaru')
             ->table('items')
             ->where('id', $itemId)
-            ->first(['capacity_case', 'capacity_carton']);
+            ->first(['capacity_case', 'capacity_carton', 'is_managed_stock']);
     }
 
     protected function unitSizeFor(string $quantityType, object $tradeItem, ?object $item): int
@@ -341,8 +341,12 @@ class StockTransferLotAllocationService
         return min($needQty, intdiv($shortagePieces, $unitSize));
     }
 
-    protected function sourceLotRepresentsShortage(object $allocation): bool
+    protected function sourceLotRepresentsShortage(object $allocation, ?object $item = null): bool
     {
+        if ((int) ($item->is_managed_stock ?? 1) === 0) {
+            return false;
+        }
+
         return (int) ($allocation->source_lot_current_quantity ?? 0) < 0;
     }
 

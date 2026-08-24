@@ -25,12 +25,13 @@ class ItemContractorForm
                             ->label('商品')
                             ->searchable()
                             ->getSearchResultsUsing(fn (string $search) => Item::query()
-                                ->where('item_code', 'like', "%{$search}%")
-                                ->orWhere('item_name', 'like', "%{$search}%")
+                                ->where('code', 'like', "%{$search}%")
+                                ->orWhere('name', 'like', "%{$search}%")
+                                ->orderBy('code')
                                 ->limit(50)
-                                ->get()
-                                ->mapWithKeys(fn ($item) => [$item->id => "[{$item->item_code}] {$item->item_name}"]))
-                            ->getOptionLabelUsing(fn ($value) => ($item = Item::find($value)) ? "[{$item->item_code}] {$item->item_name}" : null)
+                                ->get(['id', 'code', 'name'])
+                                ->mapWithKeys(fn ($item) => [$item->id => "[{$item->code}] {$item->name}"]))
+                            ->getOptionLabelUsing(fn ($value) => ($item = Item::find($value)) ? "[{$item->code}] {$item->name}" : null)
                             ->required()
                             ->helperText('発注対象の商品を選択'),
 

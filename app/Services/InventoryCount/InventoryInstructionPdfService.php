@@ -159,6 +159,7 @@ class InventoryInstructionPdfService
     private function queryItems(WmsInventoryCount $inventoryCount): \Illuminate\Database\Eloquent\Collection
     {
         return WmsInventoryCountItem::where('inventory_count_id', $inventoryCount->id)
+            ->withoutOwnedSetItems()
             ->with(['item'])
             ->orderByRaw("
                 CASE

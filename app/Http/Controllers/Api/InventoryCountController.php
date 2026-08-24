@@ -55,12 +55,14 @@ class InventoryCountController extends ApiController
                 'status' => $count->status,
                 'status_label' => $count->status_label,
                 'started_at' => $count->started_at?->toIso8601String(),
+                'snapshot_taken_at' => $count->snapshot_taken_at?->toIso8601String(),
+                'ending_stock_taken_at' => $count->ending_stock_taken_at?->toIso8601String(),
                 'memo' => $count->memo,
                 'handy_reception' => true,
                 'current_round' => $this->currentRound($count),
-                'total_items' => $count->items()->count(),
-                'counted_items' => $count->items()->whereNotNull('first_count_quantity')->count(),
-                'final_counted_items' => $count->items()->whereNotNull('final_count_quantity')->count(),
+                'total_items' => $count->items()->withoutOwnedSetItems()->count(),
+                'counted_items' => $count->items()->withoutOwnedSetItems()->whereNotNull('first_count_quantity')->count(),
+                'final_counted_items' => $count->items()->withoutOwnedSetItems()->whereNotNull('final_count_quantity')->count(),
             ])->values()->all(),
         ]);
     }
@@ -78,7 +80,7 @@ class InventoryCountController extends ApiController
             return $this->notFound('棚卸データが見つかりません');
         }
 
-        $itemStats = WmsInventoryCountItem::where('inventory_count_id', $count->id)
+        $itemStats = $this->inventoryCountItemsQuery((int) $count->id)
             ->selectRaw('COUNT(*) as total_items')
             ->selectRaw('COUNT(first_count_quantity) as counted_items')
             ->selectRaw('COUNT(*) - COUNT(first_count_quantity) as uncounted_items')
@@ -96,6 +98,7 @@ class InventoryCountController extends ApiController
                 'status_label' => $count->status_label,
                 'started_at' => $count->started_at?->toIso8601String(),
                 'snapshot_taken_at' => $count->snapshot_taken_at?->toIso8601String(),
+                'ending_stock_taken_at' => $count->ending_stock_taken_at?->toIso8601String(),
                 'memo' => $count->memo,
                 'handy_reception' => (bool) $count->handy_reception,
                 'total_items' => (int) $itemStats->total_items,
@@ -124,7 +127,7 @@ class InventoryCountController extends ApiController
 
         $this->startDraftForHandy($count);
 
-        $query = WmsInventoryCountItem::where('inventory_count_id', $count->id);
+        $query = $this->inventoryCountItemsQuery((int) $count->id);
 
         // Filter by floor_name
         if ($request->filled('floor_name')) {
@@ -183,7 +186,7 @@ class InventoryCountController extends ApiController
             return $this->notFound('棚卸データが見つかりません');
         }
 
-        $itemIds = WmsInventoryCountItem::where('inventory_count_id', $count->id)
+        $itemIds = $this->inventoryCountItemsQuery((int) $count->id)
             ->pluck('item_id');
 
         $rows = DB::connection('sakemaru')
@@ -247,7 +250,7 @@ class InventoryCountController extends ApiController
             ? mb_convert_kana($keyword, 'as')
             : $keyword;
 
-        $items = WmsInventoryCountItem::where('inventory_count_id', $count->id)
+        $items = $this->inventoryCountItemsQuery((int) $count->id)
             ->where(function ($query) use ($normalizedKeyword) {
                 $like = "%{$normalizedKeyword}%";
                 $query->where('id', $normalizedKeyword)
@@ -299,7 +302,9 @@ class InventoryCountController extends ApiController
      */
     public function count(Request $request, int $itemId): JsonResponse
     {
-        $countItem = WmsInventoryCountItem::find($itemId);
+        $countItem = WmsInventoryCountItem::query()
+            ->withoutOwnedSetItems()
+            ->find($itemId);
 
         if (! $countItem) {
             return $this->notFound('棚卸明細が見つかりません');
@@ -396,7 +401,7 @@ class InventoryCountController extends ApiController
         $rows = $request->input('items', []);
 
         foreach ($rows as $row) {
-            $countItem = WmsInventoryCountItem::where('inventory_count_id', $count->id)
+            $countItem = $this->inventoryCountItemsQuery((int) $count->id)
                 ->where('id', (int) $row['item_id'])
                 ->first();
 
@@ -452,7 +457,9 @@ class InventoryCountController extends ApiController
      */
     public function logs(Request $request, int $itemId): JsonResponse
     {
-        $countItem = WmsInventoryCountItem::find($itemId);
+        $countItem = WmsInventoryCountItem::query()
+            ->withoutOwnedSetItems()
+            ->find($itemId);
 
         if (! $countItem) {
             return $this->notFound('棚卸明細が見つかりません');
@@ -492,6 +499,7 @@ class InventoryCountController extends ApiController
         $master = $this->itemMaster($item->item_id);
         $capacityCase = max((int) ($master?->capacity_case ?? 1), 1);
         $systemQuantity = (int) $item->system_quantity;
+        $endingSystemQuantity = $item->ending_system_quantity !== null ? (int) $item->ending_system_quantity : null;
         $currentCount = $item->final_count_quantity ?? $item->second_count_quantity ?? $item->first_count_quantity;
         $searchCodes = $this->searchCodes($item->item_id);
 
@@ -524,9 +532,15 @@ class InventoryCountController extends ApiController
                 'code3' => $item->location_code3,
             ],
             'system_quantity' => $systemQuantity,
+            'system_quantity_start' => $systemQuantity,
             'system_case_quantity' => intdiv($systemQuantity, $capacityCase),
             'system_piece_quantity' => $systemQuantity % $capacityCase,
             'system_total_piece_quantity' => $systemQuantity,
+            'ending_system_quantity' => $endingSystemQuantity,
+            'system_quantity_end' => $endingSystemQuantity,
+            'ending_system_case_quantity' => $endingSystemQuantity !== null ? intdiv($endingSystemQuantity, $capacityCase) : null,
+            'ending_system_piece_quantity' => $endingSystemQuantity !== null ? $endingSystemQuantity % $capacityCase : null,
+            'ending_system_total_piece_quantity' => $endingSystemQuantity,
             'first_count_quantity' => $item->first_count_quantity !== null ? (float) $item->first_count_quantity : null,
             'first_count_actor_name' => $item->first_count_actor_name,
             'second_count_quantity' => $item->second_count_quantity !== null ? (float) $item->second_count_quantity : null,
@@ -674,11 +688,11 @@ class InventoryCountController extends ApiController
             return min(max((int) $count->current_count_round, 1), 3);
         }
 
-        if ($count->items()->whereNotNull('final_count_quantity')->exists()) {
+        if ($count->items()->withoutOwnedSetItems()->whereNotNull('final_count_quantity')->exists()) {
             return 3;
         }
 
-        if ($count->items()->whereNotNull('second_count_quantity')->exists()) {
+        if ($count->items()->withoutOwnedSetItems()->whereNotNull('second_count_quantity')->exists()) {
             return 2;
         }
 
@@ -707,7 +721,7 @@ class InventoryCountController extends ApiController
             return $this->success(['inventory_count' => null]);
         }
 
-        $itemStats = WmsInventoryCountItem::where('inventory_count_id', $count->id)
+        $itemStats = $this->inventoryCountItemsQuery((int) $count->id)
             ->selectRaw('COUNT(*) as total_items')
             ->selectRaw('COUNT(first_count_quantity) as counted_items')
             ->selectRaw('COUNT(*) - COUNT(first_count_quantity) as uncounted_items')
@@ -725,6 +739,7 @@ class InventoryCountController extends ApiController
                 'status_label' => $count->status_label,
                 'started_at' => $count->started_at?->toIso8601String(),
                 'snapshot_taken_at' => $count->snapshot_taken_at?->toIso8601String(),
+                'ending_stock_taken_at' => $count->ending_stock_taken_at?->toIso8601String(),
                 'memo' => $count->memo,
                 'handy_reception' => true,
                 'total_items' => (int) $itemStats->total_items,
@@ -753,5 +768,11 @@ class InventoryCountController extends ApiController
             'status' => WmsInventoryCount::STATUS_COUNTING,
             'started_at' => now(),
         ])->save();
+    }
+
+    private function inventoryCountItemsQuery(int $inventoryCountId): \Illuminate\Database\Eloquent\Builder
+    {
+        return WmsInventoryCountItem::where('inventory_count_id', $inventoryCountId)
+            ->withoutOwnedSetItems();
     }
 }
