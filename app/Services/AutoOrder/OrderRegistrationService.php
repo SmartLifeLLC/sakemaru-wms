@@ -185,9 +185,28 @@ class OrderRegistrationService
             ->first();
 
         $settingsItemContractor = $itemContractor;
+        $itemContractorWarehouseId = (int) ($line['item_contractor_warehouse_id'] ?? 0);
+        if (! $itemContractor && $itemContractorWarehouseId > 0 && $itemContractorWarehouseId !== $incomingWarehouseId) {
+            $itemContractor = ItemContractor::query()
+                ->where('warehouse_id', $itemContractorWarehouseId)
+                ->where('item_id', $itemId)
+                ->where('contractor_id', $contractorId)
+                ->when($supplierId > 0, fn ($query) => $query->where('supplier_id', $supplierId))
+                ->first();
+
+            $settingsItemContractor = $itemContractor;
+        }
+
         if (! $settingsItemContractor && $supplierId > 0) {
             $settingsItemContractor = ItemContractor::query()
                 ->where('warehouse_id', $incomingWarehouseId)
+                ->where('item_id', $itemId)
+                ->where('contractor_id', $contractorId)
+                ->first();
+        }
+        if (! $settingsItemContractor && $supplierId > 0 && $itemContractorWarehouseId > 0 && $itemContractorWarehouseId !== $incomingWarehouseId) {
+            $settingsItemContractor = ItemContractor::query()
+                ->where('warehouse_id', $itemContractorWarehouseId)
                 ->where('item_id', $itemId)
                 ->where('contractor_id', $contractorId)
                 ->first();

@@ -318,6 +318,15 @@
             ->values();
         $visibleLines = collect($lines)
             ->filter(fn ($line) => $lineContractorFilter === '' || (string) ($line['contractor_id'] ?? '') === $lineContractorFilter);
+        $visibleLineIndexes = $visibleLines->keys()->map(fn ($index) => (int) $index)->values();
+        $selectedRegistrationLineIndexes = collect($this->selectedRegistrationLineIndexes ?? [])
+            ->map(fn ($index) => (int) $index)
+            ->unique()
+            ->values();
+        $selectedVisibleLineCount = $selectedRegistrationLineIndexes
+            ->intersect($visibleLineIndexes)
+            ->count();
+        $allVisibleLinesSelected = $visibleLines->isNotEmpty() && $selectedVisibleLineCount === $visibleLines->count();
         $visibleLineTotalAmount = $visibleLines->sum(function ($line) {
             return (float) ($line['purchase_unit_price'] ?? 0) * (int) ($line['order_quantity'] ?? 0);
         });
@@ -427,6 +436,40 @@
                             <span class="font-mono text-lg font-bold text-emerald-950 dark:text-emerald-100">¥{{ number_format($visibleLineTotalAmount, 0) }}</span>
                         </span>
                     </div>
+                    <form wire:submit.prevent="applyBulkExpectedArrivalDate" class="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+                        <span class="whitespace-nowrap text-xs font-semibold text-slate-600 dark:text-gray-300">
+                            選択 {{ number_format($selectedVisibleLineCount) }}件
+                        </span>
+                        <input
+                            type="date"
+                            min="{{ now()->toDateString() }}"
+                            wire:model.live="bulkExpectedArrivalDate"
+                            class="w-36 rounded-md border-slate-300 text-sm font-semibold dark:border-gray-600 dark:bg-gray-900"
+                        >
+                        <button
+                            type="submit"
+                            wire:loading.attr="disabled"
+                            wire:target="applyBulkExpectedArrivalDate"
+                            @disabled($selectedVisibleLineCount === 0 || blank($this->bulkExpectedArrivalDate ?? ''))
+                            class="inline-flex items-center gap-1 rounded-md bg-slate-800 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-gray-700"
+                        >
+                            <span wire:loading.remove wire:target="applyBulkExpectedArrivalDate">入荷予定日反映</span>
+                            <span wire:loading wire:target="applyBulkExpectedArrivalDate">反映中</span>
+                        </button>
+                    </form>
+                    <button
+                        type="button"
+                        wire:click="downloadRegistrationListPdf"
+                        wire:loading.attr="disabled"
+                        wire:target="downloadRegistrationListPdf"
+                        @disabled($visibleLines->isEmpty())
+                        class="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800 dark:disabled:bg-gray-800 dark:disabled:text-gray-500"
+                    >
+                        <x-heroicon-o-arrow-down-tray wire:loading.remove wire:target="downloadRegistrationListPdf" class="h-4 w-4" />
+                        <span wire:loading wire:target="downloadRegistrationListPdf" class="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700 dark:border-gray-600 dark:border-t-gray-200"></span>
+                        <span wire:loading.remove wire:target="downloadRegistrationListPdf">PDF出力</span>
+                        <span wire:loading wire:target="downloadRegistrationListPdf">出力中</span>
+                    </button>
                     <div>
                         <select
                             wire:model.live="lineContractorFilter"
@@ -445,6 +488,15 @@
                 <table class="min-w-full divide-y divide-slate-200 text-sm dark:divide-gray-700">
                     <thead class="sticky top-0 bg-slate-50 text-xs text-slate-600 dark:bg-gray-800 dark:text-gray-300" style="z-index: 1;">
                         <tr>
+                            <th class="whitespace-nowrap px-3 py-2 text-center">
+                                <input
+                                    type="checkbox"
+                                    @checked($allVisibleLinesSelected)
+                                    @disabled($visibleLines->isEmpty())
+                                    wire:click="toggleVisibleRegistrationLineSelection"
+                                    class="rounded border-slate-300 text-primary-600 shadow-sm focus:ring-primary-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-600 dark:bg-gray-900"
+                                >
+                            </th>
                             <th class="whitespace-nowrap px-3 py-2 text-center">行</th>
                             <th class="whitespace-nowrap px-3 py-2 text-center">発注区分</th>
                             <th class="whitespace-nowrap px-3 py-2 text-center">入荷予定日</th>
@@ -492,6 +544,14 @@
                                     : 'border-blue-300 bg-blue-100 text-blue-700 dark:border-blue-700 dark:bg-blue-900/40 dark:text-blue-200';
                             @endphp
                             <tr wire:key="registration-line-{{ $index }}" class="odd:bg-[#f5f9ff] even:bg-white dark:odd:bg-[#1e2a3b] dark:even:bg-gray-900">
+                                <td class="whitespace-nowrap px-3 py-2 text-center">
+                                    <input
+                                        type="checkbox"
+                                        value="{{ $index }}"
+                                        wire:model.live="selectedRegistrationLineIndexes"
+                                        class="rounded border-slate-300 text-primary-600 shadow-sm focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-900"
+                                    >
+                                </td>
                                 <td class="whitespace-nowrap px-3 py-2 text-center font-mono font-semibold text-slate-500 dark:text-gray-400">{{ $loop->iteration }}</td>
                                 <td class="whitespace-nowrap px-3 py-2 text-center">
                                     @if ($isEosAvailable)
@@ -584,7 +644,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="16" class="px-3 py-12 text-center text-sm text-slate-400 dark:text-gray-500">登録リストは空です</td>
+                                <td colspan="17" class="px-3 py-12 text-center text-sm text-slate-400 dark:text-gray-500">登録リストは空です</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -700,7 +760,7 @@
                                             <td class="whitespace-nowrap px-3 py-2 text-center">
                                                 <button
                                                     type="button"
-                                                    wire:click="applyContractorChange({{ (int) $row['contractor_id'] }})"
+                                                    wire:click="applyContractorChange({{ (int) $row['contractor_id'] }}, {{ (int) ($row['supplier_id'] ?? 0) }}, {{ (int) ($row['item_contractor_warehouse_id'] ?? 0) }})"
                                                     @disabled(! ($row['is_selectable'] ?? false))
                                                     class="rounded-md bg-danger-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-danger-500 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-gray-700"
                                                 >

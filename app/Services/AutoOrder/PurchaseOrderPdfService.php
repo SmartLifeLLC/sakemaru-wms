@@ -67,6 +67,18 @@ class PurchaseOrderPdfService
 
     private const DEFAULT_FONT_FAMILY = 'kozgopromedium';
 
+    private const COLOR_BLACK = [0, 0, 0];
+
+    private const COLOR_DARK_GRAY = [40, 40, 40];
+
+    private const COLOR_BORDER_GRAY = [190, 190, 190];
+
+    private const COLOR_HEADER_FILL_GRAY = [245, 245, 245];
+
+    private const COLOR_ACCENT_GRAY = [80, 80, 80];
+
+    private const COLOR_WHITE = [255, 255, 255];
+
     // テーブル列幅（mm）
     private const COL_WIDTHS = [
         'ordering_code' => 46,     // 発注CD（JANコード）- 省略禁止
@@ -515,7 +527,7 @@ class PurchaseOrderPdfService
 
     private function renderOrderTitleBlock(): void
     {
-        $this->pdf->SetTextColor(15, 23, 42);
+        $this->setTextColor(self::COLOR_DARK_GRAY);
         $this->pdf->SetFont($this->fontFamily, '', 10);
         $this->pdf->SetXY(self::MARGIN_LEFT, self::MARGIN_TOP - 3);
         $this->pdf->Cell(95, 5, '生成日時: '.$this->generatedAtText, 0, 1, 'L');
@@ -527,7 +539,7 @@ class PurchaseOrderPdfService
         $this->pdf->SetFont($this->fontFamily, 'B', 10.5);
         $this->pdf->SetXY(self::MARGIN_LEFT, self::MARGIN_TOP + 11.5);
         $this->pdf->Cell(95, 5, '発注番号: '.$this->dataFile->batch_code, 0, 1, 'L');
-        $this->pdf->SetTextColor(0, 0, 0);
+        $this->setTextColor(self::COLOR_BLACK);
     }
 
     private function renderCompanyHeader(): void
@@ -539,15 +551,9 @@ class PurchaseOrderPdfService
         $startX = self::PAGE_WIDTH - self::MARGIN_RIGHT - 86;
         $startY = self::MARGIN_TOP - 1;
         $width = 86;
-        $height = 37;
         $lineY = $startY + 4;
         $logoSource = $this->client?->setting?->logo_image_url;
         $logoPath = $this->resolveLogoImageSource($logoSource);
-
-        $this->pdf->SetDrawColor(203, 213, 225);
-        $this->pdf->SetLineWidth(self::LINE_WIDTH);
-        $this->pdf->Rect($startX, $startY, $width, $height);
-        $this->pdf->SetDrawColor(0, 0, 0);
 
         if ($logoPath) {
             try {
@@ -604,6 +610,14 @@ class PurchaseOrderPdfService
             $this->pdf->SetXY($startX + 2, $lineY);
             $this->setFittingFont($this->fontFamily, '', 10.2, 8.2, $registrationLine, $width - 4);
             $this->pdf->Cell($width - 4, $textLineHeight, $registrationLine, 0, 1, 'R');
+            $lineY += $textLineHeight;
+        }
+
+        $departmentLine = $this->companyHeaderDepartmentLine();
+        if ($departmentLine !== '') {
+            $this->pdf->SetXY($startX + 2, $lineY);
+            $this->setFittingFont($this->fontFamily, '', 10.2, 8.2, $departmentLine, $width - 4);
+            $this->pdf->Cell($width - 4, $textLineHeight, $departmentLine, 0, 1, 'R');
         }
 
         $this->pdf->SetFont($this->fontFamily, '', self::FONT_SIZE_NORMAL);
@@ -656,6 +670,23 @@ class PurchaseOrderPdfService
         return '登録番号: T'.ltrim($businessNumber, 'Tt');
     }
 
+    private function companyHeaderDepartmentLine(): string
+    {
+        $warehouseName = $this->deliveryWarehouseName();
+
+        return $warehouseName !== '' ? '発注部署: '.$warehouseName : '';
+    }
+
+    private function deliveryWarehouseName(): string
+    {
+        $deliveryWarehouse = $this->warehouse;
+        if ($this->warehouse?->is_virtual && $this->warehouse?->stock_warehouse_id) {
+            $deliveryWarehouse = \App\Models\Sakemaru\Warehouse::find($this->warehouse->stock_warehouse_id);
+        }
+
+        return trim((string) ($deliveryWarehouse?->name ?? ''));
+    }
+
     private function setFittingFont(string $family, string $style, float $preferredSize, float $minimumSize, string $text, float $maxWidth): void
     {
         for ($size = $preferredSize; $size >= $minimumSize; $size -= 0.3) {
@@ -668,6 +699,30 @@ class PurchaseOrderPdfService
         $this->pdf->SetFont($family, $style, $minimumSize);
     }
 
+    /**
+     * @param  array{0:int,1:int,2:int}  $rgb
+     */
+    private function setTextColor(array $rgb): void
+    {
+        $this->pdf->SetTextColor($rgb[0], $rgb[1], $rgb[2]);
+    }
+
+    /**
+     * @param  array{0:int,1:int,2:int}  $rgb
+     */
+    private function setDrawColor(array $rgb): void
+    {
+        $this->pdf->SetDrawColor($rgb[0], $rgb[1], $rgb[2]);
+    }
+
+    /**
+     * @param  array{0:int,1:int,2:int}  $rgb
+     */
+    private function setFillColor(array $rgb): void
+    {
+        $this->pdf->SetFillColor($rgb[0], $rgb[1], $rgb[2]);
+    }
+
     private function renderContractorCard(): float
     {
         $x = self::MARGIN_LEFT;
@@ -675,20 +730,20 @@ class PurchaseOrderPdfService
         $width = 140;
         $height = 18;
 
-        $this->pdf->SetDrawColor(203, 213, 225);
-        $this->pdf->SetFillColor(255, 255, 255);
+        $this->setDrawColor(self::COLOR_BORDER_GRAY);
+        $this->setFillColor(self::COLOR_WHITE);
         $this->pdf->Rect($x, $y, $width, $height);
-        $this->pdf->SetFillColor(51, 65, 85);
+        $this->setFillColor(self::COLOR_ACCENT_GRAY);
         $this->pdf->Rect($x, $y, 1.8, $height, 'F');
 
-        $this->pdf->SetTextColor(15, 23, 42);
+        $this->setTextColor(self::COLOR_DARK_GRAY);
         $contractorName = $this->contractor?->name ?? '（発注先名）';
         $contractorTitle = $contractorName.' 御中';
         $this->setFittingFont($this->fontFamily, 'B', 14, 10.5, $contractorTitle, $width - 8);
         $this->pdf->SetXY($x + 5, $y + 3);
         $this->pdf->Cell($width - 8, 6, $contractorTitle, 0, 1, 'L');
 
-        $this->pdf->SetDrawColor(203, 213, 225);
+        $this->setDrawColor(self::COLOR_BORDER_GRAY);
         $this->pdf->Line($x + 5, $y + 10.2, $x + $width - 4, $y + 10.2);
 
         $contactParts = [];
@@ -704,19 +759,14 @@ class PurchaseOrderPdfService
         $this->pdf->SetXY($x + 5, $y + 11.6);
         $this->pdf->Cell($width - 8, 5, $contactText, 0, 1, 'L');
 
-        $this->pdf->SetTextColor(0, 0, 0);
-        $this->pdf->SetDrawColor(0, 0, 0);
+        $this->setTextColor(self::COLOR_BLACK);
+        $this->setDrawColor(self::COLOR_BLACK);
 
         return $y + $height;
     }
 
     private function renderDeliverySummary(float $startY): float
     {
-        $deliveryWarehouse = $this->warehouse;
-        if ($this->warehouse?->is_virtual && $this->warehouse?->stock_warehouse_id) {
-            $deliveryWarehouse = \App\Models\Sakemaru\Warehouse::find($this->warehouse->stock_warehouse_id);
-        }
-
         $designatedCode = WmsContractorWarehouseSetting::getDesignatedCode(
             $this->warehouse?->id ?? 0,
             $this->contractor?->id ?? 0,
@@ -735,7 +785,7 @@ class PurchaseOrderPdfService
             120,
             $lineHeight,
             '納入場所:',
-            $deliveryWarehouse?->name ?? '',
+            $this->deliveryWarehouseName(),
         );
         $y += $lineHeight;
 
@@ -943,11 +993,7 @@ class PurchaseOrderPdfService
 
     private function prepareLogoImagePath(string $path): string
     {
-        if (! str_ends_with(strtolower($path), '.png') || ! function_exists('imagecreatefrompng')) {
-            return $path;
-        }
-
-        $image = @imagecreatefrompng($path);
+        $image = $this->createImageResource($path);
         if (! $image) {
             return $path;
         }
@@ -959,6 +1005,7 @@ class PurchaseOrderPdfService
         imagefill($jpeg, 0, 0, $white);
         imagealphablending($jpeg, true);
         imagecopy($jpeg, $image, 0, 0, 0, 0, $width, $height);
+        imagefilter($jpeg, IMG_FILTER_GRAYSCALE);
 
         $jpegPath = tempnam(sys_get_temp_dir(), 'wms_po_logo_').'.jpg';
         if (@imagejpeg($jpeg, $jpegPath, 95)) {
@@ -973,6 +1020,19 @@ class PurchaseOrderPdfService
         imagedestroy($jpeg);
 
         return $path;
+    }
+
+    private function createImageResource(string $path): mixed
+    {
+        $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+
+        return match ($extension) {
+            'png' => function_exists('imagecreatefrompng') ? @imagecreatefrompng($path) : false,
+            'jpg', 'jpeg' => function_exists('imagecreatefromjpeg') ? @imagecreatefromjpeg($path) : false,
+            'gif' => function_exists('imagecreatefromgif') ? @imagecreatefromgif($path) : false,
+            'webp' => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($path) : false,
+            default => false,
+        };
     }
 
     private function shouldRenderEosStamp(): bool
@@ -1003,20 +1063,21 @@ class PurchaseOrderPdfService
 
     private function renderEosStamp(): void
     {
-        $width = 42;
-        $height = 11;
-        $x = self::MARGIN_LEFT + 148;
-        $y = self::MARGIN_TOP + 20;
+        $width = 48;
+        $height = 15;
+        $x = self::MARGIN_LEFT + 144;
+        $y = self::MARGIN_TOP + 18;
 
-        $this->pdf->SetDrawColor(30, 64, 175);
-        $this->pdf->SetTextColor(30, 64, 175);
-        $this->pdf->SetLineWidth(self::LINE_WIDTH_THICK);
-        $this->pdf->SetFont($this->fontFamily, 'B', self::FONT_SIZE_SMALL);
-        $this->pdf->Rect($x, $y, $width, $height);
-        $this->pdf->SetXY($x, $y + 1.5);
-        $this->pdf->Cell($width, 7, 'EOS発注控え', 0, 0, 'C');
-        $this->pdf->SetTextColor(0, 0, 0);
-        $this->pdf->SetDrawColor(0, 0, 0);
+        $this->setDrawColor(self::COLOR_BLACK);
+        $this->setTextColor(self::COLOR_BLACK);
+        $this->pdf->SetLineWidth(0.7);
+        $this->pdf->RoundedRect($x, $y, $width, $height, 5.5, '1111', 'D');
+        $this->setFittingFont($this->fontFamily, 'B', 15.5, 12.5, 'EOS発注控え', $width - 7);
+        $this->pdf->SetXY($x + 3.5, $y + 3);
+        $this->pdf->Cell($width - 7, 8, 'EOS発注控え', 0, 0, 'C');
+        $this->setTextColor(self::COLOR_BLACK);
+        $this->setDrawColor(self::COLOR_BLACK);
+        $this->pdf->SetLineWidth(self::LINE_WIDTH);
         $this->pdf->SetFont($this->fontFamily, '', self::FONT_SIZE_NORMAL);
     }
 
@@ -1192,8 +1253,8 @@ class PurchaseOrderPdfService
         $rowHeight = self::LINE_HEIGHT_TABLE;
 
         $tableWidth = array_sum(self::COL_WIDTHS);
-        $this->pdf->SetDrawColor(203, 213, 225);
-        $this->pdf->SetFillColor(248, 250, 252);
+        $this->setDrawColor(self::COLOR_BORDER_GRAY);
+        $this->setFillColor(self::COLOR_HEADER_FILL_GRAY);
         $this->pdf->Rect($x, $y, $tableWidth, $rowHeight, 'F');
 
         // 上線
@@ -1215,7 +1276,7 @@ class PurchaseOrderPdfService
         $this->pdf->Line(self::MARGIN_LEFT, $y + $rowHeight, self::MARGIN_LEFT + $tableWidth, $y + $rowHeight);
 
         $this->currentY = $y + $rowHeight;
-        $this->pdf->SetDrawColor(0, 0, 0);
+        $this->setDrawColor(self::COLOR_BLACK);
     }
 
     /**
@@ -1280,7 +1341,7 @@ class PurchaseOrderPdfService
 
         $x = self::MARGIN_LEFT;
         $y = $this->currentY;
-        $this->pdf->SetDrawColor(203, 213, 225);
+        $this->setDrawColor(self::COLOR_BORDER_GRAY);
 
         // 各セルを描画
         foreach ($rowData as $i => $value) {
@@ -1311,7 +1372,7 @@ class PurchaseOrderPdfService
         $this->currentY = $y + $actualRowHeight;
         $this->itemRowCount++;
         $this->currentPageDetailRowCount++;
-        $this->pdf->SetDrawColor(0, 0, 0);
+        $this->setDrawColor(self::COLOR_BLACK);
     }
 
     /**
@@ -1321,9 +1382,9 @@ class PurchaseOrderPdfService
     {
         $tableWidth = array_sum(self::COL_WIDTHS);
         $this->pdf->SetLineWidth(self::LINE_WIDTH);
-        $this->pdf->SetDrawColor(203, 213, 225);
+        $this->setDrawColor(self::COLOR_BORDER_GRAY);
         $this->pdf->Line(self::MARGIN_LEFT, $this->currentY, self::MARGIN_LEFT + $tableWidth, $this->currentY);
-        $this->pdf->SetDrawColor(0, 0, 0);
+        $this->setDrawColor(self::COLOR_BLACK);
     }
 
     /**
