@@ -258,14 +258,26 @@ class WmsInventoryCountTable
                     ->where('is_all_store_difference_target', true)
                     ->count();
 
-                return "全店差異対象がONの棚卸し {$targetCount} 件を対象に、店舗別の差異数量とカテゴリ別ランキングを出力します。";
+                return "全店差異対象がONの棚卸し {$targetCount} 件を対象に、選択回の入力済み差異数量とカテゴリ別ランキングを出力します。";
             })
             ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
             ->modalFooterActionsAlignment(Alignment::End)
             ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('ダウンロード')->color('danger'))
             ->modalCancelActionLabel('ダウンロードせず閉じる')
+            ->schema([
+                Select::make('target_round')
+                    ->label('出力回')
+                    ->options([
+                        1 => '1回目',
+                        2 => '2回目',
+                        3 => '3回目',
+                    ])
+                    ->default(2)
+                    ->required()
+                    ->native(false),
+            ])
             ->requiresConfirmation()
-            ->action(function () {
+            ->action(function (array $data) {
                 $targetRecords = WmsInventoryCount::query()
                     ->where('is_all_store_difference_target', true)
                     ->get()
@@ -283,8 +295,9 @@ class WmsInventoryCountTable
                 }
 
                 try {
-                    $xlsxContent = (new AllStoreInventoryDifferenceWorkbookService)->generate($targetRecords);
-                    $filename = '全店差異表_'.now()->format('YmdHis').'.xlsx';
+                    $targetRound = (int) ($data['target_round'] ?? 2);
+                    $xlsxContent = (new AllStoreInventoryDifferenceWorkbookService)->generate($targetRecords, $targetRound);
+                    $filename = '全店差異表_'.$targetRound.'回目_'.now()->format('YmdHis').'.xlsx';
 
                     return response()->streamDownload(
                         fn () => print ($xlsxContent),

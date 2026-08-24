@@ -69,7 +69,8 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertNotFalse($workbookPosition);
         $this->assertGreaterThan($uncountedPosition, $workbookPosition);
         $this->assertStringContainsString('->label(\'差異データ\')', $page);
-        $this->assertStringContainsString('InventoryDifferenceWorkbookService)->generate($record)', $page);
+        $this->assertStringContainsString("Select::make('target_round')", $page);
+        $this->assertStringContainsString('InventoryDifferenceWorkbookService)->generate($record, $targetRound)', $page);
         $this->assertStringContainsString('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', $page);
 
         $blade = file_get_contents(resource_path('views/filament/resources/wms-inventory-count/pages/view-wms-inventory-count.blade.php'));
@@ -79,6 +80,7 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertNotFalse($bladeUncountedPosition);
         $this->assertNotFalse($bladeWorkbookPosition);
         $this->assertGreaterThan($bladeUncountedPosition, $bladeWorkbookPosition);
+        $this->assertStringContainsString('<span>差異再計算</span>', $blade);
     }
 
     public function test_second_round_difference_refresh_action_is_available_in_details(): void

@@ -188,11 +188,13 @@ class InventoryDiffListPdfService
             ->managedStockItems()
             ->with(['inventoryCount', 'item.item_category1', 'item.item_category2']);
 
+        $this->applyReportTargetCategoryFilter($query);
+
         if ($this->uncountedRound !== null) {
             $roundColumn = $this->roundColumn($this->uncountedRound);
 
             $query->whereNull($roundColumn);
-            $this->applyUncountedTargetFilters($query);
+            $this->applyUncountedQuantityFilters($query);
         } elseif ($this->diffRound === null) {
             $query->whereRaw($this->systemQuantityExpression().' IS NOT NULL');
 
@@ -255,7 +257,8 @@ class InventoryDiffListPdfService
             ->withoutOwnedSetItems()
             ->managedStockItems();
 
-        $this->applyUncountedTargetFilters($query);
+        $this->applyReportTargetCategoryFilter($query);
+        $this->applyUncountedQuantityFilters($query);
 
         return $query
             ->get()
@@ -269,23 +272,26 @@ class InventoryDiffListPdfService
             ->values();
     }
 
-    private function applyUncountedTargetFilters(Builder $query): void
+    private function applyReportTargetCategoryFilter(Builder $query): void
+    {
+        $query->whereHas('item.item_category1', function (Builder $query): void {
+            $query->whereIn('code', self::UNCOUNTED_TARGET_MAJOR_CATEGORY_CODES);
+        });
+    }
+
+    private function applyUncountedQuantityFilters(Builder $query): void
     {
         $systemQuantityExpression = $this->systemQuantityExpression();
 
-        $query
-            ->whereHas('item.item_category1', function (Builder $query): void {
-                $query->whereIn('code', self::UNCOUNTED_TARGET_MAJOR_CATEGORY_CODES);
-            })
-            ->where(function (Builder $query) use ($systemQuantityExpression): void {
-                $query
-                    ->whereRaw("{$systemQuantityExpression} != 0")
-                    ->orWhere(function (Builder $query): void {
-                        $query
-                            ->whereNotNull('difference_quantity')
-                            ->where('difference_quantity', '!=', 0);
-                    });
-            });
+        $query->where(function (Builder $query) use ($systemQuantityExpression): void {
+            $query
+                ->whereRaw("{$systemQuantityExpression} != 0")
+                ->orWhere(function (Builder $query): void {
+                    $query
+                        ->whereNotNull('difference_quantity')
+                        ->where('difference_quantity', '!=', 0);
+                });
+        });
     }
 
     private function inventoryItemKey(WmsInventoryCountItem $item): string
@@ -429,11 +435,16 @@ class InventoryDiffListPdfService
             return $item->roundQuantity($actualRound);
         }
 
+        $roundQuantity = $item->roundQuantity($actualRound);
+        if ($roundQuantity !== null) {
+            return $roundQuantity;
+        }
+
         if ($this->diffRound !== null && $this->isUncountedTargetItem($item)) {
             return 0;
         }
 
-        return $item->roundQuantity($actualRound);
+        return null;
     }
 
     private function physicalRoundQuantity(WmsInventoryCountItem $item, int $round): ?int

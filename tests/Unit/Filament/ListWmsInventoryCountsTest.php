@@ -49,6 +49,8 @@ class ListWmsInventoryCountsTest extends TestCase
 
         $this->assertStringContainsString("ToggleColumn::make('is_all_store_difference_target')", $table);
         $this->assertStringContainsString("Action::make('downloadAllStoreDifferenceWorkbook')", $table);
+        $this->assertStringContainsString("Select::make('target_round')", $table);
+        $this->assertStringContainsString('AllStoreInventoryDifferenceWorkbookService)->generate($targetRecords, $targetRound)', $table);
         $this->assertStringContainsString('AllStoreInventoryDifferenceWorkbookService', $table);
     }
 }

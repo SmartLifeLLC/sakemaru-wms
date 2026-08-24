@@ -428,6 +428,88 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertSame([], $thirdTopRows);
     }
 
+    public function test_difference_workbook_exports_selected_unconfirmed_round(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-20 10:00:00'));
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 987654323,
+            'warehouse_code' => '987654323',
+            'warehouse_name' => '未確定回差異データテスト倉庫',
+            'count_date' => '2026-08-19',
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'current_count_round' => 2,
+            'first_count_confirmed_at' => now()->subHour(),
+            'ending_stock_taken_at' => now(),
+        ]);
+
+        $itemId = $this->createItemInMajorCategory(1001);
+        $this->createItemPrice($itemId, '2026-08-20', 10);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => random_int(900000000, 999999999),
+            'item_id' => $itemId,
+            'item_code' => 'WBSEL001',
+            'item_name' => '未確定2回目入力あり商品',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 10,
+            'first_count_quantity' => 7,
+            'second_count_quantity' => 8,
+            'first_count_confirmed_system_quantity' => 10,
+            'first_count_confirmed_difference_quantity' => -3,
+            'first_count_confirmed_difference_amount' => -30,
+            'cost_price' => 10,
+            'input_count' => 2,
+        ]);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => random_int(900000000, 999999999),
+            'item_id' => $itemId,
+            'item_code' => 'WBSEL002',
+            'item_name' => '未確定2回目未棚商品',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 5,
+            'first_count_quantity' => 5,
+            'second_count_quantity' => null,
+            'first_count_confirmed_system_quantity' => 5,
+            'first_count_confirmed_difference_quantity' => 0,
+            'first_count_confirmed_difference_amount' => 0,
+            'cost_price' => 10,
+            'input_count' => 1,
+        ]);
+
+        $secondRoundWorkbook = $this->loadWorkbook((new InventoryDifferenceWorkbookService)->generate($inventoryCount, 2));
+        $secondRoundDiffRows = $this->rowsByItemCode($secondRoundWorkbook->getSheetByName('差異'));
+
+        $this->assertArrayHasKey('WBSEL001', $secondRoundDiffRows);
+        $this->assertArrayHasKey('WBSEL002', $secondRoundDiffRows);
+        $this->assertSame(-3, $secondRoundDiffRows['WBSEL001']['1回目±差異']);
+        $this->assertSame(8, $secondRoundDiffRows['WBSEL001']['2回目数量']);
+        $this->assertSame(-2, $secondRoundDiffRows['WBSEL001']['2回目±差異']);
+        $this->assertSame(0, $secondRoundDiffRows['WBSEL002']['2回目数量']);
+        $this->assertSame(-5, $secondRoundDiffRows['WBSEL002']['2回目±差異']);
+        $this->assertNull($secondRoundDiffRows['WBSEL001']['3回目±差異']);
+
+        $uncountedRows = $this->rowsByItemCode($secondRoundWorkbook->getSheetByName('未棚'));
+        $this->assertArrayHasKey('WBSEL002', $uncountedRows);
+        $this->assertSame('2回目', $uncountedRows['WBSEL002']['未入力回']);
+
+        $secondTopRows = $this->rowsByColumn($secondRoundWorkbook->getSheetByName('２回目'), '単品ＣＤ');
+        $this->assertArrayHasKey('WBSEL001', $secondTopRows);
+        $this->assertArrayHasKey('WBSEL002', $secondTopRows);
+
+        $firstRoundWorkbook = $this->loadWorkbook((new InventoryDifferenceWorkbookService)->generate($inventoryCount, 1));
+        $firstRoundDiffRows = $this->rowsByItemCode($firstRoundWorkbook->getSheetByName('差異'));
+
+        $this->assertArrayHasKey('WBSEL001', $firstRoundDiffRows);
+        $this->assertArrayNotHasKey('WBSEL002', $firstRoundDiffRows);
+        $this->assertNull($firstRoundDiffRows['WBSEL001']['2回目±差異']);
+    }
+
     public function test_difference_workbook_exports_empty_sheets(): void
     {
         $inventoryCount = WmsInventoryCount::create([

@@ -26,6 +26,8 @@ class AllStoreInventoryDifferenceWorkbookService
 
     private const STORE_COLUMN_START = 5;
 
+    private const REPORT_MAJOR_CATEGORY_CODES = ['1001', '1002', '1003', '1006'];
+
     private const CATEGORY_SHEETS = [
         [
             'title' => '11・12和酒',
@@ -58,8 +60,9 @@ class AllStoreInventoryDifferenceWorkbookService
      * @param  Collection<int, WmsInventoryCount>  $inventoryCounts
      * @return non-empty-string
      */
-    public function generate(Collection $inventoryCounts): string
+    public function generate(Collection $inventoryCounts, ?int $targetRound = null): string
     {
+        $targetRound = $this->normalizeTargetRound($targetRound);
         $inventoryCounts = $inventoryCounts
             ->filter(fn (WmsInventoryCount $inventoryCount): bool => $inventoryCount->id !== null)
             ->sort($this->inventoryCountSorter(...))
@@ -77,7 +80,7 @@ class AllStoreInventoryDifferenceWorkbookService
             ->unique()
             ->values()
             ->all();
-        $rows = $this->buildAllStoreRows($inventoryCounts, $items, $costPrices, $supplierInfo, $storeCodes);
+        $rows = $this->buildAllStoreRows($inventoryCounts, $items, $costPrices, $supplierInfo, $storeCodes, $targetRound);
 
         $spreadsheet = new Spreadsheet;
         $mainSheet = $spreadsheet->getActiveSheet();
@@ -126,6 +129,9 @@ class AllStoreInventoryDifferenceWorkbookService
             ->whereIn('inventory_count_id', $inventoryCounts->pluck('id')->all())
             ->withoutOwnedSetItems()
             ->managedStockItems()
+            ->whereHas('item.item_category1', function ($query): void {
+                $query->whereIn('code', self::REPORT_MAJOR_CATEGORY_CODES);
+            })
             ->with(['inventoryCount', 'item.item_category1', 'item.item_category2'])
             ->get();
     }
@@ -144,6 +150,7 @@ class AllStoreInventoryDifferenceWorkbookService
         Collection $costPrices,
         Collection $supplierInfo,
         array $storeCodes,
+        ?int $targetRound,
     ): array {
         $countsById = $inventoryCounts->keyBy(fn (WmsInventoryCount $inventoryCount): int => (int) $inventoryCount->id);
         $rowsByItem = [];
@@ -154,12 +161,14 @@ class AllStoreInventoryDifferenceWorkbookService
                 continue;
             }
 
-            $round = $this->reportRound($inventoryCount);
+            $round = $targetRound ?? $this->reportRound($inventoryCount);
             if ($round === null) {
                 continue;
             }
 
-            $difference = $this->differenceForRound($inventoryCount, $item, $round);
+            $difference = $targetRound === null
+                ? $this->differenceForRound($inventoryCount, $item, $round)
+                : $this->differenceForSelectedRound($item, $round);
             if ($difference === null || $difference === 0) {
                 continue;
             }
@@ -321,6 +330,19 @@ class AllStoreInventoryDifferenceWorkbookService
         return $supplierInfo;
     }
 
+    private function normalizeTargetRound(?int $targetRound): ?int
+    {
+        if ($targetRound === null) {
+            return null;
+        }
+
+        if (! in_array($targetRound, [1, 2, 3], true)) {
+            throw new RuntimeException('全店差異表の出力回が不正です。');
+        }
+
+        return $targetRound;
+    }
+
     private function reportRound(WmsInventoryCount $inventoryCount): ?int
     {
         foreach ([3, 2, 1] as $round) {
@@ -354,6 +376,21 @@ class AllStoreInventoryDifferenceWorkbookService
         return (int) $quantity - (int) $systemQuantity;
     }
 
+    private function differenceForSelectedRound(WmsInventoryCountItem $item, int $round): ?int
+    {
+        $physicalQuantity = $this->physicalRoundQuantity($item, $round);
+        if ($physicalQuantity === null) {
+            return null;
+        }
+
+        $systemQuantity = $this->baseSystemQuantity($item);
+        if ($systemQuantity === null) {
+            return null;
+        }
+
+        return (int) $physicalQuantity - (int) $systemQuantity;
+    }
+
     private function physicalRoundQuantity(WmsInventoryCountItem $item, int $round): ?int
     {
         return match ($round) {
@@ -370,7 +407,14 @@ class AllStoreInventoryDifferenceWorkbookService
             ? $item->confirmedRoundSystemQuantity($round)
             : null;
 
-        $quantity = $confirmedSystemQuantity ?? $item->ending_system_quantity ?? $item->system_quantity;
+        $quantity = $confirmedSystemQuantity ?? $this->baseSystemQuantity($item);
+
+        return $quantity === null ? null : (int) $quantity;
+    }
+
+    private function baseSystemQuantity(WmsInventoryCountItem $item): ?int
+    {
+        $quantity = $item->ending_system_quantity ?? $item->system_quantity;
 
         return $quantity === null ? null : (int) $quantity;
     }

@@ -269,6 +269,18 @@ class ViewWmsInventoryCount extends Page implements HasForms
         return "{$round}回目";
     }
 
+    public function differenceWorkbookRoundOptions(): array
+    {
+        return collect(range(1, $this->currentProgressRound()))
+            ->mapWithKeys(fn (int $round): array => [$round => $this->roundLabel($round)])
+            ->all();
+    }
+
+    public function defaultDifferenceWorkbookRound(): int
+    {
+        return $this->activeCountRound;
+    }
+
     public function isRoundConfirmed(int $round): bool
     {
         return $this->record->{$this->roundConfirmedAtColumn($round)} !== null;
@@ -1583,9 +1595,23 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->icon('heroicon-o-table-cells')
                 ->color('gray')
                 ->visible(fn () => $record->status !== WmsInventoryCount::STATUS_DRAFT)
-                ->action(function () use ($record) {
-                    $xlsxContent = (new InventoryDifferenceWorkbookService)->generate($record);
-                    $filename = '棚卸差異データ_'.($record->count_no ?? 'unknown').'.xlsx';
+                ->schema([
+                    Select::make('target_round')
+                        ->label('出力回')
+                        ->options(fn () => $this->differenceWorkbookRoundOptions())
+                        ->default(fn () => $this->defaultDifferenceWorkbookRound())
+                        ->required()
+                        ->native(false),
+                ])
+                ->modalHeading('差異データダウンロード')
+                ->modalDescription('選択した回数までの差異データを出力します。未確定の進行中回数も出力できます。')
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('ダウンロード')->color('danger'))
+                ->modalCancelActionLabel('ダウンロードせず閉じる')
+                ->action(function (array $data) use ($record) {
+                    $targetRound = (int) ($data['target_round'] ?? $this->defaultDifferenceWorkbookRound());
+                    $xlsxContent = (new InventoryDifferenceWorkbookService)->generate($record, $targetRound);
+                    $filename = '棚卸差異データ_'.$this->roundLabel($targetRound).'_'.($record->count_no ?? 'unknown').'.xlsx';
 
                     return response()->streamDownload(
                         fn () => print ($xlsxContent),
