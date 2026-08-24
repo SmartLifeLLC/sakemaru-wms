@@ -70,6 +70,11 @@
     hoveredItemName: null,
     itemNameTooltipX: 0,
     itemNameTooltipY: 0,
+    contractorChangeOpen: false,
+    contractorChangeItemKey: null,
+    contractorChangeSearch: '',
+    contractorChangeOptions: [],
+    contractorChangeLoading: false,
 
     updateItemNameTooltipPosition(event) {
         const padding = 16;
@@ -96,6 +101,81 @@
 
     closeNoteModal() {
         this.noteModalText = null;
+    },
+
+    currentContractorChangeItem() {
+        if (!this.contractorChangeItemKey) return null;
+
+        return this.results.find(item => this.itemKey(item) === this.contractorChangeItemKey) || null;
+    },
+
+    async openCandidateContractorChange(item) {
+        this.contractorChangeItemKey = this.itemKey(item);
+        this.contractorChangeSearch = '';
+        this.contractorChangeOptions = [];
+        this.contractorChangeOpen = true;
+        await this.loadCandidateContractorChangeOptions();
+    },
+
+    closeCandidateContractorChange() {
+        this.contractorChangeOpen = false;
+        this.contractorChangeItemKey = null;
+        this.contractorChangeSearch = '';
+        this.contractorChangeOptions = [];
+        this.contractorChangeLoading = false;
+    },
+
+    async loadCandidateContractorChangeOptions() {
+        const item = this.currentContractorChangeItem();
+        if (!item) {
+            this.contractorChangeOptions = [];
+            return;
+        }
+
+        this.contractorChangeLoading = true;
+        try {
+            this.contractorChangeOptions = await $wire.searchCandidateContractorChangeOptions(
+                Number(item.id || 0),
+                this.contractorChangeSearch || null
+            );
+        } finally {
+            this.contractorChangeLoading = false;
+        }
+    },
+
+    selectCandidateContractor(option) {
+        if (!option || !option.is_selectable) return;
+
+        const item = this.currentContractorChangeItem();
+        if (!item) return;
+
+        const key = this.itemKey(item);
+        item.contractor_id = option.contractor_id || null;
+        item.item_contractor_warehouse_id = option.item_contractor_warehouse_id || null;
+        item.contractor_code = option.contractor_code || '';
+        item.contractor_name = option.contractor_label || option.contractor_name || '';
+        item.contractor_raw_name = option.contractor_name || '';
+        item.supplier_id = option.supplier_id || null;
+        item.supplier_partner_id = option.supplier_partner_id || null;
+        item.supplier_code = option.supplier_code || '';
+        item.supplier_name = option.supplier_name || '';
+        item.purchase_unit = Math.max(1, Number(option.purchase_unit || 1));
+        item.safety_stock = Number(option.safety_stock || 0);
+        item.item_contractor_note = option.item_contractor_note || '';
+        item.is_eos_available = !!option.is_eos_available;
+        item.item_contractor_linked = !!option.is_item_linked;
+        item.order_channel = option.order_channel || (item.is_eos_available ? 'EOS' : 'FAX');
+
+        if (option.default_expected_arrival_date) {
+            this.plannedDates[key] = option.default_expected_arrival_date < this.today
+                ? this.today
+                : option.default_expected_arrival_date;
+        }
+
+        this.clearUnavailableQuantities();
+        this.updatePinnedItems();
+        this.syncToWire();
+        this.closeCandidateContractorChange();
     },
 
     formatNumber(value) {
@@ -127,7 +207,7 @@
     },
 
     isUnhandledItem(item) {
-        return !item.contractor_id || item.item_contractor_linked === false;
+        return !item.contractor_id;
     },
 
     itemKey(itemOrId) {
@@ -555,10 +635,12 @@
                         ordering_code: item.ordering_code || '',
                         capacity_case: item.capacity_case || 1,
                         contractor_id: item.contractor_id || null,
+                        item_contractor_warehouse_id: item.item_contractor_warehouse_id || null,
                         contractor_code: item.contractor_code || '',
-                        contractor_name: item.contractor_name || '',
+                        contractor_name: item.contractor_raw_name || item.contractor_name || '',
                         supplier_id: item.supplier_id || null,
                         supplier_partner_id: item.supplier_partner_id || null,
+                        supplier_code: item.supplier_code || '',
                         supplier_name: item.supplier_name || '',
                         purchase_unit: item.purchase_unit || 1,
                         default_expected_arrival_date: this.plannedDateFor(item),
@@ -568,6 +650,7 @@
                         order_quantity: qty.caseQty,
                         order_channel: channel,
                         is_eos_available: !!item.is_eos_available,
+                        item_contractor_linked: item.item_contractor_linked !== false,
                     });
                 }
                 if (qty.pieceQty > 0) {
@@ -581,10 +664,12 @@
                         ordering_code: item.ordering_code || '',
                         capacity_case: item.capacity_case || 1,
                         contractor_id: item.contractor_id || null,
+                        item_contractor_warehouse_id: item.item_contractor_warehouse_id || null,
                         contractor_code: item.contractor_code || '',
-                        contractor_name: item.contractor_name || '',
+                        contractor_name: item.contractor_raw_name || item.contractor_name || '',
                         supplier_id: item.supplier_id || null,
                         supplier_partner_id: item.supplier_partner_id || null,
+                        supplier_code: item.supplier_code || '',
                         supplier_name: item.supplier_name || '',
                         purchase_unit: item.purchase_unit || 1,
                         default_expected_arrival_date: this.plannedDateFor(item),
@@ -594,6 +679,7 @@
                         order_quantity: qty.pieceQty,
                         order_channel: channel,
                         is_eos_available: !!item.is_eos_available,
+                        item_contractor_linked: item.item_contractor_linked !== false,
                     });
                 }
             }
@@ -647,6 +733,113 @@
             <div class="whitespace-pre-wrap px-4 py-4 text-sm leading-6 text-slate-800 dark:text-gray-100" x-text="noteModalText"></div>
             <div class="flex justify-end border-t border-slate-200 bg-slate-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800">
                 <button type="button" x-on:click="closeNoteModal()" class="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">閉じる</button>
+            </div>
+        </div>
+    </div>
+
+    <div
+        x-cloak
+        x-show="contractorChangeOpen"
+        class="fixed inset-0 z-[10030] flex items-center justify-center bg-slate-950/50 p-4"
+    >
+        <div class="flex max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-xl dark:bg-gray-900">
+            <div class="flex items-center justify-between bg-slate-800 px-4 py-3 text-white">
+                <div class="text-sm font-semibold">発注先変更</div>
+                <button type="button" x-on:click="closeCandidateContractorChange()" class="rounded p-1 text-white hover:bg-white/10">
+                    <x-heroicon-o-x-mark class="h-5 w-5" />
+                </button>
+            </div>
+            <div class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+                <div class="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
+                    <template x-if="currentContractorChangeItem()">
+                        <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+                            <span>
+                                商品
+                                <span class="font-mono font-semibold" x-text="'[' + currentContractorChangeItem().code + ']'"></span>
+                                <span class="font-semibold" x-text="currentContractorChangeItem().name"></span>
+                            </span>
+                            <span>
+                                現在
+                                <span class="font-semibold" x-text="currentContractorChangeItem().contractor_name || '-'"></span>
+                            </span>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="rounded-md border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                    <div class="flex items-end gap-2">
+                        <div class="min-w-0 flex-1">
+                            <label class="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">発注先検索</label>
+                            <input
+                                type="text"
+                                x-model="contractorChangeSearch"
+                                x-on:keydown.enter.prevent="loadCandidateContractorChangeOptions()"
+                                placeholder="発注先CD・名前で検索"
+                                class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-slate-600 dark:bg-gray-900 dark:text-gray-100"
+                            >
+                        </div>
+                        <button type="button" x-on:click="loadCandidateContractorChangeOptions()" class="rounded-md bg-slate-800 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-700">
+                            検索
+                        </button>
+                    </div>
+                    <div class="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                        91番倉庫の商品発注先を先頭に表示します。商品未紐づきの発注先を選択した場合はFAX専用になります。
+                    </div>
+                </div>
+
+                <div class="min-h-0 overflow-y-auto rounded-md border border-slate-200 dark:border-slate-700" style="max-height: 420px;">
+                    <table class="w-full divide-y divide-slate-200 text-xs dark:divide-slate-700">
+                        <thead class="sticky top-0 z-10 bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                            <tr>
+                                <th class="whitespace-nowrap px-3 py-2 text-left font-semibold">優先</th>
+                                <th class="whitespace-nowrap px-3 py-2 text-left font-semibold">発注先CD</th>
+                                <th class="px-3 py-2 text-left font-semibold">発注先名</th>
+                                <th class="px-3 py-2 text-left font-semibold">仕入先</th>
+                                <th class="whitespace-nowrap px-3 py-2 text-left font-semibold">判定</th>
+                                <th class="whitespace-nowrap px-3 py-2 text-center font-semibold">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+                            <tr x-show="contractorChangeLoading">
+                                <td colspan="6" class="px-4 py-8 text-center text-sm text-slate-400">
+                                    発注先を検索中...
+                                </td>
+                            </tr>
+                            <template x-for="option in contractorChangeOptions" :key="String(option.contractor_id) + '-' + String(option.supplier_id)">
+                                <tr class="odd:bg-white even:bg-[#f5f9ff] dark:odd:bg-slate-900 dark:even:bg-[#1e2a3b]">
+                                    <td class="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300" x-text="option.priority_label || '-'"></td>
+                                    <td class="whitespace-nowrap px-3 py-2 font-mono text-slate-700 dark:text-slate-200" x-text="option.contractor_code || '-'"></td>
+                                    <td class="px-3 py-2 font-semibold text-slate-900 dark:text-white" x-text="option.contractor_name || '-'"></td>
+                                    <td class="px-3 py-2 text-slate-700 dark:text-slate-200" x-text="option.supplier_label || option.supplier_name || '-'"></td>
+                                    <td class="whitespace-nowrap px-3 py-2">
+                                        <span x-show="option.is_item_linked && option.is_eos_available" class="inline-flex rounded bg-blue-100 px-2 py-0.5 text-[11px] font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">EOS可</span>
+                                        <span x-show="option.is_item_linked && !option.is_eos_available" class="inline-flex rounded bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700 dark:bg-green-900/40 dark:text-green-200">FAX専用</span>
+                                        <span x-show="!option.is_item_linked" class="inline-flex rounded bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700 dark:bg-green-900/40 dark:text-green-200">商品未紐づき / FAX専用</span>
+                                        <span x-show="!option.is_selectable" class="ml-1 inline-flex rounded bg-red-100 px-2 py-0.5 text-[11px] font-bold text-red-700 dark:bg-red-900/40 dark:text-red-200">仕入先未設定</span>
+                                    </td>
+                                    <td class="whitespace-nowrap px-3 py-2 text-center">
+                                        <button
+                                            type="button"
+                                            x-on:click="selectCandidateContractor(option)"
+                                            x-bind:disabled="!option.is_selectable"
+                                            class="rounded-md bg-danger-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-danger-500 disabled:bg-slate-300 disabled:text-slate-500 dark:disabled:bg-slate-700 dark:disabled:text-slate-400"
+                                        >
+                                            選択
+                                        </button>
+                                    </td>
+                                </tr>
+                            </template>
+                            <tr x-show="!contractorChangeLoading && contractorChangeOptions.length === 0">
+                                <td colspan="6" class="px-4 py-8 text-center text-sm text-slate-400">
+                                    表示できる発注先がありません
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="flex justify-end border-t border-slate-200 bg-slate-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800">
+                <button type="button" x-on:click="closeCandidateContractorChange()" class="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">変更せず閉じる</button>
             </div>
         </div>
     </div>
@@ -907,6 +1100,14 @@
                                 <span x-show="!isUnhandledItem(item) && item.is_eos_available === false" class="inline-flex rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-bold text-green-700 dark:bg-green-900/40 dark:text-green-200">FAX専用</span>
                                 <span x-show="!isUnhandledItem(item) && item.is_eos_available === true" class="inline-flex rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">EOS可</span>
                                 <span class="block whitespace-normal break-words leading-4" x-text="item.contractor_name || item.supplier_name || '-'"></span>
+                                <button
+                                    type="button"
+                                    x-show="isTransferOrderItem(item)"
+                                    x-on:click.stop="openCandidateContractorChange(item)"
+                                    class="mt-1 rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 shadow-sm hover:border-slate-400 hover:bg-slate-50 dark:border-slate-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+                                >
+                                    発注先変更
+                                </button>
                             </td>
                             <td class="whitespace-nowrap px-2 py-1.5 font-mono text-slate-700 dark:text-slate-200" x-text="item.code"></td>
                             <td

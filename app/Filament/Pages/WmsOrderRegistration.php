@@ -21,6 +21,7 @@ use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderDataFile;
 use App\Models\WmsWarehouseAutoOrderSetting;
+use App\Services\AutoOrder\OrderRegistrationListPdfService;
 use App\Services\AutoOrder\OrderRegistrationSearchService;
 use App\Services\AutoOrder\OrderRegistrationService;
 use App\Services\AutoOrder\PurchaseOrderPdfService;
@@ -147,6 +148,10 @@ class WmsOrderRegistration extends AdminPage
     public array $lines = [];
 
     public string $lineContractorFilter = '';
+
+    public array $selectedRegistrationLineIndexes = [];
+
+    public string $bulkExpectedArrivalDate = '';
 
     public bool $showCompletionFaxDownloadModal = false;
 
@@ -335,74 +340,13 @@ class WmsOrderRegistration extends AdminPage
         }
 
         $search = trim(mb_convert_kana($this->contractorChangeSearch, 'as'));
-        $contractorRows = DB::connection('sakemaru')
-            ->table('contractors as c')
-            ->leftJoin('suppliers as default_suppliers', 'default_suppliers.id', '=', 'c.supplier_id')
-            ->leftJoin('partners as default_supplier_partners', 'default_supplier_partners.id', '=', 'default_suppliers.partner_id')
-            ->when($search !== '', function ($query) use ($search): void {
-                $query->where(function ($query) use ($search): void {
-                    $query->where('c.code', 'like', "{$search}%")
-                        ->orWhere('c.name', 'like', "%{$search}%")
-                        ->orWhere('c.id', (int) $search);
-                });
-            })
-            ->orderBy('c.code')
-            ->limit(50)
-            ->get([
-                'c.id as contractor_id',
-                'c.code as contractor_code',
-                'c.name as contractor_name',
-                'c.supplier_id as default_supplier_id',
-                'default_suppliers.partner_id as default_supplier_partner_id',
-                'default_supplier_partners.code as default_supplier_code',
-                'default_supplier_partners.name as default_supplier_name',
-            ]);
-        $contractorIds = $contractorRows
-            ->pluck('contractor_id')
-            ->map(fn ($id): int => (int) $id)
-            ->filter(fn (int $id): bool => $id > 0)
-            ->values()
-            ->all();
-        $incomingWarehouseId = app(OrderRegistrationSearchService::class)->incomingWarehouseId($warehouseId);
-        $itemContractorsByContractor = ItemContractor::query()
-            ->where('warehouse_id', $incomingWarehouseId)
-            ->where('item_id', $itemId)
-            ->whereIn('contractor_id', $contractorIds)
-            ->with(['supplier.partner'])
-            ->get()
-            ->keyBy(fn (ItemContractor $itemContractor): int => (int) $itemContractor->contractor_id);
-        $jxContractorIds = app(OrderRegistrationSearchService::class)->jxContractorIds();
-
-        $this->contractorChangeRows = $contractorRows
-            ->map(function ($contractor) use ($itemContractorsByContractor, $jxContractorIds): array {
-                $contractorId = (int) $contractor->contractor_id;
-                $itemContractor = $itemContractorsByContractor->get($contractorId);
-                $isItemLinked = $itemContractor !== null;
-                $isEosAvailable = $isItemLinked && in_array($contractorId, $jxContractorIds, true);
-                $supplier = $itemContractor?->supplier;
-                $supplierPartner = $supplier?->partner;
-                $supplierId = (int) ($supplier?->id ?? $contractor->default_supplier_id ?? 0);
-
-                return [
-                    'contractor_id' => $contractorId,
-                    'contractor_code' => (string) ($contractor->contractor_code ?? ''),
-                    'contractor_name' => (string) ($contractor->contractor_name ?? ''),
-                    'supplier_id' => $supplierId,
-                    'supplier_partner_id' => (int) ($supplier?->partner_id ?? $contractor->default_supplier_partner_id ?? 0),
-                    'supplier_code' => (string) ($supplierPartner?->code ?? $contractor->default_supplier_code ?? ''),
-                    'supplier_name' => (string) ($supplierPartner?->name ?? $contractor->default_supplier_name ?? '-'),
-                    'is_selectable' => $contractorId > 0 && $supplierId > 0,
-                    'is_item_linked' => $isItemLinked,
-                    'is_eos_available' => $isEosAvailable,
-                    'will_force_fax' => $contractorId > 0 && ! $isItemLinked,
-                    'purchase_unit' => max(1, (int) ($itemContractor?->purchase_unit ?? 1)),
-                ];
-            })
-            ->values()
-            ->toArray();
+        $this->contractorChangeRows = $this->searchCandidateContractorChangeOptions(
+            $itemId,
+            $search !== '' ? $search : null
+        );
     }
 
-    public function applyContractorChange(int $contractorId): void
+    public function applyContractorChange(int $contractorId, ?int $supplierId = null, ?int $itemContractorWarehouseId = null): void
     {
         if ($this->contractorChangeLineIndex === null || ! isset($this->lines[$this->contractorChangeLineIndex])) {
             $this->notifyWarning('変更対象の明細が見つかりません。');
@@ -437,10 +381,13 @@ class WmsOrderRegistration extends AdminPage
 
         $searchService = app(OrderRegistrationSearchService::class);
         $incomingWarehouseId = $searchService->incomingWarehouseId($warehouseId);
+        $selectedSupplierId = (int) ($supplierId ?? 0);
+        $selectedItemContractorWarehouseId = (int) ($itemContractorWarehouseId ?? 0);
         $itemContractor = ItemContractor::query()
-            ->where('warehouse_id', $incomingWarehouseId)
+            ->where('warehouse_id', $selectedItemContractorWarehouseId > 0 ? $selectedItemContractorWarehouseId : $incomingWarehouseId)
             ->where('item_id', $itemId)
             ->where('contractor_id', $contractorId)
+            ->when($selectedSupplierId > 0, fn ($query) => $query->where('supplier_id', $selectedSupplierId))
             ->with(['supplier.partner'])
             ->first();
 
@@ -473,6 +420,7 @@ class WmsOrderRegistration extends AdminPage
         $line['expected_arrival_date'] = $expectedArrivalDate;
         $line['is_eos_available'] = $isEosAvailable;
         $line['item_contractor_linked'] = $isItemLinked;
+        $line['item_contractor_warehouse_id'] = $itemContractor ? (int) $itemContractor->warehouse_id : null;
         $line['order_channel'] = $orderChannel->value;
         $line['order_channel_label'] = $orderChannel->label();
         $quantityType = QuantityType::tryFrom((string) ($line['quantity_type'] ?? '')) ?? QuantityType::PIECE;
@@ -1131,6 +1079,9 @@ class WmsOrderRegistration extends AdminPage
 
             $contractorId = (int) ($itemData['contractor_id'] ?? 0);
             $supplierId = (int) ($itemData['supplier_id'] ?? 0);
+            $itemContractorLinked = array_key_exists('item_contractor_linked', $itemData)
+                ? (bool) $itemData['item_contractor_linked']
+                : true;
             $itemContractors = ItemContractor::query()
                 ->where('warehouse_id', $incomingWarehouseId)
                 ->where('item_id', $itemId)
@@ -1144,19 +1095,77 @@ class WmsOrderRegistration extends AdminPage
                 ? ($itemContractors->first(fn (ItemContractor $itemContractor): bool => in_array((int) $itemContractor->contractor_id, $jxContractorIds, true)) ?? $itemContractors->first())
                 : $itemContractors->first();
 
-            if (! $itemContractor || ! $itemContractor->contractor) {
-                $errors[] = "[{$item->code}] {$item->name}: 発注先未設定";
-
-                continue;
+            $itemContractorWarehouseId = (int) ($itemData['item_contractor_warehouse_id'] ?? 0);
+            if (! $itemContractor && $itemContractorLinked && $itemContractorWarehouseId > 0) {
+                $itemContractor = ItemContractor::query()
+                    ->where('warehouse_id', $itemContractorWarehouseId)
+                    ->where('item_id', $itemId)
+                    ->when($contractorId > 0, fn ($query) => $query->where('contractor_id', $contractorId))
+                    ->when($supplierId > 0, fn ($query) => $query->where('supplier_id', $supplierId))
+                    ->with(['contractor', 'supplier.partner'])
+                    ->orderBy('contractor_id')
+                    ->orderBy('supplier_id')
+                    ->first();
             }
 
-            $isEosAvailable = in_array((int) $itemContractor->contractor_id, $jxContractorIds, true);
+            if (! $itemContractor || ! $itemContractor->contractor) {
+                if ($itemContractorLinked) {
+                    $errors[] = "[{$item->code}] {$item->name}: 発注先未設定";
+
+                    continue;
+                }
+
+                $contractor = DB::connection('sakemaru')
+                    ->table('contractors as c')
+                    ->leftJoin('suppliers as default_suppliers', 'default_suppliers.id', '=', 'c.supplier_id')
+                    ->leftJoin('partners as default_supplier_partners', 'default_supplier_partners.id', '=', 'default_suppliers.partner_id')
+                    ->where('c.id', $contractorId)
+                    ->first([
+                        'c.id as contractor_id',
+                        'c.code as contractor_code',
+                        'c.name as contractor_name',
+                        'c.supplier_id as default_supplier_id',
+                        'default_suppliers.partner_id as default_supplier_partner_id',
+                        'default_supplier_partners.code as default_supplier_code',
+                        'default_supplier_partners.name as default_supplier_name',
+                    ]);
+
+                $supplierId = (int) ($itemData['supplier_id'] ?? $contractor?->default_supplier_id ?? 0);
+                if (! $contractor || $contractorId < 1 || $supplierId < 1) {
+                    $errors[] = "[{$item->code}] {$item->name}: 発注先に紐づく仕入先がありません";
+
+                    continue;
+                }
+
+                $isEosAvailable = false;
+                $requestedChannel = OrderChannel::FAX;
+                $effectiveContractorId = $contractorId;
+                $contractorCode = (string) ($contractor->contractor_code ?? '');
+                $contractorName = (string) ($contractor->contractor_name ?? $itemData['contractor_name'] ?? '');
+                $supplierPartnerId = (int) ($itemData['supplier_partner_id'] ?? $contractor->default_supplier_partner_id ?? 0);
+                $supplierCode = (string) ($itemData['supplier_code'] ?? $contractor->default_supplier_code ?? '');
+                $supplierName = (string) ($itemData['supplier_name'] ?? $contractor->default_supplier_name ?? '-');
+                $purchaseUnit = max(1, (int) ($itemData['purchase_unit'] ?? 1));
+                $itemContractorNote = (string) ($itemData['item_contractor_note'] ?? '');
+            } else {
+                $isEosAvailable = in_array((int) $itemContractor->contractor_id, $jxContractorIds, true);
+                $effectiveContractorId = (int) $itemContractor->contractor_id;
+                $contractorCode = (string) $itemContractor->contractor->code;
+                $contractorName = (string) $itemContractor->contractor->name;
+                $supplierId = (int) ($itemContractor->supplier_id ?? 0);
+                $supplierPartnerId = (int) ($itemContractor->supplier?->partner_id ?? 0);
+                $supplierCode = (string) ($itemContractor->supplier?->partner?->code ?? '');
+                $supplierName = (string) ($itemContractor->supplier?->partner?->name ?? '-');
+                $purchaseUnit = max(1, (int) ($itemContractor->purchase_unit ?? 1));
+                $itemContractorNote = (string) ($itemContractor->item_contractor_note ?? $itemContractor->note ?? '');
+            }
+
             $requestedChannel ??= $isEosAvailable ? OrderChannel::EOS : OrderChannel::FAX;
             if ($requestedChannel === OrderChannel::EOS && ! $isEosAvailable) {
                 $requestedChannel = OrderChannel::FAX;
             }
 
-            $defaultExpectedArrivalDate = $searchService->defaultExpectedArrivalDate($warehouseId, (int) $itemContractor->contractor_id, $requestedChannel);
+            $defaultExpectedArrivalDate = $searchService->defaultExpectedArrivalDate($warehouseId, $effectiveContractorId, $requestedChannel);
             try {
                 $expectedArrivalDate = filled($itemData['default_expected_arrival_date'] ?? null)
                     ? Carbon::parse((string) $itemData['default_expected_arrival_date'])->toDateString()
@@ -1179,26 +1188,30 @@ class WmsOrderRegistration extends AdminPage
                 'item_name' => (string) $item->name,
                 'item_packaging' => $this->itemStandardLabel($item->volume ?? null, $item->volume_unit ?? null, (string) ($item->packaging ?? '')),
                 'capacity_case' => max(1, (int) ($item->capacity_case ?? 1)),
-                'item_contractor_note' => (string) ($itemContractor->note ?? ''),
-                'contractor_id' => (int) $itemContractor->contractor_id,
-                'contractor_code' => (string) $itemContractor->contractor->code,
-                'contractor_name' => (string) $itemContractor->contractor->name,
-                'supplier_id' => (int) ($itemContractor->supplier_id ?? 0),
-                'supplier_partner_id' => (int) ($itemContractor->supplier?->partner_id ?? 0),
-                'supplier_name' => (string) ($itemContractor->supplier?->partner?->name ?? '-'),
+                'item_contractor_note' => $itemContractorNote,
+                'contractor_id' => $effectiveContractorId,
+                'contractor_code' => $contractorCode,
+                'contractor_name' => $contractorName,
+                'supplier_id' => $supplierId,
+                'supplier_partner_id' => $supplierPartnerId,
+                'supplier_code' => $supplierCode,
+                'supplier_name' => $supplierName,
                 'search_code' => filled($itemData['search_code'] ?? null)
                     ? (string) $itemData['search_code']
                     : $searchService->searchCodeForItem((int) $item->id),
                 'ordering_code' => filled($itemData['ordering_code'] ?? null)
                     ? (string) $itemData['ordering_code']
                     : $searchService->orderingCodeForItem((int) $item->id),
-                'purchase_unit' => max(1, (int) ($itemContractor->purchase_unit ?? 1)),
+                'purchase_unit' => $purchaseUnit,
                 'default_expected_arrival_date' => $expectedArrivalDate,
+                'item_contractor_warehouse_id' => $itemContractor
+                    ? (int) $itemContractor->warehouse_id
+                    : ($itemContractorWarehouseId > 0 ? $itemContractorWarehouseId : null),
                 'current_stock' => $searchService->availableStock($warehouseId, (int) $item->id),
                 'incoming_quantity' => $searchService->incomingQuantity($incomingWarehouseId, (int) $item->id),
                 'order_channel' => $requestedChannel->value,
                 'is_eos_available' => $isEosAvailable,
-                'item_contractor_linked' => true,
+                'item_contractor_linked' => $itemContractorLinked && $itemContractor !== null,
             ];
 
             if ($this->addLine($row, ['case' => $caseQty, 'piece' => $pieceQty], OrderEntrySource::SEARCH, false)) {
@@ -1249,6 +1262,107 @@ class WmsOrderRegistration extends AdminPage
                 'label' => "[{$contractor->code}]{$contractor->name}",
             ])
             ->toArray();
+    }
+
+    public function searchCandidateContractorChangeOptions(int $itemId, ?string $search = null): array
+    {
+        if ($itemId < 1) {
+            return [];
+        }
+
+        $searchService = app(OrderRegistrationSearchService::class);
+        $selectedWarehouseId = (int) ($this->warehouseId ?? 0);
+        $warehouse91Id = (int) (DB::connection('sakemaru')
+            ->table('warehouses')
+            ->where('code', '91')
+            ->value('id') ?? 0);
+        $priorityWarehouseId = $warehouse91Id > 0 ? $searchService->incomingWarehouseId($warehouse91Id) : 0;
+        $jxContractorIds = $searchService->jxContractorIds();
+
+        $priorityItemContractors = $priorityWarehouseId > 0
+            ? ItemContractor::query()
+                ->where('warehouse_id', $priorityWarehouseId)
+                ->where('item_id', $itemId)
+                ->with(['contractor', 'supplier.partner'])
+                ->orderBy('contractor_id')
+                ->orderBy('supplier_id')
+                ->get()
+            : collect();
+
+        $options = $priorityItemContractors
+            ->map(fn (ItemContractor $itemContractor): ?array => $this->candidateContractorChangeOptionFromItemContractor(
+                $itemContractor,
+                $selectedWarehouseId,
+                $jxContractorIds,
+                '91倉庫'
+            ))
+            ->filter()
+            ->values();
+
+        $search = trim(mb_convert_kana((string) $search, 'as'));
+        if ($search !== '' && (mb_strlen($search) >= 2 || preg_match('/^\d+$/', $search))) {
+            $contractorRows = DB::connection('sakemaru')
+                ->table('contractors as c')
+                ->leftJoin('suppliers as default_suppliers', 'default_suppliers.id', '=', 'c.supplier_id')
+                ->leftJoin('partners as default_supplier_partners', 'default_supplier_partners.id', '=', 'default_suppliers.partner_id')
+                ->where(function ($query) use ($search): void {
+                    $query->where('c.code', 'like', "{$search}%")
+                        ->orWhere('c.name', 'like', "%{$search}%")
+                        ->orWhere('c.id', (int) $search);
+                })
+                ->orderBy('c.code')
+                ->limit(50)
+                ->get([
+                    'c.id as contractor_id',
+                    'c.code as contractor_code',
+                    'c.name as contractor_name',
+                    'c.supplier_id as default_supplier_id',
+                    'default_suppliers.partner_id as default_supplier_partner_id',
+                    'default_supplier_partners.code as default_supplier_code',
+                    'default_supplier_partners.name as default_supplier_name',
+                ]);
+            $contractorIds = $contractorRows
+                ->pluck('contractor_id')
+                ->map(fn ($id): int => (int) $id)
+                ->filter(fn (int $id): bool => $id > 0)
+                ->values()
+                ->all();
+            $linkedByContractor = $priorityWarehouseId > 0 && $contractorIds !== []
+                ? ItemContractor::query()
+                    ->where('warehouse_id', $priorityWarehouseId)
+                    ->where('item_id', $itemId)
+                    ->whereIn('contractor_id', $contractorIds)
+                    ->with(['contractor', 'supplier.partner'])
+                    ->get()
+                    ->keyBy(fn (ItemContractor $itemContractor): int => (int) $itemContractor->contractor_id)
+                : collect();
+
+            $searchOptions = $contractorRows
+                ->map(function ($contractor) use ($linkedByContractor, $selectedWarehouseId, $jxContractorIds): ?array {
+                    $contractorId = (int) $contractor->contractor_id;
+                    $itemContractor = $linkedByContractor->get($contractorId);
+
+                    if ($itemContractor instanceof ItemContractor) {
+                        return $this->candidateContractorChangeOptionFromItemContractor(
+                            $itemContractor,
+                            $selectedWarehouseId,
+                            $jxContractorIds,
+                            '91倉庫'
+                        );
+                    }
+
+                    return $this->candidateContractorChangeOptionFromContractorRow($contractor, $selectedWarehouseId);
+                })
+                ->filter()
+                ->values();
+
+            $options = $options
+                ->merge($searchOptions)
+                ->unique(fn (array $option): string => ((int) $option['contractor_id']).':'.((int) $option['supplier_id']))
+                ->values();
+        }
+
+        return $options->take(80)->values()->toArray();
     }
 
     public function searchItemsForModal(
@@ -1408,7 +1522,7 @@ class WmsOrderRegistration extends AdminPage
                 'name' => (string) $item->name,
                 'packaging' => $this->itemStandardLabel($item->volume ?? null, $item->volume_unit ?? null, (string) ($item->packaging ?? '')),
                 'capacity_case' => max(1, (int) ($item->capacity_case ?? 1)),
-                'item_contractor_note' => (string) ($itemContractor->note ?? ''),
+                'item_contractor_note' => (string) ($itemContractor->item_contractor_note ?? $itemContractor->note ?? ''),
                 'item_category2_code' => (string) ($category2Codes[(int) ($item->item_category2_id ?? 0)] ?? ''),
                 'search_code' => $searchInfo?->search_string ?? '',
                 'ordering_code' => $searchService->orderingCodeForItem((int) $item->id),
@@ -1417,9 +1531,12 @@ class WmsOrderRegistration extends AdminPage
                 'contractor_name' => $itemContractor?->contractor
                     ? "[{$itemContractor->contractor->code}]{$itemContractor->contractor->name}"
                     : null,
+                'contractor_raw_name' => $itemContractor?->contractor?->name,
                 'supplier_id' => $itemContractor ? (int) ($itemContractor->supplier_id ?? 0) : null,
                 'supplier_partner_id' => $itemContractor ? (int) ($itemContractor->supplier?->partner_id ?? 0) : null,
+                'supplier_code' => $itemContractor ? (string) ($itemContractor->supplier?->partner?->code ?? '') : '',
                 'supplier_name' => $itemContractor?->supplier?->partner?->name,
+                'item_contractor_warehouse_id' => $itemContractor ? (int) $itemContractor->warehouse_id : null,
                 'purchase_unit' => max(1, (int) ($itemContractor->purchase_unit ?? 1)),
                 'default_location_code' => (string) ($defaultLocationCodes[(int) $item->id] ?? ''),
                 'safety_stock' => (int) ($itemContractor->safety_stock ?? 0),
@@ -1451,6 +1568,7 @@ class WmsOrderRegistration extends AdminPage
                 'pending_piece_qty' => $registeredPieceQty ?: null,
                 'order_channel' => $isEosAvailable ? OrderChannel::EOS->value : OrderChannel::FAX->value,
                 'is_eos_available' => $isEosAvailable,
+                'item_contractor_linked' => $itemContractor !== null,
             ];
         })->values()->toArray();
 
@@ -1459,6 +1577,88 @@ class WmsOrderRegistration extends AdminPage
             'total' => count($data),
             'current_page' => 1,
             'last_page' => 1,
+        ];
+    }
+
+    private function candidateContractorChangeOptionFromItemContractor(
+        ItemContractor $itemContractor,
+        int $selectedWarehouseId,
+        array $jxContractorIds,
+        string $priorityLabel
+    ): ?array {
+        if (! $itemContractor->contractor) {
+            return null;
+        }
+
+        $contractorId = (int) $itemContractor->contractor_id;
+        $supplier = $itemContractor->supplier;
+        $supplierPartner = $supplier?->partner;
+        $supplierId = (int) ($supplier?->id ?? 0);
+        $isEosAvailable = in_array($contractorId, $jxContractorIds, true);
+        $orderChannel = $isEosAvailable ? OrderChannel::EOS : OrderChannel::FAX;
+
+        return [
+            'contractor_id' => $contractorId,
+            'item_contractor_warehouse_id' => (int) $itemContractor->warehouse_id,
+            'contractor_code' => (string) ($itemContractor->contractor->code ?? ''),
+            'contractor_name' => (string) ($itemContractor->contractor->name ?? ''),
+            'contractor_label' => '['.(string) ($itemContractor->contractor->code ?? '').']'.(string) ($itemContractor->contractor->name ?? ''),
+            'supplier_id' => $supplierId,
+            'supplier_partner_id' => (int) ($supplier?->partner_id ?? 0),
+            'supplier_code' => (string) ($supplierPartner?->code ?? ''),
+            'supplier_name' => (string) ($supplierPartner?->name ?? '-'),
+            'supplier_label' => filled($supplierPartner?->code)
+                ? '['.(string) $supplierPartner->code.']'.(string) ($supplierPartner?->name ?? '-')
+                : (string) ($supplierPartner?->name ?? '-'),
+            'is_selectable' => $contractorId > 0 && $supplierId > 0,
+            'is_item_linked' => true,
+            'is_eos_available' => $isEosAvailable,
+            'will_force_fax' => false,
+            'order_channel' => $orderChannel->value,
+            'purchase_unit' => max(1, (int) ($itemContractor->purchase_unit ?? 1)),
+            'safety_stock' => (int) ($itemContractor->safety_stock ?? 0),
+            'item_contractor_note' => (string) ($itemContractor->item_contractor_note ?? $itemContractor->note ?? ''),
+            'default_expected_arrival_date' => $selectedWarehouseId > 0
+                ? app(OrderRegistrationSearchService::class)->defaultExpectedArrivalDate($selectedWarehouseId, $contractorId, $orderChannel)
+                : null,
+            'priority_label' => $priorityLabel,
+        ];
+    }
+
+    private function candidateContractorChangeOptionFromContractorRow(object $contractor, int $selectedWarehouseId): ?array
+    {
+        $contractorId = (int) ($contractor->contractor_id ?? 0);
+        if ($contractorId < 1) {
+            return null;
+        }
+
+        $supplierId = (int) ($contractor->default_supplier_id ?? 0);
+
+        return [
+            'contractor_id' => $contractorId,
+            'item_contractor_warehouse_id' => null,
+            'contractor_code' => (string) ($contractor->contractor_code ?? ''),
+            'contractor_name' => (string) ($contractor->contractor_name ?? ''),
+            'contractor_label' => '['.(string) ($contractor->contractor_code ?? '').']'.(string) ($contractor->contractor_name ?? ''),
+            'supplier_id' => $supplierId,
+            'supplier_partner_id' => (int) ($contractor->default_supplier_partner_id ?? 0),
+            'supplier_code' => (string) ($contractor->default_supplier_code ?? ''),
+            'supplier_name' => (string) ($contractor->default_supplier_name ?? '-'),
+            'supplier_label' => filled($contractor->default_supplier_code ?? null)
+                ? '['.(string) $contractor->default_supplier_code.']'.(string) ($contractor->default_supplier_name ?? '-')
+                : (string) ($contractor->default_supplier_name ?? '-'),
+            'is_selectable' => $supplierId > 0,
+            'is_item_linked' => false,
+            'is_eos_available' => false,
+            'will_force_fax' => true,
+            'order_channel' => OrderChannel::FAX->value,
+            'purchase_unit' => 1,
+            'safety_stock' => 0,
+            'item_contractor_note' => '',
+            'default_expected_arrival_date' => $selectedWarehouseId > 0
+                ? app(OrderRegistrationSearchService::class)->defaultExpectedArrivalDate($selectedWarehouseId, $contractorId, OrderChannel::FAX)
+                : null,
+            'priority_label' => '検索結果',
         ];
     }
 
@@ -2017,7 +2217,79 @@ class WmsOrderRegistration extends AdminPage
     {
         unset($this->lines[$index]);
         $this->lines = array_values($this->lines);
+        $this->clearRegistrationLineSelection();
         $this->resetLineContractorFilterIfInvalid();
+    }
+
+    public function updatedLineContractorFilter(): void
+    {
+        $this->clearRegistrationLineSelection();
+    }
+
+    public function toggleVisibleRegistrationLineSelection(): void
+    {
+        $visibleIndexes = $this->visibleRegistrationLineIndexes();
+        if ($visibleIndexes === []) {
+            $this->clearRegistrationLineSelection();
+
+            return;
+        }
+
+        $selectedIndexes = $this->normalizedSelectedRegistrationLineIndexes();
+        $allVisibleSelected = collect($visibleIndexes)
+            ->every(fn (int $index): bool => in_array($index, $selectedIndexes, true));
+
+        $nextIndexes = $allVisibleSelected
+            ? collect($selectedIndexes)->reject(fn (int $index): bool => in_array($index, $visibleIndexes, true))
+            : collect($selectedIndexes)->merge($visibleIndexes);
+
+        $this->selectedRegistrationLineIndexes = $nextIndexes
+            ->unique()
+            ->values()
+            ->map(fn (int $index): string => (string) $index)
+            ->toArray();
+    }
+
+    public function applyBulkExpectedArrivalDate(): void
+    {
+        if (blank($this->bulkExpectedArrivalDate)) {
+            $this->notifyWarning('一括変更する入荷予定日を選択してください。');
+
+            return;
+        }
+
+        try {
+            $expectedArrivalDate = Carbon::parse($this->bulkExpectedArrivalDate)->toDateString();
+        } catch (\Throwable) {
+            $this->notifyWarning('入荷予定日を正しく選択してください。');
+
+            return;
+        }
+
+        if ($expectedArrivalDate < now()->toDateString()) {
+            $this->notifyWarning('入荷予定日に過去日は選択できません。');
+
+            return;
+        }
+
+        $targetIndexes = $this->selectedVisibleRegistrationLineIndexes();
+        if ($targetIndexes === []) {
+            $this->notifyWarning('一括変更する登録リスト行を選択してください。');
+
+            return;
+        }
+
+        foreach ($targetIndexes as $index) {
+            $this->lines[$index]['expected_arrival_date'] = $expectedArrivalDate;
+        }
+
+        $this->clearRegistrationLineSelection();
+
+        Notification::make()
+            ->title('選択した登録リストの入荷予定日を変更しました')
+            ->body(number_format(count($targetIndexes)).'件')
+            ->success()
+            ->send();
     }
 
     public function setLineOrderQuantity(int $index, string $quantityTypeValue, mixed $quantity): void
@@ -2162,6 +2434,8 @@ class WmsOrderRegistration extends AdminPage
             $this->completionResult = $this->buildCompletionResult($result);
             $this->lines = [];
             $this->lineContractorFilter = '';
+            $this->clearRegistrationLineSelection();
+            $this->bulkExpectedArrivalDate = '';
             $this->resetCompletionFaxDownloadModal();
             $this->resetCompletionDetailModal();
             $this->resetSearchState();
@@ -2176,10 +2450,38 @@ class WmsOrderRegistration extends AdminPage
         }
     }
 
+    public function downloadRegistrationListPdf()
+    {
+        $lines = $this->visibleRegistrationLinesForOutput();
+
+        if ($lines === []) {
+            Notification::make()
+                ->title('PDF出力対象の登録リストがありません')
+                ->warning()
+                ->send();
+
+            return null;
+        }
+
+        $pdfBinary = app(OrderRegistrationListPdfService::class)->generate($lines, [
+            'warehouse_label' => $this->selectedWarehouseLabel(),
+            'contractor_filter_label' => $this->registrationListContractorFilterLabel($lines),
+        ]);
+        $filename = 'order-registration-list_'.now()->format('YmdHis').'.pdf';
+
+        return response()->streamDownload(
+            fn () => print ($pdfBinary),
+            $filename,
+            ['Content-Type' => 'application/pdf']
+        );
+    }
+
     public function startNewRegistration(): void
     {
         $this->completionResult = [];
         $this->lineContractorFilter = '';
+        $this->clearRegistrationLineSelection();
+        $this->bulkExpectedArrivalDate = '';
         $this->resetCompletionFaxDownloadModal();
         $this->resetCompletionDetailModal();
         $this->resetSearchState();
@@ -2386,6 +2688,9 @@ class WmsOrderRegistration extends AdminPage
             'supplier_partner_id' => (int) ($row['supplier_partner_id'] ?? 0),
             'supplier_code' => (string) ($row['supplier_code'] ?? ''),
             'supplier_name' => (string) ($row['supplier_name'] ?? '-'),
+            'item_contractor_warehouse_id' => isset($row['item_contractor_warehouse_id'])
+                ? ((int) $row['item_contractor_warehouse_id'] ?: null)
+                : null,
             'search_code' => $row['search_code'] ?? null,
             'ordering_code' => $row['ordering_code'] ?? null,
             'purchase_unit' => max(1, (int) ($row['purchase_unit'] ?? 1)),
@@ -2681,6 +2986,85 @@ class WmsOrderRegistration extends AdminPage
             })
             ->values()
             ->toArray();
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function visibleRegistrationLinesForOutput(): array
+    {
+        $contractorFilter = (string) $this->lineContractorFilter;
+
+        return collect($this->registrationLines())
+            ->filter(fn (array $line): bool => $contractorFilter === '' || (string) ($line['contractor_id'] ?? '') === $contractorFilter)
+            ->values()
+            ->toArray();
+    }
+
+    /**
+     * @return array<int>
+     */
+    private function visibleRegistrationLineIndexes(): array
+    {
+        $contractorFilter = (string) $this->lineContractorFilter;
+
+        return collect($this->lines)
+            ->filter(fn (array $line): bool => $contractorFilter === '' || (string) ($line['contractor_id'] ?? '') === $contractorFilter)
+            ->keys()
+            ->map(fn (int|string $index): int => (int) $index)
+            ->values()
+            ->toArray();
+    }
+
+    /**
+     * @return array<int>
+     */
+    private function normalizedSelectedRegistrationLineIndexes(): array
+    {
+        return collect($this->selectedRegistrationLineIndexes)
+            ->map(fn (mixed $index): int => (int) $index)
+            ->filter(fn (int $index): bool => $index >= 0 && isset($this->lines[$index]))
+            ->unique()
+            ->values()
+            ->toArray();
+    }
+
+    /**
+     * @return array<int>
+     */
+    private function selectedVisibleRegistrationLineIndexes(): array
+    {
+        $visibleIndexes = $this->visibleRegistrationLineIndexes();
+
+        return collect($this->normalizedSelectedRegistrationLineIndexes())
+            ->filter(fn (int $index): bool => in_array($index, $visibleIndexes, true))
+            ->values()
+            ->toArray();
+    }
+
+    private function clearRegistrationLineSelection(): void
+    {
+        $this->selectedRegistrationLineIndexes = [];
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $visibleLines
+     */
+    private function registrationListContractorFilterLabel(array $visibleLines): string
+    {
+        if ($this->lineContractorFilter === '') {
+            return '';
+        }
+
+        $line = collect($visibleLines)->first();
+        if (! is_array($line)) {
+            return '';
+        }
+
+        $code = trim((string) ($line['contractor_code'] ?? ''));
+        $name = trim((string) ($line['contractor_name'] ?? ''));
+
+        return trim(($code !== '' ? "[{$code}]" : '').($name !== '' ? $name : ''));
     }
 
     /**

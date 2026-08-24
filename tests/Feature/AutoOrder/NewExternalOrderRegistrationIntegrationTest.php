@@ -15,6 +15,7 @@ use App\Models\WmsOrderDataFile;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Models\WmsOrderJxDocument;
 use App\Services\AutoOrder\OrderOutputQuantityResolver;
+use App\Services\AutoOrder\OrderRegistrationSearchService;
 use App\Services\AutoOrder\OrderRegistrationService;
 use App\Services\AutoOrder\OrderTransmissionService;
 use Carbon\Carbon;
@@ -202,6 +203,69 @@ class NewExternalOrderRegistrationIntegrationTest extends TestCase
             lines: [$line],
             userId: (int) (DB::connection('sakemaru')->table('users')->value('id') ?? 1)
         );
+    }
+
+    public function test_eos_registration_accepts_item_contractor_selected_from_another_incoming_warehouse(): void
+    {
+        $deliveryWarehouseId = $this->warehouseIdByCode('11');
+        $masterWarehouseId = $this->warehouseIdByCode('91');
+
+        if (! $deliveryWarehouseId || ! $masterWarehouseId) {
+            $this->markTestSkipped('倉庫CD 11 / 91 のマスタが必要です。');
+        }
+
+        $searchService = app(OrderRegistrationSearchService::class);
+        $deliveryIncomingWarehouseId = $searchService->incomingWarehouseId($deliveryWarehouseId);
+        $masterIncomingWarehouseId = $searchService->incomingWarehouseId($masterWarehouseId);
+        $jxContractorIds = $this->representativeJxContractorIds();
+
+        if ($jxContractorIds === []) {
+            $this->markTestSkipped('JX対象発注先マスタがありません。');
+        }
+
+        $row = (clone $this->itemContractorBaseQuery($masterIncomingWarehouseId))
+            ->whereIn('ic.contractor_id', $jxContractorIds)
+            ->whereNotNull('isi.search_string')
+            ->whereNotExists(function ($query) use ($deliveryIncomingWarehouseId): void {
+                $query
+                    ->selectRaw('1')
+                    ->from('item_contractors as delivery_ic')
+                    ->whereColumn('delivery_ic.item_id', 'ic.item_id')
+                    ->whereColumn('delivery_ic.contractor_id', 'ic.contractor_id')
+                    ->where('delivery_ic.warehouse_id', $deliveryIncomingWarehouseId);
+            })
+            ->orderBy('i.code')
+            ->first();
+
+        if (! $row) {
+            $this->markTestSkipped('別倉庫の商品発注先マスタを使うEOS検証に必要なマスタがありません。');
+        }
+
+        $line = $this->lineFromRow(
+            row: $row,
+            warehouseId: $deliveryWarehouseId,
+            channel: OrderChannel::EOS,
+            quantityType: QuantityType::CASE,
+            orderQuantity: 1,
+            expectedArrivalDate: '2026-08-24'
+        );
+        $line['item_contractor_warehouse_id'] = $masterIncomingWarehouseId;
+
+        $result = app(OrderRegistrationService::class)->register(
+            warehouseId: $deliveryWarehouseId,
+            lines: [$line],
+            userId: (int) (DB::connection('sakemaru')->table('users')->value('id') ?? 1)
+        );
+
+        $this->assertCount(1, $result['candidate_ids']);
+
+        $candidate = WmsOrderCandidate::query()->find($result['candidate_ids'][0]);
+        $this->assertNotNull($candidate);
+        $this->assertSame($deliveryWarehouseId, (int) $candidate->warehouse_id);
+        $this->assertSame((int) $row->item_id, (int) $candidate->item_id);
+        $this->assertSame((int) $row->contractor_id, (int) $candidate->contractor_id);
+        $this->assertSame((int) $row->supplier_id, (int) $candidate->supplier_id);
+        $this->assertSame(OrderChannel::EOS, $candidate->order_channel);
     }
 
     private function assertJxFilesMatchCandidates(array $files, Collection $eosCandidates, string $expectedArrivalDate): void
