@@ -33,35 +33,35 @@ class InventoryDifferenceWorkbookService
     /**
      * @return non-empty-string
      */
-    public function generate(WmsInventoryCount $inventoryCount): string
+    public function generate(WmsInventoryCount $inventoryCount, ?int $targetRound = null): string
     {
+        $exportRound = $this->exportRound($inventoryCount, $targetRound);
         $items = $this->queryItems($inventoryCount);
         $costPrices = $this->costPricesByItem($items, $inventoryCount);
         $managedItems = $items
             ->filter(fn (WmsInventoryCountItem $item): bool => $this->isManagedStockItem($item))
             ->values();
         $spreadsheet = new Spreadsheet;
-        $allRows = $this->allRows($inventoryCount, $managedItems, $costPrices);
-        $stockAmountRows = $this->allRows($inventoryCount, $items, $costPrices);
-        $diffRows = $this->diffRows($inventoryCount, $managedItems, $costPrices);
-        $uncountedRows = $this->uncountedRows($inventoryCount, $managedItems, $costPrices);
+        $allRows = $this->allRows($inventoryCount, $managedItems, $costPrices, $exportRound);
+        $stockAmountRows = $this->allRows($inventoryCount, $items, $costPrices, $exportRound);
+        $diffRows = $this->diffRows($inventoryCount, $managedItems, $costPrices, $exportRound);
+        $uncountedRows = $this->uncountedRows($inventoryCount, $managedItems, $costPrices, $exportRound);
         $departmentRows = $this->departmentRows(
             $allRows,
             $this->reportStockAmountsByMajorCategory($items, $costPrices),
         );
-        $latestConfirmedRound = $this->latestConfirmedRound($inventoryCount);
 
         $departmentSheet = $spreadsheet->getActiveSheet();
         $departmentSheet->setTitle('部門別');
-        $this->writeDepartmentReport($departmentSheet, $inventoryCount, $departmentRows, $latestConfirmedRound, false);
+        $this->writeDepartmentReport($departmentSheet, $inventoryCount, $departmentRows, $exportRound, false);
 
         $absoluteDepartmentSheet = $spreadsheet->createSheet();
         $absoluteDepartmentSheet->setTitle('部門別(絶対値)');
-        $this->writeDepartmentReport($absoluteDepartmentSheet, $inventoryCount, $departmentRows, $latestConfirmedRound, true);
+        $this->writeDepartmentReport($absoluteDepartmentSheet, $inventoryCount, $departmentRows, $exportRound, true);
 
         $executiveSheet = $spreadsheet->createSheet();
         $executiveSheet->setTitle('社長用');
-        $this->writeExecutiveSummaryReport($executiveSheet, $inventoryCount, $departmentRows, $latestConfirmedRound);
+        $this->writeExecutiveSummaryReport($executiveSheet, $inventoryCount, $departmentRows, $exportRound);
 
         $summarySheet = $spreadsheet->createSheet();
         $summarySheet->setTitle('集計');
@@ -121,10 +121,10 @@ class InventoryDifferenceWorkbookService
      * @param  Collection<int, float>  $costPrices
      * @return array<int, array<string, mixed>>
      */
-    private function allRows(WmsInventoryCount $inventoryCount, Collection $items, Collection $costPrices): array
+    private function allRows(WmsInventoryCount $inventoryCount, Collection $items, Collection $costPrices, ?int $exportRound): array
     {
         return $items
-            ->map(fn (WmsInventoryCountItem $item): array => $this->buildDiffRow($inventoryCount, $item, $costPrices))
+            ->map(fn (WmsInventoryCountItem $item): array => $this->buildDiffRow($inventoryCount, $item, $costPrices, $exportRound))
             ->values()
             ->all();
     }
@@ -134,12 +134,12 @@ class InventoryDifferenceWorkbookService
      * @param  Collection<int, float>  $costPrices
      * @return array<int, array<string, mixed>>
      */
-    private function diffRows(WmsInventoryCount $inventoryCount, Collection $items, Collection $costPrices): array
+    private function diffRows(WmsInventoryCount $inventoryCount, Collection $items, Collection $costPrices, ?int $exportRound): array
     {
         return $items
             ->filter(fn (WmsInventoryCountItem $item): bool => $this->baseSystemQuantity($item) !== null)
-            ->filter(fn (WmsInventoryCountItem $item): bool => $this->hasRoundDifference($inventoryCount, $item))
-            ->map(fn (WmsInventoryCountItem $item): array => $this->buildDiffRow($inventoryCount, $item, $costPrices))
+            ->filter(fn (WmsInventoryCountItem $item): bool => $this->hasRoundDifference($inventoryCount, $item, $exportRound))
+            ->map(fn (WmsInventoryCountItem $item): array => $this->buildDiffRow($inventoryCount, $item, $costPrices, $exportRound))
             ->values()
             ->all();
     }
@@ -149,9 +149,9 @@ class InventoryDifferenceWorkbookService
      * @param  Collection<int, float>  $costPrices
      * @return array<int, array<string, mixed>>
      */
-    private function uncountedRows(WmsInventoryCount $inventoryCount, Collection $items, Collection $costPrices): array
+    private function uncountedRows(WmsInventoryCount $inventoryCount, Collection $items, Collection $costPrices, ?int $exportRound): array
     {
-        $uncountedRound = $this->latestConfirmedRound($inventoryCount);
+        $uncountedRound = $exportRound;
 
         if ($uncountedRound === null) {
             return [];
@@ -160,7 +160,7 @@ class InventoryDifferenceWorkbookService
         return $items
             ->filter(fn (WmsInventoryCountItem $item): bool => $this->isUncountedTargetItem($item))
             ->filter(fn (WmsInventoryCountItem $item): bool => $this->physicalRoundQuantity($item, $uncountedRound) === null)
-            ->map(fn (WmsInventoryCountItem $item): array => $this->buildUncountedRow($inventoryCount, $item, $costPrices, $uncountedRound))
+            ->map(fn (WmsInventoryCountItem $item): array => $this->buildUncountedRow($inventoryCount, $item, $costPrices, $exportRound, $uncountedRound))
             ->values()
             ->all();
     }
@@ -411,13 +411,13 @@ class InventoryDifferenceWorkbookService
     /**
      * @return array<string, mixed>
      */
-    private function buildDiffRow(WmsInventoryCount $inventoryCount, WmsInventoryCountItem $item, Collection $costPrices): array
+    private function buildDiffRow(WmsInventoryCount $inventoryCount, WmsInventoryCountItem $item, Collection $costPrices, ?int $exportRound): array
     {
         $costPrice = $this->costPrice($item, $costPrices);
         $row = $this->baseRow($inventoryCount, $item, $costPrices, $costPrice);
 
         foreach ([1, 2, 3] as $round) {
-            $values = $this->roundValues($inventoryCount, $item, $round, $costPrice);
+            $values = $this->roundValues($inventoryCount, $item, $round, $exportRound, $costPrice);
 
             $row["{$round}回目数量"] = $values['quantity'];
             $row["{$round}回目±差異"] = $values['difference'];
@@ -433,7 +433,7 @@ class InventoryDifferenceWorkbookService
     /**
      * @return array<string, mixed>
      */
-    private function buildUncountedRow(WmsInventoryCount $inventoryCount, WmsInventoryCountItem $item, Collection $costPrices, ?int $uncountedRound = null): array
+    private function buildUncountedRow(WmsInventoryCount $inventoryCount, WmsInventoryCountItem $item, Collection $costPrices, ?int $exportRound, ?int $uncountedRound = null): array
     {
         $costPrice = $this->costPrice($item, $costPrices);
         $row = $this->baseRow($inventoryCount, $item, $costPrices, $costPrice);
@@ -441,7 +441,7 @@ class InventoryDifferenceWorkbookService
         $roundsToCheck = $uncountedRound === null ? [1, 2, 3] : [$uncountedRound];
 
         foreach ([1, 2, 3] as $round) {
-            $values = $this->roundValues($inventoryCount, $item, $round, $costPrice);
+            $values = $this->roundValues($inventoryCount, $item, $round, $exportRound, $costPrice);
 
             $row["{$round}回目数量"] = $values['quantity'];
             $row["{$round}回目±差異"] = $values['difference'];
@@ -449,7 +449,7 @@ class InventoryDifferenceWorkbookService
             $row["{$round}回目±差異金額"] = $values['difference_amount'];
             $row["{$round}回目絶対差異金額"] = $values['absolute_difference_amount'];
 
-            if (in_array($round, $roundsToCheck, true) && $this->shouldExportRound($inventoryCount, $round) && $this->physicalRoundQuantity($item, $round) === null) {
+            if (in_array($round, $roundsToCheck, true) && $this->shouldExportRound($round, $exportRound) && $this->physicalRoundQuantity($item, $round) === null) {
                 $uncountedRounds[] = "{$round}回目";
             }
         }
@@ -483,10 +483,10 @@ class InventoryDifferenceWorkbookService
         ];
     }
 
-    private function hasRoundDifference(WmsInventoryCount $inventoryCount, WmsInventoryCountItem $item): bool
+    private function hasRoundDifference(WmsInventoryCount $inventoryCount, WmsInventoryCountItem $item, ?int $exportRound): bool
     {
         foreach ([1, 2, 3] as $round) {
-            $difference = $this->roundValues($inventoryCount, $item, $round)['difference'];
+            $difference = $this->roundValues($inventoryCount, $item, $round, $exportRound)['difference'];
 
             if ($difference !== null && (int) $difference !== 0) {
                 return true;
@@ -499,9 +499,9 @@ class InventoryDifferenceWorkbookService
     /**
      * @return array{quantity: ?int, difference: ?int, absolute_difference: ?int, difference_amount: ?float, absolute_difference_amount: ?float}
      */
-    private function roundValues(WmsInventoryCount $inventoryCount, WmsInventoryCountItem $item, int $round, ?float $costPrice = null): array
+    private function roundValues(WmsInventoryCount $inventoryCount, WmsInventoryCountItem $item, int $round, ?int $exportRound, ?float $costPrice = null): array
     {
-        if (! $this->shouldExportRound($inventoryCount, $round)) {
+        if (! $this->shouldExportRound($round, $exportRound)) {
             return ['quantity' => null, 'difference' => null, 'absolute_difference' => null, 'difference_amount' => null, 'absolute_difference_amount' => null];
         }
 
@@ -684,9 +684,22 @@ class InventoryDifferenceWorkbookService
         return $amounts;
     }
 
-    private function shouldExportRound(WmsInventoryCount $inventoryCount, int $round): bool
+    private function shouldExportRound(int $round, ?int $exportRound): bool
     {
-        return $this->isRoundConfirmed($inventoryCount, $round);
+        return $exportRound !== null && $round <= $exportRound;
+    }
+
+    private function exportRound(WmsInventoryCount $inventoryCount, ?int $targetRound): ?int
+    {
+        if ($targetRound === null) {
+            return $this->latestConfirmedRound($inventoryCount);
+        }
+
+        if (! in_array($targetRound, [1, 2, 3], true)) {
+            throw new RuntimeException('差異データの出力回が不正です。');
+        }
+
+        return $targetRound;
     }
 
     private function latestConfirmedRound(WmsInventoryCount $inventoryCount): ?int

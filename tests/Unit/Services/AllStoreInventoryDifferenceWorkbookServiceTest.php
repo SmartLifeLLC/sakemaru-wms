@@ -43,18 +43,21 @@ class AllStoreInventoryDifferenceWorkbookServiceTest extends TestCase
         $sakeItemId = $this->createItem(111001, '全店差異 和酒テスト', 1001, 2011, true, $supplierId);
         $beerItemId = $this->createItem(143025, '全店差異 ビールテスト', 1001, 2014);
         $otherAlcoholItemId = $this->createItem(131047, '全店差異 その他酒類テスト', 1001, 2013);
+        $excludedCategoryItemId = $this->createItem(910001, '全店差異 対象外分類テスト', 9999, 999901);
         $unmanagedItemId = $this->createItem(150002, '全店差異 在庫管理対象外テスト', 1002, 2021, false);
         $this->createItemContractor($sakeItemId, $contractorId, $supplierId);
 
         $this->createItemPrice($sakeItemId, 100);
         $this->createItemPrice($beerItemId, 50);
         $this->createItemPrice($otherAlcoholItemId, 10);
+        $this->createItemPrice($excludedCategoryItemId, 888);
         $this->createItemPrice($unmanagedItemId, 999);
 
         $this->createCountItem($count01, $sakeItemId, '111001', '全店差異 和酒テスト', 10, 13, 3);
         $this->createCountItem($count10, $sakeItemId, '111001', '全店差異 和酒テスト', 10, 7, -3);
         $this->createCountItem($count10, $beerItemId, '143025', '全店差異 ビールテスト', 4, null, null);
         $this->createCountItem($count10, $otherAlcoholItemId, '131047', '全店差異 その他酒類テスト', 2, 1, -1);
+        $this->createCountItem($count10, $excludedCategoryItemId, '910001', '全店差異 対象外分類テスト', 9, 0, -9);
         $this->createCountItem($count10, $unmanagedItemId, '150002', '全店差異 在庫管理対象外テスト', 8, 0, -8);
 
         $workbook = $this->loadWorkbook((new AllStoreInventoryDifferenceWorkbookService)->generate(collect([$count10, $count01])));
@@ -73,6 +76,7 @@ class AllStoreInventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertArrayHasKey('111001', $latestRows);
         $this->assertArrayHasKey('143025', $latestRows);
         $this->assertArrayHasKey('131047', $latestRows);
+        $this->assertArrayNotHasKey('910001', $latestRows);
         $this->assertArrayNotHasKey('150002', $latestRows);
         $this->assertSame('1202', $latestRows['111001']['主仕入先ＣＤ']);
         $this->assertSame('国分中部テスト', $latestRows['111001']['仕入先名']);
@@ -96,6 +100,38 @@ class AllStoreInventoryDifferenceWorkbookServiceTest extends TestCase
 
         $this->assertArrayNotHasKey('10:131047', $sakeRows);
         $this->assertArrayNotHasKey('10:150002', $beerRows);
+    }
+
+    public function test_all_store_difference_workbook_selected_round_uses_only_physical_input(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-23 10:00:00'));
+
+        $count01 = $this->createInventoryCount('01', '本店');
+        $count10 = $this->createInventoryCount('10', '敦賀店');
+        $inputItemId = $this->createItem(111002, '全店差異 選択回入力テスト', 1001, 2011);
+        $noInputItemId = $this->createItem(111003, '全店差異 選択回未入力テスト', 1001, 2011);
+        $this->createItemPrice($inputItemId, 100);
+        $this->createItemPrice($noInputItemId, 100);
+
+        $this->createCountItem($count01, $inputItemId, '111002', '全店差異 選択回入力テスト', 10, 8, -99);
+        $this->createCountItem($count10, $inputItemId, '111002', '全店差異 選択回入力テスト', 10, null, -99);
+        $this->createCountItem($count10, $noInputItemId, '111003', '全店差異 選択回未入力テスト', 5, null, -5);
+
+        $workbook = $this->loadWorkbook((new AllStoreInventoryDifferenceWorkbookService)->generate(collect([$count10, $count01]), 2));
+
+        $latestRows = $this->rowsByItemCode($workbook->getSheetByName('最新'));
+        $this->assertArrayHasKey('111002', $latestRows);
+        $this->assertArrayNotHasKey('111003', $latestRows);
+        $this->assertSame(-2, $latestRows['111002']['01']);
+        $this->assertSame(0, $latestRows['111002']['10']);
+
+        $sakeRows = $this->rowsByStoreAndItem($workbook->getSheetByName('11・12和酒'));
+        $this->assertArrayHasKey('01:111002', $sakeRows);
+        $this->assertArrayNotHasKey('10:111002', $sakeRows);
+        $this->assertArrayNotHasKey('10:111003', $sakeRows);
+        $this->assertSame(-2, $sakeRows['01:111002']['差異数']);
+        $this->assertSame(200.0, $sakeRows['01:111002']['絶対値差異']);
+        $this->assertSame(-200.0, $sakeRows['01:111002']['＋-差異']);
     }
 
     public function test_all_store_difference_workbook_exports_empty_sheets_when_no_differences(): void

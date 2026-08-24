@@ -35,9 +35,12 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'status' => WmsInventoryCount::STATUS_COUNTING,
         ]);
 
+        $targetItemId = $this->createItemInMajorCategory(1001);
+        $excludedCategoryItemId = $this->createItemInMajorCategory(9999);
+
         $endOnly = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
-            'item_id' => 999201,
+            'item_id' => $targetItemId,
             'item_code' => 'PDF001',
             'item_name' => '終了差異のみ',
             'system_quantity' => 5,
@@ -48,7 +51,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
 
         $startOnly = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
-            'item_id' => 999202,
+            'item_id' => $targetItemId,
             'item_code' => 'PDF002',
             'item_name' => '開始差異のみ',
             'system_quantity' => 5,
@@ -59,7 +62,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
 
         $matched = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
-            'item_id' => 999203,
+            'item_id' => $targetItemId,
             'item_code' => 'PDF003',
             'item_name' => '差異なし',
             'system_quantity' => 4,
@@ -70,13 +73,24 @@ class InventoryDiffListPdfServiceTest extends TestCase
 
         $noEndingStock = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
-            'item_id' => 999204,
+            'item_id' => $targetItemId,
             'item_code' => 'PDF004',
             'item_name' => '終了理論なし',
             'system_quantity' => 4,
             'ending_system_quantity' => null,
             'final_count_quantity' => 8,
             'cost_price' => 40,
+        ]);
+
+        $excludedCategory = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $excludedCategoryItemId,
+            'item_code' => 'PDFCATEGORY001',
+            'item_name' => '対象外大分類',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 3,
+            'final_count_quantity' => 5,
+            'cost_price' => 10,
         ]);
 
         $ownedSetItemId = $this->createItemInMajorCategory(1001, true);
@@ -108,6 +122,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
         $this->assertSame([$endOnly->id, $noEndingStock->id], $items->pluck('id')->all());
         $this->assertFalse($items->contains('id', $startOnly->id));
         $this->assertFalse($items->contains('id', $matched->id));
+        $this->assertFalse($items->contains('id', $excludedCategory->id));
         $this->assertFalse($items->contains('id', $ownedSetItem->id));
         $this->assertFalse($items->contains('id', $unmanagedItem->id));
 
@@ -200,9 +215,11 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'current_count_round' => 2,
         ]);
 
+        $targetItemId = $this->createItemInMajorCategory(1001);
+
         $firstRoundOnly = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
-            'item_id' => 999301,
+            'item_id' => $targetItemId,
             'item_code' => 'ROUND-PDF-001',
             'item_name' => '1回目だけ差異',
             'system_quantity' => 10,
@@ -213,7 +230,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
 
         $secondRoundDiff = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
-            'item_id' => 999302,
+            'item_id' => $targetItemId,
             'item_code' => 'ROUND-PDF-002',
             'item_name' => '2回目差異',
             'system_quantity' => 10,
@@ -225,7 +242,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
 
         $secondRoundMatched = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
-            'item_id' => 999303,
+            'item_id' => $targetItemId,
             'item_code' => 'ROUND-PDF-003',
             'item_name' => '2回目一致',
             'system_quantity' => 10,
@@ -237,7 +254,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
 
         $finalRoundOnly = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
-            'item_id' => 999304,
+            'item_id' => $targetItemId,
             'item_code' => 'ROUND-PDF-004',
             'item_name' => '3回目だけ差異',
             'system_quantity' => 10,
@@ -248,17 +265,19 @@ class InventoryDiffListPdfServiceTest extends TestCase
 
         $items = $this->diffListItems($inventoryCount, 2);
 
-        $this->assertSame([$firstRoundOnly->id, $secondRoundDiff->id], $items->pluck('id')->all());
+        $this->assertSame([$firstRoundOnly->id, $secondRoundDiff->id, $finalRoundOnly->id], $items->pluck('id')->all());
         $this->assertFalse($items->contains('id', $secondRoundMatched->id));
-        $this->assertFalse($items->contains('id', $finalRoundOnly->id));
 
         $firstRoundOnlyRow = $items->firstWhere('id', $firstRoundOnly->id);
         $secondRoundDiffRow = $items->firstWhere('id', $secondRoundDiff->id);
+        $finalRoundOnlyRow = $items->firstWhere('id', $finalRoundOnly->id);
 
         $this->assertSame(7, $firstRoundOnlyRow->getAttribute('pdf_actual_quantity'));
         $this->assertEquals(-3.0, $firstRoundOnlyRow->getAttribute('pdf_end_difference_quantity'));
         $this->assertSame(6, $secondRoundDiffRow->getAttribute('pdf_actual_quantity'));
         $this->assertEquals(-4.0, $secondRoundDiffRow->getAttribute('pdf_end_difference_quantity'));
+        $this->assertSame(0, $finalRoundOnlyRow->getAttribute('pdf_actual_quantity'));
+        $this->assertEquals(-10.0, $finalRoundOnlyRow->getAttribute('pdf_end_difference_quantity'));
     }
 
     public function test_diff_list_for_confirmed_round_uses_confirmed_difference_snapshot(): void
@@ -285,9 +304,11 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'first_count_confirmed_at' => now(),
         ]);
 
+        $targetItemId = $this->createItemInMajorCategory(1001);
+
         $item = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
-            'item_id' => 999305,
+            'item_id' => $targetItemId,
             'item_code' => 'ROUND-PDF-005',
             'item_name' => '確定差分保持',
             'system_quantity' => 10,
@@ -332,9 +353,11 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'second_count_confirmed_at' => now(),
         ]);
 
+        $targetItemId = $this->createItemInMajorCategory(1001);
+
         $item = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
-            'item_id' => 999307,
+            'item_id' => $targetItemId,
             'item_code' => 'ROUND-PDF-007',
             'item_name' => '2回目未入力確定差分保持',
             'system_quantity' => 10,
@@ -378,9 +401,11 @@ class InventoryDiffListPdfServiceTest extends TestCase
             'current_count_round' => 1,
         ]);
 
+        $targetItemId = $this->createItemInMajorCategory(1001);
+
         $item = WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
-            'item_id' => 999306,
+            'item_id' => $targetItemId,
             'item_code' => 'ROUND-PDF-006',
             'item_name' => '未確定差分',
             'system_quantity' => 10,
@@ -498,7 +523,7 @@ class InventoryDiffListPdfServiceTest extends TestCase
             $this->markTestSkipped('pdftotext is not available.');
         }
 
-        $itemId = random_int(900000000, 999999999);
+        $itemId = $this->createItemInMajorCategory(1001);
         $janCode = '4999999999999';
         $productCode = 'PDFJAN'.Str::upper(Str::random(10));
 
