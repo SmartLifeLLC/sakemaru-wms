@@ -613,15 +613,9 @@ class WmsOrderRegistration extends AdminPage
             ->havingRaw('SUM(shipped_piece_qty) > 0');
 
         $stockSubquery = DB::connection('sakemaru')
-            ->query()
-            ->fromSub(
-                DB::connection('sakemaru')
-                    ->table('wms_v_stock_available')
-                    ->where('warehouse_id', $selectedWarehouseId)
-                    ->selectRaw('DISTINCT warehouse_id, item_id, real_stock_id, available_for_wms as stock_qty'),
-                'dedup_stocks'
-            )
-            ->selectRaw('item_id, SUM(stock_qty) as effective_stock')
+            ->table('real_stocks')
+            ->where('warehouse_id', $selectedWarehouseId)
+            ->selectRaw('item_id, SUM(available_quantity) as effective_stock')
             ->groupBy('item_id');
 
         $incomingSubquery = DB::connection('sakemaru')
@@ -1718,7 +1712,7 @@ class WmsOrderRegistration extends AdminPage
         }
 
         return DB::connection('sakemaru')
-            ->table('wms_v_stock_available')
+            ->table('real_stocks')
             ->where('warehouse_id', $warehouseId)
             ->whereIn('item_id', $itemIds)
             ->selectRaw('item_id, SUM(available_quantity) as available_qty')
@@ -1733,15 +1727,10 @@ class WmsOrderRegistration extends AdminPage
      */
     private function otherWarehouseStockRows(int $itemId, int $currentWarehouseId): array
     {
-        $stockSubquery = DB::connection('sakemaru')
-            ->table('wms_v_stock_available')
-            ->where('item_id', $itemId)
-            ->where('warehouse_id', '<>', $currentWarehouseId)
-            ->selectRaw('DISTINCT warehouse_id, real_stock_id, available_quantity');
-
         return DB::connection('sakemaru')
-            ->query()
-            ->fromSub($stockSubquery, 'stock')
+            ->table('real_stocks as stock')
+            ->where('stock.item_id', $itemId)
+            ->where('stock.warehouse_id', '<>', $currentWarehouseId)
             ->join('warehouses as w', 'w.id', '=', 'stock.warehouse_id')
             ->selectRaw('
                 w.id as warehouse_id,

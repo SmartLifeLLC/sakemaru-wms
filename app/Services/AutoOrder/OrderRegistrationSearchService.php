@@ -251,15 +251,9 @@ class OrderRegistrationSearchService
             ->havingRaw('SUM(shipped_piece_qty) > 0');
 
         $stockSubquery = DB::connection('sakemaru')
-            ->query()
-            ->fromSub(
-                DB::connection('sakemaru')
-                    ->table('wms_v_stock_available')
-                    ->where('warehouse_id', $warehouseId)
-                    ->selectRaw('DISTINCT warehouse_id, item_id, real_stock_id, available_for_wms as stock_qty'),
-                'dedup_stocks'
-            )
-            ->selectRaw('item_id, SUM(stock_qty) as effective_stock')
+            ->table('real_stocks')
+            ->where('warehouse_id', $warehouseId)
+            ->selectRaw('item_id, SUM(available_quantity) as effective_stock')
             ->groupBy('item_id');
 
         $incomingSubquery = DB::connection('sakemaru')
@@ -458,7 +452,7 @@ class OrderRegistrationSearchService
     public function availableStock(int $warehouseId, int $itemId): int
     {
         return (int) DB::connection('sakemaru')
-            ->table('wms_v_stock_available')
+            ->table('real_stocks')
             ->where('warehouse_id', $warehouseId)
             ->where('item_id', $itemId)
             ->sum('available_quantity');
