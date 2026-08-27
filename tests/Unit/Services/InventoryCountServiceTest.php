@@ -6,6 +6,7 @@ use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
 use App\Services\InventoryCount\InventoryCountLedgerBalanceService;
 use App\Services\InventoryCount\InventoryCountService;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -817,6 +818,38 @@ class InventoryCountServiceTest extends TestCase
         $this->assertSame('8.000', (string) $insertedBackup->new_ending_system_quantity);
     }
 
+    public function test_ledger_balance_counts_only_delivered_transfer_inbound(): void
+    {
+        foreach ([
+            'trades',
+            'stock_transfers',
+            'trade_items',
+        ] as $table) {
+            if (! Schema::connection('sakemaru')->hasTable($table)) {
+                $this->markTestSkipped("{$table} is not available.");
+            }
+        }
+
+        $items = $this->ledgerTestItems();
+        if ($items->isEmpty()) {
+            $this->markTestSkipped('items table does not have enough ledger-testable rows.');
+        }
+
+        $item = $items[0];
+        $clientId = (int) $item->client_id;
+        $warehouseId = 990135;
+        $fromWarehouseId = 990136;
+        $endDate = InventoryCountLedgerBalanceService::OPENING_DATE;
+
+        $this->createStockTransferMovement($clientId, $item, $fromWarehouseId, $warehouseId, 5, $endDate, true, $endDate);
+        $this->createStockTransferMovement($clientId, $item, $fromWarehouseId, $warehouseId, 7, $endDate, false, null);
+        $this->createStockTransferMovement($clientId, $item, $fromWarehouseId, $warehouseId, 11, $endDate, true, CarbonImmutable::parse($endDate)->addDay()->toDateString());
+
+        $balances = (new InventoryCountLedgerBalanceService)->balancesByItem($clientId, $warehouseId, $endDate);
+
+        $this->assertSame(5.0, $balances[(int) $item->id] ?? null);
+    }
+
     public function test_refresh_ending_system_quantities_from_ledger_excludes_owned_set_items(): void
     {
         foreach ([
@@ -1326,6 +1359,64 @@ class InventoryCountServiceTest extends TestCase
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+    }
+
+    private function createStockTransferMovement(
+        int $clientId,
+        object $item,
+        int $fromWarehouseId,
+        int $toWarehouseId,
+        int $quantity,
+        string $processDate,
+        bool $isDelivered,
+        ?string $deliveredDate,
+    ): void {
+        $tradeId = DB::connection('sakemaru')->table('trades')->insertGetId([
+            'client_id' => $clientId,
+            'creator_id' => 1,
+            'last_updater_id' => 1,
+            'trade_category' => 'STOCK_TRANSFER',
+            'uuid' => (string) Str::uuid(),
+            'serial_id' => random_int(900000000, 999999999),
+            'entry_lot_number' => 0,
+            'subtotal' => 0,
+            'total' => 0,
+            'process_date' => $processDate,
+            'is_active' => true,
+            'is_latest' => true,
+            'trade_item_count' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::connection('sakemaru')->table('stock_transfers')->insert([
+            'trade_id' => $tradeId,
+            'client_id' => $clientId,
+            'from_warehouse_id' => $fromWarehouseId,
+            'to_warehouse_id' => $toWarehouseId,
+            'is_delivered' => $isDelivered,
+            'delivered_date' => $deliveredDate ?? '2023-01-01',
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::connection('sakemaru')->table('trade_items')->insert([
+            'client_id' => $clientId,
+            'trade_id' => $tradeId,
+            'item_id' => $item->id,
+            'item_name' => (string) $item->name,
+            'stock_allocation_id' => 0,
+            'order_quantity_type' => 'PIECE',
+            'quantity' => $quantity,
+            'quantity_type' => 'PIECE',
+            'capacity_case' => 1,
+            'capacity_carton' => 1,
+            'price_category' => 'OTHER',
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     private function createOpeningBalance(int $clientId, int $warehouseId, object $item, int $quantity): void
