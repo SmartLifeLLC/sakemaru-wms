@@ -302,6 +302,7 @@ class InventoryCountLedgerBalanceService
     private function stockTransferOutRows(int $clientId, int $warehouseId, string $fromDate, string $endDate): Collection
     {
         $pieceQty = $this->pieceQty();
+        $movementDate = 'COALESCE(st.picking_date, st.delivered_date)';
 
         return DB::connection('sakemaru')
             ->table('trade_items as ti')
@@ -314,16 +315,16 @@ class InventoryCountLedgerBalanceService
             ->where('t.is_latest', true)
             ->where('st.is_active', true)
             ->where('ti.is_active', true)
-            ->whereBetween('t.process_date', [$fromDate, $endDate])
-            ->groupBy('ti.item_id', 't.process_date')
-            ->selectRaw("ti.item_id, t.process_date AS movement_date, 50 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM(-1 * {$pieceQty}) AS net_quantity")
+            ->whereBetween(DB::raw($movementDate), [$fromDate, $endDate])
+            ->groupBy('ti.item_id', DB::raw($movementDate))
+            ->selectRaw("ti.item_id, {$movementDate} AS movement_date, 50 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM(-ABS({$pieceQty})) AS net_quantity")
             ->get();
     }
 
     private function stockTransferInRows(int $clientId, int $warehouseId, string $fromDate, string $endDate): Collection
     {
         $pieceQty = $this->pieceQty();
-        $movementDate = 'COALESCE(st.delivered_date, t.process_date)';
+        $movementDate = 'st.delivered_date';
 
         return DB::connection('sakemaru')
             ->table('trade_items as ti')
@@ -337,9 +338,10 @@ class InventoryCountLedgerBalanceService
             ->where('st.is_active', true)
             ->where('st.is_delivered', true)
             ->where('ti.is_active', true)
+            ->whereNotNull('st.delivered_date')
             ->whereBetween(DB::raw($movementDate), [$fromDate, $endDate])
             ->groupBy('ti.item_id', DB::raw($movementDate))
-            ->selectRaw("ti.item_id, {$movementDate} AS movement_date, 60 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM({$pieceQty}) AS net_quantity")
+            ->selectRaw("ti.item_id, {$movementDate} AS movement_date, 60 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM(ABS({$pieceQty})) AS net_quantity")
             ->get();
     }
 
@@ -349,6 +351,8 @@ class InventoryCountLedgerBalanceService
             return collect();
         }
 
+        $movementDate = 'COALESCE(st.picking_date, st.delivered_date)';
+
         return DB::connection('sakemaru')
             ->table('stock_transfer_lot_allocations as a')
             ->join('real_stock_lots as lot', 'lot.id', '=', 'a.from_real_stock_lot_id')
@@ -364,9 +368,9 @@ class InventoryCountLedgerBalanceService
             ->where('t.is_latest', true)
             ->where('st.is_active', true)
             ->where('ti.is_active', true)
-            ->whereBetween('t.process_date', [$fromDate, $endDate])
-            ->groupBy('rs.item_id', 't.process_date')
-            ->selectRaw('rs.item_id, t.process_date AS movement_date, 51 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM(-1 * a.quantity) AS net_quantity')
+            ->whereBetween(DB::raw($movementDate), [$fromDate, $endDate])
+            ->groupBy('rs.item_id', DB::raw($movementDate))
+            ->selectRaw("rs.item_id, {$movementDate} AS movement_date, 51 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM(-ABS(a.quantity)) AS net_quantity")
             ->get();
     }
 
@@ -376,7 +380,7 @@ class InventoryCountLedgerBalanceService
             return collect();
         }
 
-        $movementDate = 'COALESCE(st.delivered_date, t.process_date)';
+        $movementDate = 'st.delivered_date';
 
         return DB::connection('sakemaru')
             ->table('stock_transfer_lot_allocations as a')
@@ -394,9 +398,10 @@ class InventoryCountLedgerBalanceService
             ->where('st.is_active', true)
             ->where('st.is_delivered', true)
             ->where('ti.is_active', true)
+            ->whereNotNull('st.delivered_date')
             ->whereBetween(DB::raw($movementDate), [$fromDate, $endDate])
             ->groupBy('rs.item_id', DB::raw($movementDate))
-            ->selectRaw("rs.item_id, {$movementDate} AS movement_date, 61 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM(a.quantity) AS net_quantity")
+            ->selectRaw("rs.item_id, {$movementDate} AS movement_date, 61 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM(ABS(a.quantity)) AS net_quantity")
             ->get();
     }
 
