@@ -850,6 +850,39 @@ class InventoryCountServiceTest extends TestCase
         $this->assertSame(5.0, $balances[(int) $item->id] ?? null);
     }
 
+    public function test_ledger_balance_counts_transfer_outbound_by_picking_date_not_process_date(): void
+    {
+        foreach ([
+            'trades',
+            'stock_transfers',
+            'trade_items',
+        ] as $table) {
+            if (! Schema::connection('sakemaru')->hasTable($table)) {
+                $this->markTestSkipped("{$table} is not available.");
+            }
+        }
+
+        $items = $this->ledgerTestItems();
+        if ($items->isEmpty()) {
+            $this->markTestSkipped('items table does not have enough ledger-testable rows.');
+        }
+
+        $item = $items[0];
+        $clientId = (int) $item->client_id;
+        $warehouseId = 990137;
+        $toWarehouseId = 990138;
+        $endDate = InventoryCountLedgerBalanceService::OPENING_DATE;
+        $nextDate = CarbonImmutable::parse($endDate)->addDay()->toDateString();
+
+        $this->createStockTransferMovement($clientId, $item, $warehouseId, $toWarehouseId, 5, $nextDate, true, $nextDate, $endDate);
+        $this->createStockTransferMovement($clientId, $item, $warehouseId, $toWarehouseId, 7, $endDate, true, $endDate, $nextDate);
+        $this->createStockTransferMovement($clientId, $item, $warehouseId, $toWarehouseId, 3, $nextDate, true, $endDate, null);
+
+        $balances = (new InventoryCountLedgerBalanceService)->balancesByItem($clientId, $warehouseId, $endDate);
+
+        $this->assertSame(-8.0, $balances[(int) $item->id] ?? null);
+    }
+
     public function test_refresh_ending_system_quantities_from_ledger_excludes_owned_set_items(): void
     {
         foreach ([
@@ -1370,6 +1403,7 @@ class InventoryCountServiceTest extends TestCase
         string $processDate,
         bool $isDelivered,
         ?string $deliveredDate,
+        ?string $pickingDate = null,
     ): void {
         $tradeId = DB::connection('sakemaru')->table('trades')->insertGetId([
             'client_id' => $clientId,
@@ -1396,6 +1430,7 @@ class InventoryCountServiceTest extends TestCase
             'to_warehouse_id' => $toWarehouseId,
             'is_delivered' => $isDelivered,
             'delivered_date' => $deliveredDate ?? '2023-01-01',
+            'picking_date' => $pickingDate,
             'is_active' => true,
             'created_at' => now(),
             'updated_at' => now(),

@@ -211,6 +211,7 @@ class InventoryCountMovementService
     private function stockTransferOutMovementRows(int $clientId, int $warehouseId, array $itemIds, string $fromDate, string $endDate): Collection
     {
         $pieceQty = $this->pieceQty();
+        $movementDate = 'COALESCE(st.picking_date, st.delivered_date)';
 
         return DB::connection('sakemaru')->table('trade_items as ti')
             ->join('trades as t', 't.id', '=', 'ti.trade_id')
@@ -221,7 +222,7 @@ class InventoryCountMovementService
             ->where('t.trade_category', 'STOCK_TRANSFER')
             ->where('t.is_active', true)
             ->where('ti.is_active', true)
-            ->whereBetween('t.process_date', [$fromDate, $endDate])
+            ->whereBetween(DB::raw($movementDate), [$fromDate, $endDate])
             ->groupBy('ti.item_id')
             ->select([
                 'ti.item_id',
@@ -244,7 +245,8 @@ class InventoryCountMovementService
             ->where('t.trade_category', 'STOCK_TRANSFER')
             ->where('t.is_active', true)
             ->where('ti.is_active', true)
-            ->whereBetween(DB::raw('COALESCE(st.delivered_date, t.process_date)'), [$fromDate, $endDate])
+            ->whereNotNull('st.delivered_date')
+            ->whereBetween('st.delivered_date', [$fromDate, $endDate])
             ->groupBy('ti.item_id')
             ->select([
                 'ti.item_id',
