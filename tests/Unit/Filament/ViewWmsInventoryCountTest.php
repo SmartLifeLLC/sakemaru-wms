@@ -83,6 +83,76 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertStringContainsString('<span>差異再計算</span>', $blade);
     }
 
+    public function test_entered_list_workbook_action_is_available_in_details_and_fill_uncounted_zero_is_hidden(): void
+    {
+        $page = file_get_contents(app_path('Filament/Resources/WmsInventoryCount/Pages/ViewWmsInventoryCount.php'));
+
+        $enteredWorkbookPosition = strpos($page, "Action::make('downloadEnteredListWorkbook')");
+
+        $this->assertNotFalse($enteredWorkbookPosition);
+        $this->assertStringContainsString('->visible(false)', substr($page, strpos($page, "Action::make('fillUncountedWithZero')"), 400));
+        $this->assertStringContainsString('->label(\'入力済Excel\')', $page);
+        $this->assertStringContainsString('InventoryEnteredListWorkbookService)->generate($record, $this->activeCountRound)', $page);
+
+        $blade = file_get_contents(resource_path('views/filament/resources/wms-inventory-count/pages/view-wms-inventory-count.blade.php'));
+        $bladeEnteredWorkbookPosition = strpos($blade, "\$this->getAction('downloadEnteredListWorkbook')");
+
+        $this->assertNotFalse($bladeEnteredWorkbookPosition);
+        $this->assertStringNotContainsString("\$this->getAction('fillUncountedWithZero')", $blade);
+    }
+
+    public function test_fill_uncounted_with_zero_logs_auto_zero_device(): void
+    {
+        if (! Schema::connection('sakemaru')->hasColumn('items', 'is_managed_stock')) {
+            $this->markTestSkipped('items.is_managed_stock is not available.');
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => '未0ログテスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'current_count_round' => 1,
+        ]);
+
+        $item = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999407,
+            'item_code' => 'ZEROLOG001',
+            'item_name' => '未0ログ対象',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 8,
+            'cost_price' => 10,
+        ]);
+        $unmanagedItemId = $this->createItemInMajorCategory(1001, false);
+        $unmanagedItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $unmanagedItemId,
+            'item_code' => 'ZEROLOG002',
+            'item_name' => '未0対象外',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 8,
+            'cost_price' => 10,
+        ]);
+
+        $page = new ViewWmsInventoryCount;
+        $page->record = $inventoryCount;
+        $page->activeCountRound = 1;
+
+        $page->fillActiveRoundUncountedWithZero();
+
+        $item->refresh();
+        $log = WmsInventoryCountItemLog::where('inventory_count_item_id', $item->id)->first();
+
+        $this->assertSame(0, $item->first_count_quantity);
+        $this->assertSame(WmsInventoryCountItemLog::DEVICE_WEB_AUTO_ZERO, $log?->device_id);
+        $this->assertSame('未0', $log?->actor_name);
+        $this->assertNull($unmanagedItem->refresh()->first_count_quantity);
+    }
+
     public function test_second_round_difference_refresh_action_is_available_in_details(): void
     {
         $page = file_get_contents(app_path('Filament/Resources/WmsInventoryCount/Pages/ViewWmsInventoryCount.php'));
