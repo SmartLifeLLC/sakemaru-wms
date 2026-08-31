@@ -9,6 +9,7 @@ use App\Models\WmsInventoryCountItemLog;
 use App\Services\InventoryCount\InventoryCountService;
 use App\Services\InventoryCount\InventoryDifferenceWorkbookService;
 use App\Services\InventoryCount\InventoryDiffListPdfService;
+use App\Services\InventoryCount\InventoryEnteredListWorkbookService;
 use App\Services\InventoryCount\InventoryInstructionPdfService;
 use App\Services\InventoryCount\InventoryInstructionSheetPdfService;
 use Filament\Actions\Action;
@@ -865,6 +866,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
         $count = 0;
 
         $this->inventoryCountItemsQuery()
+            ->managedStockItems()
             ->whereNull($roundColumn)
             ->chunkById(500, function ($items) use ($round, $roundColumn, $actorColumn, $actorName, &$count) {
                 foreach ($items as $item) {
@@ -878,7 +880,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
                     $this->writeWebCountLogs($item, [
                         $round => [$oldQuantity, 0],
-                    ]);
+                    ], WmsInventoryCountItemLog::DEVICE_WEB_AUTO_ZERO);
 
                     $count++;
                 }
@@ -1007,7 +1009,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
         Notification::make()->success()->title('3回目の入力に戻しました')->send();
     }
 
-    private function writeWebCountLogs(WmsInventoryCountItem $item, array $rounds): void
+    private function writeWebCountLogs(WmsInventoryCountItem $item, array $rounds, string $deviceId = WmsInventoryCountItemLog::DEVICE_WEB): void
     {
         foreach ($rounds as $round => [$old, $new]) {
             if ((string) $old === (string) $new) {
@@ -1016,7 +1018,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
             WmsInventoryCountItemLog::create([
                 'inventory_count_item_id' => $item->id,
-                'device_id' => 'WEB',
+                'device_id' => $deviceId,
                 'user_id' => auth()->id(),
                 'count_round' => $round,
                 'old_quantity' => $old,
@@ -1656,13 +1658,32 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->label('未0')
                 ->icon('heroicon-o-check-circle')
                 ->color('warning')
-                ->visible(fn () => $record->status === WmsInventoryCount::STATUS_COUNTING && ! $this->isRoundConfirmed($this->activeCountRound))
+                ->visible(false)
                 ->requiresConfirmation()
                 ->modalHeading(fn () => $this->activeRoundLabel().'未カウント0入力')
                 ->modalDescription(fn () => $this->activeRoundLabel().'の未カウント明細に0を入力します。現在回数以外の数量は変更しません。')
                 ->modalSubmitActionLabel('0入力')
                 ->modalCancelActionLabel('0入力せず閉じる')
                 ->action(fn () => $this->fillActiveRoundUncountedWithZero()),
+
+            Action::make('downloadEnteredListWorkbook')
+                ->label('入力済Excel')
+                ->icon('heroicon-o-table-cells')
+                ->color('gray')
+                ->visible(fn () => ! in_array($record->status, [
+                    WmsInventoryCount::STATUS_DRAFT,
+                    WmsInventoryCount::STATUS_CANCELLED,
+                ], true))
+                ->action(function () use ($record) {
+                    $xlsxContent = (new InventoryEnteredListWorkbookService)->generate($record, $this->activeCountRound);
+                    $filename = '棚卸入力済リスト_'.$this->activeRoundLabel().'_'.($record->count_no ?? 'unknown').'.xlsx';
+
+                    return response()->streamDownload(
+                        fn () => print ($xlsxContent),
+                        $filename,
+                        ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
+                    );
+                }),
 
             Action::make('reopenFinalRound')
                 ->label('3回目に戻す')
