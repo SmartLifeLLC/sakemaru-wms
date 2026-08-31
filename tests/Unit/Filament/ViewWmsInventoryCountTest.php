@@ -92,7 +92,9 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertNotFalse($enteredWorkbookPosition);
         $this->assertStringContainsString('->visible(false)', substr($page, strpos($page, "Action::make('fillUncountedWithZero')"), 400));
         $this->assertStringContainsString('->label(\'入力済Excel\')', $page);
-        $this->assertStringContainsString('InventoryEnteredListWorkbookService)->generate($record, $this->activeCountRound)', $page);
+        $this->assertStringContainsString("Select::make('target_round')", $page);
+        $this->assertStringContainsString('InventoryEnteredListWorkbookService)->generate($record, $targetRound)', $page);
+        $this->assertStringContainsString("\$filename = '棚卸入力済リスト_'.\$this->roundLabel(\$targetRound).'_'.", $page);
 
         $blade = file_get_contents(resource_path('views/filament/resources/wms-inventory-count/pages/view-wms-inventory-count.blade.php'));
         $bladeEnteredWorkbookPosition = strpos($blade, "\$this->getAction('downloadEnteredListWorkbook')");

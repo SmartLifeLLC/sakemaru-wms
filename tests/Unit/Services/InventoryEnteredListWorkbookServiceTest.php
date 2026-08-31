@@ -44,6 +44,7 @@ class InventoryEnteredListWorkbookServiceTest extends TestCase
 
         $entered = $this->createCountItem($inventoryCount, $targetItemId, 'ENT001', '実入力あり', 10, 9, 8, 1);
         $manualZero = $this->createCountItem($inventoryCount, $manualZeroItemId, 'ENTZERO', '手入力ゼロ', 3, 3, 0, 1);
+        $roundTwoOnly = $this->createCountItem($inventoryCount, $targetItemId, 'ENTR2', '2回目のみ入力', 10, 7, null, 1, 4);
         $autoZero = $this->createCountItem($inventoryCount, $targetItemId, 'AUTOZERO', '未0自動入力', 5, 5, 0, 1);
         $uncounted = $this->createCountItem($inventoryCount, $targetItemId, 'NOINPUT', '未入力', 5, 5, null, 0);
         $unmanaged = $this->createCountItem($inventoryCount, $unmanagedItemId, 'UNMANAGED', '在庫管理対象外', 5, 5, 2, 1);
@@ -51,6 +52,7 @@ class InventoryEnteredListWorkbookServiceTest extends TestCase
 
         $this->createLog($entered, 1, WmsInventoryCountItemLog::DEVICE_WEB, 8);
         $this->createLog($manualZero, 1, 'HANDY-001', 0);
+        $this->createLog($roundTwoOnly, 2, WmsInventoryCountItemLog::DEVICE_WEB, 4);
         $this->createLog($autoZero, 1, WmsInventoryCountItemLog::DEVICE_WEB_AUTO_ZERO, 0);
         $this->createLog($unmanaged, 1, WmsInventoryCountItemLog::DEVICE_WEB, 2);
         $this->createLog($excludedCategory, 1, WmsInventoryCountItemLog::DEVICE_WEB, 2);
@@ -66,11 +68,10 @@ class InventoryEnteredListWorkbookServiceTest extends TestCase
             'ロケ',
             'ロットNO',
             '賞味期限',
-            '入力',
             '終了理論',
             '実数量',
             '終了差異',
-        ], $sheet->rangeToArray('A1:J1')[0]);
+        ], $sheet->rangeToArray('A1:I1')[0]);
 
         $rows = $this->rowsByItemCode($sheet);
 
@@ -80,8 +81,17 @@ class InventoryEnteredListWorkbookServiceTest extends TestCase
         $this->assertSame(-1, (int) $rows['ENT001']['終了差異']);
         $this->assertSame(0, (int) $rows['ENTZERO']['実数量']);
         $this->assertSame(-3, (int) $rows['ENTZERO']['終了差異']);
+        $this->assertArrayNotHasKey($roundTwoOnly->item_code, $rows);
         $this->assertArrayNotHasKey($autoZero->item_code, $rows);
         $this->assertArrayNotHasKey($uncounted->item_code, $rows);
+
+        $roundTwoWorkbook = $this->loadWorkbook((new InventoryEnteredListWorkbookService)->generate($inventoryCount, 2));
+        $roundTwoRows = $this->rowsByItemCode($roundTwoWorkbook->getActiveSheet());
+
+        $this->assertEqualsCanonicalizing(['ENTR2'], array_keys($roundTwoRows));
+        $this->assertSame(7, (int) $roundTwoRows['ENTR2']['終了理論']);
+        $this->assertSame(4, (int) $roundTwoRows['ENTR2']['実数量']);
+        $this->assertSame(-3, (int) $roundTwoRows['ENTR2']['終了差異']);
     }
 
     private function createItemInMajorCategory(int $majorCategoryCode, bool $managedStock = true): int
@@ -150,6 +160,8 @@ class InventoryEnteredListWorkbookServiceTest extends TestCase
         int $endingSystemQuantity,
         ?int $firstCountQuantity,
         int $inputCount,
+        ?int $secondCountQuantity = null,
+        ?int $finalCountQuantity = null,
     ): WmsInventoryCountItem {
         return WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
@@ -165,6 +177,8 @@ class InventoryEnteredListWorkbookServiceTest extends TestCase
             'system_quantity' => $systemQuantity,
             'ending_system_quantity' => $endingSystemQuantity,
             'first_count_quantity' => $firstCountQuantity,
+            'second_count_quantity' => $secondCountQuantity,
+            'final_count_quantity' => $finalCountQuantity,
             'cost_price' => 10,
             'input_count' => $inputCount,
         ]);
@@ -204,10 +218,10 @@ class InventoryEnteredListWorkbookServiceTest extends TestCase
     private function rowsByItemCode($sheet): array
     {
         $rows = [];
-        $headers = $sheet->rangeToArray('A1:J1')[0];
+        $headers = $sheet->rangeToArray('A1:I1')[0];
 
         for ($rowIndex = 2; $rowIndex <= $sheet->getHighestDataRow(); $rowIndex++) {
-            $rowValues = $sheet->rangeToArray("A{$rowIndex}:J{$rowIndex}")[0];
+            $rowValues = $sheet->rangeToArray("A{$rowIndex}:I{$rowIndex}")[0];
             $row = array_combine($headers, $rowValues);
             $itemCode = (string) ($row['アイテムコード'] ?? '');
 
