@@ -1674,9 +1674,23 @@ class ViewWmsInventoryCount extends Page implements HasForms
                     WmsInventoryCount::STATUS_DRAFT,
                     WmsInventoryCount::STATUS_CANCELLED,
                 ], true))
-                ->action(function () use ($record) {
-                    $xlsxContent = (new InventoryEnteredListWorkbookService)->generate($record, $this->activeCountRound);
-                    $filename = '棚卸入力済リスト_'.$this->activeRoundLabel().'_'.($record->count_no ?? 'unknown').'.xlsx';
+                ->schema([
+                    Select::make('target_round')
+                        ->label('出力回')
+                        ->options(fn () => $this->differenceWorkbookRoundOptions())
+                        ->default(fn () => $this->defaultDifferenceWorkbookRound())
+                        ->required()
+                        ->native(false),
+                ])
+                ->modalHeading('入力済Excelダウンロード')
+                ->modalDescription('選択した回数で、実数量が入力された明細だけを出力します。')
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('ダウンロード')->color('danger'))
+                ->modalCancelActionLabel('ダウンロードせず閉じる')
+                ->action(function (array $data) use ($record) {
+                    $targetRound = (int) ($data['target_round'] ?? $this->defaultDifferenceWorkbookRound());
+                    $xlsxContent = (new InventoryEnteredListWorkbookService)->generate($record, $targetRound);
+                    $filename = '棚卸入力済リスト_'.$this->roundLabel($targetRound).'_'.($record->count_no ?? 'unknown').'.xlsx';
 
                     return response()->streamDownload(
                         fn () => print ($xlsxContent),

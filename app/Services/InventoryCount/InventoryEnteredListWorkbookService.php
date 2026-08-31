@@ -71,15 +71,7 @@ class InventoryEnteredListWorkbookService
             ->withoutOwnedSetItems()
             ->managedStockItems()
             ->whereNotNull($roundColumn)
-            ->whereHas('logs', function (Builder $query) use ($round): void {
-                $query
-                    ->where('count_round', $round)
-                    ->where(function (Builder $query): void {
-                        $query
-                            ->whereNull('device_id')
-                            ->orWhere('device_id', '!=', WmsInventoryCountItemLog::DEVICE_WEB_AUTO_ZERO);
-                    });
-            })
+            ->whereHas('logs', fn (Builder $query): Builder => $this->normalInputLogQuery($query, $round))
             ->with(['inventoryCount', 'item.item_category1', 'item.item_category2']);
 
         $this->applyReportTargetCategoryFilter($query);
@@ -134,7 +126,6 @@ class InventoryEnteredListWorkbookService
             'ロケ' => $item->location_no ?? '',
             'ロットNO' => $item->lot_no ?? '',
             '賞味期限' => $item->expiration_date?->format('Y/m/d') ?? '',
-            '入力' => $item->input_count ?? 0,
             '終了理論' => $systemQuantity,
             '実数量' => $actualQuantity,
             '終了差異' => $differenceQuantity,
@@ -185,7 +176,6 @@ class InventoryEnteredListWorkbookService
             'ロケ',
             'ロットNO',
             '賞味期限',
-            '入力',
             '終了理論',
             '実数量',
             '終了差異',
@@ -229,10 +219,9 @@ class InventoryEnteredListWorkbookService
             'D' => 14,
             'E' => 18,
             'F' => 13,
-            'G' => 8,
+            'G' => 12,
             'H' => 12,
             'I' => 12,
-            'J' => 12,
         ] as $column => $width) {
             $sheet->getColumnDimension($column)->setWidth($width);
         }
@@ -244,13 +233,13 @@ class InventoryEnteredListWorkbookService
         $sheet->getStyle("A2:F{$lastRow}")
             ->getAlignment()
             ->setWrapText(true);
-        $sheet->getStyle("G2:J{$lastRow}")
+        $sheet->getStyle("G2:I{$lastRow}")
             ->getAlignment()
             ->setHorizontal(Alignment::HORIZONTAL_RIGHT);
-        $sheet->getStyle("G2:I{$lastRow}")
+        $sheet->getStyle("G2:H{$lastRow}")
             ->getNumberFormat()
             ->setFormatCode('#,##0;[Red]-#,##0;0');
-        $sheet->getStyle("J2:J{$lastRow}")
+        $sheet->getStyle("I2:I{$lastRow}")
             ->getNumberFormat()
             ->setFormatCode('+#,##0;-#,##0;0');
     }
@@ -265,6 +254,17 @@ class InventoryEnteredListWorkbookService
             'ロットNO',
             '賞味期限',
         ], true);
+    }
+
+    private function normalInputLogQuery(Builder $query, int $round): Builder
+    {
+        return $query
+            ->where('count_round', $round)
+            ->where(function (Builder $query): void {
+                $query
+                    ->whereNull('device_id')
+                    ->orWhere('device_id', '!=', WmsInventoryCountItemLog::DEVICE_WEB_AUTO_ZERO);
+            });
     }
 
     private function systemQuantityForRound(WmsInventoryCount $inventoryCount, WmsInventoryCountItem $item, int $round): ?int
