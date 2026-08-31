@@ -319,9 +319,9 @@ class InventoryCountController extends ApiController
         $this->startDraftForHandy($inventoryCount);
 
         $validator = Validator::make($request->all(), [
-            'quantity' => ['nullable', 'numeric', 'min:0'],
-            'case_quantity' => ['nullable', 'integer', 'min:0'],
-            'piece_quantity' => ['nullable', 'integer', 'min:0'],
+            'quantity' => ['nullable', 'numeric'],
+            'case_quantity' => ['nullable', 'integer'],
+            'piece_quantity' => ['nullable', 'integer'],
             'search_code' => ['nullable', 'string', 'max:255'],
             'jan_code' => ['nullable', 'string', 'max:255'],
             'scanned_code' => ['nullable', 'string', 'max:255'],
@@ -380,9 +380,9 @@ class InventoryCountController extends ApiController
             'device_id' => ['nullable', 'string', 'max:100'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.item_id' => ['required', 'integer'],
-            'items.*.case_quantity' => ['nullable', 'integer', 'min:0'],
-            'items.*.piece_quantity' => ['nullable', 'integer', 'min:0'],
-            'items.*.quantity' => ['nullable', 'numeric', 'min:0'],
+            'items.*.case_quantity' => ['nullable', 'integer'],
+            'items.*.piece_quantity' => ['nullable', 'integer'],
+            'items.*.quantity' => ['nullable', 'numeric'],
             'items.*.search_code' => ['nullable', 'string', 'max:255'],
             'items.*.jan_code' => ['nullable', 'string', 'max:255'],
             'items.*.scanned_code' => ['nullable', 'string', 'max:255'],
