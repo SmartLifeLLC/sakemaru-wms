@@ -818,7 +818,7 @@ class InventoryCountServiceTest extends TestCase
         $this->assertSame('8.000', (string) $insertedBackup->new_ending_system_quantity);
     }
 
-    public function test_ledger_balance_counts_only_delivered_transfer_inbound(): void
+    public function test_ledger_balance_counts_transfer_inbound_by_delivered_date_without_delivered_flag_filter(): void
     {
         foreach ([
             'trades',
@@ -842,15 +842,15 @@ class InventoryCountServiceTest extends TestCase
         $endDate = InventoryCountLedgerBalanceService::OPENING_DATE;
 
         $this->createStockTransferMovement($clientId, $item, $fromWarehouseId, $warehouseId, 5, $endDate, true, $endDate);
-        $this->createStockTransferMovement($clientId, $item, $fromWarehouseId, $warehouseId, 7, $endDate, false, null);
+        $this->createStockTransferMovement($clientId, $item, $fromWarehouseId, $warehouseId, 7, $endDate, false, $endDate);
         $this->createStockTransferMovement($clientId, $item, $fromWarehouseId, $warehouseId, 11, $endDate, true, CarbonImmutable::parse($endDate)->addDay()->toDateString());
 
         $balances = (new InventoryCountLedgerBalanceService)->balancesByItem($clientId, $warehouseId, $endDate);
 
-        $this->assertSame(5.0, $balances[(int) $item->id] ?? null);
+        $this->assertSame(12.0, $balances[(int) $item->id] ?? null);
     }
 
-    public function test_ledger_balance_counts_transfer_outbound_by_picking_date_not_process_date(): void
+    public function test_ledger_balance_counts_transfer_outbound_by_picking_date_with_process_date_fallback(): void
     {
         foreach ([
             'trades',
@@ -880,7 +880,94 @@ class InventoryCountServiceTest extends TestCase
 
         $balances = (new InventoryCountLedgerBalanceService)->balancesByItem($clientId, $warehouseId, $endDate);
 
-        $this->assertSame(-8.0, $balances[(int) $item->id] ?? null);
+        $this->assertSame(-5.0, $balances[(int) $item->id] ?? null);
+    }
+
+    public function test_ledger_balance_counts_owned_set_components_from_lot_earnings(): void
+    {
+        foreach ([
+            'trades',
+            'earnings',
+            'trade_items',
+            'item_sets',
+            'real_stock_lots',
+            'real_stock_lot_earnings',
+        ] as $table) {
+            if (! Schema::connection('sakemaru')->hasTable($table)) {
+                $this->markTestSkipped("{$table} is not available.");
+            }
+        }
+
+        $items = $this->ledgerTestItems();
+        if ($items->isEmpty()) {
+            $this->markTestSkipped('items table does not have enough ledger-testable rows.');
+        }
+
+        $component = $items[0];
+        $clientId = (int) $component->client_id;
+        $warehouseId = 990139;
+        $endDate = InventoryCountLedgerBalanceService::OPENING_DATE;
+
+        $realStockId = $this->createRealStock((int) $component->id, 25, $clientId, $warehouseId);
+        $realStockLotId = $this->createRealStockLot($realStockId, 25);
+        $setParentId = $this->createOwnedSetItem($clientId);
+
+        $this->createOwnedSetEarningAllocation($clientId, $warehouseId, $setParentId, $realStockLotId, 5, $endDate);
+
+        $balances = (new InventoryCountLedgerBalanceService)->balancesByItem($clientId, $warehouseId, $endDate);
+
+        $this->assertSame(-5.0, $balances[(int) $component->id] ?? null);
+    }
+
+    public function test_ledger_balance_prefers_owned_set_lot_earnings_over_current_recipe(): void
+    {
+        foreach ([
+            'trades',
+            'earnings',
+            'trade_items',
+            'item_sets',
+            'item_set_details',
+            'real_stock_lots',
+            'real_stock_lot_earnings',
+        ] as $table) {
+            if (! Schema::connection('sakemaru')->hasTable($table)) {
+                $this->markTestSkipped("{$table} is not available.");
+            }
+        }
+
+        $items = $this->ledgerTestItems();
+        if ($items->isEmpty()) {
+            $this->markTestSkipped('items table does not have enough ledger-testable rows.');
+        }
+
+        $component = $items[0];
+        $clientId = (int) $component->client_id;
+        $warehouseId = 990140;
+        $endDate = InventoryCountLedgerBalanceService::OPENING_DATE;
+
+        $realStockId = $this->createRealStock((int) $component->id, 25, $clientId, $warehouseId);
+        $realStockLotId = $this->createRealStockLot($realStockId, 25);
+        $setParentId = $this->createOwnedSetItem($clientId);
+        $setParent = DB::connection('sakemaru')->table('items')->where('id', $setParentId)->first();
+
+        DB::connection('sakemaru')->table('item_set_details')->insert([
+            'item_set_id' => $setParent->item_set_id,
+            'item_id' => (int) $component->id,
+            'quantity_case' => 0,
+            'quantity_piece' => 99,
+            'is_active' => true,
+            'client_id' => $clientId,
+            'creator_id' => 1,
+            'last_updater_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->createOwnedSetEarningAllocation($clientId, $warehouseId, $setParentId, $realStockLotId, 5, $endDate);
+
+        $balances = (new InventoryCountLedgerBalanceService)->balancesByItem($clientId, $warehouseId, $endDate);
+
+        $this->assertSame(-5.0, $balances[(int) $component->id] ?? null);
     }
 
     public function test_refresh_ending_system_quantities_from_ledger_excludes_owned_set_items(): void
@@ -1449,6 +1536,94 @@ class InventoryCountServiceTest extends TestCase
             'capacity_carton' => 1,
             'price_category' => 'OTHER',
             'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    private function createRealStockLot(int $realStockId, int $quantity): int
+    {
+        return (int) DB::connection('sakemaru')
+            ->table('real_stock_lots')
+            ->insertGetId([
+                'real_stock_id' => $realStockId,
+                'initial_quantity' => $quantity,
+                'current_quantity' => $quantity,
+                'reserved_quantity' => 0,
+                'status' => 'ACTIVE',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+    }
+
+    private function createOwnedSetEarningAllocation(
+        int $clientId,
+        int $warehouseId,
+        int $setParentId,
+        int $realStockLotId,
+        int $quantity,
+        string $deliveredDate,
+    ): void {
+        $setParent = DB::connection('sakemaru')->table('items')->where('id', $setParentId)->first();
+        $tradeId = DB::connection('sakemaru')->table('trades')->insertGetId([
+            'client_id' => $clientId,
+            'partner_id' => 1,
+            'creator_id' => 1,
+            'last_updater_id' => 1,
+            'trade_category' => 'EARNING',
+            'trade_direction' => 'NORMAL',
+            'is_returned' => false,
+            'uuid' => (string) Str::uuid(),
+            'serial_id' => random_int(900000000, 999999999),
+            'entry_lot_number' => 0,
+            'subtotal' => 0,
+            'total' => 0,
+            'process_date' => $deliveredDate,
+            'is_active' => true,
+            'is_latest' => true,
+            'trade_item_count' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $earningId = DB::connection('sakemaru')->table('earnings')->insertGetId([
+            'trade_id' => $tradeId,
+            'client_id' => $clientId,
+            'buyer_id' => 1,
+            'warehouse_id' => $warehouseId,
+            'delivered_date' => $deliveredDate,
+            'account_date' => $deliveredDate,
+            'is_delivered' => true,
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $tradeItemId = DB::connection('sakemaru')->table('trade_items')->insertGetId([
+            'client_id' => $clientId,
+            'trade_id' => $tradeId,
+            'item_id' => $setParentId,
+            'item_name' => (string) ($setParent->name ?? $setParent->name_main ?? 'OWNEDセット親'),
+            'stock_allocation_id' => 0,
+            'order_quantity_type' => 'PIECE',
+            'quantity' => 1,
+            'quantity_type' => 'PIECE',
+            'capacity_case' => 1,
+            'capacity_carton' => 1,
+            'price_category' => 'OTHER',
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::connection('sakemaru')->table('real_stock_lot_earnings')->insert([
+            'real_stock_lot_id' => $realStockLotId,
+            'earning_id' => $earningId,
+            'trade_item_id' => $tradeItemId,
+            'quantity' => $quantity,
+            'status' => 'DELIVERED',
+            'reserved_at' => now(),
+            'delivered_at' => $deliveredDate.' 00:00:00',
             'created_at' => now(),
             'updated_at' => now(),
         ]);

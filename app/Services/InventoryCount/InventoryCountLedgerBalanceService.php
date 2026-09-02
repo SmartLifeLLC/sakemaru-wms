@@ -50,6 +50,7 @@ class InventoryCountLedgerBalanceService
                 'kind' => 'inventory_adjustment',
                 'stock_quantity_before' => $row->stock_quantity_before !== null ? $this->quantityToScaled($row->stock_quantity_before) : null,
                 'stock_quantity_after' => $row->stock_quantity_after !== null ? $this->quantityToScaled($row->stock_quantity_after) : null,
+                'net_quantity' => $this->quantityToScaled($row->net_quantity ?? 0),
             ];
         }
 
@@ -77,6 +78,8 @@ class InventoryCountLedgerBalanceService
 
                     if ($movement['stock_quantity_after'] !== null) {
                         $balance = $movement['stock_quantity_after'];
+                    } else {
+                        $balance += (int) $movement['net_quantity'];
                     }
 
                     continue;
@@ -231,7 +234,58 @@ class InventoryCountLedgerBalanceService
 
     private function ownSetComponentEarningRows(int $clientId, int $warehouseId, string $fromDate, string $endDate): Collection
     {
-        if (! Schema::connection('sakemaru')->hasTable('item_sets') || ! Schema::connection('sakemaru')->hasTable('item_set_details')) {
+        if (! Schema::connection('sakemaru')->hasTable('item_sets')) {
+            return collect();
+        }
+
+        return $this->ownSetComponentEarningRowsFromLotEarnings($clientId, $warehouseId, $fromDate, $endDate)
+            ->merge($this->ownSetComponentEarningRowsFromRecipeFallback($clientId, $warehouseId, $fromDate, $endDate))
+            ->values();
+    }
+
+    private function ownSetComponentEarningRowsFromLotEarnings(int $clientId, int $warehouseId, string $fromDate, string $endDate): Collection
+    {
+        if (! Schema::connection('sakemaru')->hasTable('real_stock_lot_earnings')
+            || ! Schema::connection('sakemaru')->hasTable('real_stock_lots')
+            || ! Schema::connection('sakemaru')->hasTable('real_stocks')
+            || ! Schema::connection('sakemaru')->hasTable('item_sets')
+        ) {
+            return collect();
+        }
+
+        $movementDate = 'COALESCE(e.delivered_date, t.process_date)';
+        $returnCondition = "COALESCE(t.is_returned, 0) = 1 OR COALESCE(t.trade_direction, 'NORMAL') = 'RETURN' OR (".$this->pieceQty().') < 0';
+
+        $rows = DB::connection('sakemaru')
+            ->table('real_stock_lot_earnings as rle')
+            ->join('real_stock_lots as lot', 'lot.id', '=', 'rle.real_stock_lot_id')
+            ->join('real_stocks as rs', 'rs.id', '=', 'lot.real_stock_id')
+            ->join('trade_items as ti', 'ti.id', '=', 'rle.trade_item_id')
+            ->join('trades as t', 't.id', '=', 'ti.trade_id')
+            ->join('earnings as e', 'e.id', '=', 'rle.earning_id')
+            ->join('items as set_item', 'set_item.id', '=', 'ti.item_id')
+            ->join('item_sets as item_set', 'item_set.id', '=', 'set_item.item_set_id')
+            ->where('t.client_id', $clientId)
+            ->where('rs.client_id', $clientId)
+            ->where('rs.warehouse_id', $warehouseId)
+            ->where('t.trade_category', 'EARNING')
+            ->where('t.is_active', true)
+            ->where('t.is_latest', true)
+            ->where('e.is_active', true)
+            ->where('ti.is_active', true)
+            ->where('item_set.set_type', 'OWNED')
+            ->whereIn('rle.status', ['RESERVED', 'DELIVERED'])
+            ->whereBetween(DB::raw($movementDate), [$fromDate, $endDate])
+            ->groupBy('rs.item_id', DB::raw($movementDate), 't.id', 'ti.id', DB::raw("CASE WHEN {$returnCondition} THEN 1 ELSE 0 END"))
+            ->selectRaw("rs.item_id, {$movementDate} AS movement_date, 31 AS sort_order, t.id AS source_id, ti.id AS source_detail_id, SUM(rle.quantity) AS quantity, CASE WHEN {$returnCondition} THEN 1 ELSE 0 END AS is_returned")
+            ->get();
+
+        return $this->formatOwnSetComponentEarningRows($rows);
+    }
+
+    private function ownSetComponentEarningRowsFromRecipeFallback(int $clientId, int $warehouseId, string $fromDate, string $endDate): Collection
+    {
+        if (! Schema::connection('sakemaru')->hasTable('item_set_details')) {
             return collect();
         }
 
@@ -240,8 +294,11 @@ class InventoryCountLedgerBalanceService
         $factor = 'CASE WHEN COALESCE(d.quantity_case, 0) <> 0 THEN d.quantity_case * COALESCE(NULLIF(comp.capacity_case, 0), 1) ELSE COALESCE(d.quantity_piece, 0) END';
         $componentQty = "({$pieceQty}) * ({$factor})";
         $returnCondition = "COALESCE(t.is_returned, 0) = 1 OR COALESCE(t.trade_direction, 'NORMAL') = 'RETURN' OR ({$pieceQty}) < 0";
+        $hasLotEarningTables = Schema::connection('sakemaru')->hasTable('real_stock_lot_earnings')
+            && Schema::connection('sakemaru')->hasTable('real_stock_lots')
+            && Schema::connection('sakemaru')->hasTable('real_stocks');
 
-        return DB::connection('sakemaru')
+        $rows = DB::connection('sakemaru')
             ->table('trade_items as ti')
             ->join('trades as t', 't.id', '=', 'ti.trade_id')
             ->join('earnings as e', 'e.trade_id', '=', 't.id')
@@ -260,9 +317,51 @@ class InventoryCountLedgerBalanceService
             ->where('e.is_active', true)
             ->where('ti.is_active', true)
             ->whereBetween(DB::raw($movementDate), [$fromDate, $endDate])
-            ->groupBy('d.item_id', DB::raw($movementDate))
-            ->selectRaw("d.item_id, {$movementDate} AS movement_date, 31 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM(CASE WHEN {$returnCondition} THEN ABS({$componentQty}) ELSE -ABS({$componentQty}) END) AS net_quantity")
+            ->when($hasLotEarningTables, fn ($query) => $query->whereNotExists(function ($query) {
+                $query
+                    ->select(DB::raw(1))
+                    ->from('real_stock_lot_earnings as ex_rle')
+                    ->join('real_stock_lots as ex_lot', 'ex_lot.id', '=', 'ex_rle.real_stock_lot_id')
+                    ->join('real_stocks as ex_rs', 'ex_rs.id', '=', 'ex_lot.real_stock_id')
+                    ->whereColumn('ex_rle.earning_id', 'e.id')
+                    ->whereColumn('ex_rle.trade_item_id', 'ti.id')
+                    ->whereColumn('ex_rs.item_id', '<>', 'ti.item_id')
+                    ->whereIn('ex_rle.status', ['RESERVED', 'DELIVERED']);
+            }))
+            ->selectRaw("d.item_id, {$movementDate} AS movement_date, 31 AS sort_order, t.id AS source_id, ti.id AS source_detail_id, ({$componentQty}) AS quantity, CASE WHEN {$returnCondition} THEN 1 ELSE 0 END AS is_returned")
             ->get();
+
+        return $this->formatOwnSetComponentEarningRows($rows);
+    }
+
+    private function formatOwnSetComponentEarningRows(Collection $rows): Collection
+    {
+        return $rows
+            ->groupBy(fn ($row): string => implode('|', [
+                $row->item_id,
+                $row->movement_date,
+                $row->source_id,
+                $row->source_detail_id,
+                $row->is_returned,
+            ]))
+            ->map(function (Collection $group) {
+                $row = $group->first();
+                $quantity = abs((float) $group->sum('quantity'));
+                if (abs($quantity) <= 0.0001) {
+                    return null;
+                }
+
+                return (object) [
+                    'item_id' => $row->item_id,
+                    'movement_date' => $row->movement_date,
+                    'sort_order' => $row->sort_order,
+                    'source_id' => $row->source_id,
+                    'source_detail_id' => $row->source_detail_id,
+                    'net_quantity' => (bool) $row->is_returned ? $quantity : -$quantity,
+                ];
+            })
+            ->filter()
+            ->values();
     }
 
     private function retailRows(int $warehouseId, string $fromDate, string $endDate): Collection
@@ -302,7 +401,7 @@ class InventoryCountLedgerBalanceService
     private function stockTransferOutRows(int $clientId, int $warehouseId, string $fromDate, string $endDate): Collection
     {
         $pieceQty = $this->pieceQty();
-        $movementDate = 'COALESCE(st.picking_date, st.delivered_date)';
+        $movementDate = 'COALESCE(st.picking_date, t.process_date)';
 
         return DB::connection('sakemaru')
             ->table('trade_items as ti')
@@ -315,16 +414,24 @@ class InventoryCountLedgerBalanceService
             ->where('t.is_latest', true)
             ->where('st.is_active', true)
             ->where('ti.is_active', true)
+            ->when(Schema::connection('sakemaru')->hasTable('stock_transfer_lot_allocations'), fn ($query) => $query->whereNotExists(function ($query) {
+                $query
+                    ->select(DB::raw(1))
+                    ->from('stock_transfer_lot_allocations as exa')
+                    ->whereColumn('exa.stock_transfer_id', 'st.id')
+                    ->whereColumn('exa.parent_item_id', 'ti.item_id')
+                    ->where('exa.is_set_component', true);
+            }))
             ->whereBetween(DB::raw($movementDate), [$fromDate, $endDate])
             ->groupBy('ti.item_id', DB::raw($movementDate))
-            ->selectRaw("ti.item_id, {$movementDate} AS movement_date, 50 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM(-ABS({$pieceQty})) AS net_quantity")
+            ->selectRaw("ti.item_id, {$movementDate} AS movement_date, 50 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM(-1 * ({$pieceQty})) AS net_quantity")
             ->get();
     }
 
     private function stockTransferInRows(int $clientId, int $warehouseId, string $fromDate, string $endDate): Collection
     {
         $pieceQty = $this->pieceQty();
-        $movementDate = 'st.delivered_date';
+        $movementDate = 'COALESCE(st.delivered_date, t.process_date)';
 
         return DB::connection('sakemaru')
             ->table('trade_items as ti')
@@ -336,12 +443,18 @@ class InventoryCountLedgerBalanceService
             ->where('t.is_active', true)
             ->where('t.is_latest', true)
             ->where('st.is_active', true)
-            ->where('st.is_delivered', true)
             ->where('ti.is_active', true)
-            ->whereNotNull('st.delivered_date')
+            ->when(Schema::connection('sakemaru')->hasTable('stock_transfer_lot_allocations'), fn ($query) => $query->whereNotExists(function ($query) {
+                $query
+                    ->select(DB::raw(1))
+                    ->from('stock_transfer_lot_allocations as exa')
+                    ->whereColumn('exa.stock_transfer_id', 'st.id')
+                    ->whereColumn('exa.parent_item_id', 'ti.item_id')
+                    ->where('exa.is_set_component', true);
+            }))
             ->whereBetween(DB::raw($movementDate), [$fromDate, $endDate])
             ->groupBy('ti.item_id', DB::raw($movementDate))
-            ->selectRaw("ti.item_id, {$movementDate} AS movement_date, 60 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM(ABS({$pieceQty})) AS net_quantity")
+            ->selectRaw("ti.item_id, {$movementDate} AS movement_date, 60 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM({$pieceQty}) AS net_quantity")
             ->get();
     }
 
@@ -351,7 +464,7 @@ class InventoryCountLedgerBalanceService
             return collect();
         }
 
-        $movementDate = 'COALESCE(st.picking_date, st.delivered_date)';
+        $movementDate = 'COALESCE(st.picking_date, t.process_date)';
 
         return DB::connection('sakemaru')
             ->table('stock_transfer_lot_allocations as a')
@@ -370,7 +483,7 @@ class InventoryCountLedgerBalanceService
             ->where('ti.is_active', true)
             ->whereBetween(DB::raw($movementDate), [$fromDate, $endDate])
             ->groupBy('rs.item_id', DB::raw($movementDate))
-            ->selectRaw("rs.item_id, {$movementDate} AS movement_date, 51 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM(-ABS(a.quantity)) AS net_quantity")
+            ->selectRaw("rs.item_id, {$movementDate} AS movement_date, 51 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM(-1 * a.quantity) AS net_quantity")
             ->get();
     }
 
@@ -380,7 +493,7 @@ class InventoryCountLedgerBalanceService
             return collect();
         }
 
-        $movementDate = 'st.delivered_date';
+        $movementDate = 'COALESCE(st.delivered_date, t.process_date)';
 
         return DB::connection('sakemaru')
             ->table('stock_transfer_lot_allocations as a')
@@ -396,12 +509,10 @@ class InventoryCountLedgerBalanceService
             ->where('t.is_active', true)
             ->where('t.is_latest', true)
             ->where('st.is_active', true)
-            ->where('st.is_delivered', true)
             ->where('ti.is_active', true)
-            ->whereNotNull('st.delivered_date')
             ->whereBetween(DB::raw($movementDate), [$fromDate, $endDate])
             ->groupBy('rs.item_id', DB::raw($movementDate))
-            ->selectRaw("rs.item_id, {$movementDate} AS movement_date, 61 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM(ABS(a.quantity)) AS net_quantity")
+            ->selectRaw("rs.item_id, {$movementDate} AS movement_date, 61 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM(a.quantity) AS net_quantity")
             ->get();
     }
 
@@ -451,7 +562,7 @@ class InventoryCountLedgerBalanceService
             ->where('ti.is_active', true)
             ->whereBetween('a.adjustment_date', [$fromDate, $endDate])
             ->groupBy('ti.item_id', 'a.adjustment_date')
-            ->selectRaw('ti.item_id, a.adjustment_date AS movement_date, 80 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM(ai.stock_adjustment_quantity) AS net_quantity')
+            ->selectRaw('ti.item_id, a.adjustment_date AS movement_date, 80 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM(COALESCE(ai.applied_stock_quantity_after - ai.applied_stock_quantity_before, ai.stock_adjustment_quantity, ai.stock_quantity_after - ai.stock_quantity_before, 0)) AS net_quantity')
             ->get();
     }
 
@@ -482,6 +593,7 @@ class InventoryCountLedgerBalanceService
                 'ai.id as source_detail_id',
                 'ai.stock_quantity_before',
                 DB::raw('COALESCE(ai.stock_quantity_after, ai.applied_stock_quantity_after) AS stock_quantity_after'),
+                DB::raw('COALESCE(ai.inventory_adjustment_quantity, ai.stock_quantity_after - ai.stock_quantity_before, ai.applied_stock_quantity_after - ai.applied_stock_quantity_before, 0) AS net_quantity'),
             ])
             ->get();
     }
