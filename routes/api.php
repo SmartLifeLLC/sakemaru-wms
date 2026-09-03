@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\PickingRouteController;
 use App\Http\Controllers\Api\PickingTaskController;
 use App\Http\Controllers\Api\ProxyShipmentController;
 use App\Http\Controllers\Api\StockDisposalController;
+use App\Http\Controllers\Api\WarehouseTransferController;
 use Illuminate\Support\Facades\Route;
 
 // Internal admin helper routes
@@ -79,5 +80,12 @@ Route::middleware('api.key')->group(function () {
         Route::post('/wms/inventory-counts/{id}/counts/bulk', [InventoryCountController::class, 'bulkCount']);
         Route::post('/wms/inventory-count-items/{itemId}/count', [InventoryCountController::class, 'count']);
         Route::get('/wms/inventory-count-items/{itemId}/logs', [InventoryCountController::class, 'logs']);
+
+        // Warehouse transfer candidates (倉庫移動候補 / HANDY) endpoints
+        Route::get('/wms/warehouse-transfer/stock-items', [WarehouseTransferController::class, 'stockItems']);
+        Route::get('/wms/warehouse-transfer/jan-codes', [WarehouseTransferController::class, 'janCodes']);
+        Route::get('/wms/warehouse-transfer/warehouses', [WarehouseTransferController::class, 'warehouses']);
+        Route::post('/wms/warehouse-transfer-candidates', [WarehouseTransferController::class, 'store']);
+        Route::get('/wms/warehouse-transfer-candidates/{id}', [WarehouseTransferController::class, 'show']);
     });
 });
