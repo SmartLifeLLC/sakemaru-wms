@@ -6,6 +6,7 @@ use App\Enums\EVolumeUnit;
 use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
 use App\Models\WmsInventoryCountItemLog;
+use App\Models\WmsInventoryCountRescueData;
 use App\Services\InventoryCount\InventoryCountService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -491,6 +492,68 @@ class InventoryCountController extends ApiController
                 'request_uuid' => $log->request_uuid,
                 'created_at' => $log->created_at?->toIso8601String(),
             ])->values()->all(),
+        ]);
+    }
+
+    /**
+     * POST /api/wms/inventory-counts/rescue
+     *
+     * Accept inventory count data from Handy devices when the original count
+     * is no longer in a countable state. Stores raw data for later processing.
+     */
+    public function rescue(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'original_count_id' => ['required', 'integer'],
+            'original_count_no' => ['required', 'string', 'max:100'],
+            'count_round' => ['required', 'integer', 'in:1,2,3'],
+            'device_id' => ['nullable', 'string', 'max:100'],
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.item_id' => ['required', 'integer'],
+            'items.*.item_code' => ['required', 'string', 'max:255'],
+            'items.*.item_name' => ['required', 'string', 'max:500'],
+            'items.*.location_no' => ['nullable', 'string', 'max:255'],
+            'items.*.case_quantity' => ['required', 'integer'],
+            'items.*.piece_quantity' => ['required', 'integer'],
+            'items.*.total_pieces' => ['required', 'integer'],
+            'items.*.search_code' => ['nullable', 'string', 'max:255'],
+            'items.*.package_quantity' => ['nullable', 'integer'],
+            'items.*.request_uuid' => ['required', 'string', 'max:255'],
+            'items.*.input_at' => ['required', 'integer'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationError($validator->errors()->toArray());
+        }
+
+        $picker = $request->user();
+        $items = $request->input('items', []);
+
+        $rescue = WmsInventoryCountRescueData::create([
+            'original_count_id' => (int) $request->input('original_count_id'),
+            'original_count_no' => $request->input('original_count_no'),
+            'count_round' => (int) $request->input('count_round'),
+            'device_id' => $request->input('device_id'),
+            'user_id' => $picker?->id,
+            'warehouse_id' => $picker?->default_warehouse_id,
+            'items' => $items,
+            'item_count' => count($items),
+            'status' => WmsInventoryCountRescueData::STATUS_PENDING,
+        ]);
+
+        Log::info('Inventory rescue data received', [
+            'rescue_id' => $rescue->id,
+            'original_count_id' => $rescue->original_count_id,
+            'original_count_no' => $rescue->original_count_no,
+            'item_count' => $rescue->item_count,
+            'user_id' => $rescue->user_id,
+            'warehouse_id' => $rescue->warehouse_id,
+            'device_id' => $rescue->device_id,
+        ]);
+
+        return $this->success([
+            'rescue_id' => $rescue->id,
+            'received_count' => $rescue->item_count,
         ]);
     }
 
