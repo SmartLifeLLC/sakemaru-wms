@@ -101,6 +101,34 @@ class InventoryCountRescueTest extends TestCase
         $this->assertEquals(1, $rescue->item_count);
     }
 
+    public function test_same_upload_uuid_is_idempotent(): void
+    {
+        $uploadUuid = 'rescue-'.uniqid();
+        $payload = $this->validPayload(['upload_uuid' => $uploadUuid]);
+
+        $first = $this->postJson('/api/wms/inventory-counts/rescue', $payload, $this->headers);
+        $first->assertStatus(200)->assertJsonPath('result.data.duplicated', false);
+        $rescueId = $first->json('result.data.rescue_id');
+
+        $second = $this->postJson('/api/wms/inventory-counts/rescue', $payload, $this->headers);
+        $second->assertStatus(200)
+            ->assertJsonPath('result.data.duplicated', true)
+            ->assertJsonPath('result.data.rescue_id', $rescueId)
+            ->assertJsonPath('result.data.received_count', 1);
+
+        $this->assertSame(1, WmsInventoryCountRescueData::where('upload_uuid', $uploadUuid)->count());
+    }
+
+    public function test_requests_without_upload_uuid_are_stored_separately(): void
+    {
+        $payload = $this->validPayload();
+
+        $first = $this->postJson('/api/wms/inventory-counts/rescue', $payload, $this->headers)->json('result.data.rescue_id');
+        $second = $this->postJson('/api/wms/inventory-counts/rescue', $payload, $this->headers)->json('result.data.rescue_id');
+
+        $this->assertNotEquals($first, $second);
+    }
+
     public function test_stores_user_and_warehouse_from_auth(): void
     {
         $response = $this->postJson('/api/wms/inventory-counts/rescue', $this->validPayload(), $this->headers);

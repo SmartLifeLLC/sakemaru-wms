@@ -11,6 +11,7 @@ class WmsInventoryCountRescueData extends Model
     protected $table = 'wms_inventory_count_rescue_data';
 
     protected $fillable = [
+        'upload_uuid',
         'original_count_id',
         'original_count_no',
         'count_round',
