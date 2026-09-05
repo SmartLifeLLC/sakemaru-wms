@@ -119,6 +119,8 @@ class InventoryEnteredListWorkbookService
             $differenceQuantity = (int) ($confirmedDifference ?? ($actualQuantity - $systemQuantity));
         }
 
+        $unitCost = round((float) $item->cost_price, 2);
+
         return [
             'JANコード' => $janCodes[(int) $item->item_id] ?? '',
             'アイテムコード' => $item->item_code ?? '',
@@ -129,6 +131,10 @@ class InventoryEnteredListWorkbookService
             '終了理論' => $systemQuantity,
             '実数量' => $actualQuantity,
             '終了差異' => $differenceQuantity,
+            'バラ原価' => $unitCost,
+            '理論合計' => $systemQuantity === null ? null : round($systemQuantity * $unitCost, 2),
+            '実績合計' => $actualQuantity === null ? null : round($actualQuantity * $unitCost, 2),
+            '理論と実績差分合計' => $differenceQuantity === null ? null : round($differenceQuantity * $unitCost, 2),
         ];
     }
 
@@ -179,6 +185,10 @@ class InventoryEnteredListWorkbookService
             '終了理論',
             '実数量',
             '終了差異',
+            'バラ原価',
+            '理論合計',
+            '実績合計',
+            '理論と実績差分合計',
         ];
     }
 
@@ -222,6 +232,10 @@ class InventoryEnteredListWorkbookService
             'G' => 12,
             'H' => 12,
             'I' => 12,
+            'J' => 12,
+            'K' => 14,
+            'L' => 14,
+            'M' => 18,
         ] as $column => $width) {
             $sheet->getColumnDimension($column)->setWidth($width);
         }
@@ -233,7 +247,7 @@ class InventoryEnteredListWorkbookService
         $sheet->getStyle("A2:F{$lastRow}")
             ->getAlignment()
             ->setWrapText(true);
-        $sheet->getStyle("G2:I{$lastRow}")
+        $sheet->getStyle("G2:M{$lastRow}")
             ->getAlignment()
             ->setHorizontal(Alignment::HORIZONTAL_RIGHT);
         $sheet->getStyle("G2:H{$lastRow}")
@@ -242,6 +256,12 @@ class InventoryEnteredListWorkbookService
         $sheet->getStyle("I2:I{$lastRow}")
             ->getNumberFormat()
             ->setFormatCode('+#,##0;-#,##0;0');
+        $sheet->getStyle("J2:L{$lastRow}")
+            ->getNumberFormat()
+            ->setFormatCode('#,##0.00;[Red]-#,##0.00;0.00');
+        $sheet->getStyle("M2:M{$lastRow}")
+            ->getNumberFormat()
+            ->setFormatCode('+#,##0.00;[Red]-#,##0.00;0.00');
     }
 
     private function isStringColumn(string $label): bool

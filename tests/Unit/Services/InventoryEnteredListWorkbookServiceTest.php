@@ -71,7 +71,11 @@ class InventoryEnteredListWorkbookServiceTest extends TestCase
             '終了理論',
             '実数量',
             '終了差異',
-        ], $sheet->rangeToArray('A1:I1')[0]);
+            'バラ原価',
+            '理論合計',
+            '実績合計',
+            '理論と実績差分合計',
+        ], $sheet->rangeToArray('A1:M1')[0]);
 
         $rows = $this->rowsByItemCode($sheet);
 
@@ -79,6 +83,10 @@ class InventoryEnteredListWorkbookServiceTest extends TestCase
         $this->assertSame(9, (int) $rows['ENT001']['終了理論']);
         $this->assertSame(8, (int) $rows['ENT001']['実数量']);
         $this->assertSame(-1, (int) $rows['ENT001']['終了差異']);
+        $this->assertEquals(10.00, $rows['ENT001']['バラ原価']);
+        $this->assertEquals(90.00, $rows['ENT001']['理論合計']);
+        $this->assertEquals(80.00, $rows['ENT001']['実績合計']);
+        $this->assertEquals(-10.00, $rows['ENT001']['理論と実績差分合計']);
         $this->assertSame(0, (int) $rows['ENTZERO']['実数量']);
         $this->assertSame(-3, (int) $rows['ENTZERO']['終了差異']);
         $this->assertArrayNotHasKey($roundTwoOnly->item_code, $rows);
@@ -92,6 +100,7 @@ class InventoryEnteredListWorkbookServiceTest extends TestCase
         $this->assertSame(7, (int) $roundTwoRows['ENTR2']['終了理論']);
         $this->assertSame(4, (int) $roundTwoRows['ENTR2']['実数量']);
         $this->assertSame(-3, (int) $roundTwoRows['ENTR2']['終了差異']);
+        $this->assertEquals(-30.00, $roundTwoRows['ENTR2']['理論と実績差分合計']);
     }
 
     private function createItemInMajorCategory(int $majorCategoryCode, bool $managedStock = true): int
@@ -162,6 +171,7 @@ class InventoryEnteredListWorkbookServiceTest extends TestCase
         int $inputCount,
         ?int $secondCountQuantity = null,
         ?int $finalCountQuantity = null,
+        float $costPrice = 10,
     ): WmsInventoryCountItem {
         return WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
@@ -179,7 +189,7 @@ class InventoryEnteredListWorkbookServiceTest extends TestCase
             'first_count_quantity' => $firstCountQuantity,
             'second_count_quantity' => $secondCountQuantity,
             'final_count_quantity' => $finalCountQuantity,
-            'cost_price' => 10,
+            'cost_price' => $costPrice,
             'input_count' => $inputCount,
         ]);
     }
@@ -218,10 +228,10 @@ class InventoryEnteredListWorkbookServiceTest extends TestCase
     private function rowsByItemCode($sheet): array
     {
         $rows = [];
-        $headers = $sheet->rangeToArray('A1:I1')[0];
+        $headers = $sheet->rangeToArray('A1:M1')[0];
 
         for ($rowIndex = 2; $rowIndex <= $sheet->getHighestDataRow(); $rowIndex++) {
-            $rowValues = $sheet->rangeToArray("A{$rowIndex}:I{$rowIndex}")[0];
+            $rowValues = $sheet->rangeToArray("A{$rowIndex}:M{$rowIndex}")[0];
             $row = array_combine($headers, $rowValues);
             $itemCode = (string) ($row['アイテムコード'] ?? '');
 
