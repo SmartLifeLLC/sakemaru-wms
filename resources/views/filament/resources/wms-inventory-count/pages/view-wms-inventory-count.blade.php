@@ -368,7 +368,7 @@
                         {{ $this->getAction('refreshSecondRoundConfirmedDifferences') }}
                         {{ $this->getAction('calculatePostCountMovements') }}
                         {{ $this->getAction('restoreCancelledForCounting') }}
-                        {{ $this->getAction('fillUncountedWithZero') }}
+                        {{ $this->getAction('downloadEnteredListWorkbook') }}
                         @if (! in_array($record->status, [
                             \App\Models\WmsInventoryCount::STATUS_CONFIRMED,
                             \App\Models\WmsInventoryCount::STATUS_CANCELLED,

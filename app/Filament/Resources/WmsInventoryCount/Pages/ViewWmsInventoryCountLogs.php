@@ -11,6 +11,10 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ViewWmsInventoryCountLogs extends Page
 {
@@ -162,6 +166,62 @@ class ViewWmsInventoryCountLogs extends Page
     public function nextLogPage(): void
     {
         $this->goToLogPage($this->logPage + 1);
+    }
+
+    public function downloadExcel(): StreamedResponse
+    {
+        $query = $this->baseLogQuery();
+        $this->applyFilters($query);
+
+        $query
+            ->orderByDesc('wms_inventory_count_item_logs.created_at')
+            ->orderByDesc('wms_inventory_count_item_logs.id');
+
+        $record = $this->record;
+        $filename = '棚卸作業ログ_'.preg_replace('/[^\p{L}\p{N}_-]+/u', '_', (string) ($record->count_no ?? 'unknown')).'_'.now()->format('YmdHis').'.xlsx';
+
+        return response()->streamDownload(function () use ($query, $record): void {
+            $spreadsheet = new Spreadsheet;
+            $sheet = $spreadsheet->getActiveSheet();
+            $sheet->setTitle('作業ログ');
+            $headers = ['入力時刻', '商品名', '商品コード', '倉庫コード', '入力数量', '作業者'];
+
+            foreach ($headers as $index => $header) {
+                $sheet->setCellValue([$index + 1, 1], $header);
+            }
+
+            $rowIndex = 2;
+
+            $query->chunk(1000, function ($logs) use ($sheet, $record, &$rowIndex): void {
+                foreach ($logs as $log) {
+                    $item = $log->countItem;
+
+                    $sheet->setCellValue([1, $rowIndex], $log->created_at?->format('Y/m/d H:i:s') ?? '');
+                    $sheet->setCellValue([2, $rowIndex], $item?->item_name ?? '');
+                    $sheet->setCellValueExplicit([3, $rowIndex], (string) ($item?->item_code ?? ''), DataType::TYPE_STRING);
+                    $sheet->setCellValueExplicit([4, $rowIndex], (string) ($record->warehouse_code ?? ''), DataType::TYPE_STRING);
+                    $sheet->setCellValue([5, $rowIndex], $log->new_quantity === null ? null : (float) $log->new_quantity);
+                    $sheet->setCellValue([6, $rowIndex], $log->actor_name);
+                    $rowIndex++;
+                }
+            });
+
+            $lastRow = max($rowIndex - 1, 1);
+            $sheet->freezePane('A2');
+            $sheet->setAutoFilter("A1:F{$lastRow}");
+            $sheet->getColumnDimension('A')->setWidth(20);
+            $sheet->getColumnDimension('B')->setWidth(50);
+            $sheet->getColumnDimension('C')->setWidth(14);
+            $sheet->getColumnDimension('D')->setWidth(12);
+            $sheet->getColumnDimension('E')->setWidth(12);
+            $sheet->getColumnDimension('F')->setWidth(24);
+            $sheet->getStyle("E2:E{$lastRow}")
+                ->getNumberFormat()
+                ->setFormatCode('#,##0.###;[Red]-#,##0.###;0');
+
+            (new Xlsx($spreadsheet))->save('php://output');
+            $spreadsheet->disconnectWorksheets();
+        }, $filename, ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
     }
 
     public function formatQuantity(mixed $quantity): string

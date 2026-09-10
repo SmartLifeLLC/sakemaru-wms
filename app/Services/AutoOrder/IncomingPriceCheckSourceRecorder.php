@@ -22,9 +22,11 @@ class IncomingPriceCheckSourceRecorder
 {
     private const SOURCE_TYPE = 'JX_EOS_RECEIVED';
 
-    private const SOURCE_SCHEMA_VERSION = '2026-07-22';
+    private const SOURCE_SCHEMA_VERSION = '2026-08-30';
 
     private const SHIPPING_JAN_CODE = '9999999999996';
+
+    private const PRICE_DIFF_THRESHOLD = 1.0;
 
     /** @var array<int, WmsJxTransmissionLog|null> */
     private array $jxLogCache = [];
@@ -59,7 +61,8 @@ class IncomingPriceCheckSourceRecorder
 
         $sourceKeys = $this->buildSourceKeys($file, $slip, $detail);
         $receivedPrice = $this->receivedUnitPrice($detail);
-        $comparison = $this->comparisonPayload($schedule, $receivedPrice, $detail, $sentLinePayload);
+        $receivedAmount = $this->receivedAmount($detail, $eosLine);
+        $comparison = $this->comparisonPayload($schedule, $receivedPrice, $receivedAmount, $detail, $sentLinePayload);
         $isExcluded = $this->isPriceCheckExcluded($detail);
 
         $attributes = $this->encodeJsonAttributes([
@@ -115,7 +118,7 @@ class IncomingPriceCheckSourceRecorder
             'master_case_price' => $this->decimal($schedule->case_price),
             'received_unit_price_raw' => $detail->d_unit_price,
             'received_unit_price' => $receivedPrice,
-            'received_amount' => $this->receivedAmount($detail, $eosLine),
+            'received_amount' => $receivedAmount,
             'comparison_price_type' => $comparison['price_type'],
             'comparison_master_price' => $comparison['master_price'],
             'comparison_received_price' => $comparison['received_price'],
@@ -457,6 +460,7 @@ class IncomingPriceCheckSourceRecorder
     private function comparisonPayload(
         WmsOrderIncomingSchedule $schedule,
         ?float $receivedPrice,
+        ?float $receivedAmount,
         WmsIncomingReceivedDetail $detail,
         ?array $sentLinePayload
     ): array {
@@ -464,6 +468,7 @@ class IncomingPriceCheckSourceRecorder
         $masterPrice = $priceType === 'CASE'
             ? $this->decimal($schedule->case_price)
             : $this->decimal($schedule->unit_price);
+        $masterUnitPrice = $this->decimal($schedule->unit_price);
         $storedPartnerPrice = $priceType === 'CASE'
             ? $this->decimal($schedule->partner_case_price)
             : $this->decimal($schedule->partner_unit_price);
@@ -472,15 +477,119 @@ class IncomingPriceCheckSourceRecorder
         $diff = ($masterPrice !== null && $partnerPrice !== null)
             ? round($partnerPrice - $masterPrice, 4)
             : null;
+        $quantityAdjustedPieces = $this->quantityAdjustedPieces($schedule, $detail);
+        $quantityAdjustedUnitPrice = $this->unitPriceFromAmount($receivedAmount, $quantityAdjustedPieces);
+        $quantityAdjustedDiff = ($quantityAdjustedUnitPrice !== null && $masterUnitPrice !== null)
+            ? round($quantityAdjustedUnitPrice - $masterUnitPrice, 4)
+            : null;
+        $purchaseAdjustmentAmount = $this->purchaseAdjustmentAmount($schedule);
+        $purchaseAdjustmentCaseEquivalent = $this->purchaseAdjustmentCaseEquivalent($detail);
+        $adjustmentAdjustedUnitPrice = (
+            $receivedAmount !== null
+            && $purchaseAdjustmentAmount !== null
+            && $purchaseAdjustmentCaseEquivalent !== null
+            && $quantityAdjustedPieces !== null
+        )
+            ? $this->unitPriceFromAmount(
+                $receivedAmount - ($purchaseAdjustmentAmount * $purchaseAdjustmentCaseEquivalent),
+                $quantityAdjustedPieces,
+            )
+            : null;
+        $adjustmentAdjustedDiff = ($adjustmentAdjustedUnitPrice !== null && $masterUnitPrice !== null)
+            ? round($adjustmentAdjustedUnitPrice - $masterUnitPrice, 4)
+            : null;
+        $hasMismatch = $diff !== null
+            && abs($diff) >= self::PRICE_DIFF_THRESHOLD
+            && (
+                $quantityAdjustedDiff === null
+                || abs($quantityAdjustedDiff) >= self::PRICE_DIFF_THRESHOLD
+            )
+            && (
+                $adjustmentAdjustedDiff === null
+                || abs($adjustmentAdjustedDiff) >= self::PRICE_DIFF_THRESHOLD
+            );
 
         return [
             'price_type' => $priceType,
             'master_price' => $masterPrice,
             'received_price' => $partnerPrice,
             'price_diff' => $diff,
-            'has_mismatch' => $diff !== null && abs($diff) > 0.0001,
-            'rule_version' => 'current-wms-direct-price-compare',
+            'quantity_adjusted_piece_quantity' => $quantityAdjustedPieces,
+            'quantity_adjusted_unit_price' => $quantityAdjustedUnitPrice,
+            'quantity_adjusted_price_diff' => $quantityAdjustedDiff,
+            'purchase_adjustment_amount' => $purchaseAdjustmentAmount,
+            'purchase_adjustment_case_equivalent_quantity' => $purchaseAdjustmentCaseEquivalent,
+            'adjustment_adjusted_unit_price' => $adjustmentAdjustedUnitPrice,
+            'adjustment_adjusted_price_diff' => $adjustmentAdjustedDiff,
+            'has_mismatch' => $hasMismatch,
+            'rule_version' => 'p-box-adjusted-price-compare-2026-08-30',
         ];
+    }
+
+    private function quantityAdjustedPieces(WmsOrderIncomingSchedule $schedule, WmsIncomingReceivedDetail $detail): ?float
+    {
+        $totalQuantity = $this->decimal($detail->total_quantity);
+        $capacityCase = $this->decimal($schedule->item?->capacity_case);
+
+        if ($capacityCase !== null && $capacityCase <= 1) {
+            if ($totalQuantity !== null && $totalQuantity > 0) {
+                return $totalQuantity;
+            }
+
+            $pieceQuantity = $this->decimal($detail->d_piece_quantity);
+
+            return $pieceQuantity !== null && $pieceQuantity > 0 ? $pieceQuantity : null;
+        }
+
+        $packQuantity = $this->decimal($detail->d_pack_quantity);
+        $caseQuantity = $this->decimal($detail->d_case_quantity);
+        $pieceQuantity = $this->decimal($detail->d_piece_quantity);
+
+        if ($packQuantity !== null && $packQuantity > 0 && $caseQuantity !== null && $caseQuantity > 0) {
+            return round(($packQuantity * $caseQuantity) + max(0, $pieceQuantity ?? 0), 4);
+        }
+
+        if ($totalQuantity !== null && $totalQuantity > 0) {
+            return $totalQuantity;
+        }
+
+        return $pieceQuantity !== null && $pieceQuantity > 0 ? $pieceQuantity : null;
+    }
+
+    private function purchaseAdjustmentAmount(WmsOrderIncomingSchedule $schedule): ?float
+    {
+        $pBoxPrice = $this->decimal($schedule->item?->p_box_price);
+
+        return $pBoxPrice !== null && $pBoxPrice > 0 ? $pBoxPrice : null;
+    }
+
+    private function purchaseAdjustmentCaseEquivalent(WmsIncomingReceivedDetail $detail): ?float
+    {
+        $packQuantity = $this->decimal($detail->d_pack_quantity);
+
+        if ($packQuantity === null || $packQuantity <= 0) {
+            return null;
+        }
+
+        $totalQuantity = $this->decimal($detail->total_quantity);
+        if ($totalQuantity !== null && $totalQuantity > 0) {
+            return round($totalQuantity / $packQuantity, 4);
+        }
+
+        $caseQuantity = $this->decimal($detail->d_case_quantity) ?? 0;
+        $pieceQuantity = $this->decimal($detail->d_piece_quantity) ?? 0;
+        $caseEquivalent = $caseQuantity + ($pieceQuantity / $packQuantity);
+
+        return $caseEquivalent > 0 ? round($caseEquivalent, 4) : null;
+    }
+
+    private function unitPriceFromAmount(?float $amount, ?float $quantity): ?float
+    {
+        if ($amount === null || $quantity === null || $quantity == 0.0) {
+            return null;
+        }
+
+        return round($amount / $quantity, 4);
     }
 
     private function comparisonPriceType(

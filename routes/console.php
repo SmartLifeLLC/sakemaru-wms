@@ -135,6 +135,13 @@ Schedule::command('wms:eos-incoming-receive-scheduled')
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/eos-incoming-receive-scheduled.log'));
 
+// 倉庫移動候補（HANDY）の queue 処理結果同期 (5分間隔)
+Schedule::command('wms:sync-warehouse-transfer-candidates')
+    ->everyFiveMinutes()
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/warehouse-transfer-candidate-sync.log'));
+
 // quantity_update_queue の一時的な失敗再投入コマンドは残すが、ai-core側の直列化対応を見るため自動実行は一時停止。
 
 // 倉庫別商品別の出荷実績サマリ更新（09:30以降30分ごと・過去4日分）

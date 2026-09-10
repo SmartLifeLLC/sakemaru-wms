@@ -11,6 +11,7 @@ use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 use Tests\TestCase;
 
 class ViewWmsInventoryCountTest extends TestCase
@@ -81,6 +82,78 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertNotFalse($bladeWorkbookPosition);
         $this->assertGreaterThan($bladeUncountedPosition, $bladeWorkbookPosition);
         $this->assertStringContainsString('<span>差異再計算</span>', $blade);
+    }
+
+    public function test_entered_list_workbook_action_is_available_in_details_and_fill_uncounted_zero_is_hidden(): void
+    {
+        $page = file_get_contents(app_path('Filament/Resources/WmsInventoryCount/Pages/ViewWmsInventoryCount.php'));
+
+        $enteredWorkbookPosition = strpos($page, "Action::make('downloadEnteredListWorkbook')");
+
+        $this->assertNotFalse($enteredWorkbookPosition);
+        $this->assertStringContainsString('->visible(false)', substr($page, strpos($page, "Action::make('fillUncountedWithZero')"), 400));
+        $this->assertStringContainsString('->label(\'入力済Excel\')', $page);
+        $this->assertStringContainsString("Select::make('target_round')", $page);
+        $this->assertStringContainsString('InventoryEnteredListWorkbookService)->generate($record, $targetRound)', $page);
+        $this->assertStringContainsString("\$filename = '棚卸入力済リスト_'.\$this->roundLabel(\$targetRound).'_'.", $page);
+
+        $blade = file_get_contents(resource_path('views/filament/resources/wms-inventory-count/pages/view-wms-inventory-count.blade.php'));
+        $bladeEnteredWorkbookPosition = strpos($blade, "\$this->getAction('downloadEnteredListWorkbook')");
+
+        $this->assertNotFalse($bladeEnteredWorkbookPosition);
+        $this->assertStringNotContainsString("\$this->getAction('fillUncountedWithZero')", $blade);
+    }
+
+    public function test_fill_uncounted_with_zero_logs_auto_zero_device(): void
+    {
+        if (! Schema::connection('sakemaru')->hasColumn('items', 'is_managed_stock')) {
+            $this->markTestSkipped('items.is_managed_stock is not available.');
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => '未0ログテスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'current_count_round' => 1,
+        ]);
+
+        $item = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999407,
+            'item_code' => 'ZEROLOG001',
+            'item_name' => '未0ログ対象',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 8,
+            'cost_price' => 10,
+        ]);
+        $unmanagedItemId = $this->createItemInMajorCategory(1001, false);
+        $unmanagedItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $unmanagedItemId,
+            'item_code' => 'ZEROLOG002',
+            'item_name' => '未0対象外',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 8,
+            'cost_price' => 10,
+        ]);
+
+        $page = new ViewWmsInventoryCount;
+        $page->record = $inventoryCount;
+        $page->activeCountRound = 1;
+
+        $page->fillActiveRoundUncountedWithZero();
+
+        $item->refresh();
+        $log = WmsInventoryCountItemLog::where('inventory_count_item_id', $item->id)->first();
+
+        $this->assertSame(0, $item->first_count_quantity);
+        $this->assertSame(WmsInventoryCountItemLog::DEVICE_WEB_AUTO_ZERO, $log?->device_id);
+        $this->assertSame('未0', $log?->actor_name);
+        $this->assertNull($unmanagedItem->refresh()->first_count_quantity);
     }
 
     public function test_second_round_difference_refresh_action_is_available_in_details(): void
@@ -656,6 +729,102 @@ class ViewWmsInventoryCountTest extends TestCase
 
         $this->assertSame(1, $page->totalLogCount());
         $this->assertSame([$visibleItem->id], collect($page->logs()->items())->pluck('inventory_count_item_id')->all());
+    }
+
+    public function test_inventory_count_logs_can_be_downloaded_as_filtered_excel(): void
+    {
+        $blade = file_get_contents(resource_path('views/filament/resources/wms-inventory-count/pages/view-wms-inventory-count-logs.blade.php'));
+
+        $this->assertStringContainsString('wire:click="downloadExcel"', $blade);
+        $this->assertStringContainsString('Excelダウンロード', $blade);
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'CSV-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 10,
+            'warehouse_code' => '10',
+            'warehouse_name' => 'ログCSVテスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'current_count_round' => 1,
+        ]);
+
+        $targetItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999903,
+            'item_code' => 'CSV001',
+            'item_name' => 'CSV出力対象商品',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 3,
+            'first_count_quantity' => 4,
+            'cost_price' => 10,
+        ]);
+
+        $excludedItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999904,
+            'item_code' => 'CSV999',
+            'item_name' => 'CSVフィルタ対象外商品',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 3,
+            'first_count_quantity' => 4,
+            'cost_price' => 10,
+        ]);
+
+        WmsInventoryCountItemLog::create([
+            'inventory_count_item_id' => $targetItem->id,
+            'device_id' => 'WEB',
+            'user_id' => null,
+            'count_round' => 1,
+            'old_quantity' => 1,
+            'new_quantity' => 4,
+            'request_uuid' => (string) Str::uuid(),
+            'created_at' => '2026-09-07 10:20:30',
+        ]);
+
+        WmsInventoryCountItemLog::create([
+            'inventory_count_item_id' => $excludedItem->id,
+            'device_id' => 'WEB',
+            'user_id' => null,
+            'count_round' => 1,
+            'old_quantity' => 1,
+            'new_quantity' => 4,
+            'request_uuid' => (string) Str::uuid(),
+            'created_at' => '2026-09-07 10:21:30',
+        ]);
+
+        $page = new ViewWmsInventoryCountLogs;
+        $page->record = $inventoryCount;
+        $page->itemCodeFilter = 'CSV001';
+
+        $response = $page->downloadExcel();
+
+        ob_start();
+        $response->sendContent();
+        $content = (string) ob_get_clean();
+
+        $this->assertSame('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', $response->headers->get('Content-Type'));
+
+        $tempPath = tempnam(sys_get_temp_dir(), 'inventory-count-logs-test-');
+        file_put_contents($tempPath, $content);
+
+        try {
+            $sheet = IOFactory::load($tempPath)->getActiveSheet();
+
+            $this->assertSame('作業ログ', $sheet->getTitle());
+            $this->assertSame(['入力時刻', '商品名', '商品コード', '倉庫コード', '入力数量', '作業者'], $sheet->rangeToArray('A1:F1')[0]);
+            $this->assertSame('2026/09/07 10:20:30', $sheet->getCell('A2')->getValue());
+            $this->assertSame('CSV出力対象商品', $sheet->getCell('B2')->getValue());
+            $this->assertSame('CSV001', $sheet->getCell('C2')->getValue());
+            $this->assertSame('10', $sheet->getCell('D2')->getValue());
+            $this->assertSame(4.0, (float) $sheet->getCell('E2')->getValue());
+            $this->assertSame('WEB', $sheet->getCell('F2')->getValue());
+            $this->assertSame('', (string) $sheet->getCell('A3')->getValue());
+        } finally {
+            if (is_file($tempPath)) {
+                unlink($tempPath);
+            }
+        }
     }
 
     private function createItemInMajorCategory(int $majorCategoryCode, bool $managedStock = true): int

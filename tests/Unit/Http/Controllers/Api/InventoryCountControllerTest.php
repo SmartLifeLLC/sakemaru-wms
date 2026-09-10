@@ -119,6 +119,52 @@ class InventoryCountControllerTest extends TestCase
         $this->assertSame(0, $payload['result']['data']['inventory_count']['uncounted_items']);
     }
 
+    public function test_bulk_count_accepts_negative_quantities_from_handy(): void
+    {
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => 'API負数棚卸テスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'handy_reception' => true,
+        ]);
+
+        $countItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999802,
+            'item_code' => 'API-NEGATIVE',
+            'item_name' => 'API負数棚卸対象',
+            'system_quantity' => 10,
+            'ending_system_quantity' => 10,
+            'cost_price' => 2,
+        ]);
+
+        $request = Request::create('/api/wms/inventory-counts/'.$inventoryCount->id.'/counts/bulk', 'POST', [
+            'count_round' => 1,
+            'device_id' => 'DENSO',
+            'items' => [[
+                'item_id' => $countItem->id,
+                'case_quantity' => -1,
+                'piece_quantity' => -2,
+                'quantity' => -8,
+                'request_uuid' => (string) Str::uuid(),
+            ]],
+        ]);
+
+        $response = (new InventoryCountController(new InventoryCountService))
+            ->bulkCount($request, (int) $inventoryCount->id);
+
+        $payload = $response->getData(true);
+
+        $this->assertTrue($payload['is_success']);
+        $this->assertSame(1, $payload['result']['data']['updated_count']);
+        $this->assertSame(-8, (int) $countItem->refresh()->first_count_quantity);
+        $this->assertSame(-18, (int) $countItem->difference_quantity);
+    }
+
     private function packageQuantity(object $row): int
     {
         $controller = new InventoryCountController(new InventoryCountService);

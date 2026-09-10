@@ -257,6 +257,49 @@ class IncomingTransmissionServiceTest extends TestCase
         $this->assertNotSame((string) $alternateSupplier->code, (string) $payload['supplier_code']);
     }
 
+    public function test_auto_received_match_prefers_contractor_supplier_code_for_purchase_queue(): void
+    {
+        $master = $this->purchaseMasterData(requireContractorSupplier: true);
+
+        if (! $master['contractor_supplier_id'] || ! $master['contractor_supplier_code']) {
+            $this->markTestSkipped('contractor supplier master data is not available in test DB');
+        }
+
+        $alternateSupplier = $this->activeSupplierExcept((int) $master['contractor_supplier_id']);
+
+        if (! $alternateSupplier) {
+            $this->markTestSkipped('alternate supplier master data is not available in test DB');
+        }
+
+        $slip = $this->newSlipNumber('A');
+        $schedule = $this->createConfirmedSchedule(
+            $master,
+            $slip,
+            '2026-07-20',
+            5,
+            supplierId: (int) $alternateSupplier->id,
+            orderSource: OrderSource::AUTO,
+            isReceiveMatched: true,
+        );
+
+        $result = app(IncomingTransmissionService::class)->transmitConfirmedIncomings(
+            scheduleIds: [$schedule->id],
+        );
+
+        $this->assertTrue($result['success']);
+
+        $schedule->refresh();
+
+        $queue = DB::connection('sakemaru')
+            ->table('purchase_create_queue')
+            ->where('id', $schedule->purchase_queue_id)
+            ->first();
+        $payload = json_decode($queue->items, true);
+
+        $this->assertSame((string) $master['contractor_supplier_code'], (string) $payload['supplier_code']);
+        $this->assertNotSame((string) $alternateSupplier->code, (string) $payload['supplier_code']);
+    }
+
     public function test_transmit_does_not_create_duplicate_queue_for_already_transmitted_schedule(): void
     {
         $master = $this->purchaseMasterData();

@@ -90,6 +90,8 @@ class RegisterReceivedIncomingPurchasesCommand extends Command
             ->join('warehouses as w', 'w.id', '=', 's.warehouse_id')
             ->join('items as i', 'i.id', '=', 's.item_id')
             ->leftJoin('contractors as ct', 'ct.id', '=', 's.contractor_id')
+            ->leftJoin('suppliers as contractor_sup', 'contractor_sup.id', '=', 'ct.supplier_id')
+            ->leftJoin('partners as contractor_supplier_partner', 'contractor_supplier_partner.id', '=', 'contractor_sup.partner_id')
             ->leftJoin('suppliers as sup', 'sup.id', '=', 's.supplier_id')
             ->leftJoin('partners as supplier_partner', 'supplier_partner.id', '=', 'sup.partner_id')
             ->where('s.order_source', 'RECEIVED')
@@ -125,7 +127,7 @@ class RegisterReceivedIncomingPurchasesCommand extends Command
                 'w.code as warehouse_code',
                 'i.code as master_item_code',
                 'ct.code as contractor_code',
-                'supplier_partner.code as supplier_code',
+                DB::raw('COALESCE(contractor_supplier_partner.code, supplier_partner.code) as supplier_code'),
             ])
             ->orderBy('s.id');
 
