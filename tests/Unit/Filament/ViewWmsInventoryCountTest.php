@@ -63,7 +63,8 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertStringContainsString('->generate($record, $this->activeCountRound)', $page);
         $this->assertStringContainsString("\$filename = '棚卸差分確認_'.\$this->activeRoundLabel().'_'.", $page);
         $this->assertStringContainsString("Action::make('downloadDiffListWorkbook')", $page);
-        $this->assertStringContainsString('->label(\'差分EXCEL\')', $page);
+        $this->assertStringContainsString('->label(\'再棚当たり表\')', $page);
+        $this->assertStringContainsString("\$filename = '再棚当たり表_'.\$this->activeRoundLabel().'_'.", $page);
         $this->assertStringContainsString('InventoryDiffListWorkbookService)->generate($record, $this->activeCountRound)', $page);
         $this->assertStringNotContainsString(
             'WmsInventoryCount::STATUS_DRAFT',

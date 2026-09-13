@@ -6,6 +6,7 @@ use App\Filament\Resources\WmsInventoryCountResource;
 use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
 use App\Models\WmsInventoryCountItemLog;
+use App\Services\InventoryCount\InventoryCountLocationResolver;
 use App\Services\InventoryCount\InventoryCountService;
 use App\Services\InventoryCount\InventoryDifferenceWorkbookService;
 use App\Services\InventoryCount\InventoryDiffListPdfService;
@@ -257,7 +258,15 @@ class ViewWmsInventoryCount extends Page implements HasForms
         $this->applyTabFilter($query, $this->listTab);
         $this->applySort($query);
 
-        return $query->paginate($this->itemPerPage, ['*'], 'inventory_items_page', $this->itemPage);
+        $paginator = $query->paginate($this->itemPerPage, ['*'], 'inventory_items_page', $this->itemPage);
+        $paginator->setCollection(
+            (new InventoryCountLocationResolver)->enrich(
+                $paginator->getCollection(),
+                (int) $this->record->warehouse_id,
+            ),
+        );
+
+        return $paginator;
     }
 
     public function goToItemPage(int $page): void
@@ -441,11 +450,24 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
         $items = $this->applyCollectionTextFilter($items, $this->areaFilter, ['location_code1']);
         $items = $this->applyCollectionTextFilter($items, $this->itemCodeFilter, ['item_code']);
-        $items = $this->applyCollectionTextFilter($items, $this->locationFilter, ['location_no', 'location_code1', 'location_code2', 'location_code3']);
+        $items = $this->applyCollectionTextFilter($items, $this->locationFilter, [
+            'report_location_no',
+            'report_location_code1',
+            'report_location_code2',
+            'report_location_code3',
+            'location_no',
+            'location_code1',
+            'location_code2',
+            'location_code3',
+        ]);
 
         if ($this->selectedLocationFilters !== []) {
             $selectedLocations = array_map('strval', $this->selectedLocationFilters);
-            $items = $items->filter(fn (WmsInventoryCountItem $item): bool => in_array((string) $item->location_no, $selectedLocations, true));
+            $items = $items->filter(fn (WmsInventoryCountItem $item): bool => in_array(
+                InventoryCountLocationResolver::locationNo($item),
+                $selectedLocations,
+                true,
+            ));
         }
 
         $items = $this->applyCollectionTextFilter($items, $this->itemNameFilter, ['item_name']);
@@ -1724,12 +1746,12 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 }),
 
             Action::make('downloadDiffListWorkbook')
-                ->label('差分EXCEL')
+                ->label('再棚当たり表')
                 ->icon('heroicon-o-table-cells')
                 ->color('gray')
                 ->action(function () use ($record) {
                     $xlsxContent = (new InventoryDiffListWorkbookService)->generate($record, $this->activeCountRound);
-                    $filename = '棚卸差分確認_'.$this->activeRoundLabel().'_'.($record->count_no ?? 'unknown').'.xlsx';
+                    $filename = '再棚当たり表_'.$this->activeRoundLabel().'_'.($record->count_no ?? 'unknown').'.xlsx';
 
                     return response()->streamDownload(
                         fn () => print ($xlsxContent),

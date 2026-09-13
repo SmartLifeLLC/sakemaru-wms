@@ -105,6 +105,23 @@ class InventoryCountServiceTest extends TestCase
         $clientId = (int) $item->client_id;
         $warehouseId = 990130;
         $realStockId = $this->createRealStock($item->id, 0, $clientId, $warehouseId);
+        $defaultLocationId = DB::connection('sakemaru')->table('locations')->insertGetId([
+            'client_id' => $clientId,
+            'warehouse_id' => $warehouseId,
+            'code1' => 'T',
+            'code2' => '01',
+            'code3' => '001',
+            'name' => '棚卸既定棚番テスト',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::connection('sakemaru')->table('item_incoming_default_locations')->insert([
+            'warehouse_id' => $warehouseId,
+            'item_id' => $item->id,
+            'location_id' => $defaultLocationId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
         $inventoryCount = WmsInventoryCount::create([
             'count_no' => 'TST-'.Str::upper(Str::random(12)),
@@ -128,6 +145,73 @@ class InventoryCountServiceTest extends TestCase
         $this->assertSame($item->id, $countItem->item_id);
         $this->assertSame(0, $countItem->system_quantity);
         $this->assertSame(0, $countItem->ending_system_quantity);
+        $this->assertSame($defaultLocationId, $countItem->location_id);
+        $this->assertSame('T01001', $countItem->location_no);
+    }
+
+    public function test_take_snapshot_prefers_default_location_over_active_lot_location(): void
+    {
+        $items = $this->ledgerTestItems();
+        if ($items->isEmpty()) {
+            $this->markTestSkipped('items table does not have enough ledger-testable rows.');
+        }
+
+        $item = $items[0];
+        $clientId = (int) $item->client_id;
+        $warehouseId = 990131;
+        $realStockId = $this->createRealStock($item->id, 1, $clientId, $warehouseId);
+        $lotLocationId = DB::connection('sakemaru')->table('locations')->insertGetId([
+            'client_id' => $clientId,
+            'warehouse_id' => $warehouseId,
+            'code1' => 'L',
+            'code2' => '01',
+            'code3' => '001',
+            'name' => '棚卸ロット棚番テスト',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $defaultLocationId = DB::connection('sakemaru')->table('locations')->insertGetId([
+            'client_id' => $clientId,
+            'warehouse_id' => $warehouseId,
+            'code1' => 'D',
+            'code2' => '02',
+            'code3' => '002',
+            'name' => '棚卸既定棚番優先テスト',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $realStockLotId = $this->createRealStockLot($realStockId, 1);
+        DB::connection('sakemaru')->table('real_stock_lots')
+            ->where('id', $realStockLotId)
+            ->update(['location_id' => $lotLocationId]);
+        DB::connection('sakemaru')->table('item_incoming_default_locations')->insert([
+            'warehouse_id' => $warehouseId,
+            'item_id' => $item->id,
+            'location_id' => $defaultLocationId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => $clientId,
+            'warehouse_id' => $warehouseId,
+            'warehouse_code' => (string) $warehouseId,
+            'warehouse_name' => '既定棚番優先テスト倉庫',
+            'count_date' => InventoryCountLedgerBalanceService::OPENING_DATE,
+            'status' => WmsInventoryCount::STATUS_DRAFT,
+        ]);
+
+        (new InventoryCountService)->takeSnapshot($inventoryCount);
+
+        $countItem = WmsInventoryCountItem::query()
+            ->where('inventory_count_id', $inventoryCount->id)
+            ->where('real_stock_id', $realStockId)
+            ->first();
+
+        $this->assertNotNull($countItem);
+        $this->assertSame($defaultLocationId, $countItem->location_id);
+        $this->assertSame('D02002', $countItem->location_no);
     }
 
     public function test_add_single_item_uses_ledger_balance_for_starting_system_quantity(): void
