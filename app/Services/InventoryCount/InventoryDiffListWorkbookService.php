@@ -81,25 +81,25 @@ class InventoryDiffListWorkbookService
         $sheet->setCellValue('H1', '当日');
         $sheet->setCellValue('I1', '入力');
         $sheet->fromArray(['当日受注', '理論在庫', '実棚数量', '差異'], null, 'M1');
+        $lastOrderRow = max($sameDayOrders->count() + 1, 2);
 
         foreach ($items->values() as $index => $item) {
             $row = $index + 2;
-            $sameDayQuantity = (float) ($sameDayOrders->get((int) $item->item_id)?->ordered_quantity ?? 0);
             $systemQuantity = (float) ($item->getAttribute('pdf_system_quantity') ?? 0);
             $actualQuantity = (float) ($item->getAttribute('pdf_actual_quantity') ?? 0);
 
             $sheet->setCellValueExplicit("A{$row}", (string) ($item->item_code ?? ''), DataType::TYPE_STRING);
             $sheet->setCellValue("B{$row}", $item->item_name ?? '');
             $sheet->setCellValue("C{$row}", InventoryCountLocationResolver::locationNo($item));
-            $sheet->setCellValue("D{$row}", $systemQuantity - $sameDayQuantity);
-            $sheet->setCellValue("E{$row}", $actualQuantity - $sameDayQuantity);
-            $sheet->setCellValue("F{$row}", $actualQuantity - $systemQuantity);
-            $sheet->setCellValue("H{$row}", $sameDayQuantity == 0.0 ? null : $sameDayQuantity);
+            $sheet->setCellValue("D{$row}", "=N{$row}-M{$row}");
+            $sheet->setCellValue("E{$row}", "=O{$row}-M{$row}");
+            $sheet->setCellValue("F{$row}", "=E{$row}-D{$row}");
+            $sheet->setCellValue("H{$row}", "=IF(M{$row}=0,\"\",M{$row})");
             $sheet->setCellValue("I{$row}", $item->input_count ?? 0);
-            $sheet->setCellValue("M{$row}", $sameDayQuantity == 0.0 ? null : $sameDayQuantity);
+            $sheet->setCellValue("M{$row}", "=SUMIF('当日受注'!\$A\$2:\$A\${$lastOrderRow},A{$row},'当日受注'!\$G\$2:\$G\${$lastOrderRow})");
             $sheet->setCellValue("N{$row}", $systemQuantity);
             $sheet->setCellValue("O{$row}", $actualQuantity);
-            $sheet->setCellValue("P{$row}", $actualQuantity - $systemQuantity);
+            $sheet->setCellValue("P{$row}", "=O{$row}-N{$row}");
         }
 
         $lastRow = max($items->count() + 1, 1);
@@ -134,13 +134,11 @@ class InventoryDiffListWorkbookService
         $sheet->getStyle("F2:F{$lastRow}")->getNumberFormat()->setFormatCode('+#,##0.####;[Red]-#,##0.####;0');
         $sheet->getStyle("H2:I{$lastRow}")->getNumberFormat()->setFormatCode('#,##0.####;[Red]-#,##0.####;0');
         $sheet->getStyle("M2:O{$lastRow}")->getNumberFormat()->setFormatCode('#,##0.####;[Red]-#,##0.####;0');
+        $sheet->getStyle("M2:M{$lastRow}")->getNumberFormat()->setFormatCode('#,##0.####;[Red]-#,##0.####;""');
         $sheet->getStyle("P2:P{$lastRow}")->getNumberFormat()->setFormatCode('+#,##0.####;[Red]-#,##0.####;0');
         $sheet->getStyle("A2:C{$lastRow}")->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
         $sheet->getStyle("B2:B{$lastRow}")->getAlignment()->setWrapText(true);
-        $sheet->getPageSetup()
-            ->setOrientation(PageSetup::ORIENTATION_LANDSCAPE)
-            ->setFitToWidth(1)
-            ->setFitToHeight(0);
+        $this->configurePrint($sheet, 'I', $lastRow);
     }
 
     /**
@@ -221,6 +219,7 @@ class InventoryDiffListWorkbookService
         $sheet->getStyle("P2:S{$lastRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
         $sheet->getStyle("P2:R{$lastRow}")->getNumberFormat()->setFormatCode('#,##0.####;[Red]-#,##0.####;0');
         $sheet->getStyle("S2:S{$lastRow}")->getNumberFormat()->setFormatCode('+#,##0.####;[Red]-#,##0.####;0');
+        $this->configurePrint($sheet, 'S', $lastRow);
     }
 
     /**
@@ -236,8 +235,8 @@ class InventoryDiffListWorkbookService
         foreach ($sameDayOrders->values() as $index => $order) {
             $row = $index + 2;
             $capacityCase = max((int) ($order->capacity_case ?? 1), 1);
-            $total = (int) round((float) $order->ordered_quantity);
-            $caseQuantity = $capacityCase > 1 ? intdiv($total, $capacityCase) : 0;
+            $total = (float) $order->ordered_quantity;
+            $caseQuantity = $capacityCase > 1 ? intdiv((int) $total, $capacityCase) : 0;
             $pieceQuantity = $total - ($caseQuantity * $capacityCase);
             $locationNo = InventoryCountLocationResolver::normalizeLabel(
                 Location::formatCode($order->code1, $order->code2, $order->code3),
@@ -248,8 +247,8 @@ class InventoryDiffListWorkbookService
             $sheet->setCellValue("C{$row}", $locationNo);
             $sheet->setCellValue("D{$row}", $capacityCase);
             $sheet->setCellValue("E{$row}", $caseQuantity === 0 ? null : $caseQuantity);
-            $sheet->setCellValue("F{$row}", $pieceQuantity === 0 ? null : $pieceQuantity);
-            $sheet->setCellValue("G{$row}", $total);
+            $sheet->setCellValue("F{$row}", $pieceQuantity == 0.0 ? null : $pieceQuantity);
+            $sheet->setCellValue("G{$row}", "=D{$row}*E{$row}+F{$row}");
             $sheet->setCellValue("H{$row}", $order->current_quantity ?? 0);
             $sheet->setCellValue("I{$row}", $order->available_quantity ?? 0);
             $sheet->setCellValue("J{$row}", isset($diffItemMap[(int) $order->item_id]) ? 1 : 0);
@@ -264,6 +263,18 @@ class InventoryDiffListWorkbookService
         $this->styleHeader($sheet, 'A1:J1');
         $this->styleGrid($sheet, "A1:J{$lastRow}");
         $sheet->getStyle("D2:J{$lastRow}")->getNumberFormat()->setFormatCode('#,##0.####;[Red]-#,##0.####;0');
+        $this->configurePrint($sheet, 'J', $lastRow);
+    }
+
+    private function configurePrint(Worksheet $sheet, string $lastColumn, int $lastRow): void
+    {
+        $sheet->getPageSetup()
+            ->setPrintArea("A1:{$lastColumn}{$lastRow}")
+            ->setRowsToRepeatAtTopByStartAndEnd(1, 1)
+            ->setPaperSize(PageSetup::PAPERSIZE_A4)
+            ->setOrientation(PageSetup::ORIENTATION_LANDSCAPE)
+            ->setFitToWidth(1)
+            ->setFitToHeight(0);
     }
 
     /**

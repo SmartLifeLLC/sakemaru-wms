@@ -6,12 +6,16 @@ use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
 use App\Services\InventoryCount\InventoryDiffListWorkbookService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use PhpOffice\PhpSpreadsheet\Calculation\Calculation;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Worksheet\PageSetup;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use ReflectionMethod;
 use Tests\TestCase;
 
@@ -21,7 +25,7 @@ class InventoryDiffListWorkbookServiceTest extends TestCase
 
     protected $connectionsToTransact = ['sakemaru'];
 
-    public function test_recount_sheet_subtracts_same_day_orders_from_theory_and_actual_only(): void
+    public function test_recount_sheet_recalculates_after_editing_stock_and_same_day_orders(): void
     {
         $item = new WmsInventoryCountItem([
             'item_id' => 123,
@@ -32,19 +36,89 @@ class InventoryDiffListWorkbookServiceTest extends TestCase
         $item->setAttribute('pdf_system_quantity', 10);
         $item->setAttribute('pdf_actual_quantity', 8);
 
-        $spreadsheet = new Spreadsheet;
-        $method = new ReflectionMethod(InventoryDiffListWorkbookService::class, 'writeRecountRows');
-        $method->setAccessible(true);
-        $method->invoke(
-            new InventoryDiffListWorkbookService,
-            $spreadsheet->getActiveSheet(),
+        $spreadsheet = $this->recountWorkbook(
             collect([$item]),
-            collect([123 => (object) ['ordered_quantity' => 3]]),
+            collect([123 => (object) [
+                'item_id' => 123,
+                'item_code' => '123456',
+                'ordered_quantity' => 3,
+                'capacity_case' => 2,
+                'code1' => null, 'code2' => null, 'code3' => null,
+            ]]),
         );
+        $sheet = $spreadsheet->getActiveSheet();
+        $orders = $spreadsheet->getSheetByName('当日受注');
 
-        $this->assertSame(7, (int) $spreadsheet->getActiveSheet()->getCell('D2')->getValue());
-        $this->assertSame(5, (int) $spreadsheet->getActiveSheet()->getCell('E2')->getValue());
-        $this->assertSame(-2, (int) $spreadsheet->getActiveSheet()->getCell('F2')->getValue());
+        $this->assertEquals([[7, 5, -2]], $sheet->rangeToArray('D2:F2', null, true, false));
+        $this->assertEquals(3, $sheet->getCell('H2')->getCalculatedValue());
+        $this->assertEquals(-2, $sheet->getCell('P2')->getCalculatedValue());
+
+        $sheet->setCellValue('N2', 12);
+        $sheet->setCellValue('O2', 9);
+        Calculation::getInstance($spreadsheet)->clearCalculationCache();
+        $this->assertEquals([[9, 6, -3]], $sheet->rangeToArray('D2:F2', null, true, false));
+        $this->assertEquals(-3, $sheet->getCell('P2')->getCalculatedValue());
+
+        $orders->setCellValue('E2', 2);
+        $orders->setCellValue('F2', null);
+        Calculation::getInstance($spreadsheet)->clearCalculationCache();
+        $this->assertEquals(4, $orders->getCell('G2')->getCalculatedValue());
+        $this->assertEquals(4, $sheet->getCell('H2')->getCalculatedValue());
+        $this->assertEquals([[8, 5, -3]], $sheet->rangeToArray('D2:F2', null, true, false));
+
+        // Direct edits to the printed actual quantity must also update its difference.
+        $sheet->setCellValue('E2', 10);
+        Calculation::getInstance($spreadsheet)->clearCalculationCache();
+        $this->assertEquals(2, $sheet->getCell('F2')->getCalculatedValue());
+
+        $tempPath = tempnam(sys_get_temp_dir(), 'wms-recount-formulas-');
+        try {
+            (new Xlsx($spreadsheet))->save($tempPath);
+            $savedWorkbook = IOFactory::load($tempPath);
+        } finally {
+            unlink($tempPath);
+        }
+
+        $this->assertSame('=E2-D2', $savedWorkbook->getActiveSheet()->getCell('F2')->getValue());
+        $this->assertEquals(2, $savedWorkbook->getActiveSheet()->getCell('F2')->getOldCalculatedValue());
+        $this->assertEquals(2, $savedWorkbook->getActiveSheet()->getCell('F2')->getCalculatedValue());
+    }
+
+    public function test_recount_formulas_match_orders_by_item_code_and_preserve_returns_and_fractions(): void
+    {
+        $items = collect(['001234', '001235', '009999'])->map(function (string $code, int $index): WmsInventoryCountItem {
+            $item = new WmsInventoryCountItem(['item_id' => $index + 1, 'item_code' => $code]);
+            $item->setAttribute('pdf_system_quantity', 10);
+            $item->setAttribute('pdf_actual_quantity', 8);
+
+            return $item;
+        });
+        $orders = collect([
+            2 => (object) ['item_id' => 2, 'item_code' => '001235', 'ordered_quantity' => -3, 'capacity_case' => 2, 'code1' => null, 'code2' => null, 'code3' => null],
+            1 => (object) ['item_id' => 1, 'item_code' => '001234', 'ordered_quantity' => 2.5, 'capacity_case' => 2, 'code1' => null, 'code2' => null, 'code3' => null],
+        ]);
+        $workbook = $this->recountWorkbook($items, $orders);
+        $sheet = $workbook->getActiveSheet();
+
+        $this->assertSame('001234', $sheet->getCell('A2')->getValue());
+        $this->assertEquals([[7.5, 5.5, -2], [13, 11, -2], [10, 8, -2]], $sheet->rangeToArray('D2:F4', null, true, false));
+        $this->assertSame('', $sheet->getCell('H4')->getCalculatedValue());
+        $this->assertEquals(0, $sheet->getCell('M4')->getCalculatedValue());
+    }
+
+    public function test_recount_print_settings_cover_data_and_repeat_headers_even_without_items(): void
+    {
+        $workbook = $this->recountWorkbook(collect(), collect());
+
+        foreach (['再棚当たり表' => 'I', '差異表原本' => 'S', '当日受注' => 'J'] as $name => $lastColumn) {
+            $setup = $workbook->getSheetByName($name)->getPageSetup();
+            $this->assertSame("A1:{$lastColumn}1", $setup->getPrintArea());
+            $this->assertSame([1, 1], $setup->getRowsToRepeatAtTop());
+            $this->assertSame(PageSetup::PAPERSIZE_A4, $setup->getPaperSize());
+            $this->assertSame(PageSetup::ORIENTATION_LANDSCAPE, $setup->getOrientation());
+            $this->assertSame(1, $setup->getFitToWidth());
+            $this->assertSame(0, $setup->getFitToHeight());
+        }
     }
 
     public function test_recount_workbook_uses_pdf_targets_and_has_combined_source_sheet(): void
@@ -83,6 +157,10 @@ class InventoryDiffListWorkbookServiceTest extends TestCase
 
         $this->assertInstanceOf(Worksheet::class, $recountSheet);
         $this->assertInstanceOf(Worksheet::class, $sourceSheet);
+        $this->assertSame('A1:I3', $recountSheet->getPageSetup()->getPrintArea());
+        $this->assertSame('A1:S3', $sourceSheet->getPageSetup()->getPrintArea());
+        $this->assertSame('A1:J1', $workbook->getSheetByName('当日受注')->getPageSetup()->getPrintArea());
+        $this->assertSame([1, 1], $recountSheet->getPageSetup()->getRowsToRepeatAtTop());
         $this->assertSame(['単品CD', 'アイテム名称', 'ロケ', '理論在庫', '実棚数量', '差異'], $recountSheet->rangeToArray('A1:F1')[0]);
         $this->assertSame($this->expectedHeaders(), $sourceSheet->rangeToArray('A1:S1')[0]);
 
@@ -103,6 +181,27 @@ class InventoryDiffListWorkbookServiceTest extends TestCase
         $this->assertSame(7, (int) $recountRows['DLW010']['理論在庫']);
         $this->assertSame(0, (int) $recountRows['DLW010']['実棚数量']);
         $this->assertSame(-7, (int) $recountRows['DLW010']['差異']);
+
+        $recountSheet->setCellValue('O2', 20);
+        Calculation::getInstance($workbook)->clearCalculationCache();
+        $this->assertEquals(20, $recountSheet->getCell('E2')->getCalculatedValue());
+        $this->assertSame($sourceRows, $this->sourceRowsByItemCode($sourceSheet));
+    }
+
+    private function recountWorkbook(Collection $items, Collection $orders): Spreadsheet
+    {
+        $workbook = new Spreadsheet;
+        $recount = $workbook->getActiveSheet()->setTitle('再棚当たり表');
+        $source = $workbook->createSheet()->setTitle('差異表原本');
+        $orderSheet = $workbook->createSheet()->setTitle('当日受注');
+        $service = new InventoryDiffListWorkbookService;
+
+        (new ReflectionMethod($service, 'writeRecountRows'))->invoke($service, $recount, $items, $orders);
+        (new ReflectionMethod($service, 'writeSourceRows'))->invoke($service, $source, []);
+        (new ReflectionMethod($service, 'writeOrderRows'))->invoke($service, $orderSheet, $orders, $items->pluck('item_id')->all());
+        $workbook->setActiveSheetIndex(0);
+
+        return $workbook;
     }
 
     /**
