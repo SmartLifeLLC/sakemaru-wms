@@ -12,6 +12,7 @@ use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
+use ReflectionMethod;
 use Tests\TestCase;
 
 class InventoryDiffListWorkbookServiceTest extends TestCase
@@ -20,7 +21,33 @@ class InventoryDiffListWorkbookServiceTest extends TestCase
 
     protected $connectionsToTransact = ['sakemaru'];
 
-    public function test_diff_list_workbook_uses_pdf_targets_and_splits_sheets_by_major_category(): void
+    public function test_recount_sheet_subtracts_same_day_orders_from_theory_and_actual_only(): void
+    {
+        $item = new WmsInventoryCountItem([
+            'item_id' => 123,
+            'item_code' => '123456',
+            'item_name' => '再棚当たりテスト商品',
+            'location_no' => 'A01001',
+        ]);
+        $item->setAttribute('pdf_system_quantity', 10);
+        $item->setAttribute('pdf_actual_quantity', 8);
+
+        $spreadsheet = new Spreadsheet;
+        $method = new ReflectionMethod(InventoryDiffListWorkbookService::class, 'writeRecountRows');
+        $method->setAccessible(true);
+        $method->invoke(
+            new InventoryDiffListWorkbookService,
+            $spreadsheet->getActiveSheet(),
+            collect([$item]),
+            collect([123 => (object) ['ordered_quantity' => 3]]),
+        );
+
+        $this->assertSame(7, (int) $spreadsheet->getActiveSheet()->getCell('D2')->getValue());
+        $this->assertSame(5, (int) $spreadsheet->getActiveSheet()->getCell('E2')->getValue());
+        $this->assertSame(-2, (int) $spreadsheet->getActiveSheet()->getCell('F2')->getValue());
+    }
+
+    public function test_recount_workbook_uses_pdf_targets_and_has_combined_source_sheet(): void
     {
         if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')) {
             $this->markTestSkipped('wms_inventory_count_items.ending_system_quantity is not available.');
@@ -46,37 +73,36 @@ class InventoryDiffListWorkbookServiceTest extends TestCase
         $this->createCountItem($inventoryCount, $foodItemId, 'DLW011', '差分Excel差異なし', 'A1-01-02', 7, 7, 7, 1);
         $this->createCountItem($inventoryCount, $excludedItemId, 'DLW999', '差分Excel対象外分類', 'C1-01-01', 10, 10, 1, 1);
 
-        $workbook = $this->loadWorkbook((new InventoryDiffListWorkbookService)->generate($inventoryCount, 1));
+        $workbook = $this->loadWorkbook((new InventoryDiffListWorkbookService)->generate($inventoryCount, 1, '2000-01-01'));
         $sheetNames = $workbook->getSheetNames();
 
-        $this->assertContains('1001 差分Excel酒類', $sheetNames);
-        $this->assertContains('1002 差分Excel飲料食品', $sheetNames);
-        $this->assertNotContains('9999 差分Excel対象外', $sheetNames);
+        $this->assertSame(['再棚当たり表', '差異表原本', '当日受注'], $sheetNames);
 
-        $alcoholSheet = $workbook->getSheetByName('1001 差分Excel酒類');
-        $foodSheet = $workbook->getSheetByName('1002 差分Excel飲料食品');
+        $recountSheet = $workbook->getSheetByName('再棚当たり表');
+        $sourceSheet = $workbook->getSheetByName('差異表原本');
 
-        $this->assertInstanceOf(Worksheet::class, $alcoholSheet);
-        $this->assertInstanceOf(Worksheet::class, $foodSheet);
-        $this->assertSame($this->expectedHeaders(), $alcoholSheet->rangeToArray('A1:S1')[0]);
+        $this->assertInstanceOf(Worksheet::class, $recountSheet);
+        $this->assertInstanceOf(Worksheet::class, $sourceSheet);
+        $this->assertSame(['単品CD', 'アイテム名称', 'ロケ', '理論在庫', '実棚数量', '差異'], $recountSheet->rangeToArray('A1:F1')[0]);
+        $this->assertSame($this->expectedHeaders(), $sourceSheet->rangeToArray('A1:S1')[0]);
 
-        $alcoholRows = $this->rowsByItemCode($alcoholSheet);
-        $foodRows = $this->rowsByItemCode($foodSheet);
+        $recountRows = $this->recountRowsByItemCode($recountSheet);
+        $sourceRows = $this->sourceRowsByItemCode($sourceSheet);
 
-        $this->assertEqualsCanonicalizing(['DLW020'], array_keys($alcoholRows));
-        $this->assertEqualsCanonicalizing(['DLW010'], array_keys($foodRows));
-        $this->assertSame('B2', $alcoholRows['DLW020']['棚番']);
-        $this->assertSame('B2-01-01', $alcoholRows['DLW020']['ロケ']);
-        $this->assertSame('1001', $alcoholRows['DLW020']['部門CD']);
-        $this->assertSame('差分Excel酒類', $alcoholRows['DLW020']['部門名']);
-        $this->assertSame('2010', $alcoholRows['DLW020']['中分類CD']);
-        $this->assertSame('差分Excel和酒', $alcoholRows['DLW020']['中分類名']);
-        $this->assertSame(8, (int) $alcoholRows['DLW020']['終了理論']);
-        $this->assertSame(5, (int) $alcoholRows['DLW020']['実数量']);
-        $this->assertSame(-3, (int) $alcoholRows['DLW020']['終了差異']);
-        $this->assertSame(7, (int) $foodRows['DLW010']['終了理論']);
-        $this->assertSame(0, (int) $foodRows['DLW010']['実数量']);
-        $this->assertSame(-7, (int) $foodRows['DLW010']['終了差異']);
+        $this->assertEqualsCanonicalizing(['DLW010', 'DLW020'], array_keys($recountRows));
+        $this->assertEqualsCanonicalizing(['DLW010', 'DLW020'], array_keys($sourceRows));
+        $this->assertSame('B2', $sourceRows['DLW020']['棚番']);
+        $this->assertSame('B2-01-01', $sourceRows['DLW020']['ロケ']);
+        $this->assertSame('1001', $sourceRows['DLW020']['部門CD']);
+        $this->assertSame('差分Excel酒類', $sourceRows['DLW020']['部門名']);
+        $this->assertSame('2010', $sourceRows['DLW020']['中分類CD']);
+        $this->assertSame('差分Excel和酒', $sourceRows['DLW020']['中分類名']);
+        $this->assertSame(8, (int) $recountRows['DLW020']['理論在庫']);
+        $this->assertSame(5, (int) $recountRows['DLW020']['実棚数量']);
+        $this->assertSame(-3, (int) $recountRows['DLW020']['差異']);
+        $this->assertSame(7, (int) $recountRows['DLW010']['理論在庫']);
+        $this->assertSame(0, (int) $recountRows['DLW010']['実棚数量']);
+        $this->assertSame(-7, (int) $recountRows['DLW010']['差異']);
     }
 
     /**
@@ -217,7 +243,7 @@ class InventoryDiffListWorkbookServiceTest extends TestCase
     /**
      * @return array<string, array<string, mixed>>
      */
-    private function rowsByItemCode(Worksheet $sheet): array
+    private function sourceRowsByItemCode(Worksheet $sheet): array
     {
         $rows = [];
         $headers = $sheet->rangeToArray('A1:S1')[0];
@@ -226,6 +252,27 @@ class InventoryDiffListWorkbookServiceTest extends TestCase
             $rowValues = $sheet->rangeToArray("A{$rowIndex}:S{$rowIndex}")[0];
             $row = array_combine($headers, $rowValues);
             $itemCode = (string) ($row['アイテムコード'] ?? '');
+
+            if ($itemCode !== '') {
+                $rows[$itemCode] = $row;
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @return array<string, array<string, mixed>>
+     */
+    private function recountRowsByItemCode(Worksheet $sheet): array
+    {
+        $rows = [];
+        $headers = $sheet->rangeToArray('A1:F1')[0];
+
+        for ($rowIndex = 2; $rowIndex <= $sheet->getHighestDataRow(); $rowIndex++) {
+            $rowValues = $sheet->rangeToArray("A{$rowIndex}:F{$rowIndex}")[0];
+            $row = array_combine($headers, $rowValues);
+            $itemCode = (string) ($row['単品CD'] ?? '');
 
             if ($itemCode !== '') {
                 $rows[$itemCode] = $row;

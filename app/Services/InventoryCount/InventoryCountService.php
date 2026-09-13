@@ -123,7 +123,12 @@ class InventoryCountService
                     ->where('lot.rn', '=', 1);
             })
             ->leftJoin('locations as l', 'l.id', '=', 'lot.location_id')
-            ->leftJoin('floors as f', 'f.id', '=', DB::raw('COALESCE(lot.floor_id, l.floor_id)'))
+            ->leftJoin('item_incoming_default_locations as idl', function ($join) use ($warehouseId) {
+                $join->on('idl.item_id', '=', 'rs.item_id')
+                    ->where('idl.warehouse_id', '=', $warehouseId);
+            })
+            ->leftJoin('locations as default_l', 'default_l.id', '=', 'idl.location_id')
+            ->leftJoin('floors as f', 'f.id', '=', DB::raw('COALESCE(default_l.floor_id, lot.floor_id, l.floor_id)'))
             ->where('rs.client_id', $clientId)
             ->where('rs.warehouse_id', $warehouseId)
             ->whereIn('rs.item_id', $eligibleItemIds)
@@ -133,18 +138,18 @@ class InventoryCountService
                 'i.code as item_code',
                 'i.name as item_name',
                 DB::raw("(SELECT isi.search_string FROM item_search_information isi WHERE isi.item_id = i.id AND isi.code_type = 'JAN' AND isi.quantity_type = 'PIECE' AND isi.is_active = 1 ORDER BY isi.priority IS NULL, isi.priority, isi.id LIMIT 1) as barcode"),
-                'l.id as location_id',
+                DB::raw('COALESCE(default_l.id, l.id) as location_id'),
                 'f.id as floor_id',
                 'f.name as floor_name',
-                'l.code1 as location_code1',
-                'l.code2 as location_code2',
-                'l.code3 as location_code3',
+                DB::raw('COALESCE(default_l.code1, l.code1) as location_code1'),
+                DB::raw('COALESCE(default_l.code2, l.code2) as location_code2'),
+                DB::raw('COALESCE(default_l.code3, l.code3) as location_code3'),
                 DB::raw('COALESCE((SELECT ip.cost_unit_price FROM item_prices ip WHERE ip.item_id = i.id AND ip.is_active = 1 LIMIT 1), 0) as cost_price'),
             ])
             ->orderBy('f.name')
-            ->orderBy('l.code1')
-            ->orderBy('l.code2')
-            ->orderBy('l.code3')
+            ->orderByRaw('COALESCE(default_l.code1, l.code1)')
+            ->orderByRaw('COALESCE(default_l.code2, l.code2)')
+            ->orderByRaw('COALESCE(default_l.code3, l.code3)')
             ->orderBy('rs.id')
             ->chunk(1000, function ($rows) use ($inventoryCount, $balances, $hasEndingSystemQuantityColumn, &$seenItemIds, &$inserted) {
                 $now = now();
@@ -1029,7 +1034,12 @@ class InventoryCountService
                     ->where('lot.rn', '=', 1);
             })
             ->leftJoin('locations as l', 'l.id', '=', 'lot.location_id')
-            ->leftJoin('floors as f', 'f.id', '=', DB::raw('COALESCE(lot.floor_id, l.floor_id)'))
+            ->leftJoin('item_incoming_default_locations as idl', function ($join) use ($inventoryCount) {
+                $join->on('idl.item_id', '=', 'rs.item_id')
+                    ->where('idl.warehouse_id', '=', $inventoryCount->warehouse_id);
+            })
+            ->leftJoin('locations as default_l', 'default_l.id', '=', 'idl.location_id')
+            ->leftJoin('floors as f', 'f.id', '=', DB::raw('COALESCE(default_l.floor_id, lot.floor_id, l.floor_id)'))
             ->leftJoin('wms_inventory_count_items as ici', function ($join) use ($inventoryCount) {
                 $join->on('ici.real_stock_id', '=', 'rs.id')
                     ->where('ici.inventory_count_id', '=', $inventoryCount->id);
@@ -1046,12 +1056,12 @@ class InventoryCountService
                 'i.code as item_code',
                 'i.name as item_name',
                 DB::raw("(SELECT isi.search_string FROM item_search_information isi WHERE isi.item_id = i.id AND isi.code_type = 'JAN' AND isi.quantity_type = 'PIECE' AND isi.is_active = 1 ORDER BY isi.priority IS NULL, isi.priority, isi.id LIMIT 1) as barcode"),
-                'l.id as location_id',
+                DB::raw('COALESCE(default_l.id, l.id) as location_id'),
                 'f.id as floor_id',
                 'f.name as floor_name',
-                'l.code1 as location_code1',
-                'l.code2 as location_code2',
-                'l.code3 as location_code3',
+                DB::raw('COALESCE(default_l.code1, l.code1) as location_code1'),
+                DB::raw('COALESCE(default_l.code2, l.code2) as location_code2'),
+                DB::raw('COALESCE(default_l.code3, l.code3) as location_code3'),
                 'rs.current_quantity as ending_system_quantity',
                 DB::raw('COALESCE((SELECT ip.cost_unit_price FROM item_prices ip WHERE ip.item_id = i.id AND ip.is_active = 1 LIMIT 1), 0) as cost_price'),
             ])
@@ -1130,7 +1140,12 @@ class InventoryCountService
                         ->where('lot.rn', '=', 1);
                 })
                 ->leftJoin('locations as l', 'l.id', '=', 'lot.location_id')
-                ->leftJoin('floors as f', 'f.id', '=', DB::raw('COALESCE(lot.floor_id, l.floor_id)'))
+                ->leftJoin('item_incoming_default_locations as idl', function ($join) use ($inventoryCount) {
+                    $join->on('idl.item_id', '=', 'rs.item_id')
+                        ->where('idl.warehouse_id', '=', $inventoryCount->warehouse_id);
+                })
+                ->leftJoin('locations as default_l', 'default_l.id', '=', 'idl.location_id')
+                ->leftJoin('floors as f', 'f.id', '=', DB::raw('COALESCE(default_l.floor_id, lot.floor_id, l.floor_id)'))
                 ->where('rs.client_id', $inventoryCount->client_id)
                 ->where('rs.warehouse_id', $inventoryCount->warehouse_id)
                 ->whereIn('rs.item_id', $chunkItemIds)
@@ -1138,12 +1153,12 @@ class InventoryCountService
                 ->get([
                     'rs.id as real_stock_id',
                     'rs.item_id',
-                    'l.id as location_id',
+                    DB::raw('COALESCE(default_l.id, l.id) as location_id'),
                     'f.id as floor_id',
                     'f.name as floor_name',
-                    'l.code1 as location_code1',
-                    'l.code2 as location_code2',
-                    'l.code3 as location_code3',
+                    DB::raw('COALESCE(default_l.code1, l.code1) as location_code1'),
+                    DB::raw('COALESCE(default_l.code2, l.code2) as location_code2'),
+                    DB::raw('COALESCE(default_l.code3, l.code3) as location_code3'),
                 ])
                 ->groupBy('item_id')
                 ->map(fn ($rows) => $rows->first());
@@ -1235,7 +1250,12 @@ class InventoryCountService
                         ->where('lot.rn', '=', 1);
                 })
                 ->leftJoin('locations as l', 'l.id', '=', 'lot.location_id')
-                ->leftJoin('floors as f', 'f.id', '=', DB::raw('COALESCE(lot.floor_id, l.floor_id)'))
+                ->leftJoin('item_incoming_default_locations as idl', function ($join) use ($inventoryCount) {
+                    $join->on('idl.item_id', '=', 'rs.item_id')
+                        ->where('idl.warehouse_id', '=', $inventoryCount->warehouse_id);
+                })
+                ->leftJoin('locations as default_l', 'default_l.id', '=', 'idl.location_id')
+                ->leftJoin('floors as f', 'f.id', '=', DB::raw('COALESCE(default_l.floor_id, lot.floor_id, l.floor_id)'))
                 ->where('rs.client_id', $inventoryCount->client_id)
                 ->where('rs.warehouse_id', $inventoryCount->warehouse_id)
                 ->whereIn('rs.item_id', $chunkItemIds)
@@ -1243,12 +1263,12 @@ class InventoryCountService
                 ->get([
                     'rs.id as real_stock_id',
                     'rs.item_id',
-                    'l.id as location_id',
+                    DB::raw('COALESCE(default_l.id, l.id) as location_id'),
                     'f.id as floor_id',
                     'f.name as floor_name',
-                    'l.code1 as location_code1',
-                    'l.code2 as location_code2',
-                    'l.code3 as location_code3',
+                    DB::raw('COALESCE(default_l.code1, l.code1) as location_code1'),
+                    DB::raw('COALESCE(default_l.code2, l.code2) as location_code2'),
+                    DB::raw('COALESCE(default_l.code3, l.code3) as location_code3'),
                 ])
                 ->groupBy('item_id')
                 ->map(fn ($rows) => $rows->first());

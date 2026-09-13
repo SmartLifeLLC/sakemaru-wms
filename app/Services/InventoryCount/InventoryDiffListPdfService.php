@@ -232,6 +232,11 @@ class InventoryDiffListPdfService
             ->orderBy('item_code')
             ->get();
 
+        $items = (new InventoryCountLocationResolver)->enrich(
+            $items,
+            (int) $inventoryCount->warehouse_id,
+        );
+
         if ($this->uncountedRound !== null) {
             return $items
                 ->sort($this->inventoryItemSorter(...))
@@ -271,8 +276,14 @@ class InventoryDiffListPdfService
         $this->applyReportTargetCategoryFilter($query);
         $this->applyUncountedQuantityFilters($query);
 
-        return $query
-            ->get()
+        $items = $query->get();
+        $items
+            ->groupBy(fn (WmsInventoryCountItem $item): int => (int) $item->inventoryCount?->warehouse_id)
+            ->each(function (Collection $warehouseItems, int $warehouseId): void {
+                (new InventoryCountLocationResolver)->enrich($warehouseItems, $warehouseId);
+            });
+
+        return $items
             ->groupBy(fn (WmsInventoryCountItem $item): string => $this->inventoryItemKey($item))
             ->filter(fn (Collection $items): bool => $items->every(
                 fn (WmsInventoryCountItem $item): bool => $item->{$roundColumn} === null,
@@ -357,18 +368,20 @@ class InventoryDiffListPdfService
      */
     private function inventoryItemSortValues(WmsInventoryCountItem $item): array
     {
-        $locationMissing = $item->location_id === null
-            || trim((string) ($item->location_no ?? '')) === ''
-            || trim((string) ($item->location_code1 ?? '')) === '' ? 1 : 0;
+        $locationNo = InventoryCountLocationResolver::locationNo($item);
+        $locationCode1 = InventoryCountLocationResolver::locationCode1($item);
+        $locationCode2 = InventoryCountLocationResolver::locationCode2($item);
+        $locationCode3 = InventoryCountLocationResolver::locationCode3($item);
+        $locationMissing = $locationNo === InventoryCountLocationResolver::NO_LOCATION_LABEL ? 1 : 0;
 
         if ($this->isWarehouse91Item($item)) {
             return [
                 ...$this->warehouseSortValues($item),
                 $locationMissing,
                 $this->shelfPagePrefix($item) ?? '',
-                (string) ($item->location_code1 ?? ''),
-                (string) ($item->location_code2 ?? ''),
-                (string) ($item->location_code3 ?? ''),
+                $locationCode1,
+                $locationCode2,
+                $locationCode3,
                 (string) ($item->item_code ?? ''),
                 (int) $item->inventory_count_id,
                 (int) $item->id,
@@ -378,12 +391,10 @@ class InventoryDiffListPdfService
         return [
             ...$this->warehouseSortValues($item),
             ...$this->middleCategorySortValues($item),
-            $item->location_id === null
-                || trim((string) ($item->location_no ?? '')) === ''
-                || trim((string) ($item->location_code1 ?? '')) === '' ? 1 : 0,
-            (string) ($item->location_code1 ?? ''),
-            (string) ($item->location_code2 ?? ''),
-            (string) ($item->location_code3 ?? ''),
+            $locationMissing,
+            $locationCode1,
+            $locationCode2,
+            $locationCode3,
             (string) ($item->item_code ?? ''),
             (int) $item->inventory_count_id,
             (int) $item->id,
@@ -683,13 +694,11 @@ class InventoryDiffListPdfService
 
     private function shelfPagePrefix(WmsInventoryCountItem $item): ?string
     {
-        $locationNo = trim((string) ($item->location_no ?? ''));
+        $locationNo = InventoryCountLocationResolver::locationNo($item);
 
-        if ($locationNo === '') {
-            return null;
-        }
-
-        return mb_substr($locationNo, 0, 2);
+        return $locationNo === InventoryCountLocationResolver::NO_LOCATION_LABEL
+            ? $locationNo
+            : mb_substr($locationNo, 0, 2);
     }
 
     private function middleCategory(WmsInventoryCountItem $item): ?ItemCategory
@@ -936,7 +945,14 @@ class InventoryDiffListPdfService
         $row1X = $contentX + self::COL_W_ITEM;
         $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_NORMAL);
         $this->pdf->SetXY($row1X, $y);
-        $this->pdf->Cell(self::COL_W_LOCATION, $rowH, $countItem->location_no ?? '', 0, 0, 'C');
+        $this->pdf->Cell(
+            self::COL_W_LOCATION,
+            $rowH,
+            InventoryCountLocationResolver::locationNo($countItem),
+            0,
+            0,
+            'C'
+        );
 
         $row1X += self::COL_W_LOCATION;
         $this->pdf->SetXY($row1X, $y);

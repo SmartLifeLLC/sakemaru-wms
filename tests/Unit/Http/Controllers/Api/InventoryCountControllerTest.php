@@ -57,6 +57,12 @@ class InventoryCountControllerTest extends TestCase
             'system_quantity' => 5,
             'ending_system_quantity' => 8,
         ]);
+        $item->setAttribute('report_location_id', 456);
+        $item->setAttribute('report_floor_name', '既定フロア');
+        $item->setAttribute('report_location_no', 'G06303');
+        $item->setAttribute('report_location_code1', 'G');
+        $item->setAttribute('report_location_code2', '06');
+        $item->setAttribute('report_location_code3', '303');
 
         $controller = new InventoryCountController(new InventoryCountService);
         $method = new ReflectionMethod($controller, 'itemPayload');
@@ -68,6 +74,8 @@ class InventoryCountControllerTest extends TestCase
         $this->assertSame(5, $payload['system_quantity_start']);
         $this->assertSame(8, $payload['ending_system_quantity']);
         $this->assertSame(8, $payload['system_quantity_end']);
+        $this->assertSame(456, $payload['location']['id']);
+        $this->assertSame('G06303', $payload['location']['location_no']);
     }
 
     public function test_show_counts_exclude_owned_set_items(): void

@@ -469,12 +469,15 @@
                                     $firstConfirmedAmount = $row->getAttribute('first_count_confirmed_difference_amount');
                                     $secondConfirmedAmount = $row->getAttribute('second_count_confirmed_difference_amount');
                                     $finalConfirmedAmount = $row->getAttribute('final_count_confirmed_difference_amount');
+                                    $displayFloor = \App\Services\InventoryCount\InventoryCountLocationResolver::floorName($row);
+                                    $displayArea = \App\Services\InventoryCount\InventoryCountLocationResolver::locationCode1($row);
+                                    $displayLocation = \App\Services\InventoryCount\InventoryCountLocationResolver::locationNo($row);
                                 @endphp
                                 <tr wire:key="ic-row-{{ $row->id }}-r{{ $activeRound }}-u{{ $row->updated_at?->timestamp ?? 0 }}"
                                     x-data="{
-                                        floor: @js($row->floor_name ?: ''),
-                                        area: @js($row->location_code1 ?: ''),
-                                        location: @js($row->location_no ?: ''),
+                                        floor: @js($displayFloor),
+                                        area: @js($displayArea),
+                                        location: @js($displayLocation),
                                         itemCode: @js($row->item_code ?: ''),
                                         itemName: @js($row->item_name ?: ''),
                                         unmanagedStock: @js($this->isUnmanagedStockItemForDisplay($row)),
@@ -565,9 +568,9 @@
                                     x-show="rowVisible($data)"
                                     :class="changed ? 'bg-amber-50' : ($el.rowIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50')"
                                     class="hover:bg-sky-50">
-                                    <td class="whitespace-nowrap border border-slate-300 px-2 py-1">{{ $row->floor_name ?: '-' }}</td>
-                                    <td class="whitespace-nowrap border border-slate-300 px-2 py-1">{{ $row->location_code1 ?: '-' }}</td>
-                                    <td class="whitespace-nowrap border border-slate-300 px-2 py-1 font-mono">{{ $row->location_no ?: '-' }}</td>
+                                    <td class="whitespace-nowrap border border-slate-300 px-2 py-1">{{ $displayFloor ?: '-' }}</td>
+                                    <td class="whitespace-nowrap border border-slate-300 px-2 py-1">{{ $displayArea ?: '-' }}</td>
+                                    <td class="whitespace-nowrap border border-slate-300 px-2 py-1 font-mono">{{ $displayLocation }}</td>
                                     <td class="whitespace-nowrap border border-slate-300 px-2 py-1 font-mono">{{ $row->item_code ?: '-' }}</td>
                                     <td class="min-w-[240px] border border-slate-300 px-2 py-1">{{ $row->item_name ?: '-' }}</td>
                                     <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums {{ $endingSystemQty !== null && (int) $endingSystemQty !== (int) $row->system_quantity ? 'text-purple-700' : 'text-slate-700' }}">
