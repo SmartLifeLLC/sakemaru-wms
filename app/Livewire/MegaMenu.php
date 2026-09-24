@@ -74,8 +74,8 @@ class MegaMenu extends Component
                 'label' => $system['label'],
                 'url' => $url,
                 'isActive' => false,
-                'icon' => null,
-                'openInSplitView' => true,
+                'icon' => 'heroicon-o-arrow-top-right-on-square',
+                'openInNewTab' => true,
                 'desc' => $system['desc'],
             ];
         }
