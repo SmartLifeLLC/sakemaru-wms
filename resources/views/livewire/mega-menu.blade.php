@@ -109,7 +109,10 @@
                                         @foreach($group['items'] as $item)
                                             <li>
                                                 <a href="{{ $item['url'] }}"
-                                                   @if(!empty($item['openInSplitView']))
+                                                   @if(!empty($item['openInNewTab']))
+                                                       target="_blank" rel="noopener noreferrer"
+                                                       @click="openTab = null"
+                                                   @elseif(!empty($item['openInSplitView']))
                                                        @click.prevent="$store.splitView.open('{{ $item['url'] }}', '{{ $item['label'] }}', '{{ $group['label'] }}'); openTab = null"
                                                    @endif
                                                    class="group flex items-center gap-1.5 px-1.5 py-0.5 rounded transition-all duration-150 hover:bg-indigo-100 {{ $item['isActive'] ? 'bg-indigo-50' : '' }}">

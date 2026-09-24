@@ -7,8 +7,8 @@ use Filament\Facades\Filament;
 use Filament\Navigation\NavigationGroup;
 use Filament\Navigation\NavigationItem;
 use Filament\Support\Contracts\HasLabel;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Str;
 use ReflectionClass;
 use UnitEnum;
 
@@ -159,7 +159,7 @@ class MegaMenuBuilder
         return $itemsByLabel;
     }
 
-    protected function resolveGroupLabel(string | UnitEnum | null $group): ?string
+    protected function resolveGroupLabel(string|UnitEnum|null $group): ?string
     {
         if ($group === null) {
             return null;
@@ -203,7 +203,7 @@ class MegaMenuBuilder
                         'url' => $item['url'] ?? null,
                         'source_type' => $item['sourceType'] ?? (($item['permissionResource'] ?? null) ? 'navigation' : 'external'),
                         'is_external' => $item['isExternal'] ?? (($item['permissionResource'] ?? null) === null),
-                        'opens_in_new_tab' => (bool) ($item['openInSplitView'] ?? false),
+                        'opens_in_new_tab' => (bool) ($item['openInNewTab'] ?? $item['openInSplitView'] ?? false),
                         'tab_sort' => $tabIndex + 1,
                         'group_sort' => $groupIndex + 1,
                         'item_sort' => $itemIndex + 1,
@@ -328,8 +328,8 @@ class MegaMenuBuilder
                 'label' => $system['label'],
                 'url' => $this->normalizeUrl($url),
                 'isActive' => false,
-                'icon' => null,
-                'openInSplitView' => true,
+                'icon' => 'heroicon-o-arrow-top-right-on-square',
+                'openInNewTab' => true,
                 'desc' => $system['desc'],
                 'permissionResource' => null,
                 'sourceType' => 'external',
@@ -425,6 +425,8 @@ class MegaMenuBuilder
                 'label' => 'システム',
                 'icon' => 'fa-cogs',
                 'categories' => [
+                    EMenuCategory::ORDER_TRANSMISSION,
+                    EMenuCategory::WAVE_MANAGEMENT,
                     EMenuCategory::SETTINGS,
                     EMenuCategory::TEST_DATA,
                 ],
@@ -448,7 +450,7 @@ class MegaMenuBuilder
                 'permissionResource' => 'api-document',
             ],
             [
-                'url' => config('app.core_url') . '/stocks/inventory/transfer',
+                'url' => config('app.core_url').'/stocks/inventory/transfer',
                 'permissionResource' => 'warehouse-stock-transfer-delivery-course',
             ],
         ];
@@ -489,7 +491,7 @@ class MegaMenuBuilder
             return 'sakemaru';
         }
 
-        if (str_ends_with($host, '.' . $baseDomain)) {
+        if (str_ends_with($host, '.'.$baseDomain)) {
             return Str::before($host, '.');
         }
 
@@ -551,7 +553,7 @@ class MegaMenuBuilder
         }
 
         if ($iconClass && (str_starts_with($iconClass, 'o-') || str_starts_with($iconClass, 's-')) && ! str_starts_with($iconClass, 'heroicon-')) {
-            return 'heroicon-' . $iconClass;
+            return 'heroicon-'.$iconClass;
         }
 
         return $iconClass;
