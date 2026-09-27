@@ -53,9 +53,9 @@ class AllStoreInventoryDifferenceWorkbookServiceTest extends TestCase
         $this->createItemPrice($excludedCategoryItemId, 888);
         $this->createItemPrice($unmanagedItemId, 999);
 
-        $this->createCountItem($count01, $sakeItemId, '111001', '全店差異 和酒テスト', 10, 13, 3);
-        $this->createCountItem($count10, $sakeItemId, '111001', '全店差異 和酒テスト', 10, 7, -3);
-        $this->createCountItem($count10, $beerItemId, '143025', '全店差異 ビールテスト', 4, null, null);
+        $this->createCountItem($count01, $sakeItemId, '111001', '全店差異 和酒テスト', 10, 13, 3, 100);
+        $this->createCountItem($count10, $sakeItemId, '111001', '全店差異 和酒テスト', 10, 7, -3, 120);
+        $this->createCountItem($count10, $beerItemId, '143025', '全店差異 ビールテスト', 4, null, null, 50);
         $this->createCountItem($count10, $otherAlcoholItemId, '131047', '全店差異 その他酒類テスト', 2, 1, -1);
         $this->createCountItem($count10, $excludedCategoryItemId, '910001', '全店差異 対象外分類テスト', 9, 0, -9);
         $this->createCountItem($count10, $unmanagedItemId, '150002', '全店差異 在庫管理対象外テスト', 8, 0, -8);
@@ -92,7 +92,7 @@ class AllStoreInventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertSame('国分中部テスト', $sakeRows['01:111001']['仕入先名']);
         $this->assertSame(3, $sakeRows['01:111001']['差異数']);
         $this->assertSame(300.0, $sakeRows['01:111001']['絶対値差異']);
-        $this->assertSame(-300.0, $sakeRows['10:111001']['＋-差異']);
+        $this->assertSame(-360.0, $sakeRows['10:111001']['＋-差異']);
 
         $beerRows = $this->rowsByStoreAndItem($workbook->getSheetByName('14ビール'));
         $this->assertSame(-4, $beerRows['10:143025']['差異数']);
@@ -130,8 +130,8 @@ class AllStoreInventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertArrayNotHasKey('10:111002', $sakeRows);
         $this->assertArrayNotHasKey('10:111003', $sakeRows);
         $this->assertSame(-2, $sakeRows['01:111002']['差異数']);
-        $this->assertSame(200.0, $sakeRows['01:111002']['絶対値差異']);
-        $this->assertSame(-200.0, $sakeRows['01:111002']['＋-差異']);
+        $this->assertSame(20.0, $sakeRows['01:111002']['絶対値差異']);
+        $this->assertSame(-20.0, $sakeRows['01:111002']['＋-差異']);
     }
 
     public function test_all_store_difference_workbook_exports_empty_sheets_when_no_differences(): void
@@ -144,6 +144,29 @@ class AllStoreInventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertSame(['最新', '11・12和酒', '14ビール', '15ワイン', '2・6食品飲料', '3ギフト', '作業用シート'], $workbook->getSheetNames());
         $this->assertSame(1, $workbook->getSheetByName('最新')->getHighestRow());
         $this->assertSame(1, $workbook->getSheetByName('作業用シート')->getHighestRow());
+    }
+
+    public function test_saved_costs_are_aggregated_per_detail_and_store_without_master_fallback(): void
+    {
+        $count01 = $this->createInventoryCount('01', '本店');
+        $count10 = $this->createInventoryCount('10', '敦賀店');
+        $itemId = $this->createItem(111004, '保存原価テスト', 1001, 2011);
+        $zeroItemId = $this->createItem(111005, '原価ゼロテスト', 1001, 2011);
+        $this->createItemPrice($itemId, 999);
+        $this->createItemPrice($zeroItemId, 999);
+
+        $this->createCountItem($count01, $itemId, '111004', '保存原価テスト', 10, 7, -3, 1.23);
+        $this->createCountItem($count01, $itemId, '111004', '保存原価テスト', 10, 11, 1, 4.56);
+        $this->createCountItem($count10, $itemId, '111004', '保存原価テスト', 10, 8, -2, 7.89);
+        $this->createCountItem($count10, $zeroItemId, '111005', '原価ゼロテスト', 10, 8, -2, 0);
+
+        $book = $this->loadWorkbook((new AllStoreInventoryDifferenceWorkbookService)->generate(collect([$count01, $count10])));
+        $rows = $this->rowsByStoreAndItem($book->getSheetByName('11・12和酒'));
+        $this->assertSame(-2, $rows['01:111004']['差異数']);
+        $this->assertEquals(0.87, $rows['01:111004']['＋-差異']);
+        $this->assertEquals(0.87, $rows['01:111004']['絶対値差異']);
+        $this->assertEquals(-15.78, $rows['10:111004']['＋-差異']);
+        $this->assertEquals(0, $rows['10:111005']['＋-差異']);
     }
 
     private function createInventoryCount(string $warehouseCode, string $warehouseName): WmsInventoryCount
@@ -171,6 +194,7 @@ class AllStoreInventoryDifferenceWorkbookServiceTest extends TestCase
         int $systemQuantity,
         ?int $secondCountQuantity,
         ?int $confirmedDifference,
+        float $costPrice = 10,
     ): WmsInventoryCountItem {
         return WmsInventoryCountItem::create([
             'inventory_count_id' => $inventoryCount->id,
@@ -188,6 +212,7 @@ class AllStoreInventoryDifferenceWorkbookServiceTest extends TestCase
             'second_count_confirmed_system_quantity' => $systemQuantity,
             'second_count_confirmed_difference_quantity' => $confirmedDifference,
             'second_count_confirmed_difference_amount' => $confirmedDifference === null ? null : $confirmedDifference * 10,
+            'cost_price' => $costPrice,
             'input_count' => $secondCountQuantity === null ? 0 : 2,
         ]);
     }

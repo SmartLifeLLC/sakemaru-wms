@@ -20,15 +20,43 @@ class InventoryCountLedgerBalanceService
      */
     public function balancesByItem(int $clientId, int $warehouseId, string $endDate): array
     {
+        return $this->calculateBalances($clientId, $warehouseId, $endDate, false);
+    }
+
+    /**
+     * 基幹の棚卸調節伝票（当日sort_order=90）を追加する直前の残高。
+     * 棚卸理論の入庫完了条件とは分離し、基幹受払の移入・旧前残の扱いに合わせる。
+     *
+     * @return array<int, float>
+     */
+    public function balancesBeforeAdjustmentByItem(int $clientId, int $warehouseId, string $date): array
+    {
+        return $this->calculateBalances($clientId, $warehouseId, $date, true);
+    }
+
+    private function calculateBalances(int $clientId, int $warehouseId, string $endDate, bool $forAdjustment): array
+    {
         $end = CarbonImmutable::parse($endDate)->toDateString();
         if ($end < self::OPENING_DATE) {
             throw new \RuntimeException(self::OPENING_DATE.' より前の日付では理論在庫を更新できません。');
         }
 
         $balances = $this->openingBalances($clientId, $warehouseId);
+        if ($forAdjustment && Schema::connection('sakemaru')->hasTable('stats_item_stock_movement_lines')) {
+            $fallback = DB::connection('sakemaru')->table('stats_item_stock_movement_lines')
+                ->where('client_id', $clientId)->where('warehouse_id', $warehouseId)
+                ->where('movement_date', self::OPENING_DATE)->where('movement_type', 'opening')
+                ->where('source_system', 'opening_snapshot_20260506')
+                ->groupBy('item_id')->selectRaw('item_id, SUM(balance_quantity) AS quantity')
+                ->pluck('quantity', 'item_id')->map(fn ($quantity): int => $this->quantityToScaled($quantity))->all();
+            $balances += $fallback;
+        }
         $movementsByItem = [];
 
-        foreach ($this->bulkMovementRows($clientId, $warehouseId, self::OPENING_DATE, $end) as $row) {
+        foreach ($this->bulkMovementRows($clientId, $warehouseId, self::OPENING_DATE, $end, $forAdjustment) as $row) {
+            if ($forAdjustment && CarbonImmutable::parse($row->movement_date)->toDateString() === $end && (int) $row->sort_order > 90) {
+                continue;
+            }
             $itemId = (int) $row->item_id;
             $movementsByItem[$itemId][] = [
                 'movement_date' => CarbonImmutable::parse($row->movement_date)->toDateString(),
@@ -89,6 +117,10 @@ class InventoryCountLedgerBalanceService
             }
 
             $balances[$itemId] = $balance;
+        }
+
+        if ($forAdjustment) {
+            return collect($balances)->map(fn (int $quantity): float => $this->scaledToQuantity($quantity))->all();
         }
 
         $eligibleItemIds = array_flip($this->eligibleItemIds(array_keys($balances), $clientId));
@@ -169,7 +201,7 @@ class InventoryCountLedgerBalanceService
             ->all();
     }
 
-    private function bulkMovementRows(int $clientId, int $warehouseId, string $fromDate, string $endDate): Collection
+    private function bulkMovementRows(int $clientId, int $warehouseId, string $fromDate, string $endDate, bool $forAdjustment = false): Collection
     {
         return collect()
             ->merge($this->purchaseRows($clientId, $warehouseId, $fromDate, $endDate))
@@ -178,9 +210,9 @@ class InventoryCountLedgerBalanceService
             ->merge($this->retailRows($warehouseId, $fromDate, $endDate))
             ->merge($this->retailOwnSetComponentRows($warehouseId, $fromDate, $endDate))
             ->merge($this->stockTransferOutRows($clientId, $warehouseId, $fromDate, $endDate))
-            ->merge($this->stockTransferInRows($clientId, $warehouseId, $fromDate, $endDate))
+            ->merge($this->stockTransferInRows($clientId, $warehouseId, $fromDate, $endDate, $forAdjustment))
             ->merge($this->stockTransferOutSetComponentRows($clientId, $warehouseId, $fromDate, $endDate))
-            ->merge($this->stockTransferInSetComponentRows($clientId, $warehouseId, $fromDate, $endDate))
+            ->merge($this->stockTransferInSetComponentRows($clientId, $warehouseId, $fromDate, $endDate, $forAdjustment))
             ->merge($this->stockDisposalRows($clientId, $warehouseId, $fromDate, $endDate))
             ->merge($this->stockAdjustmentRows($clientId, $warehouseId, $fromDate, $endDate))
             ->merge($this->containerPickupRows($clientId, $warehouseId, $fromDate, $endDate))
@@ -428,10 +460,10 @@ class InventoryCountLedgerBalanceService
             ->get();
     }
 
-    private function stockTransferInRows(int $clientId, int $warehouseId, string $fromDate, string $endDate): Collection
+    private function stockTransferInRows(int $clientId, int $warehouseId, string $fromDate, string $endDate, bool $forAdjustment = false): Collection
     {
         $pieceQty = $this->pieceQty();
-        $movementDate = 'st.delivered_date';
+        $movementDate = $forAdjustment ? 'COALESCE(st.delivered_date, t.process_date)' : 'st.delivered_date';
 
         return DB::connection('sakemaru')
             ->table('trade_items as ti')
@@ -443,9 +475,8 @@ class InventoryCountLedgerBalanceService
             ->where('t.is_active', true)
             ->where('t.is_latest', true)
             ->where('st.is_active', true)
-            ->where('st.is_delivered', true)
+            ->when(! $forAdjustment, fn ($query) => $query->where('st.is_delivered', true)->whereNotNull('st.delivered_date'))
             ->where('ti.is_active', true)
-            ->whereNotNull('st.delivered_date')
             ->when(Schema::connection('sakemaru')->hasTable('stock_transfer_lot_allocations'), fn ($query) => $query->whereNotExists(function ($query) {
                 $query
                     ->select(DB::raw(1))
@@ -489,13 +520,13 @@ class InventoryCountLedgerBalanceService
             ->get();
     }
 
-    private function stockTransferInSetComponentRows(int $clientId, int $warehouseId, string $fromDate, string $endDate): Collection
+    private function stockTransferInSetComponentRows(int $clientId, int $warehouseId, string $fromDate, string $endDate, bool $forAdjustment = false): Collection
     {
         if (! Schema::connection('sakemaru')->hasTable('stock_transfer_lot_allocations')) {
             return collect();
         }
 
-        $movementDate = 'st.delivered_date';
+        $movementDate = $forAdjustment ? 'COALESCE(st.delivered_date, t.process_date)' : 'st.delivered_date';
 
         return DB::connection('sakemaru')
             ->table('stock_transfer_lot_allocations as a')
@@ -511,9 +542,8 @@ class InventoryCountLedgerBalanceService
             ->where('t.is_active', true)
             ->where('t.is_latest', true)
             ->where('st.is_active', true)
-            ->where('st.is_delivered', true)
+            ->when(! $forAdjustment, fn ($query) => $query->where('st.is_delivered', true)->whereNotNull('st.delivered_date'))
             ->where('ti.is_active', true)
-            ->whereNotNull('st.delivered_date')
             ->whereBetween(DB::raw($movementDate), [$fromDate, $endDate])
             ->groupBy('rs.item_id', DB::raw($movementDate))
             ->selectRaw("rs.item_id, {$movementDate} AS movement_date, 61 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM(a.quantity) AS net_quantity")

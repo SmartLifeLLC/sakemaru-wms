@@ -932,6 +932,10 @@ class InventoryCountServiceTest extends TestCase
         $balances = (new InventoryCountLedgerBalanceService)->balancesByItem($clientId, $warehouseId, $endDate);
 
         $this->assertSame(5.0, $balances[(int) $item->id] ?? null);
+        // 最終確定の伝票残高は基幹受払に合わせるが、棚卸理論の入庫完了条件は維持する。
+        $adjustmentBalances = (new InventoryCountLedgerBalanceService)->balancesBeforeAdjustmentByItem($clientId, $warehouseId, $endDate);
+        $this->assertSame(12.0, $adjustmentBalances[(int) $item->id] ?? null);
+        $this->assertSame(5.0, (new InventoryCountLedgerBalanceService)->balancesByItem($clientId, $warehouseId, $endDate)[(int) $item->id]);
     }
 
     public function test_ledger_balance_counts_transfer_outbound_by_picking_date_with_process_date_fallback(): void
@@ -1394,7 +1398,7 @@ class InventoryCountServiceTest extends TestCase
         $this->assertNotNull($inventoryCount->stock_movement_calculated_at);
     }
 
-    public function test_confirm_is_currently_disabled(): void
+    public function test_confirm_requires_confirmed_round(): void
     {
         $clientId = (int) DB::connection('sakemaru')->table('clients')->value('id');
         if ($clientId <= 0) {
@@ -1429,10 +1433,10 @@ class InventoryCountServiceTest extends TestCase
         ]);
 
         try {
-            (new InventoryCountService)->confirm($inventoryCount, 1);
-            $this->fail('棚卸し確定は現在利用不可である必要があります。');
-        } catch (\RuntimeException $e) {
-            $this->assertSame(InventoryCountService::CONFIRM_DISABLED_MESSAGE, $e->getMessage());
+            (new InventoryCountService)->confirm($inventoryCount, 1, '2026-06-19', 'invalid');
+            $this->fail('3回目未確定の棚卸しを最終確定できません。');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->assertStringContainsString('確定後、その回を選択', $e->getMessage());
         }
 
         $inventoryCount->refresh();

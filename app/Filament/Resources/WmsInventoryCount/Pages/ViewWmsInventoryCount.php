@@ -6,20 +6,24 @@ use App\Filament\Resources\WmsInventoryCountResource;
 use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
 use App\Models\WmsInventoryCountItemLog;
+use App\Services\InventoryCount\InventoryCountFinalizationService;
 use App\Services\InventoryCount\InventoryCountLocationResolver;
 use App\Services\InventoryCount\InventoryCountService;
 use App\Services\InventoryCount\InventoryDifferenceWorkbookService;
 use App\Services\InventoryCount\InventoryDiffListPdfService;
 use App\Services\InventoryCount\InventoryDiffListWorkbookService;
 use App\Services\InventoryCount\InventoryEnteredListWorkbookService;
+use App\Services\InventoryCount\InventoryFinalDifferenceWorkbookService;
 use App\Services\InventoryCount\InventoryInstructionPdfService;
 use App\Services\InventoryCount\InventoryInstructionSheetPdfService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\DateTimePicker;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\ViewField;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Notifications\Notification;
@@ -30,6 +34,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\ValidationException;
 
 class ViewWmsInventoryCount extends Page implements HasForms
 {
@@ -810,6 +815,24 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function saveEditModal(): void
     {
+        $this->withMutableInventoryCount(fn () => $this->saveMutableEditModal());
+    }
+
+    private function withMutableInventoryCount(\Closure $callback): void
+    {
+        try {
+            (new InventoryCountService)->withMutableCount($this->record, function (WmsInventoryCount $locked) use ($callback): void {
+                $this->record = $locked;
+                $callback();
+            });
+        } catch (ValidationException $e) {
+            $this->record->refresh();
+            Notification::make()->danger()->title($e->getMessage())->send();
+        }
+    }
+
+    private function saveMutableEditModal(): void
+    {
         if ($this->isRoundConfirmed($this->activeCountRound)) {
             Notification::make()->danger()->title('確定済みの回数は編集できません')->send();
 
@@ -894,6 +917,11 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function saveInlineChanges(array $changes): void
     {
+        $this->withMutableInventoryCount(fn () => $this->saveMutableInlineChanges($changes));
+    }
+
+    private function saveMutableInlineChanges(array $changes): void
+    {
         if ($this->isRoundConfirmed($this->activeCountRound)) {
             Notification::make()->danger()->title('確定済みの回数は編集できません')->send();
 
@@ -971,6 +999,11 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function calculateActiveRoundDifferences(): void
     {
+        $this->withMutableInventoryCount(fn () => $this->calculateMutableActiveRoundDifferences());
+    }
+
+    private function calculateMutableActiveRoundDifferences(): void
+    {
         if ($this->isRoundConfirmed($this->activeCountRound)) {
             Notification::make()->danger()->title('確定済みの差異は再計算できません')->send();
 
@@ -995,6 +1028,11 @@ class ViewWmsInventoryCount extends Page implements HasForms
     }
 
     public function fillActiveRoundUncountedWithZero(): void
+    {
+        $this->withMutableInventoryCount(fn () => $this->fillMutableActiveRoundUncountedWithZero());
+    }
+
+    private function fillMutableActiveRoundUncountedWithZero(): void
     {
         $round = $this->activeCountRound;
 
@@ -1047,6 +1085,11 @@ class ViewWmsInventoryCount extends Page implements HasForms
     }
 
     public function confirmRound(int $round): void
+    {
+        $this->withMutableInventoryCount(fn () => $this->confirmMutableRound($round));
+    }
+
+    private function confirmMutableRound(int $round): void
     {
         if (! in_array($round, [1, 2, 3], true)) {
             return;
@@ -1129,6 +1172,11 @@ class ViewWmsInventoryCount extends Page implements HasForms
     }
 
     public function reopenFinalRound(): void
+    {
+        $this->withMutableInventoryCount(fn () => $this->reopenMutableFinalRound());
+    }
+
+    private function reopenMutableFinalRound(): void
     {
         if ($this->record->status !== WmsInventoryCount::STATUS_CHECKED) {
             Notification::make()->danger()->title('3回目に戻せる状態ではありません')->send();
@@ -1879,6 +1927,27 @@ class ViewWmsInventoryCount extends Page implements HasForms
                     );
                 }),
 
+            Action::make('downloadFinalDifferenceWorkbook')
+                ->label('最終差異報告書')
+                ->icon('heroicon-o-table-cells')
+                ->color('gray')
+                ->disabled(fn () => $record->status !== WmsInventoryCount::STATUS_CONFIRMED)
+                ->action(function () use ($record) {
+                    try {
+                        $content = (new InventoryFinalDifferenceWorkbookService)->generate($record);
+                    } catch (ValidationException $e) {
+                        Notification::make()->title('最終差異報告書を出力できません')->body($e->getMessage())->danger()->send();
+
+                        return null;
+                    }
+
+                    return response()->streamDownload(
+                        fn () => print ($content),
+                        '最終差異報告書_'.($record->count_no ?? 'unknown').'.xlsx',
+                        ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
+                    );
+                }),
+
             Action::make('reopenFinalRound')
                 ->label('3回目に戻す')
                 ->icon('heroicon-o-arrow-uturn-left')
@@ -1890,14 +1959,67 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->action(fn () => $this->reopenFinalRound()),
 
             Action::make('confirm')
-                ->label('確定')
+                ->label('棚卸し最終確定')
                 ->icon('heroicon-o-check-circle')
-                ->color('info')
-                ->visible(fn () => $record->status === WmsInventoryCount::STATUS_CHECKED)
-                ->action(fn () => Notification::make()
-                    ->warning()
-                    ->title(InventoryCountService::CONFIRM_DISABLED_MESSAGE)
-                    ->send()),
+                ->color('danger')
+                ->disabled(fn () => (new InventoryCountFinalizationService)->confirmedRounds($record) === [])
+                ->tooltip('2回目または3回目の確定後に実施できます')
+                ->modalHeading('棚卸し最終確定・棚卸し伝票作成')
+                ->modalDescription('選択回の差分PDF・再棚当たり表と同じ対象を調節します。未入力は0として計算し、指定日の受払残高に確定差異を加減算して伝票を作成します。2回目を選ぶと3回目の入力は採用しません。最終確定後は入力・理論在庫を変更できません。現在庫への差異反映は自動連携完了時です。')
+                ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('最終確定・伝票作成を依頼')->color('danger'))
+                ->modalCancelActionLabel('最終確定せず閉じる')
+                ->mountUsing(function (\Filament\Schemas\Schema $form) use ($record): void {
+                    $preview = (new InventoryCountFinalizationService)->preview($record);
+                    $form->fill([
+                        'adjustment_date' => $record->count_date->toDateString(),
+                        'count_round' => $preview['count_round'],
+                        'confirmation_token' => $preview['token'],
+                        'preview' => \Illuminate\Support\Arr::except($preview, ['rows', 'token']),
+                        'acknowledged' => false,
+                    ]);
+                })
+                ->schema([
+                    Select::make('count_round')->label('最終確定の対象回')
+                        ->options(fn () => (new InventoryCountFinalizationService)->confirmedRounds($record->fresh()))
+                        ->selectablePlaceholder(false)->required()->live()
+                        ->afterStateUpdated(function ($state, \Filament\Schemas\Components\Utilities\Set $set) use ($record): void {
+                            $preview = (new InventoryCountFinalizationService)->preview($record, (int) $state);
+                            $set('confirmation_token', $preview['token']);
+                            $set('preview', \Illuminate\Support\Arr::except($preview, ['rows', 'token']));
+                            $set('acknowledged', false);
+                        }),
+                    ViewField::make('adjustment_date')->label('棚卸し伝票日付（計上日・調整日）')
+                        ->view('filament.forms.components.date-input')->required()->rules(['date_format:Y-m-d']),
+                    ViewField::make('preview')->view('filament.resources.wms-inventory-count.finalization-preview')->dehydrated(false),
+                    Hidden::make('confirmation_token')->required(),
+                    Checkbox::make('acknowledged')->label('対象・未入力0・日付を確認し、確定後に変更できないことを了承しました')->accepted(),
+                ])
+                ->action(function (array $data) use ($record): void {
+                    try {
+                        (new InventoryCountService)->confirm($record, (int) auth()->id(), $data['adjustment_date'], $data['confirmation_token'], (int) $data['count_round']);
+                        $this->record->refresh();
+                        $hasQueues = (int) $this->record->inventory_adjustment_queue_count > 0;
+                        Notification::make()->success()->title('棚卸しを最終確定しました')
+                            ->body($hasQueues ? '伝票作成・在庫反映は連携待ちです。「伝票連携状況」で完了を確認してください。' : '調節対象の差異が0件のため、伝票は作成しません。')->send();
+                    } catch (ValidationException $e) {
+                        Notification::make()->danger()->title('最終確定できません')->body($e->getMessage())->send();
+                    } catch (\Throwable $e) {
+                        report($e);
+                        Notification::make()->danger()->title('最終確定処理に失敗しました')->body('伝票連携状況を確認してから再実行してください。')->send();
+                    }
+                }),
+
+            Action::make('inventoryAdjustmentStatus')
+                ->label('伝票連携状況')->icon('heroicon-o-document-check')->color('gray')
+                ->visible(fn () => $record->status === WmsInventoryCount::STATUS_CONFIRMED)
+                ->modalHeading('棚卸し伝票連携状況')->modalSubmitAction(false)->modalCancelActionLabel('閉じる')
+                ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                ->modalContent(fn () => view('filament.resources.wms-inventory-count.finalization-status', [
+                    'count' => $record->fresh(),
+                    'queues' => (new InventoryCountFinalizationService)->queues($record),
+                ])),
 
             Action::make('cancel')
                 ->label('取消')
