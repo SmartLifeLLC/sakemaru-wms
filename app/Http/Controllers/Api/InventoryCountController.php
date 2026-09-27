@@ -309,6 +309,11 @@ class InventoryCountController extends ApiController
      */
     public function count(Request $request, int $itemId): JsonResponse
     {
+        return DB::connection('sakemaru')->transaction(fn (): JsonResponse => $this->countWithinTransaction($request, $itemId));
+    }
+
+    private function countWithinTransaction(Request $request, int $itemId): JsonResponse
+    {
         $countItem = WmsInventoryCountItem::query()
             ->withoutOwnedSetItems()
             ->find($itemId);
@@ -318,7 +323,7 @@ class InventoryCountController extends ApiController
         }
 
         // Verify parent inventory count is in counting status
-        $inventoryCount = WmsInventoryCount::find($countItem->inventory_count_id);
+        $inventoryCount = WmsInventoryCount::query()->lockForUpdate()->find($countItem->inventory_count_id);
         if (! $inventoryCount || ! $this->isHandyCountable($inventoryCount)) {
             return $this->error('この棚卸はカウント中ではありません', 422, 'INVALID_STATUS');
         }
@@ -371,7 +376,12 @@ class InventoryCountController extends ApiController
 
     public function bulkCount(Request $request, int $id): JsonResponse
     {
-        $count = WmsInventoryCount::find($id);
+        return DB::connection('sakemaru')->transaction(fn (): JsonResponse => $this->bulkCountWithinTransaction($request, $id));
+    }
+
+    private function bulkCountWithinTransaction(Request $request, int $id): JsonResponse
+    {
+        $count = WmsInventoryCount::query()->lockForUpdate()->find($id);
 
         if (! $count) {
             return $this->notFound('棚卸データが見つかりません');
@@ -884,10 +894,8 @@ class InventoryCountController extends ApiController
             return;
         }
 
-        $count->forceFill([
-            'status' => WmsInventoryCount::STATUS_COUNTING,
-            'started_at' => now(),
-        ])->save();
+        $this->inventoryCountService->startCounting($count);
+        $count->refresh();
     }
 
     private function inventoryCountItemsQuery(int $inventoryCountId): \Illuminate\Database\Eloquent\Builder

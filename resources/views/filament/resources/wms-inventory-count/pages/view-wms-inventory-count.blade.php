@@ -372,7 +372,9 @@
                     @endif
                     @if ($record->status === \App\Models\WmsInventoryCount::STATUS_CHECKED)
                         {{ $this->getAction('reopenFinalRound') }}
-                        {{ $this->getAction('confirm') }}
+                    @endif
+                    @if ($record->status === \App\Models\WmsInventoryCount::STATUS_CONFIRMED)
+                        {{ $this->getAction('inventoryAdjustmentStatus') }}
                     @endif
                     <button type="button"
                         @click="detailsOpen = ! detailsOpen"
@@ -396,6 +398,8 @@
                         {{ $this->getAction('calculatePostCountMovements') }}
                         {{ $this->getAction('restoreCancelledForCounting') }}
                         {{ $this->getAction('downloadEnteredListWorkbook') }}
+                        {{ $this->getAction('downloadFinalDifferenceWorkbook') }}
+                        {{ $this->getAction('confirm') }}
                         @if (! in_array($record->status, [
                             \App\Models\WmsInventoryCount::STATUS_CONFIRMED,
                             \App\Models\WmsInventoryCount::STATUS_CANCELLED,

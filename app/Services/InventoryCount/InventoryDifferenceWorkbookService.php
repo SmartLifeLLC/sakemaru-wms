@@ -532,7 +532,7 @@ class InventoryDifferenceWorkbookService
             : null;
         $difference ??= $quantity - $systemQuantity;
         $difference = (int) $difference;
-        $differenceAmount = $costPrice === null ? null : $difference * $costPrice;
+        $differenceAmount = $costPrice === null ? null : round($difference * $costPrice, 2);
 
         return [
             'quantity' => $quantity,
@@ -585,6 +585,10 @@ class InventoryDifferenceWorkbookService
 
     private function costPrice(WmsInventoryCountItem $item, Collection $costPrices): ?float
     {
+        if ($this->isManagedStockItem($item)) {
+            return (float) $item->cost_price;
+        }
+
         if ($item->item_id === null) {
             return null;
         }
@@ -598,6 +602,8 @@ class InventoryDifferenceWorkbookService
      */
     private function costPricesByItem(Collection $items, WmsInventoryCount $inventoryCount): Collection
     {
+        // Only unmanaged CP valuation uses current selling prices; differences use saved costs.
+        $items = $items->reject(fn (WmsInventoryCountItem $item): bool => $this->isManagedStockItem($item));
         $itemIds = $items
             ->pluck('item_id')
             ->filter(fn ($itemId): bool => $itemId !== null)
@@ -658,7 +664,7 @@ class InventoryDifferenceWorkbookService
     }
 
     /**
-     * 管理品は棚卸終了理論数×現在原価、非管理品は棚卸終了理論数×現在販売価格×分類原価率で評価する。
+     * 管理品は棚卸終了理論数×保存原価、非管理品は棚卸終了理論数×現在販売価格×分類原価率で評価する。
      *
      * @param  Collection<int, WmsInventoryCountItem>  $items
      * @param  Collection<int, float>  $costPrices
