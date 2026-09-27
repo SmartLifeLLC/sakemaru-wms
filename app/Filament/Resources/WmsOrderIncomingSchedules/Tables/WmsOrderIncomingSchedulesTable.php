@@ -49,11 +49,15 @@ class WmsOrderIncomingSchedulesTable
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->extraAttributes(['class' => 'incoming-schedules-table sticky-actions'])
+            ->columnManagerMaxHeight('min(32rem, calc(100dvh - 14rem))')
+            ->columnManagerApplyAction(fn (Action $action): Action => $action
+                ->label('選択したカラムを適用'))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
                     ->sortable()
                     ->alignCenter()
+                    ->toggleable()
                     ->width('50px'),
 
                 TextColumn::make('order_source')
@@ -85,6 +89,7 @@ class WmsOrderIncomingSchedulesTable
                     ->badge()
                     ->color(fn (bool $state): string => $state ? 'success' : 'gray')
                     ->alignCenter()
+                    ->toggleable()
                     ->width('70px'),
 
                 TextColumn::make('created_at')
@@ -99,6 +104,7 @@ class WmsOrderIncomingSchedulesTable
                     ->date('m/d')
                     ->sortable()
                     ->alignCenter()
+                    ->toggleable()
                     ->width('70px'),
 
                 TextColumn::make('expected_arrival_date')
@@ -106,6 +112,7 @@ class WmsOrderIncomingSchedulesTable
                     ->date('m/d')
                     ->sortable()
                     ->alignCenter()
+                    ->toggleable()
                     ->width('70px'),
 
                 TextColumn::make('slip_number')
@@ -113,17 +120,20 @@ class WmsOrderIncomingSchedulesTable
                     ->searchable()
                     ->copyable()
                     ->placeholder('-')
+                    ->toggleable()
                     ->width('130px'),
 
                 TextColumn::make('contractor.code')
                     ->label('発注先CD')
                     ->searchable()
                     ->alignCenter()
+                    ->toggleable()
                     ->width('70px'),
 
                 TextColumn::make('contractor.name')
                     ->label('発注先')
                     ->searchable()
+                    ->toggleable()
                     ->width('120px'),
 
                 TextColumn::make('item_code')
@@ -131,6 +141,7 @@ class WmsOrderIncomingSchedulesTable
                     ->searchable()
                     ->sortable()
                     ->alignCenter()
+                    ->toggleable()
                     ->width('70px'),
 
                 TextColumn::make('search_code')
@@ -138,12 +149,14 @@ class WmsOrderIncomingSchedulesTable
                     ->searchable()
                     ->limit(20)
                     ->placeholder('-')
+                    ->toggleable()
                     ->width('120px'),
 
                 TextColumn::make('item.name')
                     ->label('商品名')
                     ->searchable()
                     ->sortable()
+                    ->toggleable()
                     ->grow(),
 
                 TextColumn::make('capacity_case')
@@ -152,6 +165,7 @@ class WmsOrderIncomingSchedulesTable
                     ->numeric()
                     ->placeholder('-')
                     ->alignEnd()
+                    ->toggleable()
                     ->width('60px'),
 
                 TextColumn::make('expected_quantity')
@@ -170,6 +184,7 @@ class WmsOrderIncomingSchedulesTable
                     })
                     ->formatStateUsing(fn ($state) => $state > 0 ? number_format($state) : '-')
                     ->alignEnd()
+                    ->toggleable()
                     ->width('60px'),
 
                 TextColumn::make('loose_quantity')
@@ -188,6 +203,7 @@ class WmsOrderIncomingSchedulesTable
                     })
                     ->formatStateUsing(fn ($state) => $state > 0 ? number_format($state) : '-')
                     ->alignEnd()
+                    ->toggleable()
                     ->width('60px'),
 
                 TextColumn::make('total_piece_quantity')
@@ -213,12 +229,14 @@ class WmsOrderIncomingSchedulesTable
                     })
                     ->numeric()
                     ->alignEnd()
+                    ->toggleable()
                     ->width('70px'),
 
                 TextColumn::make('received_quantity')
                     ->label('入荷実績')
                     ->formatStateUsing(fn ($state) => $state > 0 ? number_format($state) : '-')
                     ->alignEnd()
+                    ->toggleable()
                     ->width('70px'),
 
                 TextColumn::make('expiration_date')
@@ -227,30 +245,35 @@ class WmsOrderIncomingSchedulesTable
                     ->sortable()
                     ->alignCenter()
                     ->placeholder('-')
+                    ->toggleable()
                     ->width('90px'),
 
                 TextColumn::make('computed_default_location')
                     ->label('ロケーション')
                     ->placeholder('-')
                     ->alignCenter()
+                    ->toggleable()
                     ->width('100px'),
 
                 TextColumn::make('computed_current_stock')
                     ->label('現在庫')
                     ->numeric()
                     ->alignEnd()
+                    ->toggleable()
                     ->width('70px'),
 
                 TextColumn::make('computed_available_stock')
                     ->label('有効在庫')
                     ->numeric()
                     ->alignEnd()
+                    ->toggleable()
                     ->width('70px'),
 
                 TextColumn::make('shipped_quantity')
                     ->label('出荷実績')
                     ->numeric()
                     ->alignEnd()
+                    ->toggleable()
                     ->width('70px')
                     ->placeholder('-')
                     ->color(fn ($record) => $record->shipped_quantity > 0 && $record->shipped_quantity < $record->expected_quantity ? 'warning' : null),
@@ -261,6 +284,7 @@ class WmsOrderIncomingSchedulesTable
                     ->alignEnd()
                     ->color(fn ($state) => $state > 0 ? 'danger' : null)
                     ->placeholder('0')
+                    ->toggleable()
                     ->width('70px'),
 
                 TextColumn::make('purchase_unit_price')
@@ -278,6 +302,7 @@ class WmsOrderIncomingSchedulesTable
                     })
                     ->money('JPY')
                     ->alignEnd()
+                    ->toggleable()
                     ->width('90px'),
 
                 // --- 以下、補助カラム ---
