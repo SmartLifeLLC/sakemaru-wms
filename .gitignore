@@ -22,6 +22,7 @@
 /storage/api-docs
 /storage/pail
 /storage/reports
+/system-investigations
 /vendor
 /outputs/**/*.inspect.ndjson
 /outputs/**/previews/
