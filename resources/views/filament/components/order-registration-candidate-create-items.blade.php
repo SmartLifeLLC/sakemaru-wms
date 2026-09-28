@@ -886,8 +886,9 @@
                     class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
             </div>
             <div>
-                <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">JANコード</label>
+                <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">JANコード・自社コード等</label>
                 <input type="text" x-model="filters.janCode" @keydown.enter.prevent="search(1)"
+                    placeholder="単品CD・自社CDも検索可"
                     class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
             </div>
             <div>
@@ -1049,11 +1050,11 @@
                     <col class="logistics-candidate-number-col" style="width: 92px !important;">
                     <col class="logistics-candidate-number-col" style="width: 110px !important;">
                     <col class="logistics-candidate-date-col" style="width: 136px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
                     <col class="logistics-candidate-date-col" style="width: 136px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
                     <col class="logistics-candidate-number-col" style="width: 54px !important;">
                 </colgroup>
                 <thead class="sticky top-0 z-10 bg-slate-100 text-slate-700 shadow-sm dark:bg-slate-800 dark:text-slate-200">
@@ -1080,11 +1081,11 @@
                                 <x-order-registration.column-help-heading label="納品予定日" align="center" />
                             </div>
                         </th>
-                        <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold"><x-order-registration.column-help-heading label="予定日" align="center" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="1週" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="2週" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="3週" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="前月" align="right" /></th>
+                        <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold"><x-order-registration.column-help-heading label="予定日" align="center" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold"><x-order-registration.column-help-heading label="備考" align="center" /></th>
                     </tr>
                 </thead>
@@ -1194,6 +1195,10 @@
                                     <div x-text="formatShortDate(item.incoming_expected_arrival_date)"></div>
                                 </div>
                             </td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week1_qty)"></td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week2_qty)"></td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week3_qty)"></td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.previous_month_sales_qty)"></td>
                             <td class="whitespace-nowrap px-1 py-1.5 text-center">
                                 <input
                                     type="date"
@@ -1204,10 +1209,6 @@
                                     class="w-[128px] rounded-md border border-slate-300 bg-white px-1 py-0.5 text-xs font-mono text-slate-900 shadow-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-primary-500 dark:focus:ring-primary-900 dark:disabled:border-slate-700 dark:disabled:bg-slate-800"
                                 >
                             </td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week1_qty)"></td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week2_qty)"></td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week3_qty)"></td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.previous_month_sales_qty)"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-center">
                                 <button type="button" x-on:click.stop="openNoteModal(item.item_contractor_note)" class="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">表示</button>
                             </td>
