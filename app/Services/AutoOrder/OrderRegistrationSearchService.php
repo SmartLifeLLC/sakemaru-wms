@@ -23,6 +23,8 @@ class OrderRegistrationSearchService
     /** @var array<string, string|null> */
     private array $incomingExpectedArrivalDateCache = [];
 
+    private ?string $defaultArrivalSystemDate = null;
+
     /**
      * @return array<int, array{id: int, code: string, name: string, label: string}>
      */
@@ -528,7 +530,8 @@ class OrderRegistrationSearchService
 
     private function defaultArrivalOrderDate(OrderChannel $channel): Carbon
     {
-        $orderDate = Carbon::parse(ClientSetting::freshSystemDateYMD('order_registration:default_arrival'))->startOfDay();
+        $this->defaultArrivalSystemDate ??= ClientSetting::freshSystemDateYMD('order_registration:default_arrival');
+        $orderDate = Carbon::parse($this->defaultArrivalSystemDate)->startOfDay();
 
         if ($channel !== OrderChannel::EOS) {
             return $orderDate;

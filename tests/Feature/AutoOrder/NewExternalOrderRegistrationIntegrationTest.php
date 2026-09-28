@@ -9,6 +9,7 @@ use App\Enums\AutoOrder\OrderDataFileStatus;
 use App\Enums\AutoOrder\OrderEntrySource;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\QuantityType;
+use App\Filament\Pages\WmsOrderRegistration;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderDataFile;
@@ -266,6 +267,63 @@ class NewExternalOrderRegistrationIntegrationTest extends TestCase
         $this->assertSame((int) $row->contractor_id, (int) $candidate->contractor_id);
         $this->assertSame((int) $row->supplier_id, (int) $candidate->supplier_id);
         $this->assertSame(OrderChannel::EOS, $candidate->order_channel);
+    }
+
+    public function test_candidate_modal_searches_quantity_product_own_and_quantity_codes(): void
+    {
+        $row = DB::connection('sakemaru')
+            ->table('item_quantity_information as iqi')
+            ->join('items as i', 'i.id', '=', 'iqi.item_id')
+            ->join('item_contractors as ic', 'ic.item_id', '=', 'i.id')
+            ->join('warehouses as w', 'w.id', '=', 'ic.warehouse_id')
+            ->where('i.end_of_sale_type', 'NORMAL')
+            ->where('i.is_ended', false)
+            ->where('w.is_virtual', false)
+            ->select([
+                'iqi.id as item_quantity_information_id',
+                'i.id as item_id',
+                'ic.warehouse_id',
+            ])
+            ->orderBy('i.id')
+            ->first();
+
+        if (! $row) {
+            $this->markTestSkipped('検索コード検証に必要な数量別商品・商品発注先マスタがありません。');
+        }
+
+        $suffix = (string) $row->item_quantity_information_id;
+        $productCode = 'WMSP'.$suffix;
+        $ownCode = '98'.substr(str_pad($suffix, 8, '0', STR_PAD_LEFT), -8);
+        $quantityCode = 'Q'.substr(hash('sha256', $suffix), 0, 9);
+
+        DB::connection('sakemaru')
+            ->table('item_quantity_information')
+            ->where('id', $row->item_quantity_information_id)
+            ->update([
+                'product_code' => $productCode,
+                'own_code' => $ownCode,
+                'quantity_code' => $quantityCode,
+            ]);
+
+        $page = new WmsOrderRegistration;
+        $assertSearchFindsItem = function (string $searchCode) use ($page, $row): void {
+            $result = $page->searchItemsForModal(
+                warehouseId: (int) $row->warehouse_id,
+                janCode: $searchCode,
+                perPage: 100,
+            );
+
+            $this->assertContains(
+                (int) $row->item_id,
+                collect($result['data'])->pluck('id')->all(),
+                "検索コード {$searchCode} で対象商品を検索できませんでした。"
+            );
+        };
+
+        $assertSearchFindsItem($productCode);
+        $assertSearchFindsItem($quantityCode);
+        $assertSearchFindsItem(str_pad($ownCode, 13, '0', STR_PAD_LEFT));
+        $assertSearchFindsItem("0000000000000,\n{$ownCode}");
     }
 
     private function assertJxFilesMatchCandidates(array $files, Collection $eosCandidates, string $expectedArrivalDate): void
