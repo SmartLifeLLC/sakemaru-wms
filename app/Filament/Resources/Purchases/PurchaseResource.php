@@ -21,6 +21,8 @@ class PurchaseResource extends AdminResource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
 
+    protected static bool $shouldRegisterNavigation = false;
+
     public static function getNavigationGroup(): ?string
     {
         return EMenu::PURCHASES->category()->label();
