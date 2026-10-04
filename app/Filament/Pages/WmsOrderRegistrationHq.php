@@ -126,6 +126,12 @@ class WmsOrderRegistrationHq extends WmsOrderRegistration
         return $this->hqService()->lastPurchaseLookbackMonths();
     }
 
+    protected function shouldLoadBaseWeeklySalesQuantities(): bool
+    {
+        // 検索・候補表示とも、親の結果に店舗卸を除いた週実績を後から一括で付与する。
+        return false;
+    }
+
     /**
      * 発注候補検索。親の検索結果に、本部用の参考データ（最終入荷予定・最終仕入・
      * 店舗卸を除いた週実績）を上書きして返す。

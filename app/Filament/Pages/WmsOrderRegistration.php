@@ -2051,7 +2051,7 @@ class WmsOrderRegistration extends AdminPage
      */
     private function weeklySalesQuantities(int $warehouseId, array $itemIds): array
     {
-        if ($itemIds === []) {
+        if ($itemIds === [] || ! $this->shouldLoadBaseWeeklySalesQuantities()) {
             return [];
         }
 
@@ -2091,6 +2091,11 @@ class WmsOrderRegistration extends AdminPage
                 ],
             ])
             ->all();
+    }
+
+    protected function shouldLoadBaseWeeklySalesQuantities(): bool
+    {
+        return true;
     }
 
     /**
