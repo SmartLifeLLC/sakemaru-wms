@@ -2201,6 +2201,16 @@ class IncomingReceiveService
         ?float $partnerPrice
     ): string {
         if ((int) ($detail->d_case_quantity ?? 0) > 0) {
+            if ($schedule?->quantity_type === QuantityType::PIECE && $partnerPrice !== null) {
+                $casePrice = $this->numericPrice($schedule->case_price);
+                $unitPrice = $this->numericPrice($schedule->unit_price);
+
+                if ($casePrice !== null && $unitPrice !== null
+                    && abs($partnerPrice - $unitPrice) < abs($partnerPrice - $casePrice)) {
+                    return 'PIECE';
+                }
+            }
+
             return 'CASE';
         }
 
