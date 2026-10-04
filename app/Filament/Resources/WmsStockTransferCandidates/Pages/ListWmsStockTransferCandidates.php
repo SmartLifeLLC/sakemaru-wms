@@ -835,6 +835,7 @@ class ListWmsStockTransferCandidates extends ListRecords
 
         $salesSubquery = DB::connection('sakemaru')
             ->table('stats_item_warehouse_daily_sales')
+            ->whereIn('warehouse_id', $warehouseIds)
             ->whereBetween('business_date', [$startDate, $endDate])
             ->selectRaw('
                 warehouse_id,

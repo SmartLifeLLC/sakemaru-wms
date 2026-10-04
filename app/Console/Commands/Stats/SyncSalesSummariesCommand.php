@@ -3,14 +3,18 @@
 namespace App\Console\Commands\Stats;
 
 use App\Models\Sakemaru\ClientSetting;
+use App\Services\Stats\SalesSummarySynchronizer;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use PDO;
+use RuntimeException;
+use Throwable;
 
 class SyncSalesSummariesCommand extends Command
 {
-    private const WINDOWS = [3, 5, 7, 14, 30];
+    private ?PDO $lockedPdo = null;
 
     private const LIVE_DATA_START_DATE = '2026-05-06';
 
@@ -26,6 +30,40 @@ class SyncSalesSummariesCommand extends Command
     protected $description = '売上・小売・倉庫移動を基に倉庫別商品別の出荷実績日次・サマリを更新';
 
     public function handle(): int
+    {
+        $connection = DB::connection('sakemaru');
+        if (! in_array($connection->getDriverName(), ['mysql', 'mariadb'], true)) {
+            return $this->executeSync();
+        }
+
+        // All-warehouse and warehouse-specific/manual runs share one lock.
+        // Unlike a cache lease, it cannot expire while a backfill is running.
+        $lockKey = 'wms:sales-summaries:'.substr(hash('sha256', $connection->getDatabaseName()), 0, 40);
+        $pdo = $connection->getPdo();
+        $statement = $pdo->prepare('SELECT GET_LOCK(?, 0)');
+        $statement->execute([$lockKey]);
+        if ((int) $statement->fetchColumn() !== 1) {
+            $this->error('別の出荷実績集計が実行中のため、開始できませんでした。');
+
+            return self::FAILURE;
+        }
+
+        $this->lockedPdo = $pdo;
+        try {
+            return $this->executeSync();
+        } finally {
+            try {
+                // Release on the original connection, even after a reconnect.
+                $statement = $pdo->prepare('SELECT RELEASE_LOCK(?)');
+                $statement->execute([$lockKey]);
+            } catch (Throwable) {
+                $this->warn('集計ロックの解放を確認できませんでした。接続終了時に解放されます。');
+            }
+            $this->lockedPdo = null;
+        }
+    }
+
+    private function executeSync(): int
     {
         $warehouseId = $this->option('warehouse-id') ? (int) $this->option('warehouse-id') : null;
         $dryRun = (bool) $this->option('dry-run');
@@ -63,8 +101,9 @@ class SyncSalesSummariesCommand extends Command
         }
 
         $coverage = $this->getWarehouseCoverage($warehouseId);
-        $summaryCounts = $this->syncSummaries($to, $warehouseId, $coverage, $dryRun);
-        $dailyBreakdownCount = $this->syncRecentDailyBreakdown($to, $warehouseId, $coverage, $dryRun);
+        $summaryResult = app(SalesSummarySynchronizer::class)->sync($to, $warehouseId, $coverage, $dryRun, $this->lockedPdo);
+        $summaryCounts = $summaryResult['summary_counts'];
+        $dailyBreakdownCount = $summaryResult['daily_breakdown_count'];
 
         foreach ($summaryCounts as $days => $count) {
             $this->info("{$days}日サマリ: {$count} 件");
@@ -126,13 +165,13 @@ class SyncSalesSummariesCommand extends Command
             ->all();
 
         foreach (array_chunk($rows, 1000) as $chunk) {
-            DB::connection('sakemaru')
+            $this->writeTransaction(fn () => DB::connection('sakemaru')
                 ->table('stats_item_warehouse_daily_sales')
                 ->upsert(
                     $chunk,
                     ['business_date', 'warehouse_id', 'item_id'],
                     ['shipped_piece_qty', 'sales_piece_qty', 'transfer_piece_qty', 'return_piece_qty', 'shipped_case_qty', 'shipped_bottle_qty', 'updated_at']
-                );
+                ));
         }
 
         return count($rows);
@@ -154,6 +193,7 @@ class SyncSalesSummariesCommand extends Command
         $source = $this->dailySalesQuery($purgeFrom, $to, $warehouseId);
         $query = DB::connection('sakemaru')
             ->table('stats_item_warehouse_daily_sales as d')
+            ->useWritePdo()
             ->leftJoinSub($source, 'src', function ($join): void {
                 $join
                     ->on('src.business_date', '=', 'd.business_date')
@@ -172,7 +212,7 @@ class SyncSalesSummariesCommand extends Command
             return $count;
         }
 
-        $query->delete();
+        $this->writeTransaction(fn () => $query->delete());
 
         return $count;
     }
@@ -254,6 +294,7 @@ class SyncSalesSummariesCommand extends Command
 
         return DB::connection('sakemaru')
             ->query()
+            ->useWritePdo()
             ->fromSub($earningQuery->unionAll($retailQuery)->unionAll($stockTransferQuery), 'sales')
             ->selectRaw('
                 business_date,
@@ -276,6 +317,7 @@ class SyncSalesSummariesCommand extends Command
     {
         $query = DB::connection('sakemaru')
             ->table('stats_item_warehouse_daily_sales')
+            ->useWritePdo()
             ->selectRaw('warehouse_id, MIN(business_date) as first_business_date')
             ->groupBy('warehouse_id');
 
@@ -288,238 +330,16 @@ class SyncSalesSummariesCommand extends Command
             ->map(fn ($date) => CarbonImmutable::parse($date)->startOfDay());
     }
 
-    /**
-     * @return array<int, int>
-     */
-    private function syncSummaries(
-        CarbonImmutable $to,
-        ?int $warehouseId,
-        Collection $coverage,
-        bool $dryRun
-    ): array {
-        $counts = [];
+    private function writeTransaction(callable $callback): mixed
+    {
+        $connection = DB::connection('sakemaru');
 
-        foreach (self::WINDOWS as $days) {
-            $from = $to->subDays($days - 1);
-            $warehouseIds = $this->maturedWarehouseIds($coverage, $from, $warehouseId);
-
-            if ($warehouseIds === []) {
-                $counts[$days] = 0;
-
-                continue;
+        return $connection->transaction(function () use ($connection, $callback) {
+            if ($this->lockedPdo !== null && $connection->getPdo() !== $this->lockedPdo) {
+                throw new RuntimeException('集計中にDB接続が再確立されたため、保存を中止しました。再実行してください。');
             }
 
-            $count = $this->upsertSummaryWindow($days, $from, $to, $warehouseIds, $dryRun);
-            $count += $this->zeroMissingSummaryWindow($days, $from, $to, $warehouseIds, $dryRun);
-            $counts[$days] = $count;
-        }
-
-        return $counts;
-    }
-
-    private function syncRecentDailyBreakdown(
-        CarbonImmutable $to,
-        ?int $warehouseId,
-        Collection $coverage,
-        bool $dryRun
-    ): int {
-        $from = $to->subDays(2);
-        $warehouseIds = $this->maturedWarehouseIds($coverage, $from, $warehouseId);
-
-        if ($warehouseIds === []) {
-            return 0;
-        }
-
-        $today = $to->toDateString();
-        $yesterday = $to->subDay()->toDateString();
-        $twoDaysAgo = $to->subDays(2)->toDateString();
-
-        $results = DB::connection('sakemaru')
-            ->table('stats_item_warehouse_daily_sales')
-            ->whereIn('warehouse_id', $warehouseIds)
-            ->whereBetween('business_date', [$twoDaysAgo, $today])
-            ->select([
-                'warehouse_id',
-                'item_id',
-                DB::raw("SUM(CASE WHEN business_date = '{$today}' THEN shipped_piece_qty ELSE 0 END) as sales_today_qty"),
-                DB::raw("SUM(CASE WHEN business_date = '{$yesterday}' THEN shipped_piece_qty ELSE 0 END) as sales_yesterday_qty"),
-                DB::raw("SUM(CASE WHEN business_date = '{$twoDaysAgo}' THEN shipped_piece_qty ELSE 0 END) as sales_2days_ago_qty"),
-            ])
-            ->groupBy('warehouse_id', 'item_id')
-            ->get();
-
-        if ($dryRun) {
-            return $results->count();
-        }
-
-        if ($results->isEmpty()) {
-            $this->zeroMissingRecentDailyBreakdown($from, $to, $warehouseIds);
-
-            return 0;
-        }
-
-        $now = now();
-        $rows = $results
-            ->map(fn ($row) => [
-                'warehouse_id' => (int) $row->warehouse_id,
-                'item_id' => (int) $row->item_id,
-                'sales_today_qty' => (int) $row->sales_today_qty,
-                'sales_yesterday_qty' => (int) $row->sales_yesterday_qty,
-                'sales_2days_ago_qty' => (int) $row->sales_2days_ago_qty,
-                'calculated_at' => $now,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ])
-            ->all();
-
-        foreach (array_chunk($rows, 1000) as $chunk) {
-            DB::connection('sakemaru')
-                ->table('stats_item_warehouse_sales_summaries')
-                ->upsert(
-                    $chunk,
-                    ['warehouse_id', 'item_id'],
-                    ['sales_today_qty', 'sales_yesterday_qty', 'sales_2days_ago_qty', 'calculated_at', 'updated_at']
-                );
-        }
-
-        $this->zeroMissingRecentDailyBreakdown($from, $to, $warehouseIds);
-
-        return count($rows);
-    }
-
-    /**
-     * @param  array<int>  $warehouseIds
-     */
-    private function zeroMissingRecentDailyBreakdown(CarbonImmutable $from, CarbonImmutable $to, array $warehouseIds): void
-    {
-        $now = now();
-
-        DB::connection('sakemaru')
-            ->table('stats_item_warehouse_sales_summaries as s')
-            ->whereIn('s.warehouse_id', $warehouseIds)
-            ->whereNotExists(function ($query) use ($from, $to) {
-                $query
-                    ->selectRaw('1')
-                    ->from('stats_item_warehouse_daily_sales as d')
-                    ->whereColumn('d.warehouse_id', 's.warehouse_id')
-                    ->whereColumn('d.item_id', 's.item_id')
-                    ->whereBetween('d.business_date', [$from->toDateString(), $to->toDateString()]);
-            })
-            ->update([
-                'sales_today_qty' => 0,
-                'sales_yesterday_qty' => 0,
-                'sales_2days_ago_qty' => 0,
-                'calculated_at' => $now,
-                'updated_at' => $now,
-            ]);
-    }
-
-    /**
-     * @return array<int>
-     */
-    private function maturedWarehouseIds(Collection $coverage, CarbonImmutable $windowFrom, ?int $warehouseId): array
-    {
-        return $coverage
-            ->filter(fn (CarbonImmutable $firstDate, int $coveredWarehouseId) => (! $warehouseId || $coveredWarehouseId === $warehouseId)
-                && $firstDate->lessThanOrEqualTo($windowFrom))
-            ->keys()
-            ->map(fn ($id) => (int) $id)
-            ->values()
-            ->all();
-    }
-
-    /**
-     * @param  array<int>  $warehouseIds
-     */
-    private function upsertSummaryWindow(
-        int $days,
-        CarbonImmutable $from,
-        CarbonImmutable $to,
-        array $warehouseIds,
-        bool $dryRun
-    ): int {
-        $qtyColumn = "last_{$days}d_qty";
-        $avgColumn = "avg_{$days}d_qty";
-        $now = now();
-
-        $results = DB::connection('sakemaru')
-            ->table('stats_item_warehouse_daily_sales')
-            ->whereIn('warehouse_id', $warehouseIds)
-            ->whereBetween('business_date', [$from->toDateString(), $to->toDateString()])
-            ->select([
-                'warehouse_id',
-                'item_id',
-                DB::raw('SUM(shipped_piece_qty) as shipped_piece_qty'),
-                DB::raw('MAX(CASE WHEN shipped_piece_qty > 0 THEN business_date ELSE NULL END) as last_shipped_at'),
-            ])
-            ->groupBy('warehouse_id', 'item_id')
-            ->get();
-
-        if ($dryRun || $results->isEmpty()) {
-            return $results->count();
-        }
-
-        $rows = $results
-            ->map(fn ($row) => [
-                'warehouse_id' => (int) $row->warehouse_id,
-                'item_id' => (int) $row->item_id,
-                $qtyColumn => (int) $row->shipped_piece_qty,
-                $avgColumn => round(((int) $row->shipped_piece_qty) / $days, 2),
-                'last_shipped_at' => $row->last_shipped_at,
-                'calculated_at' => $now,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ])
-            ->all();
-
-        foreach (array_chunk($rows, 1000) as $chunk) {
-            DB::connection('sakemaru')
-                ->table('stats_item_warehouse_sales_summaries')
-                ->upsert(
-                    $chunk,
-                    ['warehouse_id', 'item_id'],
-                    [$qtyColumn, $avgColumn, 'last_shipped_at', 'calculated_at', 'updated_at']
-                );
-        }
-
-        return count($rows);
-    }
-
-    /**
-     * @param  array<int>  $warehouseIds
-     */
-    private function zeroMissingSummaryWindow(
-        int $days,
-        CarbonImmutable $from,
-        CarbonImmutable $to,
-        array $warehouseIds,
-        bool $dryRun
-    ): int {
-        $summaryTable = DB::connection('sakemaru')->table('stats_item_warehouse_sales_summaries as s')
-            ->whereIn('s.warehouse_id', $warehouseIds)
-            ->whereNotExists(function ($query) use ($from, $to) {
-                $query
-                    ->selectRaw('1')
-                    ->from('stats_item_warehouse_daily_sales as d')
-                    ->whereColumn('d.warehouse_id', 's.warehouse_id')
-                    ->whereColumn('d.item_id', 's.item_id')
-                    ->whereBetween('d.business_date', [$from->toDateString(), $to->toDateString()]);
-            });
-
-        $count = (clone $summaryTable)->count();
-        if ($dryRun || $count === 0) {
-            return $count;
-        }
-
-        $now = now();
-
-        $summaryTable->update([
-            "last_{$days}d_qty" => 0,
-            "avg_{$days}d_qty" => 0,
-            'calculated_at' => $now,
-            'updated_at' => $now,
-        ]);
-
-        return $count;
+            return $callback();
+        });
     }
 }
