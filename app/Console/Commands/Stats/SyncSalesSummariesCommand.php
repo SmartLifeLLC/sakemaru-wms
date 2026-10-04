@@ -18,11 +18,20 @@ class SyncSalesSummariesCommand extends Command
 
     private const LIVE_DATA_START_DATE = '2026-05-06';
 
+    private const HISTORY_CHUNK_DAYS = 7;
+
+    private const DAILY_QUANTITY_COLUMNS = [
+        'shipped_piece_qty', 'sales_piece_qty', 'transfer_piece_qty',
+        'return_piece_qty', 'shipped_case_qty', 'shipped_bottle_qty',
+    ];
+
     protected $signature = 'wms:sync-sales-summaries
         {--warehouse-id= : 特定倉庫のみ集計}
         {--from= : 売上・小売・倉庫移動から日次実績を再集計する開始日(Y-m-d)}
         {--to= : 売上・小売・倉庫移動から日次実績を再集計する終了日(Y-m-d)。未指定ならシステム日付}
-        {--days=3 : --from未指定時に再集計する日数}
+        {--days=3 : 通常実行で--from未指定時に再集計する日数（期間照合時は不使用）}
+        {--reconcile-order-window : 前月全体と直近30日を含む期間の日次実績を7日ずつ照合}
+        {--reconcile-history : 2026-05-06から--toまでの日次実績を7日ずつ照合}
         {--summary-only : 日次実績更新をスキップ}
         {--purge-before-sync : 日次実績更新前に、集計元に存在しない2026-05-06以降の日次行を削除}
         {--dry-run : 実際の書き込みなしに集計結果を表示}';
@@ -69,8 +78,29 @@ class SyncSalesSummariesCommand extends Command
         $dryRun = (bool) $this->option('dry-run');
         $summaryOnly = (bool) $this->option('summary-only');
         $purgeBeforeSync = (bool) $this->option('purge-before-sync');
+        $reconcileHistory = (bool) $this->option('reconcile-history');
+        $reconcileOrderWindow = (bool) $this->option('reconcile-order-window');
+        $reconcile = $reconcileHistory || $reconcileOrderWindow;
+
+        if ($reconcileHistory && $reconcileOrderWindow) {
+            $this->error('--reconcile-history と --reconcile-order-window は同時に指定できません。');
+
+            return self::FAILURE;
+        }
+
+        if ($reconcile && ($this->option('from') || $summaryOnly || $purgeBeforeSync)) {
+            $option = $reconcileHistory ? '--reconcile-history' : '--reconcile-order-window';
+            $this->error("{$option} は --from、--summary-only、--purge-before-sync と同時に指定できません。");
+
+            return self::FAILURE;
+        }
 
         [$from, $to] = $this->resolveDateRange();
+        if ($reconcile && $from->greaterThan($to)) {
+            $this->info('照合の対象期間がありません。');
+
+            return self::SUCCESS;
+        }
         if ($from->greaterThan($to)) {
             $this->error('--from は --to 以前の日付を指定してください。');
 
@@ -96,7 +126,16 @@ class SyncSalesSummariesCommand extends Command
                 $this->info("stale日次実績削除候補: {$purgedCount} 件");
             }
 
-            $dailyCount = $this->syncDailySales($from, $to, $warehouseId, $dryRun);
+            if ($reconcile) {
+                $label = $reconcileHistory ? '履歴照合' : '発注実績照合';
+                for ($scopeFrom = $from; $scopeFrom->lessThanOrEqualTo($to); $scopeFrom = $scopeTo->addDay()) {
+                    $scopeTo = $scopeFrom->addDays(self::HISTORY_CHUNK_DAYS - 1)->min($to);
+                    $dailyCount += $this->syncDailySales($scopeFrom, $scopeTo, $warehouseId, $dryRun);
+                    $this->line("{$label}: {$scopeFrom->toDateString()} - {$scopeTo->toDateString()}");
+                }
+            } else {
+                $dailyCount = $this->syncDailySales($from, $to, $warehouseId, $dryRun);
+            }
             $this->info("日次実績: {$dailyCount} 件（倉庫×商品×日）");
         }
 
@@ -126,6 +165,18 @@ class SyncSalesSummariesCommand extends Command
     {
         $to = CarbonImmutable::parse($this->option('to') ?: ClientSetting::systemDateYMD())->startOfDay();
 
+        if ($this->option('reconcile-history')) {
+            return [CarbonImmutable::parse(self::LIVE_DATA_START_DATE)->startOfDay(), $to];
+        }
+
+        if ($this->option('reconcile-order-window')) {
+            // The order screen's previous-month column uses a calendar month.
+            // Keep 30 days too: on March 1 a 28-day February is not sufficient.
+            $from = $to->subDays(29)->min($to->subMonthNoOverflow()->startOfMonth());
+
+            return [$from->max(CarbonImmutable::parse(self::LIVE_DATA_START_DATE)->startOfDay()), $to];
+        }
+
         if ($this->option('from')) {
             return [CarbonImmutable::parse($this->option('from'))->startOfDay(), $to];
         }
@@ -143,38 +194,89 @@ class SyncSalesSummariesCommand extends Command
     ): int {
         $now = now();
         $results = $this->dailySalesQuery($from, $to, $warehouseId)->get();
+        $key = static fn (object $row): string => "{$row->business_date}:{$row->warehouse_id}:{$row->item_id}";
+        $existing = DB::connection('sakemaru')
+            ->table('stats_item_warehouse_daily_sales')
+            ->useWritePdo()
+            ->whereBetween('business_date', [$from->toDateString(), $to->toDateString()])
+            ->when($warehouseId !== null, fn ($query) => $query->where('warehouse_id', $warehouseId))
+            ->get(['business_date', 'warehouse_id', 'item_id', ...self::DAILY_QUANTITY_COLUMNS, 'created_at'])
+            ->keyBy($key);
 
-        if ($dryRun || $results->isEmpty()) {
-            return $results->count();
-        }
-
-        $rows = $results
-            ->map(fn ($row) => [
-                'business_date' => $row->business_date,
-                'warehouse_id' => (int) $row->warehouse_id,
-                'item_id' => (int) $row->item_id,
-                'shipped_piece_qty' => (int) $row->shipped_piece_qty,
-                'sales_piece_qty' => (int) $row->sales_piece_qty,
-                'transfer_piece_qty' => (int) $row->transfer_piece_qty,
-                'return_piece_qty' => (int) $row->return_piece_qty,
-                'shipped_case_qty' => (int) $row->shipped_case_qty,
-                'shipped_bottle_qty' => (int) $row->shipped_bottle_qty,
-                'created_at' => $now,
+        $rows = [];
+        foreach ($results as $result) {
+            $current = $existing->pull($key($result));
+            $row = [
+                'business_date' => $result->business_date,
+                'warehouse_id' => (int) $result->warehouse_id,
+                'item_id' => (int) $result->item_id,
+                'created_at' => $current?->created_at ?? $now,
                 'updated_at' => $now,
-            ])
-            ->all();
+            ];
+            foreach (self::DAILY_QUANTITY_COLUMNS as $column) {
+                $row[$column] = (int) $result->{$column};
+            }
+            if ($this->dailyQuantitiesChanged($row, $current)) {
+                $rows[] = $row;
+            }
+        }
+        $changedSourceCount = count($rows);
+        $zeroedCount = 0;
 
-        foreach (array_chunk($rows, 1000) as $chunk) {
-            $this->writeTransaction(fn () => DB::connection('sakemaru')
-                ->table('stats_item_warehouse_daily_sales')
-                ->upsert(
-                    $chunk,
-                    ['business_date', 'warehouse_id', 'item_id'],
-                    ['shipped_piece_qty', 'sales_piece_qty', 'transfer_piece_qty', 'return_piece_qty', 'shipped_case_qty', 'shipped_bottle_qty', 'updated_at']
-                ));
+        // A removed source group must not leave its previous quantity behind.
+        // Retain zero rows so the warehouse's historical coverage stays intact.
+        foreach ($existing as $current) {
+            if ($current->business_date < self::LIVE_DATA_START_DATE) {
+                continue;
+            }
+            $row = [
+                'business_date' => $current->business_date,
+                'warehouse_id' => (int) $current->warehouse_id,
+                'item_id' => (int) $current->item_id,
+                ...array_fill_keys(self::DAILY_QUANTITY_COLUMNS, 0),
+                'created_at' => $current->created_at,
+                'updated_at' => $now,
+            ];
+            if ($this->dailyQuantitiesChanged($row, $current)) {
+                $rows[] = $row;
+                $zeroedCount++;
+            }
         }
 
-        return count($rows);
+        if (! $dryRun && $rows !== []) {
+            usort($rows, static fn (array $a, array $b): int => [$a['business_date'], $a['warehouse_id'], $a['item_id']] <=> [$b['business_date'], $b['warehouse_id'], $b['item_id']]);
+
+            // Publish updated groups and disappeared groups atomically for this scope.
+            $this->writeTransaction(function () use ($rows): void {
+                foreach (array_chunk($rows, 1000) as $chunk) {
+                    DB::connection('sakemaru')->table('stats_item_warehouse_daily_sales')->upsert(
+                        $chunk,
+                        ['business_date', 'warehouse_id', 'item_id'],
+                        [...self::DAILY_QUANTITY_COLUMNS, 'updated_at']
+                    );
+                }
+            });
+        }
+
+        $prefix = $dryRun ? '[DRY RUN] ' : '';
+        $this->line("{$prefix}日次照合: {$from->toDateString()} - {$to->toDateString()}（追加・変更: {$changedSourceCount} 件、消失ゼロ補正: {$zeroedCount} 件）");
+
+        return $results->count();
+    }
+
+    private function dailyQuantitiesChanged(array $row, ?object $current): bool
+    {
+        if ($current === null) {
+            return true;
+        }
+
+        foreach (self::DAILY_QUANTITY_COLUMNS as $column) {
+            if ((int) $current->{$column} !== $row[$column]) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function purgeStaleDailySales(
