@@ -2,6 +2,7 @@
 
 namespace App\Services\AutoOrder;
 
+use App\Enums\QuantityType;
 use App\Models\WmsIncomingPriceCheckSource;
 use App\Models\WmsIncomingReceivedDetail;
 use App\Models\WmsIncomingReceivedFile;
@@ -22,7 +23,7 @@ class IncomingPriceCheckSourceRecorder
 {
     private const SOURCE_TYPE = 'JX_EOS_RECEIVED';
 
-    private const SOURCE_SCHEMA_VERSION = '2026-08-30';
+    private const SOURCE_SCHEMA_VERSION = '2026-09-18';
 
     private const SHIPPING_JAN_CODE = '9999999999996';
 
@@ -61,7 +62,12 @@ class IncomingPriceCheckSourceRecorder
 
         $sourceKeys = $this->buildSourceKeys($file, $slip, $detail);
         $receivedPrice = $this->receivedUnitPrice($detail);
-        $receivedAmount = $this->receivedAmount($detail, $eosLine);
+        $receivedAmount = $this->receivedAmount(
+            $detail,
+            $eosLine,
+            $receivedPrice,
+            $this->comparisonPriceType($schedule, $detail, $receivedPrice, $sentLinePayload),
+        );
         $comparison = $this->comparisonPayload($schedule, $receivedPrice, $receivedAmount, $detail, $sentLinePayload);
         $isExcluded = $this->isPriceCheckExcluded($detail);
 
@@ -600,6 +606,19 @@ class IncomingPriceCheckSourceRecorder
     ): string {
         $priceType = $schedule->price_type ?: 'PIECE';
 
+        if ($schedule->quantity_type === QuantityType::PIECE
+            && (int) ($detail->d_case_quantity ?? 0) > 0
+            && $receivedPrice !== null) {
+            $casePrice = $this->decimal($schedule->case_price);
+            $unitPrice = $this->decimal($schedule->unit_price);
+
+            if ($casePrice !== null && $unitPrice !== null) {
+                return abs($receivedPrice - $unitPrice) < abs($receivedPrice - $casePrice)
+                    ? 'PIECE'
+                    : 'CASE';
+            }
+        }
+
         if (
             $this->isZeroReceivedQuantity($detail)
             && ($sentLinePayload['price_type'] ?? null) === 'CASE'
@@ -804,13 +823,29 @@ class IncomingPriceCheckSourceRecorder
         return is_numeric($detail->d_unit_price) ? round(((float) $detail->d_unit_price) / 100, 4) : null;
     }
 
-    private function receivedAmount(WmsIncomingReceivedDetail $detail, ?WmsJxEosLine $eosLine): ?float
-    {
-        if ($eosLine && $eosLine->amount !== null) {
-            return $this->decimal($eosLine->amount);
+    private function receivedAmount(
+        WmsIncomingReceivedDetail $detail,
+        ?WmsJxEosLine $eosLine,
+        ?float $receivedPrice,
+        string $priceType
+    ): ?float {
+        if ($detail->d_amount !== null) {
+            return $this->decimal($detail->d_amount);
         }
 
-        return $this->decimal($detail->d_amount);
+        $packQuantity = $this->decimal($detail->d_pack_quantity);
+        $caseQuantity = $this->decimal($detail->d_case_quantity) ?? 0.0;
+        $pieceQuantity = $this->decimal($detail->d_piece_quantity) ?? 0.0;
+
+        if ($receivedPrice !== null && $packQuantity !== null && $packQuantity > 0) {
+            $pricedQuantity = $priceType === 'CASE'
+                ? $caseQuantity + ($pieceQuantity / $packQuantity)
+                : ($caseQuantity * $packQuantity) + $pieceQuantity;
+
+            return round($receivedPrice * $pricedQuantity, 4);
+        }
+
+        return $this->decimal($eosLine?->amount);
     }
 
     private function isPriceCheckExcluded(WmsIncomingReceivedDetail $detail): bool
