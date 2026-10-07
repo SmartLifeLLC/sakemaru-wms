@@ -845,112 +845,89 @@ class WmsOrderRegistration extends AdminPage
         $this->showSalesBasedExternalOrderPreviewModal = true;
     }
 
-    public function updateSalesBasedExternalOrderPreviewRows(array $rows): void
+    /**
+     * 外部発注候補リストの入力内容を登録リストに追加する。
+     *
+     * クライアントからは「数量が入力された行」の index・商品ID・発注先ID・数量・予定日だけを受け取り、
+     * サーバー側で保持している候補行（候補表示時点のデータ）に突き合わせて登録する。
+     * 候補行そのものはクライアントから受け取らない（入力のたびに全行を同期していた旧方式をやめ、リクエスト肥大を防ぐ）。
+     *
+     * @param  array<int, array<string, mixed>>  $inputs  [{index, item_id, contractor_id, case_qty, piece_qty, expected_arrival_date}]
+     * @return array{created: int, skipped: int, blank: int, unmatched: int, message: string|null}
+     */
+    public function addSalesBasedExternalOrderPreviewRowsToRegistration(array $inputs = [], ?string $expectedArrivalDate = null): array
     {
-        if ($rows === [] && $this->salesBasedExternalOrderPreviewRows !== []) {
-            return;
+        $previewRows = array_values($this->salesBasedExternalOrderPreviewRows);
+
+        if ($previewRows === []) {
+            $message = '追加対象の候補がありません。';
+            $this->notifyWarning($message);
+
+            return $this->salesPreviewSubmitResult(0, 0, 0, 0, $message);
         }
 
-        $this->salesBasedExternalOrderPreviewRows = collect($rows)
-            ->map(function (array $row): array {
-                $inputCaseQuantity = $row['input_order_case_qty'] ?? null;
-                $inputPieceQuantity = $row['input_order_piece_qty'] ?? null;
-                $row['input_order_case_qty'] = ($inputCaseQuantity === null || $inputCaseQuantity === '')
-                    ? null
-                    : max(0, (int) $inputCaseQuantity);
-                $row['input_order_piece_qty'] = ($inputPieceQuantity === null || $inputPieceQuantity === '')
-                    ? null
-                    : max(0, (int) $inputPieceQuantity);
-                try {
-                    $expectedArrivalDate = $row['default_expected_arrival_date'] ?? null;
-                    $row['default_expected_arrival_date'] = filled($expectedArrivalDate)
-                        ? Carbon::parse((string) $expectedArrivalDate)->toDateString()
-                        : null;
-                } catch (\Throwable) {
-                    $row['default_expected_arrival_date'] = null;
-                }
-
-                return $row;
-            })
-            ->values()
-            ->toArray();
-    }
-
-    public function updateSalesBasedExternalOrderPreviewExpectedArrivalDate(?string $date): void
-    {
-        try {
-            $this->salesBasedExternalOrderPreviewConditions['expected_arrival_date'] = Carbon::parse($date)->toDateString();
-        } catch (\Throwable) {
-            $this->salesBasedExternalOrderPreviewConditions['expected_arrival_date'] =
-                $this->earliestExpectedArrivalDateFromRows($this->salesBasedExternalOrderPreviewRows)
-                ?? $this->fallbackExpectedArrivalDate();
-        }
-    }
-
-    public function addSalesBasedExternalOrderPreviewRowsToRegistration(): void
-    {
-        if ($this->salesBasedExternalOrderPreviewRows === []) {
-            $this->notifyWarning('追加対象の候補がありません');
-
-            return;
-        }
-
-        try {
-            $expectedArrivalDate = Carbon::parse(
-                $this->salesBasedExternalOrderPreviewConditions['expected_arrival_date'] ?? $this->fallbackExpectedArrivalDate()
-            )->toDateString();
-        } catch (\Throwable) {
-            Notification::make()
-                ->title('入荷予定日を正しく指定してください')
-                ->danger()
-                ->send();
-
-            return;
-        }
+        $defaultExpectedArrivalDate = $this->normalizeSalesPreviewDate($expectedArrivalDate)
+            ?? $this->normalizeSalesPreviewDate($this->salesBasedExternalOrderPreviewConditions['expected_arrival_date'] ?? null)
+            ?? $this->fallbackExpectedArrivalDate();
+        $this->salesBasedExternalOrderPreviewConditions['expected_arrival_date'] = $defaultExpectedArrivalDate;
 
         $searchService = app(OrderRegistrationSearchService::class);
+        $today = Carbon::today();
         $created = 0;
         $skipped = 0;
         $blankSkipped = 0;
+        $unmatched = 0;
+        $processedIndexes = [];
 
-        foreach ($this->salesBasedExternalOrderPreviewRows as $row) {
-            $isEosAvailable = (bool) ($row['is_eos_available'] ?? false);
-            $orderChannel = OrderChannel::tryFrom((string) ($row['order_channel'] ?? ''))
-                ?? ($isEosAvailable ? OrderChannel::EOS : OrderChannel::FAX);
-            if ($orderChannel === OrderChannel::EOS && ! $isEosAvailable) {
-                $orderChannel = OrderChannel::FAX;
+        foreach ($inputs as $input) {
+            if (! is_array($input)) {
+                $unmatched++;
+
+                continue;
             }
 
-            $inputCaseQuantity = $row['input_order_case_qty'] ?? null;
-            $inputPieceQuantity = $row['input_order_piece_qty'] ?? null;
-            if (($inputCaseQuantity === null || $inputCaseQuantity === '') && ($inputPieceQuantity === null || $inputPieceQuantity === '')) {
+            $index = filter_var($input['index'] ?? null, FILTER_VALIDATE_INT);
+            $row = ($index === false || $index < 0) ? null : ($previewRows[$index] ?? null);
+            if (
+                $row === null
+                || isset($processedIndexes[$index])
+                || (int) ($row['item_id'] ?? 0) !== (int) ($input['item_id'] ?? -1)
+                || (int) ($row['contractor_id'] ?? 0) !== (int) ($input['contractor_id'] ?? -1)
+            ) {
+                $unmatched++;
+
+                continue;
+            }
+            $processedIndexes[$index] = true;
+
+            $caseInput = $input['case_qty'] ?? null;
+            $pieceInput = $input['piece_qty'] ?? null;
+            if (($caseInput === null || $caseInput === '') && ($pieceInput === null || $pieceInput === '')) {
                 $blankSkipped++;
 
                 continue;
             }
 
-            $caseQuantity = max(0, (int) $inputCaseQuantity);
-            $pieceQuantity = max(0, (int) $inputPieceQuantity);
-            if ($caseQuantity > 0 && $pieceQuantity > 0) {
+            $caseQuantity = max(0, (int) $caseInput);
+            $pieceQuantity = max(0, (int) $pieceInput);
+            if (($caseQuantity > 0 && $pieceQuantity > 0) || ($caseQuantity <= 0 && $pieceQuantity <= 0)) {
                 $skipped++;
 
                 continue;
             }
 
-            try {
-                $rowExpectedArrivalDate = filled($row['default_expected_arrival_date'] ?? null)
-                    ? Carbon::parse((string) $row['default_expected_arrival_date'])->toDateString()
-                    : $expectedArrivalDate;
-            } catch (\Throwable) {
-                $skipped++;
-
-                continue;
+            $rowExpectedArrivalDate = $this->normalizeSalesPreviewDate($input['expected_arrival_date'] ?? null)
+                ?? $this->normalizeSalesPreviewDate($row['default_expected_arrival_date'] ?? null)
+                ?? $defaultExpectedArrivalDate;
+            if (Carbon::parse($rowExpectedArrivalDate)->lt($today)) {
+                $rowExpectedArrivalDate = $today->toDateString();
             }
 
-            if (Carbon::parse($rowExpectedArrivalDate)->lt(Carbon::today())) {
-                $skipped++;
-
-                continue;
+            $isEosAvailable = (bool) ($row['is_eos_available'] ?? false);
+            $orderChannel = OrderChannel::tryFrom((string) ($row['order_channel'] ?? ''))
+                ?? ($isEosAvailable ? OrderChannel::EOS : OrderChannel::FAX);
+            if ($orderChannel === OrderChannel::EOS && ! $isEosAvailable) {
+                $orderChannel = OrderChannel::FAX;
             }
 
             $lineRow = [
@@ -984,30 +961,60 @@ class WmsOrderRegistration extends AdminPage
             }
         }
 
+        $details = collect([
+            $blankSkipped > 0 ? "未入力の候補 {$blankSkipped}件 は追加しませんでした。" : null,
+            $skipped > 0 ? "不正な候補など {$skipped}件 はスキップしました。" : null,
+            $unmatched > 0 ? "候補リストと一致しない入力 {$unmatched}件 はスキップしました。候補を表示し直してください。" : null,
+        ])->filter()->implode("\n");
+
         if ($created <= 0) {
+            $title = '登録リストに追加できませんでした';
             Notification::make()
-                ->title('登録リストに追加できませんでした')
-                ->body(collect([
-                    $blankSkipped > 0 ? "未入力の候補 {$blankSkipped}件 は追加しませんでした。" : null,
-                    $skipped > 0 ? "不正な候補など {$skipped}件 はスキップしました。" : null,
-                ])->filter()->implode("\n") ?: null)
+                ->title($title)
+                ->body($details !== '' ? $details : null)
                 ->warning()
                 ->send();
 
-            return;
+            return $this->salesPreviewSubmitResult(
+                $created,
+                $skipped,
+                $blankSkipped,
+                $unmatched,
+                $details !== '' ? "{$title}\n{$details}" : $title,
+            );
         }
 
         Notification::make()
             ->title("販売履歴から {$created}件 を登録リストに追加しました")
-            ->body(collect([
-                $blankSkipped > 0 ? "未入力の候補 {$blankSkipped}件 は追加しませんでした。" : null,
-                $skipped > 0 ? "不正な候補など {$skipped}件 はスキップしました。" : null,
-            ])->filter()->implode("\n") ?: null)
+            ->body($details !== '' ? $details : null)
             ->success()
             ->send();
 
         $this->showSalesBasedExternalOrderPreviewModal = false;
         $this->resetSalesBasedExternalOrderPreview();
+
+        return $this->salesPreviewSubmitResult($created, $skipped, $blankSkipped, $unmatched, null);
+    }
+
+    private function normalizeSalesPreviewDate(mixed $date): ?string
+    {
+        if (! filled($date)) {
+            return null;
+        }
+
+        try {
+            return Carbon::parse((string) $date)->toDateString();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * @return array{created: int, skipped: int, blank: int, unmatched: int, message: string|null}
+     */
+    private function salesPreviewSubmitResult(int $created, int $skipped, int $blank, int $unmatched, ?string $message): array
+    {
+        return compact('created', 'skipped', 'blank', 'unmatched', 'message');
     }
 
     public function addOrderCandidateItems(): void

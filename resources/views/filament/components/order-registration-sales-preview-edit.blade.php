@@ -51,6 +51,8 @@
         conditions: {},
         orderChannel: 'AUTO',
         channelControlled: false,
+        submitting: false,
+        submitError: null,
         today: @js($today),
         fallbackExpectedArrivalDate: @js($defaultExpectedArrivalDate),
         expectedArrivalDate: @js($conditions['expected_arrival_date'] ?? $defaultExpectedArrivalDate),
@@ -129,7 +131,6 @@
         },
         syncExpectedArrivalDate() {
             this.conditions.expected_arrival_date = this.expectedArrivalDate;
-            $wire.updateSalesBasedExternalOrderPreviewExpectedArrivalDate(this.expectedArrivalDate);
         },
         initExpectedArrivalDate() {
             this.expectedArrivalDisplayValue = this.expectedArrivalDate || '';
@@ -220,7 +221,6 @@
             this.expectedArrivalPreviousValue = value || '';
             this.applyExpectedArrivalDateToRows(this.expectedArrivalDate);
             this.syncExpectedArrivalDate();
-            this.sync();
         },
         applyExpectedArrivalDateToRows(value) {
             if (!value) return;
@@ -241,7 +241,6 @@
             const fallback = this.expectedArrivalDate || this.fallbackExpectedArrivalDate;
             const date = value || row.default_expected_arrival_date || fallback;
             row.default_expected_arrival_date = date < this.today ? this.today : date;
-            this.sync();
         },
         restoreExpectedArrivalDate() {
             this.expectedArrivalDisplayValue = this.expectedArrivalPreviousValue || '';
@@ -262,11 +261,54 @@
 
             picker.click();
         },
-        sync() {
-            this.rows.forEach((row) => {
-                this.rowExpectedArrivalDateFor(row);
+        submitInputs() {
+            const normalizeQuantity = (value) => (value === null || value === undefined || value === '') ? null : String(value);
+
+            return this.rows
+                .map((row, index) => ({
+                    index,
+                    item_id: Number(row.item_id || 0),
+                    contractor_id: Number(row.contractor_id || 0),
+                    case_qty: normalizeQuantity(row.input_order_case_qty),
+                    piece_qty: normalizeQuantity(row.input_order_piece_qty),
+                    expected_arrival_date: this.rowExpectedArrivalDateFor(row),
+                }))
+                .filter((input) => input.case_qty !== null || input.piece_qty !== null);
+        },
+        async submit() {
+            if (this.submitting) return;
+
+            const inputs = this.submitInputs();
+            if (inputs.length === 0) {
+                this.submitError = '数量が入力された候補がありません。ケースまたはバラに数量を入力してください。';
+                return;
+            }
+
+            this.submitError = null;
+            this.submitting = true;
+
+            // Livewire は通信失敗時に呼び出しの Promise を解決しないため、失敗フックで確実にローディングを解除する。
+            let unhook = () => {};
+            unhook = Livewire.hook('request', ({ fail }) => {
+                fail(() => {
+                    unhook();
+                    this.submitting = false;
+                    this.submitError = '通信エラーのため登録リストに追加できませんでした。もう一度「登録リストに追加」を押してください。';
+                });
             });
-            $wire.updateSalesBasedExternalOrderPreviewRows(this.rows);
+
+            try {
+                const result = await $wire.addSalesBasedExternalOrderPreviewRowsToRegistration(inputs, this.expectedArrivalDate || null);
+                if (result && Number(result.created || 0) <= 0) {
+                    this.submitError = result.message || '登録リストに追加できませんでした。';
+                }
+            } catch (error) {
+                console.error('登録リストへの追加に失敗しました。', error);
+                this.submitError = '登録リストに追加できませんでした。もう一度お試しください。';
+            } finally {
+                unhook();
+                this.submitting = false;
+            }
         },
         cleanQuantity(row, field, oppositeField) {
             let value = String(row[field] ?? '');
@@ -279,7 +321,6 @@
         },
         commitQuantity(row, field, oppositeField) {
             this.cleanQuantity(row, field, oppositeField);
-            this.sync();
         },
         focusNextInput(event) {
             this.$nextTick(() => {
@@ -317,7 +358,7 @@
         },
     }"
     x-init="initSalesPreview()"
-    class="space-y-3"
+    class="relative flex min-h-0 flex-1 flex-col"
 >
     <div
         x-cloak
@@ -347,6 +388,7 @@
         </div>
     </div>
 
+    <div class="min-h-0 flex-1 space-y-3 overflow-auto p-4">
     <div class="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
         <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
             <label class="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
@@ -523,7 +565,7 @@
                                     x-model="row.input_order_case_qty"
                                     x-bind:disabled="isRowDisabled(row)"
                                     x-on:focus="$event.target.select()"
-                                    x-on:input.debounce.150ms="cleanQuantity(row, 'input_order_case_qty', 'input_order_piece_qty'); sync()"
+                                    x-on:input.debounce.150ms="cleanQuantity(row, 'input_order_case_qty', 'input_order_piece_qty')"
                                     x-on:blur="commitQuantity(row, 'input_order_case_qty', 'input_order_piece_qty')"
                                     x-on:change="commitQuantity(row, 'input_order_case_qty', 'input_order_piece_qty')"
                                     x-on:keydown.arrow-up.prevent="commitQuantity(row, 'input_order_case_qty', 'input_order_piece_qty'); focusAdjacentInput($event, 'up')"
@@ -545,7 +587,7 @@
                                     x-model="row.input_order_piece_qty"
                                     x-bind:disabled="isRowDisabled(row)"
                                     x-on:focus="$event.target.select()"
-                                    x-on:input.debounce.150ms="cleanQuantity(row, 'input_order_piece_qty', 'input_order_case_qty'); sync()"
+                                    x-on:input.debounce.150ms="cleanQuantity(row, 'input_order_piece_qty', 'input_order_case_qty')"
                                     x-on:blur="commitQuantity(row, 'input_order_piece_qty', 'input_order_case_qty')"
                                     x-on:change="commitQuantity(row, 'input_order_piece_qty', 'input_order_case_qty')"
                                     x-on:keydown.arrow-up.prevent="commitQuantity(row, 'input_order_piece_qty', 'input_order_case_qty'); focusAdjacentInput($event, 'up')"
@@ -604,5 +646,43 @@
                 </tbody>
             </table>
         </div>
+    </div>
+    </div>
+
+    <div
+        x-cloak
+        x-show="submitting"
+        class="absolute inset-0 z-20 flex items-center justify-center bg-white/70 dark:bg-gray-900/70"
+    >
+        <div class="flex items-center gap-3 rounded-md border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-800 shadow-lg dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+            <span class="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-danger-600"></span>
+            登録リストに追加しています…
+        </div>
+    </div>
+
+    <div class="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800">
+        <p
+            x-cloak
+            x-show="submitError"
+            x-text="submitError"
+            class="mr-auto whitespace-pre-line text-sm font-semibold text-danger-600 dark:text-danger-400"
+        ></p>
+        <button
+            type="button"
+            x-bind:disabled="submitting"
+            x-on:click="if (!submitting && confirm('外部発注候補リストを閉じますか？入力中の内容は破棄されます。')) { $wire.closeSalesBasedExternalOrderPreviewModal() }"
+            class="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+        >
+            閉じる
+        </button>
+        <button
+            type="button"
+            x-bind:disabled="submitting"
+            x-on:click="submit()"
+            class="inline-flex items-center gap-2 rounded-md bg-danger-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-danger-500 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+            <span x-cloak x-show="submitting" class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"></span>
+            <span x-text="submitting ? '追加中…' : '登録リストに追加'"></span>
+        </button>
     </div>
 </div>
