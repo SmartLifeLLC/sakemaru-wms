@@ -10,6 +10,7 @@ use App\Services\SundryInventoryCount\SundryInventoryDifferenceWorkbookService;
 use App\Services\SundryInventoryCount\SundryInventoryInstructionSheetPdfService;
 use App\Services\SundryInventoryCount\SundryInventorySettings;
 use App\Services\SundryInventoryCount\SundryInventoryTheoryCalculator;
+use App\Services\SundryInventoryCount\WeighedInventoryDifferenceWorkbookService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -88,6 +89,8 @@ class SundryInventoryCountServiceTest extends TestCase
         $count = $this->service($fixture)->create($this->createData($fixture) + ['memo' => 'phpunit']);
 
         $this->assertSame(WmsSundryInventoryCount::STATUS_COUNTING, $count->status);
+        $this->assertSame(WmsSundryInventoryCount::KIND_SUNDRY, $count->fresh()->kind);
+        $this->assertFalse($count->isWeighed());
         $this->assertSame('2026-06-30', $count->theory_end_date->toDateString());
         $this->assertSame([$fixture['target_category_id']], $count->targetCategoryIds());
         $this->assertSame([$fixture['major_category_id']], $count->amountCategoryIds());
@@ -414,6 +417,257 @@ class SundryInventoryCountServiceTest extends TestCase
         $this->assertSame('2041', (string) $summarySheet->getCell('B11')->getValue());
         $this->assertSame('合計', $summarySheet->getCell('C13')->getValue());
         $workbook->disconnectWorksheets();
+    }
+
+    public function test_weighed_count_lists_configured_items_with_period_sales(): void
+    {
+        $fixture = $this->fixture();
+        $this->useWeighedItems($fixture);
+        $service = $this->service($fixture);
+
+        $count = $service->create($this->weighedData($fixture));
+
+        $this->assertSame(WmsSundryInventoryCount::KIND_WEIGHED, $count->kind);
+        $this->assertTrue($count->isWeighed());
+        $this->assertSame('2026-06-30', $count->theory_end_date->toDateString());
+        $this->assertSame('2026-06-01', $count->sales_from_date->toDateString());
+        $this->assertSame([], $count->targetCategoryIds());
+        // 量り売りは数量明細だけ。金額明細は作らない。
+        $this->assertSame(0, $count->amounts()->count());
+
+        // 対象は設定の商品だけ。並びは設定の順（旧Accessの出力順）。
+        $items = $count->items()->orderBy('display_order')->get();
+        $this->assertSame(
+            [(string) $fixture['other_managed_item_code'], (string) $fixture['managed_item_code']],
+            $items->pluck('item_code')->all(),
+        );
+        $this->assertSame([1, 2], $items->pluck('display_order')->all());
+
+        $weighed = $items->first();
+        $this->assertSame('2012', $weighed->category2_code);
+        $this->assertSame(3.0, $weighed->system_quantity);
+        $this->assertSame(50.0, $weighed->cost_price);
+        $this->assertSame(150.0, $weighed->system_amount);
+        $this->assertFalse($weighed->is_additional);
+        $this->assertNull($weighed->counted_quantity);
+        // 期間売上: 6/15 の売上 3（開始日 6/1 〜 受払終了日 6/30）。売上の無い商品は 0。
+        $this->assertSame(3.0, $weighed->period_sales_quantity);
+        $this->assertSame(0.0, $items->last()->period_sales_quantity);
+
+        // 開始日を売上日より後にすると、期間売上に入らない。
+        $service->refreshTheory($count, '2026-06-30', false, '2026-06-16');
+        $this->assertSame('2026-06-16', $count->fresh()->sales_from_date->toDateString());
+        $this->assertSame(0.0, $weighed->fresh()->period_sales_quantity);
+
+        // 開始日を渡さなければ、開始日はそのまま。
+        $service->refreshTheory($count, '2026-06-30');
+        $this->assertSame('2026-06-16', $count->fresh()->sales_from_date->toDateString());
+    }
+
+    public function test_weighed_count_requires_the_period_sales_start_date(): void
+    {
+        $fixture = $this->fixture();
+        $this->useWeighedItems($fixture);
+
+        try {
+            $this->service($fixture)->create(['sales_from_date' => null] + $this->weighedData($fixture));
+            $this->fail('期間売上の開始日なしで作成できてはいけません。');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('sales_from_date', $e->errors());
+        }
+
+        $this->expectException(ValidationException::class);
+        $this->service($fixture)->create(['sales_from_date' => '2026-07-01'] + $this->weighedData($fixture));
+    }
+
+    public function test_weighed_count_takes_jar_and_reserve_quantities_and_summarizes_loss(): void
+    {
+        $fixture = $this->fixture();
+        $this->useWeighedItems($fixture);
+        // ロス率 50%: 期間売上 3 → ロス数量 round(1.5) = 2
+        config(['wms_sundry_inventory.weighed_loss_rate' => 0.5]);
+        $service = $this->service($fixture);
+        $count = $service->create($this->weighedData($fixture));
+        $weighed = $count->items()->where('item_id', $fixture['other_managed_item_id'])->firstOrFail();
+        $other = $count->items()->where('item_id', $fixture['managed_item_id'])->firstOrFail();
+
+        // 実棚数 = カメ + QT。差異数 = 実棚数 − 理論数、差異金額 = 差異数 × 原価。
+        $service->saveChanges($count, [$weighed->id => ['jar' => '２', 'reserve' => '0.5']], [], 'WEB: phpunit');
+        $weighed->refresh();
+        $this->assertSame(2.0, $weighed->counted_quantity_jar);
+        $this->assertSame(0.5, $weighed->counted_quantity_reserve);
+        $this->assertSame(2.5, $weighed->counted_quantity);
+        $this->assertSame(-0.5, $weighed->difference_quantity);
+        $this->assertSame(-25.0, $weighed->difference_amount);
+        $this->assertSame('WEB: phpunit', $weighed->counted_by_name);
+
+        $summary = $service->weighedSummary($count);
+        $this->assertSame(2, $summary['detail_count']);
+        $this->assertSame(1, $summary['counted_count']);
+        $this->assertSame(1, $summary['uncounted_count']);
+        $this->assertSame(-0.5, $summary['difference_quantity']);
+        $this->assertSame(-25.0, $summary['difference_amount']);
+        $this->assertSame(3.0, $summary['sales_quantity']);
+        $this->assertSame(2.0, $summary['loss_quantity']);
+        $this->assertSame(100.0, $summary['loss_amount']);
+        // ロス申請後差異金額 = 差異金額 + ロス金額
+        $this->assertSame(75.0, $summary['difference_amount_after_loss']);
+
+        // 片方だけ送ると、もう片方は変えない。QT だけでも実棚数になる。
+        $service->saveChanges($count, [$weighed->id => ['jar' => null]], [], 'WEB: phpunit');
+        $weighed->refresh();
+        $this->assertNull($weighed->counted_quantity_jar);
+        $this->assertSame(0.5, $weighed->counted_quantity);
+
+        // 両方とも空にすると未入力に戻る。
+        $service->saveChanges($count, [$weighed->id => ['reserve' => '']], [], 'WEB: phpunit');
+        $weighed->refresh();
+        $this->assertNull($weighed->counted_quantity);
+        $this->assertNull($weighed->difference_amount);
+        $this->assertNull($weighed->counted_by_name);
+
+        // 未入力0は、カメ 0 として登録する。
+        $this->assertSame(2, $service->fillUncountedWithZero($count, 'WEB: phpunit'));
+        $other->refresh();
+        $this->assertSame(0.0, $other->counted_quantity_jar);
+        $this->assertNull($other->counted_quantity_reserve);
+        $this->assertSame(0.0, $other->counted_quantity);
+        $this->assertSame(-7.0, $other->difference_quantity);
+
+        // 在庫管理なしの商品は量り売りに追加できない。
+        $this->expectException(ValidationException::class);
+        $service->addItemByCode($count, (string) $fixture['unmanaged_item_code']);
+    }
+
+    public function test_weighed_reports_are_generated_for_a_count(): void
+    {
+        $fixture = $this->fixture();
+        $this->useWeighedItems($fixture);
+        $service = $this->service($fixture);
+        $count = $service->create($this->weighedData($fixture));
+        $weighed = $count->items()->where('item_id', $fixture['other_managed_item_id'])->firstOrFail();
+        $service->saveChanges($count, [$weighed->id => ['jar' => 2, 'reserve' => 2]], [], 'WEB: phpunit');
+
+        $this->assertStringStartsWith('%PDF', (new SundryInventoryInstructionSheetPdfService)->generate($count));
+
+        $workbook = (new WeighedInventoryDifferenceWorkbookService)->build($count);
+        $this->assertSame(['差異表', '店舗計', '全明細'], $workbook->getSheetNames());
+
+        // 差異表（店舗へ送る表）は、実棚を入力した明細だけ。
+        $sheet = $workbook->getSheetByName('差異表');
+        $this->assertSame('実棚数(カメ)', $sheet->getCell('F1')->getValue());
+        $this->assertSame((string) $fixture['other_managed_item_code'], (string) $sheet->getCell('C2')->getValue());
+        $this->assertEquals(3, $sheet->getCell('E2')->getValue());
+        $this->assertEquals(2, $sheet->getCell('F2')->getValue());
+        $this->assertEquals(2, $sheet->getCell('G2')->getValue());
+        $this->assertEquals(1, $sheet->getCell('H2')->getValue());
+        $this->assertEquals(50, $sheet->getCell('I2')->getValue());
+        $this->assertEquals(50, $sheet->getCell('J2')->getValue());
+        $this->assertEquals(3, $sheet->getCell('K2')->getValue());
+        $this->assertSame('合計', $sheet->getCell('D3')->getValue());
+
+        $summarySheet = $workbook->getSheetByName('店舗計');
+        $this->assertSame('ロス申請後差異金額', $summarySheet->getCell('H10')->getValue());
+        $this->assertEquals(1, $summarySheet->getCell('C11')->getValue());
+        $this->assertEquals(3, $summarySheet->getCell('E11')->getValue());
+
+        // 全明細は未入力も含む。
+        $allSheet = $workbook->getSheetByName('全明細');
+        $this->assertSame('入力済', $allSheet->getCell('O2')->getValue());
+        $this->assertSame((string) $fixture['managed_item_code'], (string) $allSheet->getCell('B3')->getValue());
+        $this->assertSame('未入力', $allSheet->getCell('O3')->getValue());
+        $workbook->disconnectWorksheets();
+    }
+
+    /**
+     * 量り売りの対象商品を、テスト用の商品（対象外テスト在庫管理あり → 雑貨テスト在庫管理あり の順）に差し替え、
+     * 1つ目の商品に 6/15 の売上 3 を入れる。
+     *
+     * @param  array<string, mixed>  $fixture
+     */
+    private function useWeighedItems(array $fixture): void
+    {
+        config(['wms_sundry_inventory.weighed_item_codes' => [
+            $fixture['other_managed_item_code'],
+            $fixture['managed_item_code'],
+        ]]);
+
+        $db = DB::connection('sakemaru');
+        $now = now();
+
+        $db->table('item_prices')->insert([
+            'client_id' => $fixture['client_id'],
+            'creator_id' => 1,
+            'item_id' => $fixture['other_managed_item_id'],
+            'start_date' => '2026-01-01',
+            'producer_unit_price' => 0,
+            'producer_case_price' => 0,
+            'producer_crate_price' => 0,
+            'cost_unit_price' => 50,
+            'type' => 'EXEMPT',
+            'is_active' => true,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        $tradeId = (int) $db->table('trades')->insertGetId([
+            'client_id' => $fixture['client_id'],
+            'creator_id' => 1,
+            'last_updater_id' => 1,
+            'trade_category' => 'EARNING',
+            'uuid' => (string) Str::uuid(),
+            'serial_id' => random_int(900000000, 999999999),
+            'entry_lot_number' => 0,
+            'subtotal' => 0,
+            'total' => 0,
+            'process_date' => '2026-06-15',
+            'is_active' => true,
+            'is_latest' => true,
+            'trade_item_count' => 1,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        $db->table('earnings')->insert([
+            'trade_id' => $tradeId,
+            'client_id' => $fixture['client_id'],
+            'buyer_id' => 0,
+            'warehouse_id' => $fixture['warehouse_id'],
+            'delivered_date' => '2026-06-15',
+            'is_active' => true,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        $db->table('trade_items')->insert([
+            'client_id' => $fixture['client_id'],
+            'trade_id' => $tradeId,
+            'item_id' => $fixture['other_managed_item_id'],
+            'item_name' => '対象外テスト在庫管理あり',
+            'stock_allocation_id' => 0,
+            'order_quantity_type' => 'PIECE',
+            'quantity' => 3,
+            'quantity_type' => 'PIECE',
+            'capacity_case' => 1,
+            'capacity_carton' => 1,
+            'price_category' => 'OTHER',
+            'amount' => 300,
+            'is_active' => true,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $fixture
+     * @return array<string, mixed>
+     */
+    private function weighedData(array $fixture): array
+    {
+        return [
+            'kind' => WmsSundryInventoryCount::KIND_WEIGHED,
+            'warehouse_id' => $fixture['warehouse_id'],
+            'count_date' => '2026-06-30',
+            'sales_from_date' => '2026-06-01',
+        ];
     }
 
     /**

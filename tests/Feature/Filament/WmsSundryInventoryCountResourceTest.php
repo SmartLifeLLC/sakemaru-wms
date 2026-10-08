@@ -124,6 +124,73 @@ class WmsSundryInventoryCountResourceTest extends TestCase
         $this->assertNull($item->fresh()->counted_quantity);
     }
 
+    public function test_weighed_view_page_takes_jar_and_reserve_input(): void
+    {
+        $count = WmsSundryInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'kind' => WmsSundryInventoryCount::KIND_WEIGHED,
+            'client_id' => 1,
+            'warehouse_id' => 990301,
+            'warehouse_code' => '99',
+            'warehouse_name' => '量り売り棚卸画面テスト倉庫',
+            'count_date' => '2026-06-30',
+            'status' => WmsSundryInventoryCount::STATUS_COUNTING,
+            'category_ids' => [],
+            'theory_end_date' => '2026-06-30',
+            'sales_from_date' => '2026-03-01',
+        ]);
+
+        $item = (new WmsSundryInventoryCountItem([
+            'sundry_inventory_count_id' => $count->id,
+            'item_id' => 990129,
+            'item_code' => '990129',
+            'item_name' => '量り売り画面テスト焼酎',
+            'category2_code' => '2012',
+            'category2_name' => '焼酎',
+            'display_order' => 1,
+            'cost_price' => 50,
+            'system_quantity' => 1000,
+            'period_sales_quantity' => 500,
+        ]))->recalculate();
+        $item->save();
+
+        $component = Livewire::actingAs($this->user())
+            ->test(ViewWmsSundryInventoryCount::class, ['record' => $count])
+            ->assertSuccessful()
+            ->assertSee('棚卸し（量り売り）')
+            ->assertSee('量り売り明細')
+            ->assertSee('実棚数（カメ）')
+            ->assertSee('実棚数（QT）')
+            ->assertSee('期間売上数量')
+            ->assertSee('量り売り画面テスト焼酎')
+            ->assertSee('期間売上 2026/03/01')
+            ->assertDontSee('金額明細（在庫管理なし）')
+            ->assertDontSee('数量明細（在庫管理あり）');
+
+        $component
+            ->call('saveChanges', ['items' => [$item->id => ['jar' => '620', 'reserve' => '360']]])
+            ->assertReturned(true);
+
+        $item->refresh();
+        $this->assertSame(620.0, $item->counted_quantity_jar);
+        $this->assertSame(360.0, $item->counted_quantity_reserve);
+        $this->assertSame(980.0, $item->counted_quantity);
+        $this->assertSame(-20.0, $item->difference_quantity);
+        $this->assertSame(-1000.0, $item->difference_amount);
+
+        // 集計: 期間売上 500 × 4% = ロス 20 → ロス金額 1,000 → ロス申請後差異 0
+        $component
+            ->call('setListTab', 'summary')
+            ->assertSee('ロス申請後 差異金額')
+            ->assertSee('入力済みの明細だけを合計しています。')
+            ->assertDontSee('在庫管理あり（中分類・数量）');
+
+        $component
+            ->call('saveChanges', ['items' => [$item->id => ['jar' => 'x']]])
+            ->assertReturned(false);
+        $this->assertSame(620.0, $item->fresh()->counted_quantity_jar);
+    }
+
     /**
      * @return array{0: WmsSundryInventoryCount, 1: WmsSundryInventoryCountItem, 2: WmsSundryInventoryCountAmount}
      */

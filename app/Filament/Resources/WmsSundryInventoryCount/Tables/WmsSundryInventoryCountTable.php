@@ -12,6 +12,7 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
@@ -42,6 +43,12 @@ class WmsSundryInventoryCountTable
                     ->label('棚卸しNo')
                     ->searchable()
                     ->sortable(),
+
+                TextColumn::make('kind')
+                    ->label('種類')
+                    ->badge()
+                    ->formatStateUsing(fn (WmsSundryInventoryCount $record) => $record->kind_label)
+                    ->color(fn (WmsSundryInventoryCount $record) => $record->isWeighed() ? 'warning' : 'gray'),
 
                 TextColumn::make('warehouse_code')
                     ->label('倉庫CD')
@@ -106,6 +113,10 @@ class WmsSundryInventoryCountTable
                     ->label('ステータス')
                     ->multiple()
                     ->options(WmsSundryInventoryCount::statusOptions()),
+
+                SelectFilter::make('kind')
+                    ->label('種類')
+                    ->options(WmsSundryInventoryCount::kindOptions()),
             ])
             ->defaultSort(fn (Builder $query): Builder => $query
                 ->orderByDesc('count_date')
@@ -128,7 +139,7 @@ class WmsSundryInventoryCountTable
             ->icon('heroicon-o-plus')
             ->color('primary')
             ->modalHeading('棚卸し（雑貨）作成')
-            ->modalDescription('対象の分類の商品だけを明細にします。棚卸し日までの受払で理論在庫を作成します（未来日の場合は本日まで）。')
+            ->modalDescription('対象の分類の商品だけを明細にします。棚卸し日までの受払で理論在庫を作成します（未来日の場合は本日まで）。種類で「量り売り」を選ぶと、量り売り商品だけの棚卸しになります。')
             ->modalWidth('lg')
             ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
             ->modalFooterActionsAlignment(Alignment::End)
@@ -139,6 +150,15 @@ class WmsSundryInventoryCountTable
             )
             ->modalCancelActionLabel('作成せず閉じる')
             ->schema([
+                Select::make('kind')
+                    ->label('種類')
+                    ->options(WmsSundryInventoryCount::kindOptions())
+                    ->default(WmsSundryInventoryCount::KIND_SUNDRY)
+                    ->selectablePlaceholder(false)
+                    ->live()
+                    ->required()
+                    ->helperText('量り売りは、量り売り焼酎を100ml単位の数量で棚卸しします。実棚はカメとQTに分けて入力します。'),
+
                 Select::make('warehouse_id')
                     ->label('倉庫')
                     ->options(fn () => Warehouse::query()
@@ -155,8 +175,15 @@ class WmsSundryInventoryCountTable
                     ->default(now())
                     ->required(),
 
+                DatePicker::make('sales_from_date')
+                    ->label('期間売上の開始日（前回棚卸日の翌日）')
+                    ->visible(fn (Get $get): bool => $get('kind') === WmsSundryInventoryCount::KIND_WEIGHED)
+                    ->required(fn (Get $get): bool => $get('kind') === WmsSundryInventoryCount::KIND_WEIGHED)
+                    ->helperText('この日から棚卸し日までの売上数量を集計します。作成後も「理論在庫更新」で変更できます。'),
+
                 Select::make('category_ids')
                     ->label('対象中分類')
+                    ->visible(fn (Get $get): bool => $get('kind') !== WmsSundryInventoryCount::KIND_WEIGHED)
                     ->options(fn () => (new SundryInventoryCountService)->categoryOptions())
                     ->default(fn () => (new SundryInventoryCountService)->defaultCategoryIds())
                     ->multiple()
@@ -165,6 +192,7 @@ class WmsSundryInventoryCountTable
 
                 Select::make('amount_category_ids')
                     ->label('金額で棚卸しする大分類（在庫管理なし）')
+                    ->visible(fn (Get $get): bool => $get('kind') !== WmsSundryInventoryCount::KIND_WEIGHED)
                     ->options(fn () => (new SundryInventoryCountService)->amountCategoryOptions())
                     ->default(fn () => (new SundryInventoryCountService)->defaultAmountCategoryIds())
                     ->multiple()
@@ -201,7 +229,9 @@ class WmsSundryInventoryCountTable
                 Notification::make()
                     ->success()
                     ->title('棚卸し（雑貨）を作成しました')
-                    ->body('数量明細: '.$count->items()->count().'件 / 金額明細: '.$count->amounts()->count().'件')
+                    ->body($count->isWeighed()
+                        ? '量り売り明細: '.$count->items()->count().'件'
+                        : '数量明細: '.$count->items()->count().'件 / 金額明細: '.$count->amounts()->count().'件')
                     ->send();
 
                 return redirect(WmsSundryInventoryCountResource::getUrl('view', ['record' => $count]));
