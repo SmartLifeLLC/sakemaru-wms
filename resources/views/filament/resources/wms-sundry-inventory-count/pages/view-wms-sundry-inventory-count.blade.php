@@ -1,7 +1,11 @@
 <x-filament-panels::page class="overflow-hidden">
     @php
         $record = $this->record;
+        $page = $this;
         $isEditable = $this->isEditable();
+        $isWeighed = $this->isWeighed();
+        $kindTitle = $this->kindTitle();
+        $weighed = $isWeighed ? $this->weighedSummary() : null;
         $listTab = $this->listTab;
         $summary = $this->summary();
         $total = $summary['totals']['total'];
@@ -73,6 +77,13 @@
                 delete this.changes.amounts[id];
             }
         },
+        setWeighedChange(id, fields) {
+            if (Object.keys(fields).length) {
+                this.changes.items[id] = fields;
+            } else {
+                delete this.changes.items[id];
+            }
+        },
         save() {
             if (!this.changeCount) return;
             this.$wire.saveChanges(this.changes).then((saved) => {
@@ -89,12 +100,13 @@
     }"
     @sundry-item-change="setItemChange($event.detail.id, $event.detail.value, $event.detail.original)"
     @sundry-amount-change="setAmountChange($event.detail.id, $event.detail.fields)"
+    @sundry-weighed-change="setWeighedChange($event.detail.id, $event.detail.fields)"
     class="flex h-[calc(100vh-72px)] min-h-0 flex-col gap-2">
         {{-- Header bar --}}
         <div class="relative z-20 shrink-0 overflow-visible rounded-lg border border-slate-300 bg-slate-100 shadow-sm">
             <div class="flex items-center justify-between border-b border-slate-200 bg-slate-800 px-3 py-2 text-white">
                 <div class="flex min-w-0 flex-wrap items-center gap-3">
-                    <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">棚卸し（雑貨）</span>
+                    <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">{{ $kindTitle }}</span>
                     <span class="truncate text-xs text-slate-300">
                         {{ $record->count_no }}
                         / {{ $record->warehouse_code }} {{ $record->warehouse_name }}
@@ -108,6 +120,11 @@
                             受払終了日 {{ $record->theory_end_date->format('Y/m/d') }}
                         </span>
                     @endif
+                    @if ($isWeighed)
+                        <span class="rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-bold text-purple-700">
+                            期間売上 {{ $record->sales_from_date?->format('Y/m/d') ?? '未設定' }} 〜
+                        </span>
+                    @endif
                     <span class="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-bold text-slate-700">
                         理論 {{ $this->formatAmount($total['system']) }}
                     </span>
@@ -118,10 +135,16 @@
                         差異 {{ $this->formatAmount($total['difference']) }}
                     </span>
                     <span class="text-xs text-slate-400">
-                        数量明細{{ number_format($counts['all']) }}件
-                        / 差異{{ number_format($counts['diff']) }}件
-                        / 未入力{{ number_format($counts['uncounted']) }}件
-                        / 金額明細{{ number_format($amountRows->count()) }}件（未入力{{ number_format($uncountedAmounts) }}件）
+                        @if ($isWeighed)
+                            量り売り明細{{ number_format($counts['all']) }}件
+                            / 差異{{ number_format($counts['diff']) }}件
+                            / 未入力{{ number_format($counts['uncounted']) }}件
+                        @else
+                            数量明細{{ number_format($counts['all']) }}件
+                            / 差異{{ number_format($counts['diff']) }}件
+                            / 未入力{{ number_format($counts['uncounted']) }}件
+                            / 金額明細{{ number_format($amountRows->count()) }}件（未入力{{ number_format($uncountedAmounts) }}件）
+                        @endif
                     </span>
                 </div>
                 <button type="button"
@@ -136,15 +159,17 @@
             {{-- Filter form（数量明細用） --}}
             <div x-show="filtersOpen" x-collapse x-cloak class="bg-slate-100 p-2">
                 <div class="grid grid-cols-2 items-end gap-2 md:grid-cols-6 xl:grid-cols-12">
-                    <label class="space-y-1 md:col-span-2">
-                        <span class="text-xs font-semibold text-slate-700">中分類</span>
-                        <select wire:model.live="categoryFilter" class="{{ $filterSelectClass }}">
-                            <option value="">すべて</option>
-                            @foreach ($categoryOptions as $code => $label)
-                                <option value="{{ $code }}">{{ $label }}</option>
-                            @endforeach
-                        </select>
-                    </label>
+                    @unless ($isWeighed)
+                        <label class="space-y-1 md:col-span-2">
+                            <span class="text-xs font-semibold text-slate-700">中分類</span>
+                            <select wire:model.live="categoryFilter" class="{{ $filterSelectClass }}">
+                                <option value="">すべて</option>
+                                @foreach ($categoryOptions as $code => $label)
+                                    <option value="{{ $code }}">{{ $label }}</option>
+                                @endforeach
+                            </select>
+                        </label>
+                    @endunless
                     <label class="space-y-1 md:col-span-2">
                         <span class="text-xs font-semibold text-slate-700">商品CD</span>
                         <input type="text" wire:model.live.debounce.300ms="itemCodeFilter" placeholder="商品CD検索" class="{{ $filterInputClass }}">
@@ -178,19 +203,21 @@
                         <button type="button"
                             @click="guard(() => $wire.setListTab('items'))"
                             class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition {{ $tabClass('items') }}">
-                            <span>数量明細（在庫管理あり）</span>
+                            <span>{{ $isWeighed ? '量り売り明細' : '数量明細（在庫管理あり）' }}</span>
                             <span class="rounded-full px-2 py-0.5 text-[11px] font-black tabular-nums {{ $tabBadgeClass('items') }}">
                                 {{ number_format($counts['all']) }}
                             </span>
                         </button>
-                        <button type="button"
-                            @click="guard(() => $wire.setListTab('amounts'))"
-                            class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition {{ $tabClass('amounts') }}">
-                            <span>金額明細（在庫管理なし）</span>
-                            <span class="rounded-full px-2 py-0.5 text-[11px] font-black tabular-nums {{ $tabBadgeClass('amounts') }}">
-                                {{ number_format($amountRows->count()) }}
-                            </span>
-                        </button>
+                        @unless ($isWeighed)
+                            <button type="button"
+                                @click="guard(() => $wire.setListTab('amounts'))"
+                                class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition {{ $tabClass('amounts') }}">
+                                <span>金額明細（在庫管理なし）</span>
+                                <span class="rounded-full px-2 py-0.5 text-[11px] font-black tabular-nums {{ $tabBadgeClass('amounts') }}">
+                                    {{ number_format($amountRows->count()) }}
+                                </span>
+                            </button>
+                        @endunless
                         <button type="button"
                             @click="guard(() => $wire.setListTab('summary'))"
                             class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition {{ $tabClass('summary') }}">
@@ -248,6 +275,8 @@
                 @if ($listTab === 'items')
                     @if (! $rows || $rows->count() === 0)
                         <div class="p-8 text-center text-sm text-slate-500">条件に一致する明細はありません。</div>
+                    @elseif ($isWeighed)
+                        @include('filament.resources.wms-sundry-inventory-count.pages.partials.weighed-items')
                     @else
                         <table class="w-max min-w-full border-collapse text-xs">
                             <thead class="sticky top-0 z-10 bg-slate-100 text-slate-700">
@@ -501,8 +530,13 @@
                     @endif
                 @endif
 
+                {{-- 集計（量り売り: 店舗計） --}}
+                @if ($listTab === 'summary' && $isWeighed)
+                    @include('filament.resources.wms-sundry-inventory-count.pages.partials.weighed-summary')
+                @endif
+
                 {{-- 集計（中分類別） --}}
-                @if ($listTab === 'summary')
+                @if ($listTab === 'summary' && ! $isWeighed)
                     @php
                         $summaryLines = [];
                         foreach ($summary['managed'] as $line) {

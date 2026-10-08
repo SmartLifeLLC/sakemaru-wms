@@ -123,6 +123,92 @@ class SundryInventoryTheoryCalculator
     }
 
     /**
+     * 期間売上数量（バラ数量。量り売りは 100ml 単位）。
+     *
+     * 旧Access（Q_03_売上数量）の「前回棚卸日の翌日〜今回棚卸日の売上数量」にあたる。
+     *  - 新システム稼働日（2026-05-06）以降: 理論数と同じ元データ（小売POSの在庫引当 + 売上伝票）を集計する。
+     *  - それより前: 日別売上の統計（stats_item_warehouse_daily_sales。旧システムの売上を取り込み済み）を使う。
+     *
+     * @param  array<int, int>  $itemIds
+     * @return array<int, float> item_id => 売上数量（売上が無い商品は 0）
+     */
+    public function periodSalesQuantities(int $clientId, int $warehouseId, array $itemIds, string $fromDate, string $endDate): array
+    {
+        $itemIds = $this->intList($itemIds);
+        $fromDate = CarbonImmutable::parse($fromDate)->toDateString();
+        $endDate = CarbonImmutable::parse($endDate)->toDateString();
+        $sales = array_fill_keys($itemIds, 0.0);
+
+        if ($itemIds === [] || $fromDate > $endDate) {
+            return $sales;
+        }
+
+        $add = function (iterable $rows) use (&$sales): void {
+            foreach ($rows as $row) {
+                $itemId = (int) $row->item_id;
+                $sales[$itemId] = ($sales[$itemId] ?? 0.0) + (float) ($row->quantity ?? 0);
+            }
+        };
+
+        $goLiveDate = InventoryCountLedgerBalanceService::OPENING_DATE;
+        $connection = DB::connection('sakemaru');
+        $schema = Schema::connection('sakemaru');
+
+        // 旧システム期間（〜稼働日の前日）
+        if ($fromDate < $goLiveDate && $schema->hasTable('stats_item_warehouse_daily_sales')) {
+            $legacyEndDate = min($endDate, CarbonImmutable::parse($goLiveDate)->subDay()->toDateString());
+
+            $add($connection->table('stats_item_warehouse_daily_sales')
+                ->where('warehouse_id', $warehouseId)
+                ->whereIn('item_id', $itemIds)
+                ->whereBetween('business_date', [$fromDate, $legacyEndDate])
+                ->groupBy('item_id')
+                ->selectRaw('item_id, SUM(sales_piece_qty) as quantity')
+                ->get());
+        }
+
+        // 新システム期間（稼働日〜）
+        if ($endDate >= $goLiveDate) {
+            $newFromDate = max($fromDate, $goLiveDate);
+
+            if ($schema->hasTable('ret_pos_stock_applications')) {
+                $add($connection->table('ret_pos_stock_applications')
+                    ->where('warehouse_id', $warehouseId)
+                    ->whereIn('item_id', $itemIds)
+                    ->whereBetween('business_date', [$newFromDate, $endDate])
+                    ->groupBy('item_id')
+                    ->selectRaw('item_id, SUM(quantity) as quantity')
+                    ->get());
+            }
+
+            $pieceQuantity = 'COALESCE(NULLIF(ti.total_piece_quantity, 0),'
+                .' CASE ti.quantity_type'
+                ." WHEN 'CASE' THEN ti.quantity * COALESCE(NULLIF(ti.capacity_case, 0), 1)"
+                ." WHEN 'CARTON' THEN ti.quantity * COALESCE(NULLIF(ti.capacity_carton, 0), 1)"
+                .' ELSE ti.quantity END)';
+            $isReturn = "COALESCE(t.is_returned, 0) = 1 OR COALESCE(t.trade_direction, 'NORMAL') = 'RETURN' OR ({$pieceQuantity}) < 0";
+
+            $add($connection->table('trade_items as ti')
+                ->join('trades as t', 't.id', '=', 'ti.trade_id')
+                ->join('earnings as e', 'e.trade_id', '=', 't.id')
+                ->where('t.client_id', $clientId)
+                ->where('e.warehouse_id', $warehouseId)
+                ->where('t.trade_category', 'EARNING')
+                ->where('t.is_active', true)
+                ->where('t.is_latest', true)
+                ->where('e.is_active', true)
+                ->where('ti.is_active', true)
+                ->whereIn('ti.item_id', $itemIds)
+                ->whereRaw('COALESCE(e.delivered_date, t.process_date) BETWEEN ? AND ?', [$newFromDate, $endDate])
+                ->groupBy('ti.item_id')
+                ->selectRaw("ti.item_id, SUM(CASE WHEN {$isReturn} THEN -ABS({$pieceQuantity}) ELSE ABS({$pieceQuantity}) END) as quantity")
+                ->get());
+        }
+
+        return array_map(fn (float $quantity): float => round($quantity, 3), $sales);
+    }
+
+    /**
      * 在庫管理なし商品の金額受払。fromDate〜endDate（両端含む）を分類別に集計する。
      *
      * @param  array<int, int>  $categoryIds  item_categories.id（depth の階層）

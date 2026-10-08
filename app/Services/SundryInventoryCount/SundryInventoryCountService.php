@@ -75,6 +75,11 @@ class SundryInventoryCountService
         $warehouse = Warehouse::findOrFail($data['warehouse_id']);
         $clientId = (int) $warehouse->client_id;
         $countDate = CarbonImmutable::parse($data['count_date'])->toDateString();
+
+        if (($data['kind'] ?? WmsSundryInventoryCount::KIND_SUNDRY) === WmsSundryInventoryCount::KIND_WEIGHED) {
+            return $this->createWeighed($warehouse, $countDate, $data);
+        }
+
         $categories = $this->categoriesById($data['category_ids'] ?? [], $clientId, 2);
         $amountCategories = $this->categoriesById($data['amount_category_ids'] ?? [], $clientId, 1);
 
@@ -89,6 +94,7 @@ class SundryInventoryCountService
         return DB::connection('sakemaru')->transaction(function () use ($warehouse, $clientId, $countDate, $categories, $amountCategories, $theoryEndDate, $balances, $data) {
             $count = WmsSundryInventoryCount::create([
                 'count_no' => WmsSundryInventoryCount::generateCountNo($countDate),
+                'kind' => WmsSundryInventoryCount::KIND_SUNDRY,
                 'client_id' => $clientId,
                 'warehouse_id' => $warehouse->id,
                 'warehouse_code' => (string) ($warehouse->code ?? ''),
@@ -115,12 +121,18 @@ class SundryInventoryCountService
      *
      * 前残金額は、手入力した行を除いて取り直す（前回棚卸の実棚 → 旧システム残高の順）。
      * resetManualOpenings = true のときは手入力した前残も取り直した値で上書きする。
+     * 量り売りは、理論数・原価と期間売上を取り直す（salesFromDate を渡すと期間売上の開始日も変える）。
      *
      * @return array{end_date: string, updated_items: int, inserted_items: int, updated_amounts: int, inserted_amounts: int}
      */
-    public function refreshTheory(WmsSundryInventoryCount $count, string $endDate, bool $resetManualOpenings = false): array
+    public function refreshTheory(WmsSundryInventoryCount $count, string $endDate, bool $resetManualOpenings = false, ?string $salesFromDate = null): array
     {
         $endDate = CarbonImmutable::parse($endDate)->toDateString();
+        $salesFromDate = $this->parseDate($salesFromDate, '期間売上の開始日');
+
+        if ($count->isWeighed() && $salesFromDate !== null && $salesFromDate > $endDate) {
+            throw ValidationException::withMessages(['sales_from_date' => '期間売上の開始日は、受払終了日以前の日付にしてください。']);
+        }
 
         if ($endDate > now()->toDateString()) {
             throw ValidationException::withMessages(['end_date' => '未来日の受払では理論在庫を更新できません。']);
@@ -129,11 +141,28 @@ class SundryInventoryCountService
         $this->assertEditable($count);
         $balances = $this->calculator->managedBalances((int) $count->client_id, (int) $count->warehouse_id, $endDate);
 
-        return $this->withEditableCount($count, function (WmsSundryInventoryCount $count) use ($endDate, $balances, $resetManualOpenings): array {
+        return $this->withEditableCount($count, function (WmsSundryInventoryCount $count) use ($endDate, $balances, $resetManualOpenings, $salesFromDate): array {
             $count->update([
                 'theory_end_date' => $endDate,
                 'theory_updated_at' => now(),
             ]);
+
+            // 量り売り: 数量明細と期間売上だけを取り直す（金額明細は無い）。
+            if ($count->isWeighed()) {
+                if ($salesFromDate !== null) {
+                    $count->update(['sales_from_date' => $salesFromDate]);
+                }
+
+                $itemStats = $this->syncWeighedItems($count, $balances);
+
+                return [
+                    'end_date' => $endDate,
+                    'updated_items' => $itemStats['updated'],
+                    'inserted_items' => $itemStats['inserted'],
+                    'updated_amounts' => 0,
+                    'inserted_amounts' => 0,
+                ];
+            }
 
             $clientId = (int) $count->client_id;
             $itemStats = $this->syncManagedItems($count, $this->categoriesById($count->targetCategoryIds(), $clientId, 2), $balances);
@@ -152,7 +181,7 @@ class SundryInventoryCountService
     /**
      * 画面からの入力を反映する。
      *
-     * @param  array<int|string, mixed>  $itemChanges  数量明細ID => 実棚数（null で未入力に戻す）
+     * @param  array<int|string, mixed>  $itemChanges  数量明細ID => 実棚数（null で未入力に戻す）。量り売りは ['jar' => カメ, 'reserve' => QT]
      * @param  array<int|string, array<string, mixed>>  $amountChanges  金額明細ID => [counted_amount?, opening_amount?, opening_date?]
      * @return array{items: int, amounts: int}
      */
@@ -169,8 +198,25 @@ class SundryInventoryCountService
                     ->where('sundry_inventory_count_id', $count->id)
                     ->whereIn('id', $itemIds)
                     ->get()
-                    ->each(function (WmsSundryInventoryCountItem $item) use ($itemChanges, $actorName, $now, &$savedItems): void {
-                        $quantity = $this->parseNumber($itemChanges[$item->id] ?? null, 3, "商品{$item->item_code}の実棚数");
+                    ->each(function (WmsSundryInventoryCountItem $item) use ($count, $itemChanges, $actorName, $now, &$savedItems): void {
+                        $change = $itemChanges[$item->id] ?? null;
+
+                        if ($count->isWeighed()) {
+                            // 量り売り: カメ・QT を別々に受け取り、合計を実棚数にする。
+                            $change = is_array($change) ? $change : ['jar' => $change];
+                            if (array_key_exists('jar', $change)) {
+                                $item->counted_quantity_jar = $this->parseNumber($change['jar'], 3, "商品{$item->item_code}の実棚数（カメ）");
+                            }
+                            if (array_key_exists('reserve', $change)) {
+                                $item->counted_quantity_reserve = $this->parseNumber($change['reserve'], 3, "商品{$item->item_code}の実棚数（QT）");
+                            }
+                            $quantity = $item->applyWeighedCount()->counted_quantity;
+                        } else {
+                            if (is_array($change)) {
+                                throw ValidationException::withMessages(['changes' => "商品{$item->item_code}の実棚数は数値で入力してください。"]);
+                            }
+                            $quantity = $this->parseNumber($change, 3, "商品{$item->item_code}の実棚数");
+                        }
 
                         $item->counted_quantity = $quantity;
                         $item->counted_by_name = $quantity === null ? null : $actorName;
@@ -250,7 +296,10 @@ class SundryInventoryCountService
                 ->whereNull('counted_quantity')
                 ->orderBy('id')
                 ->get()
-                ->each(function (WmsSundryInventoryCountItem $item) use ($actorName, $now, &$filled): void {
+                ->each(function (WmsSundryInventoryCountItem $item) use ($count, $actorName, $now, &$filled): void {
+                    if ($count->isWeighed()) {
+                        $item->counted_quantity_jar = 0;
+                    }
                     $item->counted_quantity = 0;
                     $item->counted_by_name = $actorName;
                     $item->counted_at = $now;
@@ -294,6 +343,10 @@ class SundryInventoryCountService
         }
 
         $isUnmanaged = $item->is_managed_stock !== null && ! (bool) $item->is_managed_stock;
+
+        if ($isUnmanaged && $count->isWeighed()) {
+            throw ValidationException::withMessages(['item_code' => "商品CD {$itemCode} は在庫管理なしの商品のため、量り売りの棚卸しには追加できません。"]);
+        }
 
         if ($isUnmanaged) {
             if (! $item->item_category2_id || $item->category2_code === null) {
@@ -342,11 +395,17 @@ class SundryInventoryCountService
                     'category2_id' => $item->item_category2_id ? (int) $item->item_category2_id : null,
                     'category2_code' => (string) ($item->category2_code ?? ''),
                     'category2_name' => $this->cleanCategoryName($item->category2_name),
-                    'is_additional' => ! in_array((int) $item->item_category2_id, $count->targetCategoryIds(), true),
+                    'is_additional' => $count->isWeighed()
+                        ? ! in_array((int) $item->code, SundryInventorySettings::weighedItemCodes(), true)
+                        : ! in_array((int) $item->item_category2_id, $count->targetCategoryIds(), true),
                     'cost_price' => (float) ($costPrices[(int) $item->id] ?? 0),
                     'system_quantity' => round((float) ($balances[(int) $item->id] ?? 0), 3),
                 ]);
                 $row->recalculate()->save();
+
+                if ($count->isWeighed()) {
+                    $this->applyPeriodSales($count, [(int) $row->id]);
+                }
             }
 
             return [
@@ -460,6 +519,273 @@ class SundryInventoryCountService
                 'total' => $sum([...$managed, ...$unmanaged], '合計'),
             ],
         ];
+    }
+
+    // ========================================
+    // 量り売り
+    // ========================================
+
+    /**
+     * 量り売りの棚卸しを作成する。
+     *
+     * 対象は設定の量り売り商品（旧Accessの対象マスタと同じ）。数量明細だけを作り、金額明細は作らない。
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function createWeighed(Warehouse $warehouse, string $countDate, array $data): WmsSundryInventoryCount
+    {
+        $clientId = (int) $warehouse->client_id;
+        $salesFromDate = $this->parseDate($data['sales_from_date'] ?? null, '期間売上の開始日');
+
+        if ($salesFromDate === null) {
+            throw ValidationException::withMessages(['sales_from_date' => '期間売上の開始日（前回棚卸日の翌日）を入力してください。']);
+        }
+        if ($salesFromDate > $countDate) {
+            throw ValidationException::withMessages(['sales_from_date' => '期間売上の開始日は、棚卸し日以前の日付にしてください。']);
+        }
+
+        // 未来日の棚卸しは、作成時点では当日までの受払で理論値を作る（棚卸し日以降に理論在庫更新する）。
+        $theoryEndDate = min($countDate, now()->toDateString());
+        $balances = $this->calculator->managedBalances($clientId, (int) $warehouse->id, $theoryEndDate);
+
+        return DB::connection('sakemaru')->transaction(function () use ($warehouse, $clientId, $countDate, $salesFromDate, $theoryEndDate, $balances, $data) {
+            $count = WmsSundryInventoryCount::create([
+                'count_no' => WmsSundryInventoryCount::generateCountNo($countDate),
+                'kind' => WmsSundryInventoryCount::KIND_WEIGHED,
+                'client_id' => $clientId,
+                'warehouse_id' => $warehouse->id,
+                'warehouse_code' => (string) ($warehouse->code ?? ''),
+                'warehouse_name' => (string) ($warehouse->name ?? ''),
+                'count_date' => $countDate,
+                'status' => WmsSundryInventoryCount::STATUS_COUNTING,
+                'category_ids' => [],
+                'amount_category_ids' => [],
+                'theory_end_date' => $theoryEndDate,
+                'theory_updated_at' => now(),
+                'sales_from_date' => $salesFromDate,
+                'memo' => $data['memo'] ?? null,
+                'created_by' => auth()->id(),
+            ]);
+
+            $this->syncWeighedItems($count, $balances);
+
+            return $count;
+        });
+    }
+
+    /**
+     * 量り売りの対象商品を数量明細に同期し（既存行は理論数・原価を更新、未登録は追加）、期間売上を取り直す。
+     *
+     * @param  array<int, float>  $balances
+     * @return array{updated: int, inserted: int}
+     */
+    private function syncWeighedItems(WmsSundryInventoryCount $count, array $balances): array
+    {
+        $clientId = (int) $count->client_id;
+        $warehouseId = (int) $count->warehouse_id;
+        $costDate = $count->count_date->toDateString();
+        $codes = SundryInventorySettings::weighedItemCodes();
+        $orderByCode = array_flip($codes);
+
+        $existing = WmsSundryInventoryCountItem::query()
+            ->where('sundry_inventory_count_id', $count->id)
+            ->get()
+            ->keyBy(fn (WmsSundryInventoryCountItem $item): int => (int) $item->item_id);
+
+        $candidates = $codes === [] ? collect() : DB::connection('sakemaru')
+            ->table('items as i')
+            ->leftJoin('item_categories as c2', 'c2.id', '=', 'i.item_category2_id')
+            ->where('i.client_id', $clientId)
+            ->whereIn('i.code', $codes)
+            ->where(function ($query): void {
+                $query->whereNull('i.is_managed_stock')->orWhere('i.is_managed_stock', true);
+            })
+            ->orderBy('i.code')
+            ->get(['i.id', 'i.code', 'i.name', 'i.item_category2_id', 'c2.code as category2_code', 'c2.name as category2_name']);
+
+        // 雑貨と同じく「倉庫に在庫行がある」または「受払残が0でない」商品を対象にする。
+        $stockItemIds = $candidates->isEmpty() ? [] : DB::connection('sakemaru')
+            ->table('real_stocks')
+            ->where('client_id', $clientId)
+            ->where('warehouse_id', $warehouseId)
+            ->whereIn('item_id', $candidates->pluck('id')->all())
+            ->distinct()
+            ->pluck('item_id')
+            ->mapWithKeys(fn ($itemId): array => [(int) $itemId => true])
+            ->all();
+
+        $newItems = $candidates->filter(function ($item) use ($existing, $stockItemIds, $balances): bool {
+            $itemId = (int) $item->id;
+
+            return ! $existing->has($itemId)
+                && (isset($stockItemIds[$itemId]) || abs((float) ($balances[$itemId] ?? 0)) > 0.0005);
+        });
+
+        $costPrices = $this->calculator->costPrices(
+            $clientId,
+            $existing->keys()->merge($newItems->pluck('id'))->map(fn ($id): int => (int) $id)->all(),
+            $costDate,
+        );
+
+        $updated = 0;
+        foreach ($existing as $itemId => $row) {
+            $row->system_quantity = round((float) ($balances[$itemId] ?? 0), 3);
+            $row->cost_price = (float) ($costPrices[$itemId] ?? $row->cost_price ?? 0);
+            $row->recalculate();
+
+            if ($row->isDirty()) {
+                $row->save();
+                $updated++;
+            }
+        }
+
+        $now = now();
+        $records = [];
+        foreach ($newItems as $item) {
+            $itemId = (int) $item->id;
+            $cost = (float) ($costPrices[$itemId] ?? 0);
+            $systemQuantity = round((float) ($balances[$itemId] ?? 0), 3);
+
+            $records[] = [
+                'sundry_inventory_count_id' => $count->id,
+                'item_id' => $itemId,
+                'item_code' => (string) $item->code,
+                'item_name' => trim((string) $item->name),
+                'category2_id' => $item->item_category2_id ? (int) $item->item_category2_id : null,
+                'category2_code' => (string) ($item->category2_code ?? ''),
+                'category2_name' => $this->cleanCategoryName($item->category2_name ?? ''),
+                'is_additional' => false,
+                'display_order' => ($orderByCode[(int) $item->code] ?? 0) + 1,
+                'cost_price' => $cost,
+                'system_quantity' => $systemQuantity,
+                'system_amount' => round($systemQuantity * $cost, 2),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+
+        if ($records !== []) {
+            WmsSundryInventoryCountItem::insert($records);
+        }
+
+        // 期間売上だけが変わった行も「更新」に数える（追加した行は除く）。
+        $salesUpdated = max(0, $this->applyPeriodSales($count) - count($records));
+
+        return ['updated' => max($updated, $salesUpdated), 'inserted' => count($records)];
+    }
+
+    /**
+     * 量り売り: 期間売上の開始日〜受払終了日の売上数量を明細に入れる。
+     *
+     * @param  array<int, int>|null  $rowIds  対象の数量明細ID（null は全行）
+     * @return int 期間売上が変わった行数
+     */
+    private function applyPeriodSales(WmsSundryInventoryCount $count, ?array $rowIds = null): int
+    {
+        $rows = WmsSundryInventoryCountItem::query()
+            ->where('sundry_inventory_count_id', $count->id)
+            ->when($rowIds !== null, fn ($query) => $query->whereIn('id', $rowIds))
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return 0;
+        }
+
+        $fromDate = $count->sales_from_date?->toDateString();
+        $sales = $fromDate === null ? [] : $this->calculator->periodSalesQuantities(
+            (int) $count->client_id,
+            (int) $count->warehouse_id,
+            $rows->pluck('item_id')->map(fn ($id): int => (int) $id)->all(),
+            $fromDate,
+            $this->theoryEndDate($count),
+        );
+
+        $changed = 0;
+        foreach ($rows as $row) {
+            $row->period_sales_quantity = $fromDate === null ? null : round((float) ($sales[(int) $row->item_id] ?? 0), 3);
+
+            if ($row->isDirty()) {
+                $row->save();
+                $changed++;
+            }
+        }
+
+        return $changed;
+    }
+
+    /**
+     * 量り売りの集計（旧Accessの Q_08 店舗計にあたる）。入力済みの明細だけを合計する。
+     *
+     *   ロス数量 = 期間売上数量 × ロス率（商品ごとに四捨五入）
+     *   ロス申請後差異金額 = (実棚数 − (理論数 − ロス数量)) × 原価 = 差異金額 + ロス金額
+     *
+     * 旧Accessの式は実棚数にカメだけを使っていたが、ここではカメ + QT の合計を使う。
+     *
+     * @return array<string, float|int>
+     */
+    public function weighedSummary(WmsSundryInventoryCount $count): array
+    {
+        $lossRate = SundryInventorySettings::weighedLossRate();
+        $summary = [
+            'loss_rate' => $lossRate,
+            'detail_count' => 0,
+            'counted_count' => 0,
+            'uncounted_count' => 0,
+            'system_quantity' => 0.0,
+            'counted_quantity' => 0.0,
+            'difference_quantity' => 0.0,
+            'difference_amount' => 0.0,
+            'sales_quantity' => 0.0,
+            'loss_quantity' => 0.0,
+            'loss_amount' => 0.0,
+            'difference_amount_after_loss' => 0.0,
+        ];
+
+        $rows = WmsSundryInventoryCountItem::query()
+            ->where('sundry_inventory_count_id', $count->id)
+            ->get();
+
+        foreach ($rows as $row) {
+            $summary['detail_count']++;
+
+            if ($row->counted_quantity === null) {
+                $summary['uncounted_count']++;
+
+                continue;
+            }
+
+            $lossQuantity = $this->weighedLossQuantity($row->period_sales_quantity, $lossRate);
+            $lossAmount = round($lossQuantity * (float) $row->cost_price, 2);
+
+            $summary['counted_count']++;
+            $summary['system_quantity'] += (float) $row->system_quantity;
+            $summary['counted_quantity'] += (float) $row->counted_quantity;
+            $summary['difference_quantity'] += (float) $row->difference_quantity;
+            $summary['difference_amount'] += (float) $row->difference_amount;
+            $summary['sales_quantity'] += (float) ($row->period_sales_quantity ?? 0);
+            $summary['loss_quantity'] += $lossQuantity;
+            $summary['loss_amount'] += $lossAmount;
+            $summary['difference_amount_after_loss'] += (float) $row->difference_amount + $lossAmount;
+        }
+
+        foreach (['system_quantity', 'counted_quantity', 'difference_quantity', 'sales_quantity', 'loss_quantity'] as $key) {
+            $summary[$key] = round($summary[$key], 3);
+        }
+        foreach (['difference_amount', 'loss_amount', 'difference_amount_after_loss'] as $key) {
+            $summary[$key] = round($summary[$key], 2);
+        }
+
+        return $summary;
+    }
+
+    /**
+     * 量り売りのロス数量（期間売上数量 × ロス率を四捨五入）。
+     */
+    public function weighedLossQuantity(mixed $periodSalesQuantity, ?float $lossRate = null): float
+    {
+        $lossRate ??= SundryInventorySettings::weighedLossRate();
+
+        return (float) round((float) ($periodSalesQuantity ?? 0) * $lossRate);
     }
 
     /**

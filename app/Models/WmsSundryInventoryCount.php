@@ -21,8 +21,15 @@ class WmsSundryInventoryCount extends WmsModel
 
     public const STATUS_CANCELLED = 'cancelled';
 
+    /** 雑貨（対象中分類の数量明細 + 在庫管理なし商品の金額明細） */
+    public const KIND_SUNDRY = 'sundry';
+
+    /** 量り売り（100ml 単位の数量。実棚はカメ・QT の2欄、期間売上つき） */
+    public const KIND_WEIGHED = 'weighed';
+
     protected $fillable = [
         'count_no',
+        'kind',
         'client_id',
         'warehouse_id',
         'warehouse_code',
@@ -34,6 +41,7 @@ class WmsSundryInventoryCount extends WmsModel
         'amount_report_references',
         'theory_end_date',
         'theory_updated_at',
+        'sales_from_date',
         'confirmed_at',
         'confirmed_by',
         'memo',
@@ -47,6 +55,7 @@ class WmsSundryInventoryCount extends WmsModel
         'amount_report_references' => 'array',
         'theory_end_date' => 'date',
         'theory_updated_at' => 'datetime',
+        'sales_from_date' => 'date',
         'confirmed_at' => 'datetime',
     ];
 
@@ -90,6 +99,27 @@ class WmsSundryInventoryCount extends WmsModel
             self::STATUS_CONFIRMED => '確定済',
             self::STATUS_CANCELLED => '取消',
         ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function kindOptions(): array
+    {
+        return [
+            self::KIND_SUNDRY => '雑貨',
+            self::KIND_WEIGHED => '量り売り',
+        ];
+    }
+
+    public function isWeighed(): bool
+    {
+        return $this->kind === self::KIND_WEIGHED;
+    }
+
+    public function getKindLabelAttribute(): string
+    {
+        return self::kindOptions()[$this->kind ?: self::KIND_SUNDRY] ?? (string) $this->kind;
     }
 
     public function isEditable(): bool

@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * 棚卸し（雑貨）数量明細（在庫管理ありの商品）。
  *
  * 金額は 数量 × 原価(cost_price) で評価する。
+ * 量り売りの棚卸しでは、実棚数 = カメ + QT、期間売上数量も持つ。
  */
 class WmsSundryInventoryCountItem extends WmsModel
 {
@@ -21,13 +22,17 @@ class WmsSundryInventoryCountItem extends WmsModel
         'category2_code',
         'category2_name',
         'is_additional',
+        'display_order',
         'cost_price',
         'system_quantity',
         'counted_quantity',
+        'counted_quantity_jar',
+        'counted_quantity_reserve',
         'difference_quantity',
         'system_amount',
         'counted_amount',
         'difference_amount',
+        'period_sales_quantity',
         'counted_by_name',
         'counted_at',
     ];
@@ -37,6 +42,10 @@ class WmsSundryInventoryCountItem extends WmsModel
         'cost_price' => 'float',
         'system_quantity' => 'float',
         'counted_quantity' => 'float',
+        'counted_quantity_jar' => 'float',
+        'counted_quantity_reserve' => 'float',
+        'period_sales_quantity' => 'float',
+        'display_order' => 'integer',
         'difference_quantity' => 'float',
         'system_amount' => 'float',
         'counted_amount' => 'float',
@@ -52,6 +61,18 @@ class WmsSundryInventoryCountItem extends WmsModel
     public function item(): BelongsTo
     {
         return $this->belongsTo(Item::class, 'item_id');
+    }
+
+    /**
+     * 量り売り: カメ・QT の入力から実棚数（合計）を決める。両方とも未入力なら実棚数も未入力。
+     */
+    public function applyWeighedCount(): static
+    {
+        $this->counted_quantity = $this->counted_quantity_jar === null && $this->counted_quantity_reserve === null
+            ? null
+            : round((float) ($this->counted_quantity_jar ?? 0) + (float) ($this->counted_quantity_reserve ?? 0), 3);
+
+        return $this;
     }
 
     /**

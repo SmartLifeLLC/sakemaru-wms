@@ -13,6 +13,7 @@ use TCPDF;
  *
  * 中分類ごとに改ページし、実棚数を手書きする欄を出す。
  * 在庫管理なし（金額）は、最後に中分類ごとの実棚金額の記入欄をまとめて出す。
+ * 種類が量り売りの棚卸しは、実棚数をカメ・QT の2欄で記入する1種類の表を出す。
  */
 class SundryInventoryInstructionSheetPdfService
 {
@@ -47,11 +48,16 @@ class SundryInventoryInstructionSheetPdfService
     /** 金額ページの列幅（大分類 / 中分類CD / 中分類名 / 実棚金額） */
     private const AMOUNT_COL_WIDTHS = [34, 22, 74, 60];
 
+    /** 量り売りの列幅（商品CD / 商品名 / 理論在庫数 / カメ / QT） */
+    private const WEIGHED_COL_WIDTHS = [22, 80, 24, 32, 32];
+
     private TCPDF $pdf;
 
     private float $currentY = 0;
 
     private bool $showSystemQuantity = true;
+
+    private string $title = '棚卸し指示書（雑貨）';
 
     /**
      * @param  array<int, string>|null  $categoryCodes  出力する中分類コード（null は全て）
@@ -63,6 +69,12 @@ class SundryInventoryInstructionSheetPdfService
         bool $includeAmountPage = true,
     ): string {
         $this->showSystemQuantity = $showSystemQuantity;
+
+        if ($count->isWeighed()) {
+            return $this->generateWeighed($count);
+        }
+
+        $this->title = '棚卸し指示書（雑貨）';
         $categoryCodes = $categoryCodes === null ? null : array_values(array_filter(array_map('strval', $categoryCodes), fn (string $code): bool => $code !== ''));
 
         $items = WmsSundryInventoryCountItem::query()
@@ -308,12 +320,113 @@ class SundryInventoryInstructionSheetPdfService
         return $text.'…';
     }
 
+    /**
+     * 量り売りの指示書。商品ごとに、実棚数をカメとQTに分けて記入する欄を出す（旧Accessの出力順）。
+     */
+    private function generateWeighed(WmsSundryInventoryCount $count): string
+    {
+        $this->title = '棚卸し指示書（量り売り）';
+
+        $items = WmsSundryInventoryCountItem::query()
+            ->where('sundry_inventory_count_id', $count->id)
+            ->orderByRaw('display_order IS NULL')
+            ->orderBy('display_order')
+            ->orderBy('item_code')
+            ->orderBy('id')
+            ->get();
+
+        $this->initPdf();
+        $header = [
+            'count_date' => $count->count_date?->format('Y/m/d') ?? '',
+            'warehouse_name' => trim(($count->warehouse_code ?? '').' '.($count->warehouse_name ?? '')),
+            'count_no' => $count->count_no ?? '',
+        ];
+        $department = '量り売り（数量は100ml単位）';
+
+        $this->addPage($header, $department);
+
+        if ($items->isEmpty()) {
+            $this->pdf->SetFont(self::FONT, '', 12);
+            $this->pdf->SetXY(self::MARGIN_LEFT, $this->currentY + 10);
+            $this->pdf->Cell(self::CONTENT_WIDTH, 10, '対象データなし', 0, 0, 'C');
+        } else {
+            $this->renderWeighedColumnHeaders();
+        }
+
+        foreach ($items as $item) {
+            $name = $this->itemDisplayName($item);
+            $this->pdf->SetFont(self::FONT, '', 9);
+            $lines = max(1, $this->pdf->getNumLines($name, self::WEIGHED_COL_WIDTHS[1] - 2));
+            $rowHeight = max(11, $lines * self::LINE_HEIGHT + 2);
+
+            if ($this->currentY + $rowHeight > self::PAGE_HEIGHT - self::MARGIN_BOTTOM) {
+                $this->addPage($header, $department);
+                $this->renderWeighedColumnHeaders();
+            }
+
+            $x = self::MARGIN_LEFT;
+            $y = $this->currentY;
+
+            $this->pdf->SetLineWidth(0.2);
+            $this->pdf->SetFont(self::FONT, '', 10);
+            $this->pdf->SetXY($x, $y);
+            $this->pdf->Cell(self::WEIGHED_COL_WIDTHS[0], $rowHeight, (string) $item->item_code, 1, 0, 'C');
+            $x += self::WEIGHED_COL_WIDTHS[0];
+
+            $this->pdf->Rect($x, $y, self::WEIGHED_COL_WIDTHS[1], $rowHeight);
+            $this->pdf->SetFont(self::FONT, '', 9);
+            $nameY = $y + max(1, ($rowHeight - $lines * self::LINE_HEIGHT) / 2);
+            $this->pdf->MultiCell(self::WEIGHED_COL_WIDTHS[1] - 2, self::LINE_HEIGHT, $name, 0, 'L', false, 0, $x + 1, $nameY);
+            $x += self::WEIGHED_COL_WIDTHS[1];
+
+            $this->pdf->SetFont(self::FONT, '', 10);
+            $this->pdf->SetXY($x, $y);
+            $this->pdf->Cell(
+                self::WEIGHED_COL_WIDTHS[2],
+                $rowHeight,
+                $this->showSystemQuantity ? $this->formatQuantity((float) $item->system_quantity).' ' : '',
+                1,
+                0,
+                'R',
+            );
+            $x += self::WEIGHED_COL_WIDTHS[2];
+
+            $this->pdf->Rect($x, $y, self::WEIGHED_COL_WIDTHS[3], $rowHeight);
+            $x += self::WEIGHED_COL_WIDTHS[3];
+            $this->pdf->Rect($x, $y, self::WEIGHED_COL_WIDTHS[4], $rowHeight);
+
+            $this->currentY = $y + $rowHeight;
+        }
+
+        $this->renderPageNumbers();
+
+        return $this->pdf->Output('', 'S');
+    }
+
+    private function renderWeighedColumnHeaders(): void
+    {
+        $x = self::MARGIN_LEFT;
+        $y = $this->currentY;
+
+        $this->pdf->SetFont(self::FONT, '', 9);
+        $this->pdf->SetLineWidth(0.2);
+        $this->pdf->SetFillColor(235, 235, 235);
+
+        foreach (['商品CD', '商品名', '理論在庫数', '実棚数（カメ）', '実棚数（QT）'] as $index => $label) {
+            $this->pdf->SetXY($x, $y);
+            $this->pdf->Cell(self::WEIGHED_COL_WIDTHS[$index], 7, $label, 1, 0, 'C', true);
+            $x += self::WEIGHED_COL_WIDTHS[$index];
+        }
+
+        $this->currentY = $y + 7;
+    }
+
     private function initPdf(): void
     {
         $this->pdf = new TCPDF('P', 'mm', 'A4', true, 'UTF-8', false);
         $this->pdf->SetCreator('Smart WMS');
         $this->pdf->SetAuthor('Smart WMS');
-        $this->pdf->SetTitle('棚卸し指示書（雑貨）');
+        $this->pdf->SetTitle($this->title);
         $this->pdf->SetMargins(self::MARGIN_LEFT, self::MARGIN_TOP, self::MARGIN_RIGHT);
         $this->pdf->SetAutoPageBreak(false);
         $this->pdf->setPrintHeader(false);
@@ -331,7 +444,7 @@ class SundryInventoryInstructionSheetPdfService
 
         $this->pdf->SetFont(self::FONT, 'B', 16);
         $this->pdf->SetXY(self::MARGIN_LEFT, $this->currentY);
-        $this->pdf->Cell(110, 8, '棚卸し指示書（雑貨）', 0, 0, 'L');
+        $this->pdf->Cell(110, 8, $this->title, 0, 0, 'L');
 
         $this->pdf->SetFont(self::FONT, '', 8);
         $this->pdf->SetXY(self::MARGIN_LEFT + self::CONTENT_WIDTH - 60, $this->currentY);

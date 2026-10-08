@@ -9,6 +9,7 @@ use App\Models\WmsSundryInventoryCountItem;
 use App\Services\SundryInventoryCount\SundryInventoryCountService;
 use App\Services\SundryInventoryCount\SundryInventoryDifferenceWorkbookService;
 use App\Services\SundryInventoryCount\SundryInventoryInstructionSheetPdfService;
+use App\Services\SundryInventoryCount\WeighedInventoryDifferenceWorkbookService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DatePicker;
@@ -27,6 +28,7 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * 棚卸し（雑貨）詳細。指示書に手書きした実棚を画面で入力し、金額で差異を確認する。
+ * 種類が量り売りの棚卸しは、実棚をカメ・QT で入力し、期間売上とロスを合わせて確認する。
  */
 class ViewWmsSundryInventoryCount extends Page implements HasForms
 {
@@ -64,7 +66,7 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
 
     public function getTitle(): string|Htmlable
     {
-        return "棚卸し（雑貨）詳細: {$this->record->count_no}";
+        return "{$this->kindTitle()}詳細: {$this->record->count_no}";
     }
 
     public function getBreadcrumbs(): array
@@ -145,15 +147,49 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
         return $this->record->isEditable();
     }
 
+    public function isWeighed(): bool
+    {
+        return $this->record->isWeighed();
+    }
+
+    /**
+     * 画面・帳票に出す種類つきの名称。
+     */
+    public function kindTitle(): string
+    {
+        return $this->isWeighed() ? '棚卸し（量り売り）' : '棚卸し（雑貨）';
+    }
+
+    /**
+     * 量り売りの集計（差異・期間売上・ロス）。
+     *
+     * @return array<string, float|int>
+     */
+    public function weighedSummary(): array
+    {
+        return (new SundryInventoryCountService)->weighedSummary($this->record);
+    }
+
+    public function weighedLossQuantity(mixed $periodSalesQuantity): float
+    {
+        return (new SundryInventoryCountService)->weighedLossQuantity($periodSalesQuantity);
+    }
+
     /**
      * 数量明細（在庫管理あり）。
      */
     public function rows(): LengthAwarePaginator
     {
-        $query = $this->filteredItemsQuery()
-            ->orderBy('category2_code')
-            ->orderBy('item_code')
-            ->orderBy('id');
+        $query = $this->filteredItemsQuery();
+
+        // 量り売りは旧Accessと同じ出力順（追加した商品は末尾）。
+        if ($this->isWeighed()) {
+            $query->orderByRaw('display_order IS NULL')->orderBy('display_order');
+        } else {
+            $query->orderBy('category2_code');
+        }
+
+        $query->orderBy('item_code')->orderBy('id');
 
         $paginator = $query->paginate($this->itemPerPage, ['*'], 'itemPage', $this->itemPage);
 
@@ -309,7 +345,9 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
             Notification::make()
                 ->success()
                 ->title('入力を反映しました')
-                ->body("数量明細: {$result['items']}件 / 金額明細: {$result['amounts']}件")
+                ->body($this->isWeighed()
+                    ? "量り売り明細: {$result['items']}件"
+                    : "数量明細: {$result['items']}件 / 金額明細: {$result['amounts']}件")
                 ->send();
 
             return true;
@@ -365,7 +403,9 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
                         ->autocomplete(false),
                 ])
                 ->modalHeading('商品追加')
-                ->modalDescription('対象中分類以外の商品も、商品CDで追加できます。在庫管理ありの商品は数量明細に、在庫管理なしの商品はその中分類を金額明細に追加します。')
+                ->modalDescription(fn (): string => $this->isWeighed()
+                    ? '対象商品以外の量り売り商品を、商品CDで追加できます（在庫管理ありの商品のみ）。'
+                    : '対象中分類以外の商品も、商品CDで追加できます。在庫管理ありの商品は数量明細に、在庫管理なしの商品はその中分類を金額明細に追加します。')
                 ->modalWidth('lg')
                 ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                 ->modalFooterActionsAlignment(Alignment::End)
@@ -402,7 +442,9 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
                 ->color('warning')
                 ->visible(fn () => $this->isEditable())
                 ->modalHeading('理論在庫更新')
-                ->modalDescription('選択した日の終了時点の受払で、理論数・原価・金額受払を再計算します。在庫金額報告書との突合も取り直します。入力済みの実棚は変更しません。')
+                ->modalDescription(fn (): string => $this->isWeighed()
+                    ? '選択した日の終了時点の受払で、理論数・原価と期間売上を再計算します。入力済みの実棚は変更しません。'
+                    : '選択した日の終了時点の受払で、理論数・原価・金額受払を再計算します。在庫金額報告書との突合も取り直します。入力済みの実棚は変更しません。')
                 ->modalWidth('lg')
                 ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                 ->modalFooterActionsAlignment(Alignment::End)
@@ -417,8 +459,14 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
                         ))
                         ->maxDate(now())
                         ->required(),
+                    DatePicker::make('sales_from_date')
+                        ->label('期間売上の開始日（前回棚卸日の翌日）')
+                        ->default(fn () => $this->record->sales_from_date?->toDateString())
+                        ->visible(fn (): bool => $this->isWeighed())
+                        ->required(fn (): bool => $this->isWeighed()),
                     Checkbox::make('reset_manual_openings')
                         ->label('手入力した前残金額も自動の値（前回棚卸の実棚・旧システム残高）に戻す')
+                        ->visible(fn (): bool => ! $this->isWeighed())
                         ->default(false),
                 ])
                 ->action(function (array $data): void {
@@ -427,6 +475,7 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
                             $this->record,
                             (string) $data['end_date'],
                             (bool) ($data['reset_manual_openings'] ?? false),
+                            $this->isWeighed() ? (string) ($data['sales_from_date'] ?? '') : null,
                         );
                         $this->record->refresh();
                         $this->itemPage = 1;
@@ -434,7 +483,9 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
                         Notification::make()
                             ->success()
                             ->title('理論在庫を更新しました')
-                            ->body("受払終了日: {$result['end_date']} / 数量明細: 更新{$result['updated_items']}件・追加{$result['inserted_items']}件 / 金額明細: 更新{$result['updated_amounts']}件・追加{$result['inserted_amounts']}件")
+                            ->body($this->isWeighed()
+                                ? "受払終了日: {$result['end_date']} / 量り売り明細: 更新{$result['updated_items']}件・追加{$result['inserted_items']}件"
+                                : "受払終了日: {$result['end_date']} / 数量明細: 更新{$result['updated_items']}件・追加{$result['inserted_items']}件 / 金額明細: 更新{$result['updated_amounts']}件・追加{$result['inserted_amounts']}件")
                             ->send();
                     } catch (\Throwable $e) {
                         $this->notifyFailure('理論在庫を更新できません', $e);
@@ -448,7 +499,9 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
                 ->visible(fn () => $this->isEditable())
                 ->requiresConfirmation()
                 ->modalHeading('未入力を0で埋める')
-                ->modalDescription('実棚数が未入力の数量明細を、すべて実棚0として登録します。金額明細（在庫管理なし）は対象外です。')
+                ->modalDescription(fn (): string => $this->isWeighed()
+                    ? '実棚数が未入力の明細を、すべて実棚0（カメ0）として登録します。'
+                    : '実棚数が未入力の数量明細を、すべて実棚0として登録します。金額明細（在庫管理なし）は対象外です。')
                 ->modalSubmitActionLabel('0で埋める')
                 ->modalCancelActionLabel('埋めずに閉じる')
                 ->action(function (): void {
@@ -473,16 +526,20 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
                         ->options(fn () => $this->categoryOptions())
                         ->multiple()
                         ->searchable()
+                        ->visible(fn (): bool => ! $this->isWeighed())
                         ->placeholder('全て（未選択で全部門出力）'),
                     Checkbox::make('show_system_quantity')
                         ->label('理論数を印字する')
                         ->default(true),
                     Checkbox::make('include_amount_page')
                         ->label('在庫管理なし（金額）の記入ページを付ける')
+                        ->visible(fn (): bool => ! $this->isWeighed())
                         ->default(true),
                 ])
                 ->modalHeading('指示書ダウンロード')
-                ->modalDescription('中分類ごとに改ページした指示書を出力します。実棚数を記入し、この画面で入力してください。')
+                ->modalDescription(fn (): string => $this->isWeighed()
+                    ? '量り売り商品の指示書を出力します。実棚数をカメとQTに分けて記入し、この画面で入力してください。'
+                    : '中分類ごとに改ページした指示書を出力します。実棚数を記入し、この画面で入力してください。')
                 ->modalWidth('lg')
                 ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                 ->modalFooterActionsAlignment(Alignment::End)
@@ -496,7 +553,7 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
                         (bool) ($data['show_system_quantity'] ?? true),
                         (bool) ($data['include_amount_page'] ?? true),
                     );
-                    $filename = '棚卸し指示書_雑貨_'.($this->record->count_no ?? 'unknown').'.pdf';
+                    $filename = '棚卸し指示書_'.($this->isWeighed() ? '量り売り' : '雑貨').'_'.($this->record->count_no ?? 'unknown').'.pdf';
 
                     return response()->streamDownload(
                         fn () => print ($pdfContent),
@@ -511,14 +568,16 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
                 ->color('gray')
                 ->action(function () {
                     try {
-                        $xlsxContent = (new SundryInventoryDifferenceWorkbookService)->generate($this->record);
+                        $xlsxContent = $this->isWeighed()
+                            ? (new WeighedInventoryDifferenceWorkbookService)->generate($this->record)
+                            : (new SundryInventoryDifferenceWorkbookService)->generate($this->record);
                     } catch (\Throwable $e) {
                         $this->notifyFailure('差異表を生成できません', $e);
 
                         return null;
                     }
 
-                    $filename = '棚卸し差異表_雑貨_'.($this->record->warehouse_code ?? '').'_'.($this->record->count_no ?? 'unknown').'.xlsx';
+                    $filename = '棚卸し差異表_'.($this->isWeighed() ? '量り売り' : '雑貨').'_'.($this->record->warehouse_code ?? '').'_'.($this->record->count_no ?? 'unknown').'.xlsx';
 
                     return response()->streamDownload(
                         fn () => print ($xlsxContent),
@@ -533,9 +592,13 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
                 ->color('primary')
                 ->visible(fn () => $this->isEditable())
                 ->requiresConfirmation()
-                ->modalHeading('棚卸し（雑貨）確定')
+                ->modalHeading(fn (): string => $this->kindTitle().'確定')
                 ->modalDescription(function (): string {
                     $uncountedItems = $this->itemCounts()['uncounted'];
+
+                    if ($this->isWeighed()) {
+                        return "入力を締めて確定します。未入力: {$uncountedItems}件（未入力の明細は差異に含めません）。在庫や伝票は変更しません。";
+                    }
                     $uncountedAmounts = $this->amountRows()->whereNull('counted_amount')->count();
 
                     return "入力を締めて確定します。未入力: 数量明細 {$uncountedItems}件 / 金額明細 {$uncountedAmounts}件（未入力の明細は差異に含めません）。"
@@ -548,7 +611,7 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
                         (new SundryInventoryCountService)->confirm($this->record, auth()->id());
                         $this->record->refresh();
 
-                        Notification::make()->success()->title('棚卸し（雑貨）を確定しました')->send();
+                        Notification::make()->success()->title($this->kindTitle().'を確定しました')->send();
                     } catch (\Throwable $e) {
                         $this->notifyFailure('確定できません', $e);
                     }
@@ -581,7 +644,7 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
                 ->color('danger')
                 ->visible(fn () => $this->isEditable())
                 ->requiresConfirmation()
-                ->modalHeading('棚卸し（雑貨）取消')
+                ->modalHeading(fn (): string => $this->kindTitle().'取消')
                 ->modalDescription('この棚卸しを取り消します。この操作は元に戻せません。')
                 ->modalSubmitActionLabel('取り消す')
                 ->modalCancelActionLabel('取り消さず閉じる')
@@ -594,7 +657,7 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
                         return null;
                     }
 
-                    Notification::make()->success()->title('棚卸し（雑貨）を取り消しました')->send();
+                    Notification::make()->success()->title($this->kindTitle().'を取り消しました')->send();
 
                     return redirect(WmsSundryInventoryCountResource::getUrl());
                 }),
