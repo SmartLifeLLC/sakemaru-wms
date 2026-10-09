@@ -835,7 +835,7 @@
             <option value="all">全て表示</option>
             <option value="unprocessed">未処理</option>
             <option value="request_printed">帳票出力済</option>
-            <option value="order_created">候補生成済</option>
+            <option value="order_created">発注処理済</option>
           </select>
           <span x-show="filterApplying" x-cloak class="filter-loading-spinner filter-loading-spinner-sm flex-none"></span>
         </div>
@@ -903,7 +903,7 @@
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
             </svg>
-            <span x-text="orderCandidateCreating ? '作成中' : '発注候補生成'"></span>
+            <span x-text="orderCandidateCreating ? '確定中' : '発注確定（FAX）'"></span>
           </button>
         </div>
       </div>
@@ -3085,6 +3085,7 @@ window.distributionApp = function distributionApp() {
     },
 
     getDirectStatusLabel(row) {
+      if (row.directOrderConfirmed) return '発注確定済';
       if (this.isOrderCandidateCreated(row)) return '候補生成済';
       if (this.isTransferSlipCreated(row)) return '帳票出力済';
       return '未処理';
@@ -3798,6 +3799,7 @@ window.distributionApp = function distributionApp() {
         'warehouseTransferCreatedAt',
         'warehouseTransferShipmentDate',
         'orderCandidateGenerated',
+        'directOrderConfirmed',
         'orderCandidateIds',
         'orderCandidateCreatedAt',
         'confirmedAt',
@@ -10050,6 +10052,8 @@ window.distributionApp = function distributionApp() {
           const groupKey = [
             String(r.contractorId || r.orderToCode || r.orderTo || ''),
             String(r.supplierId || r.supplierCode || r.supplier || ''),
+            String(r.deliveryDate || ''),
+            String(r.orderDate || ''),
           ].join('|');
           if (!supplierGroups[groupKey]) {
             supplierGroups[groupKey] = {
@@ -10118,9 +10122,9 @@ window.distributionApp = function distributionApp() {
             rows.some(row => toInt(row?.['alloc_' + dest.key] || 0) > 0)
           );
           const requestNumber = requestNumberBase + (supplierEntries.length > 1 ? '-' + String(supplierIndex + 1).padStart(2, '0') : '');
+          const orderIssueDate = rows[0]?.orderDate || issueDate;
           const supplierCode = rows.find(row => String(row.supplierCode || '').trim())?.supplierCode || '';
-          const isEosOrder = rows.some(row => String(row.transmissionType || '').toUpperCase() === 'JX_FINET');
-          const eosOrderBadgeHtml = isEosOrder ? '<div class="eos-order-badge">EOS発注控え</div>' : '';
+          const eosOrderBadgeHtml = '<div class="eos-order-badge">FAX発注</div>';
           const orderToTel = rows.find(row => String(row.orderToTel || '').trim())?.orderToTel || '';
           const orderToFax = rows.find(row => String(row.orderToFax || '').trim())?.orderToFax || '';
           const orderToAddress = rows.find(row => String(row.orderToAddress || '').trim())?.orderToAddress || '';
@@ -10185,7 +10189,7 @@ window.distributionApp = function distributionApp() {
               <div class="supplier-code-line"><span>仕入先コード：</span><strong>${escapeRequestHtml(supplierCode)}</strong></div>
               <div class="order-date-row">
                 <div class="order-issue-column">
-                  <div class="issue-date-line"><span>発注日：</span><strong>${issueDate}</strong></div>
+                  <div class="issue-date-line"><span>発注日：</span><strong>${orderIssueDate}</strong></div>
                   <div class="company-staff"><span>発注担当：</span><strong>${escapeRequestHtml(orderStaffName)}</strong></div>
                 </div>
                 <div class="delivery-date-line"><span>納品予定日：</span><strong>${deliveryDates.length > 0 ? deliveryDates.join('、') : '-'}</strong></div>
@@ -10547,7 +10551,11 @@ window.distributionApp = function distributionApp() {
         row.orderCandidateGenerated = true;
         row.locked = this.isRowLocked(row);
         row.orderCandidateCreatedAt = createdAt;
-        row.orderCandidateIds = Array.from(new Set([...existingCandidateIds, ...candidateIds]));
+        const rowCandidateIds = Array.isArray(result?.candidate_ids_by_row?.[String(row.id)])
+          ? result.candidate_ids_by_row[String(row.id)]
+          : candidateIds;
+        row.orderCandidateIds = Array.from(new Set([...existingCandidateIds, ...rowCandidateIds]));
+        if (rowCollection === this.directRows && result?.candidate_ids_by_row) row.directOrderConfirmed = true;
       });
       if (rowCollection === this.directRows) {
         this.directDeleteSelectedRowIds = this.directDeleteSelectedRowIds.filter(rowId => !rowIds.has(String(rowId)));
@@ -10659,7 +10667,7 @@ window.distributionApp = function distributionApp() {
       if (rowsWithoutAllocation.length > 0) {
         this.openModal(
           'エラー',
-          '直送分配では発注元店舗を特定するため、店舗別の分配数を入力してください。ケース・バラだけでは発注候補を生成できません。'
+          '直送分配では発注元店舗を特定するため、店舗別の分配数を入力してください。ケース・バラだけでは発注を確定できません。'
         );
         return;
       }
@@ -10667,12 +10675,16 @@ window.distributionApp = function distributionApp() {
         this.openModal(
           'エラー',
           ignoredGeneratedCount > 0
-            ? '選択中のデータはすでに発注候補生成済みです。未生成のデータを選択してください。'
+            ? '選択中のデータはすでに発注処理済みです。未生成のデータを選択してください。'
             : '処理対象の行がありません。選択にチェックを入れてください。'
         );
         return;
       }
 
+      if (rows.some(row => this.calcDirectAllocTotal(row) !== this.calcDirectRequestAllocTotal(row))) {
+        this.openModal('エラー', '依頼書に含まれない業販・部門への分配があります。店舗別分配数を確認してください。');
+        return;
+      }
       const targetCount = this.countDirectOrderCandidateTargetRows(rows);
 
       if (targetCount === 0) {
@@ -10688,23 +10700,20 @@ window.distributionApp = function distributionApp() {
           existingGeneratedRowIdSet = this.getAlreadyGeneratedRowIdSet(existingResult);
         } catch (e) {
           console.error(e);
-          this.openModal('エラー', '発注候補生成済み判定に失敗しました: ' + e.message);
+          this.openModal('エラー', '発注処理済み判定に失敗しました: ' + e.message);
           return;
         }
 
         const dateRefreshRows = rows.filter(row => !existingGeneratedRowIdSet.has(String(row.id)));
 
         if (this.hasOrderCandidatePastDateRows(dateRefreshRows)) {
-          this.openConfirm(
-            this.getOrderCandidateDateRefreshConfirmMessage(),
-            () => this.generateDirectOrderCandidates(true, true, Array.from(existingGeneratedRowIdSet))
-          );
+          this.openModal('エラー', '発注日・入荷予定日を本日以降に修正してください。依頼書出力済みの場合は修正後に再出力してください。');
           return;
         }
       }
 
       if (!confirmed) {
-        this.openConfirm(this.getOrderCandidateLockConfirmMessage(), () => this.generateDirectOrderCandidates(true, dateRefreshConfirmed, Array.from(existingGeneratedRowIdSet)));
+        this.openConfirm('店舗別分配数でFAX発注を確定し、入荷予定を生成します。確定後は対象行を修正できません。依頼書を先方へ送付してください。\n発注を確定してもよろしいですか？', () => this.generateDirectOrderCandidates(true, dateRefreshConfirmed, Array.from(existingGeneratedRowIdSet)));
         return;
       }
 
@@ -10712,8 +10721,6 @@ window.distributionApp = function distributionApp() {
       let hasPersistedChunkSuccess = false;
       let hasUnpersistedChunkSuccess = false;
       try {
-        const dateRefreshRows = rows.filter(row => !existingGeneratedRowIdSet.has(String(row.id)));
-        const refreshedDateCount = await this.refreshOrderCandidateRowsDatesForToday(dateRefreshRows);
         await this.persistGeneratedState('direct');
         const result = await this.createOrderCandidates(rows, row => this.calcDirectAllocTotal(row), {
           mode: 'direct',
@@ -10728,19 +10735,19 @@ window.distributionApp = function distributionApp() {
         this.markRowsAsOrderCandidateGenerated(rows, result, this.directRows);
         await this.persistGeneratedState('direct');
         this.openResultModal(
-          '発注候補生成',
-          this.getOrderCandidateToastMessage(result, targetCount, ignoredGeneratedCount),
-          this.isOrderCandidateDuplicateOnlyResult(result) ? 'danger' : 'success'
+          '発注確定',
+          'FAX発注を確定しました（新規 ' + toInt(result.created_count) + '件 / 確定済み ' + toInt(result.already_generated_count) + '件 / 入荷予定 ' + toInt(result.incoming_schedule_count) + '件）。依頼書を先方へ送付してください。',
+          'success'
         );
       } catch (e) {
         console.error(e);
         this.openModal(
           'エラー',
           hasUnpersistedChunkSuccess
-            ? '発注候補は生成されましたが、生成済み状態の保存に失敗しました。画面を再読み込みして状態を確認してください: ' + e.message
+            ? '発注は確定されましたが、生成済み状態の保存に失敗しました。画面を再読み込みして状態を確認してください: ' + e.message
             : hasPersistedChunkSuccess
-            ? '発注候補生成中にエラーが発生しました。成功済みの分は生成済みとして画面に反映しました。未生成分だけ再実行してください: ' + e.message
-            : '発注候補生成に失敗しました: ' + e.message
+            ? '発注確定中にエラーが発生しました。成功済みの分は生成済みとして画面に反映しました。未生成分だけ再実行してください: ' + e.message
+            : '発注確定に失敗しました: ' + e.message
         );
       } finally {
         this.orderCandidateCreating = false;
@@ -10876,6 +10883,7 @@ window.distributionApp = function distributionApp() {
         'updated_count',
         'already_generated_count',
         'candidate_count',
+        'incoming_schedule_count',
         'skipped_count',
         'queue_count',
         'created_queue_count',
@@ -10906,6 +10914,15 @@ window.distributionApp = function distributionApp() {
           .map(queue => [String(queue.queue_id || queue.request_id || JSON.stringify(queue)), queue])
       ).values());
       merged.skipped = results.flatMap(result => Array.isArray(result?.skipped) ? result.skipped : []);
+      merged.candidate_ids_by_row = {};
+      results.forEach(result => {
+        Object.entries(result?.candidate_ids_by_row || {}).forEach(([rowId, ids]) => {
+          merged.candidate_ids_by_row[rowId] = Array.from(new Set([
+            ...(merged.candidate_ids_by_row[rowId] || []), ...ids,
+          ]));
+        });
+      });
+      if (!results.some(result => result?.candidate_ids_by_row)) delete merged.candidate_ids_by_row;
       merged.row_statuses = {};
       results.forEach(result => {
         Object.entries(result?.row_statuses || {}).forEach(([rowId, status]) => {

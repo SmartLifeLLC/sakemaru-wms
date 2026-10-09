@@ -349,13 +349,13 @@ class DistributionPersistenceSafetyTest extends TestCase
         );
     }
 
-    public function test_direct_request_marks_only_jx_finet_orders_as_eos(): void
+    public function test_direct_request_is_always_a_fax_order(): void
     {
         $view = $this->distributionPageSource();
         $controller = $this->controllerSource();
 
-        $this->assertStringContainsString("String(row.transmissionType || '').toUpperCase() === 'JX_FINET'", $view);
-        $this->assertStringContainsString('EOS発注控え</div>', $view);
+        $this->assertStringNotContainsString("const isEosOrder = rows.some", $view);
+        $this->assertStringContainsString('FAX発注</div>', $view);
         $this->assertStringContainsString('.eos-order-badge {', $view);
         $this->assertStringContainsString("'wcs.transmission_type'", $controller);
         $this->assertStringContainsString("'transmissionType' => (string) (\$contractor->transmission_type ?? '')", $controller);
@@ -388,7 +388,7 @@ class DistributionPersistenceSafetyTest extends TestCase
             $source
         );
         $this->assertStringContainsString(
-            '店舗別の分配数を入力してください。ケース・バラだけでは発注候補を生成できません。',
+            '店舗別の分配数を入力してください。ケース・バラだけでは発注を確定できません。',
             $source
         );
     }
