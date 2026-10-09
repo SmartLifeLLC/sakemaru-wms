@@ -2053,7 +2053,7 @@ class DistributionProductController extends ApiController
                         )
                 )
             );
-        } catch (RuntimeException $e) {
+        } catch (RuntimeException|\InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422, 'DISTRIBUTION_ORDER_CANDIDATE_ERROR');
         }
     }

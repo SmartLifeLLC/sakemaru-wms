@@ -219,10 +219,12 @@ class WmsOrderCandidate extends WmsModel
         }
 
         // プリロードされていない場合はクエリを実行
-        return WmsOrderCalculationLog::where('batch_code', $this->batch_code)
+        $query = WmsOrderCalculationLog::where('batch_code', $this->batch_code)
             ->where('warehouse_id', $this->warehouse_id)
-            ->where('item_id', $this->item_id)
-            ->first();
+            ->where('item_id', $this->item_id);
+
+        return (clone $query)->where('calculation_details->candidate_id', $this->id)->first()
+            ?? $query->whereNull('calculation_details->candidate_id')->first();
     }
 
     /**
@@ -252,12 +254,15 @@ class WmsOrderCandidate extends WmsModel
         )->get();
 
         // キーでインデックス化
-        $logsIndexed = $logs->keyBy(fn ($log) => "{$log->batch_code}_{$log->warehouse_id}_{$log->item_id}");
+        $logsByCandidate = $logs->filter(fn ($log) => ! empty($log->calculation_details['candidate_id']))
+            ->keyBy(fn ($log) => (int) $log->calculation_details['candidate_id']);
+        $logsIndexed = $logs->filter(fn ($log) => empty($log->calculation_details['candidate_id']))
+            ->keyBy(fn ($log) => "{$log->batch_code}_{$log->warehouse_id}_{$log->item_id}");
 
         // 各候補にログをセット
-        $candidates->each(function ($candidate) use ($logsIndexed) {
+        $candidates->each(function ($candidate) use ($logsIndexed, $logsByCandidate) {
             $key = "{$candidate->batch_code}_{$candidate->warehouse_id}_{$candidate->item_id}";
-            $candidate->setPreloadedCalculationLog($logsIndexed->get($key));
+            $candidate->setPreloadedCalculationLog($logsByCandidate->get($candidate->id) ?? $logsIndexed->get($key));
         });
     }
 

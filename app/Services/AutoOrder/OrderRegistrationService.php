@@ -37,7 +37,9 @@ class OrderRegistrationService
         array $lines,
         int $userId,
         ?OrderChannel $fallbackChannel = null,
-        ?string $communicationNotes = null
+        ?string $communicationNotes = null,
+        bool $generateDataFiles = true,
+        ?OriginType $originType = null
     ): array {
         if ($warehouseId < 1) {
             throw new \InvalidArgumentException('倉庫を選択してください。');
@@ -47,6 +49,7 @@ class OrderRegistrationService
             throw new \InvalidArgumentException('登録する発注明細がありません。');
         }
 
+        $source = $originType === OriginType::DIST ? 'direct_distribution' : 'new_external_order';
         $entrySources = collect($lines)
             ->pluck('entry_source')
             ->filter()
@@ -75,6 +78,8 @@ class OrderRegistrationService
             $jobEntrySource,
             $lines,
             $userId,
+            $originType,
+            $source,
             &$candidateIds,
             &$candidateIdsByChannel,
             &$incomingScheduleCount
@@ -82,7 +87,7 @@ class OrderRegistrationService
             $job = WmsAutoOrderJobControl::startJob(
                 processName: JobProcessName::ORDER_CALC,
                 scope: [
-                    'source' => 'new_external_order',
+                    'source' => $source,
                     'order_channel' => $jobOrderChannel,
                     'entry_source' => $jobEntrySource,
                 ],
@@ -106,6 +111,7 @@ class OrderRegistrationService
                     line: $line,
                     userId: $userId,
                     lineNumber: $index + 1,
+                    originType: $originType,
                 );
 
                 $schedules = $this->orderExecutionService->confirmCandidate($candidate, $userId);
@@ -115,7 +121,7 @@ class OrderRegistrationService
             }
 
             $job->markAsSuccess(count($candidateIds), [
-                'source' => 'new_external_order',
+                'source' => $source,
                 'order_channel' => $jobOrderChannel,
                 'entry_source' => $jobEntrySource,
                 'candidate_ids' => $candidateIds,
@@ -125,7 +131,9 @@ class OrderRegistrationService
             return $job->batch_code;
         }, 3);
 
-        $dataFileResult = $this->generateDataFilesByChannel($candidateIdsByChannel, $communicationNotes);
+        $dataFileResult = $generateDataFiles
+            ? $this->generateDataFilesByChannel($candidateIdsByChannel, $communicationNotes)
+            : ['success' => true, 'files' => [], 'total_files' => 0, 'errors' => []];
 
         return [
             'batch_code' => $batchCode,
@@ -147,7 +155,8 @@ class OrderRegistrationService
         ?string $expectedArrivalDate,
         array $line,
         int $userId,
-        int $lineNumber
+        int $lineNumber,
+        ?OriginType $originType = null
     ): WmsOrderCandidate {
         $itemId = (int) ($line['item_id'] ?? 0);
         $contractorId = (int) ($line['contractor_id'] ?? 0);
@@ -231,6 +240,10 @@ class OrderRegistrationService
             $supplierId = (int) ($itemContractor->supplier_id ?? 0) ?: $this->defaultSupplierIdForContractor($contractorId) ?: $supplierId;
         }
 
+        if ($originType === OriginType::DIST && $supplierId !== (int) ($line['supplier_id'] ?? 0)) {
+            throw new \InvalidArgumentException("{$lineNumber}行目の仕入先が発注先設定と一致していません。分配の仕入先を確認してください。");
+        }
+
         $purchaseUnit = max(1, (int) ($line['purchase_unit'] ?? $settingsItemContractor?->purchase_unit ?? 1));
         $safetyStock = (int) ($settingsItemContractor?->safety_stock ?? 0);
         $expectedArrivalDate = $expectedArrivalDate->toDateString();
@@ -244,6 +257,28 @@ class OrderRegistrationService
             : ($quantityType === QuantityType::CASE
                 ? $item->current_price?->purchase_case_price
                 : $item->current_price?->purchase_unit_price);
+        $distributionDetails = [];
+        if ($originType === OriginType::DIST) {
+            if (blank($line['order_date'] ?? null)) {
+                throw new \InvalidArgumentException("{$lineNumber}行目の発注日を入力してください。");
+            }
+            $orderDate = Carbon::parse($line['order_date'])->startOfDay();
+            if ($orderDate->lt(Carbon::today()) || $orderDate->gt(Carbon::parse($expectedArrivalDate))) {
+                throw new \InvalidArgumentException("{$lineNumber}行目の発注日は本日から入荷予定日までの日付を選択してください。");
+            }
+            $supplierPartnerId = DB::connection('sakemaru')->table('suppliers')->where('id', $supplierId)->value('partner_id');
+            $prices = app(PurchasePriceService::class)->getPrice($itemId, $supplierPartnerId ? (int) $supplierPartnerId : null, $warehouseId);
+            $purchaseUnitPrice = $quantityType === QuantityType::CASE ? $prices['case_price'] : $prices['unit_price'];
+            $distributionDetails = array_intersect_key($line, array_flip([
+                'row_id', 'source_row_id', 'distribution_business_key', 'distribution_order_dedupe_key',
+            ])) + [
+                'quantity_type' => $quantityType->value,
+                'order_date' => $orderDate->toDateString(),
+                'order_case_qty' => $quantityType === QuantityType::CASE ? $orderQuantity : 0,
+                'order_piece_qty' => $quantityType === QuantityType::PIECE ? $orderQuantity : 0,
+                'purchase_unit_price_source' => $prices['source'],
+            ];
+        }
 
         $candidate = WmsOrderCandidate::create([
             'batch_code' => $batchCode,
@@ -269,9 +304,9 @@ class OrderRegistrationService
             'original_arrival_date' => $expectedArrivalDate,
             'status' => CandidateStatus::APPROVED,
             'lot_status' => LotStatus::RAW,
-            'origin_type' => $entrySource === OrderEntrySource::SALES_HISTORY
+            'origin_type' => $originType ?? ($entrySource === OrderEntrySource::SALES_HISTORY
                 ? OriginType::MANUAL_SALES_BASED
-                : OriginType::USER,
+                : OriginType::USER),
             'order_channel' => $channel,
             'entry_source' => $entrySource,
             'is_manually_modified' => true,
@@ -292,8 +327,9 @@ class OrderRegistrationService
             'lead_time_days' => 0,
             'calculated_shortage_qty' => (int) ($line['calculated_shortage_qty'] ?? $orderQuantity),
             'calculated_order_quantity' => $orderQuantity,
-            'calculation_details' => [
-                'source' => 'new_external_order',
+            'calculation_details' => $distributionDetails + [
+                'candidate_id' => (int) $candidate->id,
+                'source' => $originType === OriginType::DIST ? 'direct_distribution' : 'new_external_order',
                 'order_channel' => $channel->value,
                 'entry_source' => $entrySource->value,
                 'expected_arrival_date' => $expectedArrivalDate,
