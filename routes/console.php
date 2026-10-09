@@ -42,7 +42,8 @@ Artisan::command('inspire', function () {
 | ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
 | │ wms:eos-incoming-receive-scheduled  │ 1分ごと          │ EOS受信設定に基づくJX受信→入荷確定→仕入自動生成       │
 | ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
-| │ wms:sync-sales-summaries --days=4  │ 09:30以降30分ごと│ trade_itemsから倉庫別商品別の出荷実績を更新            │
+| │ wms:sync-sales-summaries           │ 23:00に期間照合 │ 前月全体と直近30日を照合（2026-05-06以降）            │
+| │                                    │ 08:00〜22:30の30分毎 │ 直近4日分を更新                                 │
 | ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
 | │ wms:switch-delivery-course         │ 15分ごと         │ 得意先の配送コースを時間帯で自動切替                   │
 | │                                    │                  │ wms_buyer_delivery_course_switch_settingsに基づく      │
@@ -144,11 +145,23 @@ Schedule::command('wms:sync-warehouse-transfer-candidates')
 
 // quantity_update_queue の一時的な失敗再投入コマンドは残すが、ai-core側の直列化対応を見るため自動実行は一時停止。
 
-// 倉庫別商品別の出荷実績サマリ更新（09:30以降30分ごと・過去4日分）
+// 23:00は前月全体と直近30日を照合（2026-05-06以降）。08:00〜22:30は直近4日分を更新する。
+// 23:30は実行しない。
 // ※ --dry-run は確認用のため、スケジュールでは実更新を行う
+Schedule::command('wms:sync-sales-summaries --reconcile-order-window')
+    ->dailyAt('23:00')
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->runInBackground()
+    ->appendOutputTo(storage_path('logs/wms-sales-summaries.log'));
+
 Schedule::command('wms:sync-sales-summaries --days=4')
     ->everyThirtyMinutes()
-    ->when(fn () => now()->format('H:i') >= '09:30')
+    ->when(function () {
+        $time = now()->format('H:i');
+
+        return $time >= '08:00' && $time <= '22:30';
+    })
     ->onOneServer()
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/wms-sales-summaries.log'));

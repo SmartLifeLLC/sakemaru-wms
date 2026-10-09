@@ -44,6 +44,8 @@ class WmsOrderRegistration extends AdminPage
 
     protected string $view = 'filament.pages.wms-order-registration';
 
+    private const MIN_EXACT_QUANTITY_CODE_LENGTH = 4;
+
     private const LINE_DUPLICATE_WAREHOUSE_CODES = [
         '01',
         '02',
@@ -843,112 +845,89 @@ class WmsOrderRegistration extends AdminPage
         $this->showSalesBasedExternalOrderPreviewModal = true;
     }
 
-    public function updateSalesBasedExternalOrderPreviewRows(array $rows): void
+    /**
+     * 外部発注候補リストの入力内容を登録リストに追加する。
+     *
+     * クライアントからは「数量が入力された行」の index・商品ID・発注先ID・数量・予定日だけを受け取り、
+     * サーバー側で保持している候補行（候補表示時点のデータ）に突き合わせて登録する。
+     * 候補行そのものはクライアントから受け取らない（入力のたびに全行を同期していた旧方式をやめ、リクエスト肥大を防ぐ）。
+     *
+     * @param  array<int, array<string, mixed>>  $inputs  [{index, item_id, contractor_id, case_qty, piece_qty, expected_arrival_date}]
+     * @return array{created: int, skipped: int, blank: int, unmatched: int, message: string|null}
+     */
+    public function addSalesBasedExternalOrderPreviewRowsToRegistration(array $inputs = [], ?string $expectedArrivalDate = null): array
     {
-        if ($rows === [] && $this->salesBasedExternalOrderPreviewRows !== []) {
-            return;
+        $previewRows = array_values($this->salesBasedExternalOrderPreviewRows);
+
+        if ($previewRows === []) {
+            $message = '追加対象の候補がありません。';
+            $this->notifyWarning($message);
+
+            return $this->salesPreviewSubmitResult(0, 0, 0, 0, $message);
         }
 
-        $this->salesBasedExternalOrderPreviewRows = collect($rows)
-            ->map(function (array $row): array {
-                $inputCaseQuantity = $row['input_order_case_qty'] ?? null;
-                $inputPieceQuantity = $row['input_order_piece_qty'] ?? null;
-                $row['input_order_case_qty'] = ($inputCaseQuantity === null || $inputCaseQuantity === '')
-                    ? null
-                    : max(0, (int) $inputCaseQuantity);
-                $row['input_order_piece_qty'] = ($inputPieceQuantity === null || $inputPieceQuantity === '')
-                    ? null
-                    : max(0, (int) $inputPieceQuantity);
-                try {
-                    $expectedArrivalDate = $row['default_expected_arrival_date'] ?? null;
-                    $row['default_expected_arrival_date'] = filled($expectedArrivalDate)
-                        ? Carbon::parse((string) $expectedArrivalDate)->toDateString()
-                        : null;
-                } catch (\Throwable) {
-                    $row['default_expected_arrival_date'] = null;
-                }
-
-                return $row;
-            })
-            ->values()
-            ->toArray();
-    }
-
-    public function updateSalesBasedExternalOrderPreviewExpectedArrivalDate(?string $date): void
-    {
-        try {
-            $this->salesBasedExternalOrderPreviewConditions['expected_arrival_date'] = Carbon::parse($date)->toDateString();
-        } catch (\Throwable) {
-            $this->salesBasedExternalOrderPreviewConditions['expected_arrival_date'] =
-                $this->earliestExpectedArrivalDateFromRows($this->salesBasedExternalOrderPreviewRows)
-                ?? $this->fallbackExpectedArrivalDate();
-        }
-    }
-
-    public function addSalesBasedExternalOrderPreviewRowsToRegistration(): void
-    {
-        if ($this->salesBasedExternalOrderPreviewRows === []) {
-            $this->notifyWarning('追加対象の候補がありません');
-
-            return;
-        }
-
-        try {
-            $expectedArrivalDate = Carbon::parse(
-                $this->salesBasedExternalOrderPreviewConditions['expected_arrival_date'] ?? $this->fallbackExpectedArrivalDate()
-            )->toDateString();
-        } catch (\Throwable) {
-            Notification::make()
-                ->title('入荷予定日を正しく指定してください')
-                ->danger()
-                ->send();
-
-            return;
-        }
+        $defaultExpectedArrivalDate = $this->normalizeSalesPreviewDate($expectedArrivalDate)
+            ?? $this->normalizeSalesPreviewDate($this->salesBasedExternalOrderPreviewConditions['expected_arrival_date'] ?? null)
+            ?? $this->fallbackExpectedArrivalDate();
+        $this->salesBasedExternalOrderPreviewConditions['expected_arrival_date'] = $defaultExpectedArrivalDate;
 
         $searchService = app(OrderRegistrationSearchService::class);
+        $today = Carbon::today();
         $created = 0;
         $skipped = 0;
         $blankSkipped = 0;
+        $unmatched = 0;
+        $processedIndexes = [];
 
-        foreach ($this->salesBasedExternalOrderPreviewRows as $row) {
-            $isEosAvailable = (bool) ($row['is_eos_available'] ?? false);
-            $orderChannel = OrderChannel::tryFrom((string) ($row['order_channel'] ?? ''))
-                ?? ($isEosAvailable ? OrderChannel::EOS : OrderChannel::FAX);
-            if ($orderChannel === OrderChannel::EOS && ! $isEosAvailable) {
-                $orderChannel = OrderChannel::FAX;
+        foreach ($inputs as $input) {
+            if (! is_array($input)) {
+                $unmatched++;
+
+                continue;
             }
 
-            $inputCaseQuantity = $row['input_order_case_qty'] ?? null;
-            $inputPieceQuantity = $row['input_order_piece_qty'] ?? null;
-            if (($inputCaseQuantity === null || $inputCaseQuantity === '') && ($inputPieceQuantity === null || $inputPieceQuantity === '')) {
+            $index = filter_var($input['index'] ?? null, FILTER_VALIDATE_INT);
+            $row = ($index === false || $index < 0) ? null : ($previewRows[$index] ?? null);
+            if (
+                $row === null
+                || isset($processedIndexes[$index])
+                || (int) ($row['item_id'] ?? 0) !== (int) ($input['item_id'] ?? -1)
+                || (int) ($row['contractor_id'] ?? 0) !== (int) ($input['contractor_id'] ?? -1)
+            ) {
+                $unmatched++;
+
+                continue;
+            }
+            $processedIndexes[$index] = true;
+
+            $caseInput = $input['case_qty'] ?? null;
+            $pieceInput = $input['piece_qty'] ?? null;
+            if (($caseInput === null || $caseInput === '') && ($pieceInput === null || $pieceInput === '')) {
                 $blankSkipped++;
 
                 continue;
             }
 
-            $caseQuantity = max(0, (int) $inputCaseQuantity);
-            $pieceQuantity = max(0, (int) $inputPieceQuantity);
-            if ($caseQuantity > 0 && $pieceQuantity > 0) {
+            $caseQuantity = max(0, (int) $caseInput);
+            $pieceQuantity = max(0, (int) $pieceInput);
+            if (($caseQuantity > 0 && $pieceQuantity > 0) || ($caseQuantity <= 0 && $pieceQuantity <= 0)) {
                 $skipped++;
 
                 continue;
             }
 
-            try {
-                $rowExpectedArrivalDate = filled($row['default_expected_arrival_date'] ?? null)
-                    ? Carbon::parse((string) $row['default_expected_arrival_date'])->toDateString()
-                    : $expectedArrivalDate;
-            } catch (\Throwable) {
-                $skipped++;
-
-                continue;
+            $rowExpectedArrivalDate = $this->normalizeSalesPreviewDate($input['expected_arrival_date'] ?? null)
+                ?? $this->normalizeSalesPreviewDate($row['default_expected_arrival_date'] ?? null)
+                ?? $defaultExpectedArrivalDate;
+            if (Carbon::parse($rowExpectedArrivalDate)->lt($today)) {
+                $rowExpectedArrivalDate = $today->toDateString();
             }
 
-            if (Carbon::parse($rowExpectedArrivalDate)->lt(Carbon::today())) {
-                $skipped++;
-
-                continue;
+            $isEosAvailable = (bool) ($row['is_eos_available'] ?? false);
+            $orderChannel = OrderChannel::tryFrom((string) ($row['order_channel'] ?? ''))
+                ?? ($isEosAvailable ? OrderChannel::EOS : OrderChannel::FAX);
+            if ($orderChannel === OrderChannel::EOS && ! $isEosAvailable) {
+                $orderChannel = OrderChannel::FAX;
             }
 
             $lineRow = [
@@ -982,30 +961,60 @@ class WmsOrderRegistration extends AdminPage
             }
         }
 
+        $details = collect([
+            $blankSkipped > 0 ? "未入力の候補 {$blankSkipped}件 は追加しませんでした。" : null,
+            $skipped > 0 ? "不正な候補など {$skipped}件 はスキップしました。" : null,
+            $unmatched > 0 ? "候補リストと一致しない入力 {$unmatched}件 はスキップしました。候補を表示し直してください。" : null,
+        ])->filter()->implode("\n");
+
         if ($created <= 0) {
+            $title = '登録リストに追加できませんでした';
             Notification::make()
-                ->title('登録リストに追加できませんでした')
-                ->body(collect([
-                    $blankSkipped > 0 ? "未入力の候補 {$blankSkipped}件 は追加しませんでした。" : null,
-                    $skipped > 0 ? "不正な候補など {$skipped}件 はスキップしました。" : null,
-                ])->filter()->implode("\n") ?: null)
+                ->title($title)
+                ->body($details !== '' ? $details : null)
                 ->warning()
                 ->send();
 
-            return;
+            return $this->salesPreviewSubmitResult(
+                $created,
+                $skipped,
+                $blankSkipped,
+                $unmatched,
+                $details !== '' ? "{$title}\n{$details}" : $title,
+            );
         }
 
         Notification::make()
             ->title("販売履歴から {$created}件 を登録リストに追加しました")
-            ->body(collect([
-                $blankSkipped > 0 ? "未入力の候補 {$blankSkipped}件 は追加しませんでした。" : null,
-                $skipped > 0 ? "不正な候補など {$skipped}件 はスキップしました。" : null,
-            ])->filter()->implode("\n") ?: null)
+            ->body($details !== '' ? $details : null)
             ->success()
             ->send();
 
         $this->showSalesBasedExternalOrderPreviewModal = false;
         $this->resetSalesBasedExternalOrderPreview();
+
+        return $this->salesPreviewSubmitResult($created, $skipped, $blankSkipped, $unmatched, null);
+    }
+
+    private function normalizeSalesPreviewDate(mixed $date): ?string
+    {
+        if (! filled($date)) {
+            return null;
+        }
+
+        try {
+            return Carbon::parse((string) $date)->toDateString();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * @return array{created: int, skipped: int, blank: int, unmatched: int, message: string|null}
+     */
+    private function salesPreviewSubmitResult(int $created, int $skipped, int $blank, int $unmatched, ?string $message): array
+    {
+        return compact('created', 'skipped', 'blank', 'unmatched', 'message');
     }
 
     public function addOrderCandidateItems(): void
@@ -1395,17 +1404,45 @@ class WmsOrderRegistration extends AdminPage
             ->where('items.is_ended', false);
 
         $hasItemCode = $itemCode && strlen($itemCode) >= 1;
-        $hasJanCode = $janCode && strlen($janCode) >= 1;
+        $searchCodes = $this->normalizeDelimitedSearchCodes($janCode);
+        $hasJanCode = $searchCodes !== [];
         if ($hasItemCode || $hasJanCode) {
             $itemCode = $hasItemCode ? mb_convert_kana($itemCode, 'as') : null;
-            $janCode = $hasJanCode ? mb_convert_kana($janCode, 'as') : null;
-            $query->where(function ($query) use ($itemCode, $janCode): void {
+            [$exactItemIds, $partialSearchCodes] = $this->resolveExactCodeSearches(
+                $searchCodes,
+                $incomingWarehouseId,
+                $contractorId,
+            );
+
+            $query->where(function ($query) use ($exactItemIds, $itemCode, $partialSearchCodes): void {
                 if ($itemCode) {
                     $query->where('items.code', 'like', "%{$itemCode}%");
                 }
-                if ($janCode) {
-                    $query->orWhereHas('item_search_information', function ($query) use ($janCode): void {
-                        $query->where('search_string', 'like', "%{$janCode}%");
+
+                if ($exactItemIds !== []) {
+                    $query->orWhereIn('items.id', $exactItemIds);
+                }
+
+                foreach ($partialSearchCodes as $searchCode) {
+                    $like = "%{$searchCode}%";
+
+                    $query->orWhereHas('item_search_information', function ($query) use ($searchCode, $like): void {
+                        $query
+                            ->where('search_string', 'like', $like)
+                            ->orWhereRaw('LPAD(search_string, 13, "0") = ?', [$searchCode]);
+                    })->orWhereExists(function ($query) use ($searchCode, $like): void {
+                        $query
+                            ->selectRaw('1')
+                            ->from('item_quantity_information as iqi')
+                            ->whereColumn('iqi.item_id', 'items.id')
+                            ->where(function ($query) use ($searchCode, $like): void {
+                                $query
+                                    ->where('iqi.product_code', 'like', $like)
+                                    ->orWhere('iqi.own_code', 'like', $like)
+                                    ->orWhere('iqi.quantity_code', 'like', $like)
+                                    ->orWhereRaw('LPAD(iqi.product_code, 13, "0") = ?', [$searchCode])
+                                    ->orWhereRaw('LPAD(iqi.own_code, 13, "0") = ?', [$searchCode]);
+                            });
                     });
                 }
             });
@@ -1479,12 +1516,13 @@ class WmsOrderRegistration extends AdminPage
         $incomingExpectedArrivalDates = $this->incomingExpectedArrivalDates($incomingWarehouseId, $itemIds);
         $lastOrderDates = $this->lastOrderDates($incomingWarehouseId, $itemIds);
         $weeklySalesQuantities = $this->weeklySalesQuantities($warehouseId, $itemIds);
+        $orderingCodes = $this->orderingCodesForItems($itemIds);
 
         $registeredLines = collect($this->lines)
             ->whereIn('item_id', $itemIds)
             ->groupBy('item_id');
 
-        $data = $items->map(function (Item $item) use ($summaries, $itemContractors, $registeredLines, $searchService, $warehouseId, $jxContractorIds, $category2Codes, $defaultLocationCodes, $effectiveStocks, $incomingQuantities, $incomingExpectedArrivalDates, $lastOrderDates, $weeklySalesQuantities) {
+        $data = $items->map(function (Item $item) use ($summaries, $itemContractors, $registeredLines, $searchService, $warehouseId, $jxContractorIds, $category2Codes, $defaultLocationCodes, $effectiveStocks, $incomingQuantities, $incomingExpectedArrivalDates, $lastOrderDates, $orderingCodes, $weeklySalesQuantities) {
             $summary = $summaries->get($item->id);
             $itemContractor = $itemContractors->get($item->id);
             $registered = $registeredLines->get($item->id, collect());
@@ -1519,7 +1557,7 @@ class WmsOrderRegistration extends AdminPage
                 'item_contractor_note' => (string) ($itemContractor->item_contractor_note ?? $itemContractor->note ?? ''),
                 'item_category2_code' => (string) ($category2Codes[(int) ($item->item_category2_id ?? 0)] ?? ''),
                 'search_code' => $searchInfo?->search_string ?? '',
-                'ordering_code' => $searchService->orderingCodeForItem((int) $item->id),
+                'ordering_code' => $orderingCodes[(int) $item->id] ?? null,
                 'contractor_id' => $contractorId,
                 'contractor_code' => $itemContractor?->contractor?->code,
                 'contractor_name' => $itemContractor?->contractor
@@ -1572,6 +1610,161 @@ class WmsOrderRegistration extends AdminPage
             'current_page' => 1,
             'last_page' => 1,
         ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function normalizeDelimitedSearchCodes(?string $value): array
+    {
+        if (blank($value)) {
+            return [];
+        }
+
+        $normalized = mb_convert_kana($value, 'as');
+
+        return collect(preg_split('/[\s,、，\/／]+/u', $normalized, -1, PREG_SPLIT_NO_EMPTY) ?: [])
+            ->map(fn ($code): string => trim((string) $code))
+            ->filter()
+            ->uniqueStrict()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  array<int, string>  $searchCodes
+     * @return array{0: array<int>, 1: array<int, string>}
+     */
+    private function resolveExactCodeSearches(
+        array $searchCodes,
+        int $incomingWarehouseId,
+        ?int $contractorId,
+    ): array {
+        if ($searchCodes === []) {
+            return [[], []];
+        }
+
+        $searches = collect($searchCodes)
+            ->map(function (string $searchCode): array {
+                $variants = [$searchCode];
+
+                if (strlen($searchCode) === 13) {
+                    $variants[] = ltrim($searchCode, '0') ?: '0';
+                }
+
+                return [
+                    'search_code' => $searchCode,
+                    'variants' => array_values(array_unique($variants)),
+                    'item_ids' => [],
+                ];
+            })
+            ->values()
+            ->all();
+        $allVariants = collect($searches)->pluck('variants')->flatten()->uniqueStrict()->values()->all();
+        $distinctiveQuantityCodeVariants = collect($allVariants)
+            ->filter(fn (string $code): bool => strlen($code) >= self::MIN_EXACT_QUANTITY_CODE_LENGTH)
+            ->values()
+            ->all();
+
+        $searchInformationMatches = DB::connection('sakemaru')
+            ->table('item_search_information')
+            ->whereIn('search_string', $allVariants)
+            ->get(['item_id', 'search_string']);
+        $quantityInformationMatches = DB::connection('sakemaru')
+            ->table('item_quantity_information')
+            ->where(function ($query) use ($allVariants, $distinctiveQuantityCodeVariants): void {
+                $query
+                    ->whereIn('product_code', $allVariants)
+                    ->orWhereIn('own_code', $allVariants);
+
+                if ($distinctiveQuantityCodeVariants !== []) {
+                    $query->orWhereIn('quantity_code', $distinctiveQuantityCodeVariants);
+                }
+            })
+            ->get(['item_id', 'product_code', 'own_code', 'quantity_code']);
+
+        foreach ($searchInformationMatches as $match) {
+            foreach ($searches as &$search) {
+                if (in_array((string) $match->search_string, $search['variants'], true)) {
+                    $search['item_ids'][] = (int) $match->item_id;
+                }
+            }
+            unset($search);
+        }
+
+        foreach ($quantityInformationMatches as $match) {
+            $matchedValues = array_map('strval', array_filter([
+                $match->product_code,
+                $match->own_code,
+                $match->quantity_code,
+            ], fn ($value): bool => filled($value)));
+
+            foreach ($searches as &$search) {
+                if (array_intersect($matchedValues, $search['variants']) !== []) {
+                    $search['item_ids'][] = (int) $match->item_id;
+                }
+            }
+            unset($search);
+        }
+
+        $eligibleExactItemIds = Item::query()
+            ->whereIn('items.id', collect($searches)->pluck('item_ids')->flatten()->unique()->values()->all())
+            ->where('items.end_of_sale_type', 'NORMAL')
+            ->where('items.is_ended', false)
+            ->whereHas('item_contractors', function ($query) use ($contractorId, $incomingWarehouseId): void {
+                $query->where('warehouse_id', $incomingWarehouseId);
+                if ($contractorId) {
+                    $query->where('contractor_id', $contractorId);
+                }
+            })
+            ->pluck('items.id')
+            ->map(fn ($itemId): int => (int) $itemId)
+            ->all();
+
+        foreach ($searches as &$search) {
+            $search['item_ids'] = array_values(array_intersect($search['item_ids'], $eligibleExactItemIds));
+        }
+        unset($search);
+
+        $exactItemIds = collect($searches)
+            ->pluck('item_ids')
+            ->flatten()
+            ->map(fn ($itemId): int => (int) $itemId)
+            ->unique()
+            ->values()
+            ->all();
+        $partialSearchCodes = collect($searches)
+            ->filter(fn (array $search): bool => $search['item_ids'] === [])
+            ->pluck('search_code')
+            ->values()
+            ->all();
+
+        return [$exactItemIds, $partialSearchCodes];
+    }
+
+    /**
+     * @param  array<int>  $itemIds
+     * @return array<int, string>
+     */
+    private function orderingCodesForItems(array $itemIds): array
+    {
+        if ($itemIds === []) {
+            return [];
+        }
+
+        return DB::connection('sakemaru')
+            ->table('item_search_information')
+            ->whereIn('item_id', $itemIds)
+            ->where('is_used_for_ordering', true)
+            ->where('is_active', true)
+            ->whereRaw("search_string REGEXP '[1-9]'")
+            ->orderBy('id')
+            ->get(['item_id', 'search_string'])
+            ->unique('item_id')
+            ->mapWithKeys(fn ($row): array => [
+                (int) $row->item_id => str_pad((string) $row->search_string, 13, '0', STR_PAD_LEFT),
+            ])
+            ->all();
     }
 
     private function candidateContractorChangeOptionFromItemContractor(
@@ -1865,7 +2058,7 @@ class WmsOrderRegistration extends AdminPage
      */
     private function weeklySalesQuantities(int $warehouseId, array $itemIds): array
     {
-        if ($itemIds === []) {
+        if ($itemIds === [] || ! $this->shouldLoadBaseWeeklySalesQuantities()) {
             return [];
         }
 
@@ -1905,6 +2098,11 @@ class WmsOrderRegistration extends AdminPage
                 ],
             ])
             ->all();
+    }
+
+    protected function shouldLoadBaseWeeklySalesQuantities(): bool
+    {
+        return true;
     }
 
     /**

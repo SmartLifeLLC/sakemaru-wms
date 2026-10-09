@@ -62,6 +62,39 @@ class ViewWmsInventoryCountTest extends TestCase
 
         $this->assertStringContainsString('->generate($record, $this->activeCountRound)', $page);
         $this->assertStringContainsString("\$filename = '棚卸差分確認_'.\$this->activeRoundLabel().'_'.", $page);
+        $this->assertStringContainsString("Action::make('downloadDiffListWorkbook')", $page);
+        $this->assertStringContainsString('->label(\'再棚当たり表\')', $page);
+        $this->assertStringContainsString("\$filename = '再棚当たり表_'.\$this->activeRoundLabel().'_'.", $page);
+        $this->assertStringContainsString('InventoryDiffListWorkbookService)->generate($record, $this->activeCountRound)', $page);
+        $this->assertStringNotContainsString(
+            'WmsInventoryCount::STATUS_DRAFT',
+            substr($page, strpos($page, "Action::make('downloadDiffListWorkbook')"), strpos($page, "Action::make('downloadUncountedListPdf')") - strpos($page, "Action::make('downloadDiffListWorkbook')"))
+        );
+
+        $diffPdfPosition = strpos($page, "Action::make('downloadDiffListPdf')");
+        $diffWorkbookPosition = strpos($page, "Action::make('downloadDiffListWorkbook')");
+        $uncountedPdfPosition = strpos($page, "Action::make('downloadUncountedListPdf')");
+
+        $this->assertNotFalse($diffPdfPosition);
+        $this->assertNotFalse($diffWorkbookPosition);
+        $this->assertNotFalse($uncountedPdfPosition);
+        $this->assertGreaterThan($diffPdfPosition, $diffWorkbookPosition);
+        $this->assertLessThan($uncountedPdfPosition, $diffWorkbookPosition);
+
+        $blade = file_get_contents(resource_path('views/filament/resources/wms-inventory-count/pages/view-wms-inventory-count.blade.php'));
+        $bladeDiffPdfPosition = strpos($blade, "\$this->getAction('downloadDiffListPdf')");
+        $bladeDiffWorkbookPosition = strpos($blade, "\$this->getAction('downloadDiffListWorkbook')");
+        $bladeUncountedPdfPosition = strpos($blade, "\$this->getAction('downloadUncountedListPdf')");
+
+        $this->assertNotFalse($bladeDiffPdfPosition);
+        $this->assertNotFalse($bladeDiffWorkbookPosition);
+        $this->assertNotFalse($bladeUncountedPdfPosition);
+        $this->assertGreaterThan($bladeDiffPdfPosition, $bladeDiffWorkbookPosition);
+        $this->assertLessThan($bladeUncountedPdfPosition, $bladeDiffWorkbookPosition);
+        $this->assertStringContainsString(
+            "{{ \$this->getAction('downloadDiffListPdf') }}\n                    {{ \$this->getAction('downloadDiffListWorkbook') }}\n                    @if",
+            $blade
+        );
     }
 
     public function test_uncounted_pdf_action_uses_active_count_round(): void
@@ -70,6 +103,18 @@ class ViewWmsInventoryCountTest extends TestCase
 
         $this->assertStringContainsString('->generateUncounted($record, $this->activeCountRound)', $page);
         $this->assertStringContainsString("\$filename = '棚卸未カウント_'.\$this->activeRoundLabel().'_'.", $page);
+    }
+
+    public function test_jan_book_action_can_exclude_zero_theory_items(): void
+    {
+        $page = file_get_contents(app_path('Filament/Resources/WmsInventoryCount/Pages/ViewWmsInventoryCount.php'));
+
+        $this->assertStringContainsString("Action::make('downloadInstructionPdf')", $page);
+        $this->assertStringContainsString("Checkbox::make('exclude_zero_theory')", $page);
+        $this->assertStringContainsString("->label('理論在庫0を省く')", $page);
+        $this->assertStringContainsString('JANブックダウンロード', $page);
+        $this->assertStringContainsString('InventoryInstructionPdfService)->generate(', $page);
+        $this->assertStringContainsString("(bool) (\$data['exclude_zero_theory'] ?? false)", $page);
     }
 
     public function test_difference_workbook_action_is_placed_after_uncounted_pdf(): void
@@ -115,6 +160,42 @@ class ViewWmsInventoryCountTest extends TestCase
 
         $this->assertNotFalse($bladeEnteredWorkbookPosition);
         $this->assertStringNotContainsString("\$this->getAction('fillUncountedWithZero')", $blade);
+    }
+
+    public function test_final_difference_report_is_placed_in_details(): void
+    {
+        $page = file_get_contents(app_path('Filament/Resources/WmsInventoryCount/Pages/ViewWmsInventoryCount.php'));
+        $blade = file_get_contents(resource_path('views/filament/resources/wms-inventory-count/pages/view-wms-inventory-count.blade.php'));
+        $this->assertStringContainsString("Action::make('downloadFinalDifferenceWorkbook')", $page);
+        $this->assertStringContainsString("->label('最終差異報告書')", $page);
+        $this->assertStringContainsString('InventoryFinalDifferenceWorkbookService)->generate($record)', $page);
+        $this->assertGreaterThan(strpos($blade, 'x-show="detailsOpen"'), strpos($blade, "\$this->getAction('downloadFinalDifferenceWorkbook')"));
+        $this->assertSame(1, substr_count($blade, "\$this->getAction('confirm')"));
+        $this->assertStringContainsString("{{ \$this->getAction('downloadFinalDifferenceWorkbook') }}\n                        {{ \$this->getAction('confirm') }}", $blade);
+    }
+
+    public function test_final_actions_remain_visible_and_disable_unavailable_operations(): void
+    {
+        foreach ([
+            [WmsInventoryCount::STATUS_DRAFT, false, false, true, true],
+            [WmsInventoryCount::STATUS_COUNTING, false, false, true, true],
+            [WmsInventoryCount::STATUS_COUNTING, true, false, false, true],
+            [WmsInventoryCount::STATUS_CHECKED, true, true, false, true],
+            [WmsInventoryCount::STATUS_CONFIRMED, true, true, true, false],
+            [WmsInventoryCount::STATUS_CANCELLED, true, true, true, true],
+        ] as [$status, $secondConfirmed, $thirdConfirmed, $confirmDisabled, $reportDisabled]) {
+            $page = new ViewWmsInventoryCount;
+            $page->record = new WmsInventoryCount([
+                'status' => $status,
+                'second_count_confirmed_at' => $secondConfirmed ? now() : null,
+                'final_count_confirmed_at' => $thirdConfirmed ? now() : null,
+            ]);
+            $actions = collect((new \ReflectionMethod($page, 'getHeaderActions'))->invoke($page))->keyBy(fn ($action) => $action->getName());
+            $this->assertTrue($actions['confirm']->isVisible());
+            $this->assertTrue($actions['downloadFinalDifferenceWorkbook']->isVisible());
+            $this->assertSame($confirmDisabled, $actions['confirm']->isDisabled());
+            $this->assertSame($reportDisabled, $actions['downloadFinalDifferenceWorkbook']->isDisabled());
+        }
     }
 
     public function test_fill_uncounted_with_zero_logs_auto_zero_device(): void

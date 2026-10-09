@@ -20,8 +20,8 @@ class TransferOrderRecalculationService
      * 移動候補の数量変更時に関連発注候補を再計算
      *
      * @param  WmsStockTransferCandidate  $transfer  変更された移動候補
-     * @param  int  $oldQuantity  変更前の数量
-     * @param  int  $newQuantity  変更後の数量
+     * @param  int  $oldQuantity  変更前の数量（バラ換算）
+     * @param  int  $newQuantity  変更後の数量（バラ換算）
      * @return WmsOrderCandidate|null 更新された発注候補（存在しない場合はnull）
      */
     public function recalculateOrderForTransfer(
@@ -126,11 +126,16 @@ class TransferOrderRecalculationService
      */
     public function calculateSatelliteDemand(string $batchCode, int $hubWarehouseId, int $itemId): int
     {
-        return (int) WmsStockTransferCandidate::where('batch_code', $batchCode)
-            ->where('hub_warehouse_id', $hubWarehouseId)
-            ->where('item_id', $itemId)
-            ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::APPROVED])
-            ->sum('transfer_quantity');
+        // ケース発注の移動候補はバラ数に換算して合計する
+        return (int) (DB::connection('sakemaru')
+            ->table('wms_stock_transfer_candidates as transfer_candidates')
+            ->leftJoin('items as transfer_items', 'transfer_items.id', '=', 'transfer_candidates.item_id')
+            ->where('transfer_candidates.batch_code', $batchCode)
+            ->where('transfer_candidates.hub_warehouse_id', $hubWarehouseId)
+            ->where('transfer_candidates.item_id', $itemId)
+            ->whereIn('transfer_candidates.status', [CandidateStatus::PENDING->value, CandidateStatus::APPROVED->value])
+            ->selectRaw('SUM('.WmsStockTransferCandidate::pieceQuantitySql('transfer_candidates', 'transfer_items').') as piece_quantity')
+            ->value('piece_quantity') ?? 0);
     }
 
     /**
@@ -157,13 +162,16 @@ class TransferOrderRecalculationService
             ->where('hub_warehouse_id', $warehouseId)
             ->where('item_id', $itemId)
             ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::APPROVED])
+            ->with('item:id,capacity_case,capacity_carton')
             ->get();
 
         foreach ($transfers as $transfer) {
-            if ($transfer->transfer_quantity > 0) {
+            // 需要内訳はバラ換算の数量で持つ
+            $pieceQuantity = $transfer->totalPieceQuantity();
+            if ($pieceQuantity > 0) {
                 $breakdown[] = [
                     'warehouse_id' => $transfer->satellite_warehouse_id,
-                    'quantity' => $transfer->transfer_quantity,
+                    'quantity' => $pieceQuantity,
                 ];
             }
         }

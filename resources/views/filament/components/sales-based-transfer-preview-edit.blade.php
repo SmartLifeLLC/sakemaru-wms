@@ -143,23 +143,38 @@
         sync() {
             $wire.updateSalesBasedTransferPreviewRows(this.rows);
         },
-        cleanQuantity(row) {
-            let value = String(row.input_order_piece_qty ?? '');
+        // ケースとバラはどちらか一方だけ。片方に数量を入れたら、もう片方は空にする。
+        cleanQuantity(row, field, oppositeField) {
+            let value = String(row[field] ?? '');
             value = value.replace(/[０-９]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xFEE0));
             value = value.replace(/[^0-9]/g, '');
-            row.input_order_piece_qty = value === '' ? null : value;
+            row[field] = value === '' ? null : value;
+            if (Number(row[field] || 0) > 0) {
+                row[oppositeField] = null;
+            }
         },
-        commitQuantity(row) {
-            this.cleanQuantity(row);
+        commitQuantity(row, field, oppositeField) {
+            this.cleanQuantity(row, field, oppositeField);
             this.sync();
+        },
+        // 総バラ数（ケースは入数を掛ける）
+        totalPieces(row) {
+            const capacityCase = Math.max(1, Number(row.capacity_case || 1));
+            const caseQty = Math.max(0, Number(row.input_order_case_qty || 0));
+            const pieceQty = Math.max(0, Number(row.input_order_piece_qty || 0));
+
+            return caseQty > 0 ? caseQty * capacityCase : pieceQty;
         },
         removeRow(index) {
             this.rows.splice(index, 1);
             this.sync();
         },
-        focusNext(index) {
+        // Enter / Tab は同じ列（ケース or バラ）の次の行へ移動する
+        focusNext(event) {
             this.$nextTick(() => {
-                const inputs = Array.from(this.$root.querySelectorAll('[data-order-quantity-input]'));
+                const field = event.target.dataset.orderQuantityInput;
+                const inputs = Array.from(this.$root.querySelectorAll(`[data-order-quantity-input='${field}']:not([disabled])`));
+                const index = inputs.indexOf(event.target);
                 (inputs[index + 1] || inputs[index])?.focus();
                 (inputs[index + 1] || inputs[index])?.select();
             });
@@ -256,9 +271,11 @@
                     <col class="logistics-candidate-delete-col" style="width: 28px !important;">
                     <col class="logistics-candidate-contractor-col" style="width: 128px !important;">
                     <col class="logistics-candidate-code-col" style="width: 64px !important;">
-                    <col class="logistics-candidate-item-name-col" style="width: 500px !important;">
+                    <col class="logistics-candidate-item-name-col" style="width: 400px !important;">
                     <col class="logistics-candidate-packaging-col" style="width: 68px !important;">
                     <col class="logistics-candidate-order-qty-col" style="width: 44px !important;">
+                    <col class="logistics-candidate-order-qty-col" style="width: 44px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 56px !important;">
                     <col class="logistics-candidate-number-col" style="width: 72px !important;">
                     <col class="logistics-candidate-number-col" style="width: 52px !important;">
                     <col class="logistics-candidate-number-col" style="width: 52px !important;">
@@ -273,9 +290,11 @@
                         <th class="w-7 whitespace-nowrap px-1 py-1.5 text-center font-semibold"></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold">発注先</th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold">商品CD</th>
-                        <th class="logistics-candidate-item-name px-2 py-1.5 text-left font-semibold" style="width: 500px !important; min-width: 500px !important; max-width: 500px !important;">商品名</th>
+                        <th class="logistics-candidate-item-name px-2 py-1.5 text-left font-semibold" style="width: 400px !important; min-width: 400px !important; max-width: 400px !important;">商品名</th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold">規格</th>
-                        <th class="logistics-candidate-order-qty whitespace-nowrap border-l-2 border-slate-300 bg-amber-100 px-1 py-1.5 text-right font-semibold text-amber-900 dark:border-slate-600 dark:bg-amber-900/40 dark:text-amber-100">発注バラ</th>
+                        <th class="logistics-candidate-order-qty whitespace-nowrap border-l-2 border-slate-300 bg-amber-100 px-1 py-1.5 text-right font-semibold text-amber-900 dark:border-slate-600 dark:bg-amber-900/40 dark:text-amber-100" title="ケース単位で発注する数量。ケースとバラはどちらか一方を入力します。">ケース</th>
+                        <th class="logistics-candidate-order-qty whitespace-nowrap bg-amber-100 px-1 py-1.5 text-right font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-100" title="バラ単位で発注する数量。ケースとバラはどちらか一方を入力します。">バラ</th>
+                        <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold" title="ケース入力は入数を掛け、バラ入力はそのままの発注数量です。">総バラ</th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold">実績合計</th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold">販売</th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold">返品</th>
@@ -308,7 +327,7 @@
                             <td class="whitespace-nowrap px-2 py-1.5 font-mono text-slate-700 dark:text-slate-200" x-text="row.item_code"></td>
                             <td
                                 class="logistics-candidate-item-name px-2 py-1.5 font-medium text-slate-900 dark:text-white"
-                                style="width: 500px !important; min-width: 500px !important; max-width: 500px !important;"
+                                style="width: 400px !important; min-width: 400px !important; max-width: 400px !important;"
                             >
                                 <span
                                     class="block cursor-help truncate"
@@ -319,7 +338,28 @@
                                 ></span>
                             </td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-slate-600 dark:text-slate-300" x-text="row.item_packaging || '-'"></td>
-                            <td class="logistics-candidate-order-qty whitespace-nowrap border-l-2 border-slate-300 bg-amber-50 px-1 py-1.5 text-right dark:border-slate-600 dark:bg-amber-950/30">
+                            <td class="logistics-candidate-order-qty whitespace-nowrap border-l-2 border-slate-300 dark:border-slate-600 bg-amber-50 px-1 py-1.5 text-right dark:bg-amber-950/30">
+                                <input
+                                    type="text"
+                                    inputmode="numeric"
+                                    pattern="[0-9]*"
+                                    autocomplete="off"
+                                    x-model="row.input_order_case_qty"
+                                    x-bind:disabled="row.can_order_case === false"
+                                    x-bind:title="row.can_order_case === false ? '入数が未設定のためケース発注できません' : ''"
+                                    x-on:focus="$event.target.select()"
+                                    x-on:input.debounce.150ms="cleanQuantity(row, 'input_order_case_qty', 'input_order_piece_qty'); sync()"
+                                    x-on:blur="commitQuantity(row, 'input_order_case_qty', 'input_order_piece_qty')"
+                                    x-on:change="commitQuantity(row, 'input_order_case_qty', 'input_order_piece_qty')"
+                                    x-on:keydown.arrow-up.prevent
+                                    x-on:keydown.arrow-down.prevent
+                                    x-on:keydown.enter.prevent="commitQuantity(row, 'input_order_case_qty', 'input_order_piece_qty'); focusNext($event)"
+                                    x-on:keydown.tab.prevent="commitQuantity(row, 'input_order_case_qty', 'input_order_piece_qty'); focusNext($event)"
+                                    data-order-quantity-input="case"
+                                    class="w-12 rounded-md border-2 border-amber-300 bg-white px-1 py-0.5 text-right text-sm font-semibold text-slate-900 shadow-sm focus:border-amber-500 focus:ring-2 focus:ring-amber-200 disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400 dark:disabled:border-gray-700 dark:disabled:bg-gray-800 dark:border-amber-700 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-amber-500 dark:focus:ring-amber-900"
+                                >
+                            </td>
+                            <td class="logistics-candidate-order-qty whitespace-nowrap bg-amber-50 px-1 py-1.5 text-right dark:bg-amber-950/30">
                                 <input
                                     type="text"
                                     inputmode="numeric"
@@ -327,17 +367,18 @@
                                     autocomplete="off"
                                     x-model="row.input_order_piece_qty"
                                     x-on:focus="$event.target.select()"
-                                    x-on:input.debounce.150ms="cleanQuantity(row); sync()"
-                                    x-on:blur="commitQuantity(row)"
-                                    x-on:change="commitQuantity(row)"
+                                    x-on:input.debounce.150ms="cleanQuantity(row, 'input_order_piece_qty', 'input_order_case_qty'); sync()"
+                                    x-on:blur="commitQuantity(row, 'input_order_piece_qty', 'input_order_case_qty')"
+                                    x-on:change="commitQuantity(row, 'input_order_piece_qty', 'input_order_case_qty')"
                                     x-on:keydown.arrow-up.prevent
                                     x-on:keydown.arrow-down.prevent
-                                    x-on:keydown.enter.prevent="commitQuantity(row); focusNext(index)"
-                                    x-on:keydown.tab.prevent="commitQuantity(row); focusNext(index)"
-                                    data-order-quantity-input
+                                    x-on:keydown.enter.prevent="commitQuantity(row, 'input_order_piece_qty', 'input_order_case_qty'); focusNext($event)"
+                                    x-on:keydown.tab.prevent="commitQuantity(row, 'input_order_piece_qty', 'input_order_case_qty'); focusNext($event)"
+                                    data-order-quantity-input="piece"
                                     class="w-12 rounded-md border-2 border-amber-300 bg-white px-1 py-0.5 text-right text-sm font-semibold text-slate-900 shadow-sm focus:border-amber-500 focus:ring-2 focus:ring-amber-200 dark:border-amber-700 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-amber-500 dark:focus:ring-amber-900"
                                 >
                             </td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono font-bold" x-bind:class="totalPieces(row) > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400'" x-text="totalPieces(row) > 0 ? formatNumber(totalPieces(row)) : '-'" data-order-total-pieces></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono font-semibold text-slate-900 dark:text-white" x-text="formatNumber(row.sales_qty)"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.sales_piece_qty)"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.return_piece_qty)"></td>

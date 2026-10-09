@@ -4,7 +4,6 @@ namespace App\Services\InventoryCount;
 
 use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
-use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
@@ -73,14 +72,13 @@ class AllStoreInventoryDifferenceWorkbookService
         }
 
         $items = $this->queryItems($inventoryCounts);
-        $costPrices = $this->costPricesByItem($items, $inventoryCounts);
         $supplierInfo = $this->supplierInfoByItem($items);
         $storeCodes = $inventoryCounts
             ->map(fn (WmsInventoryCount $inventoryCount): string => (string) ($inventoryCount->warehouse_code ?? ''))
             ->unique()
             ->values()
             ->all();
-        $rows = $this->buildAllStoreRows($inventoryCounts, $items, $costPrices, $supplierInfo, $storeCodes, $targetRound);
+        $rows = $this->buildAllStoreRows($inventoryCounts, $items, $supplierInfo, $storeCodes, $targetRound);
 
         $spreadsheet = new Spreadsheet;
         $mainSheet = $spreadsheet->getActiveSheet();
@@ -139,7 +137,6 @@ class AllStoreInventoryDifferenceWorkbookService
     /**
      * @param  Collection<int, WmsInventoryCount>  $inventoryCounts
      * @param  Collection<int, WmsInventoryCountItem>  $items
-     * @param  Collection<int, float>  $costPrices
      * @param  Collection<int, array{supplier_code: string, supplier_name: string}>  $supplierInfo
      * @param  array<int, string>  $storeCodes
      * @return array<int, array<string, mixed>>
@@ -147,7 +144,6 @@ class AllStoreInventoryDifferenceWorkbookService
     private function buildAllStoreRows(
         Collection $inventoryCounts,
         Collection $items,
-        Collection $costPrices,
         Collection $supplierInfo,
         array $storeCodes,
         ?int $targetRound,
@@ -174,7 +170,6 @@ class AllStoreInventoryDifferenceWorkbookService
             }
 
             $key = $this->itemKey($item);
-            $costPrice = (float) ($costPrices->get((int) $item->item_id) ?? 0);
             $supplier = $supplierInfo->get((int) $item->item_id, ['supplier_code' => '', 'supplier_name' => '']);
 
             $rowsByItem[$key] ??= [
@@ -185,12 +180,14 @@ class AllStoreInventoryDifferenceWorkbookService
                 'supplier_name' => $supplier['supplier_name'],
                 'major_category_code' => $this->majorCategoryCode($item),
                 'middle_category_code' => $this->middleCategoryCode($item),
-                'cost_price' => $costPrice,
                 'stores' => array_fill_keys($storeCodes, 0),
+                'store_amounts' => array_fill_keys($storeCodes, 0),
             ];
 
             $storeCode = (string) ($inventoryCount->warehouse_code ?? '');
             $rowsByItem[$key]['stores'][$storeCode] = (int) ($rowsByItem[$key]['stores'][$storeCode] ?? 0) + $difference;
+            // Saved costs can differ between stores and between rows of the same product.
+            $rowsByItem[$key]['store_amounts'][$storeCode] += round($difference * (float) $item->cost_price, 2);
         }
 
         return collect($rowsByItem)
@@ -207,57 +204,6 @@ class AllStoreInventoryDifferenceWorkbookService
             ])
             ->values()
             ->all();
-    }
-
-    /**
-     * @param  Collection<int, WmsInventoryCountItem>  $items
-     * @param  Collection<int, WmsInventoryCount>  $inventoryCounts
-     * @return Collection<int, float>
-     */
-    private function costPricesByItem(Collection $items, Collection $inventoryCounts): Collection
-    {
-        $itemIds = $items
-            ->pluck('item_id')
-            ->filter(fn ($itemId): bool => $itemId !== null)
-            ->map(fn ($itemId): int => (int) $itemId)
-            ->unique()
-            ->values();
-
-        if ($itemIds->isEmpty()) {
-            return collect();
-        }
-
-        $clientIds = $inventoryCounts
-            ->pluck('client_id')
-            ->filter(fn ($clientId): bool => $clientId !== null)
-            ->map(fn ($clientId): int => (int) $clientId)
-            ->unique()
-            ->values()
-            ->all();
-        $priceDate = CarbonImmutable::today()->toDateString();
-        $costPrices = collect();
-
-        foreach ($itemIds->chunk(1000) as $chunkItemIds) {
-            $rankedPrices = DB::connection('sakemaru')
-                ->table('item_prices as ip')
-                ->select([
-                    'ip.item_id',
-                    'ip.cost_unit_price',
-                    DB::raw('ROW_NUMBER() OVER (PARTITION BY ip.item_id ORDER BY ip.start_date DESC, ip.id DESC) as price_rank'),
-                ])
-                ->whereIn('ip.item_id', $chunkItemIds->all())
-                ->where('ip.start_date', '<=', $priceDate)
-                ->when($clientIds !== [], fn ($query) => $query->whereIn('ip.client_id', $clientIds));
-
-            DB::connection('sakemaru')
-                ->query()
-                ->fromSub($rankedPrices, 'ranked_prices')
-                ->where('ranked_prices.price_rank', 1)
-                ->get(['ranked_prices.item_id', 'ranked_prices.cost_unit_price'])
-                ->each(fn ($price) => $costPrices->put((int) $price->item_id, (float) ($price->cost_unit_price ?? 0)));
-        }
-
-        return $costPrices;
     }
 
     /**
@@ -639,7 +585,7 @@ class AllStoreInventoryDifferenceWorkbookService
                         continue;
                     }
 
-                    $signedAmount = $differenceQuantity * (float) $row['cost_price'];
+                    $signedAmount = round((float) $row['store_amounts'][$storeCode], 2);
                     $categoryRows[] = [
                         'store_code' => $storeCode,
                         'item_code' => $row['item_code'],

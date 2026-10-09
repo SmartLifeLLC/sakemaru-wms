@@ -4,7 +4,9 @@ namespace App\Filament\Resources\WmsInventoryCount\Pages;
 
 use App\Filament\Resources\WmsInventoryCountResource;
 use App\Models\WmsInventoryCount;
+use App\Models\WmsInventoryCountItem;
 use App\Models\WmsInventoryCountItemLog;
+use App\Services\InventoryCount\InventoryCountLocationResolver;
 use Filament\Resources\Pages\Page;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
@@ -112,10 +114,18 @@ class ViewWmsInventoryCountLogs extends Page
         $query = $this->baseLogQuery();
         $this->applyFilters($query);
 
-        return $query
+        $paginator = $query
             ->orderByDesc('wms_inventory_count_item_logs.created_at')
             ->orderByDesc('wms_inventory_count_item_logs.id')
             ->paginate($this->logPerPage, ['wms_inventory_count_item_logs.*'], 'inventory_count_logs_page', $this->logPage);
+
+        $items = $paginator->getCollection()
+            ->map(fn (WmsInventoryCountItemLog $log): ?WmsInventoryCountItem => $log->countItem)
+            ->filter(fn (?WmsInventoryCountItem $item): bool => $item !== null)
+            ->values();
+        (new InventoryCountLocationResolver)->enrich($items, (int) $this->record->warehouse_id);
+
+        return $paginator;
     }
 
     public function totalLogCount(): int

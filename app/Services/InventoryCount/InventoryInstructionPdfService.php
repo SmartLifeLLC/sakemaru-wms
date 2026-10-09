@@ -4,6 +4,7 @@ namespace App\Services\InventoryCount;
 
 use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
+use Illuminate\Support\Facades\Schema;
 use TCPDF;
 
 /**
@@ -81,9 +82,9 @@ class InventoryInstructionPdfService
 
     private const COL_W5 = 45;  // barcode (3 rows)
 
-    private const BARCODE_WIDTH = 42;
+    private const BARCODE_WIDTH = 34;
 
-    private const BARCODE_HEIGHT = 10.5;
+    private const BARCODE_HEIGHT = 7.5;
 
     private TCPDF $pdf;
 
@@ -96,9 +97,9 @@ class InventoryInstructionPdfService
     /**
      * JANブックPDF生成
      */
-    public function generate(WmsInventoryCount $inventoryCount): string
+    public function generate(WmsInventoryCount $inventoryCount, bool $excludeZeroTheory = false): string
     {
-        $items = $this->queryItems($inventoryCount);
+        $items = $this->queryItems($inventoryCount, $excludeZeroTheory);
         $janCodes = (new InventoryJanCodeResolver)->forItems($items);
 
         $this->initPdf();
@@ -156,11 +157,17 @@ class InventoryInstructionPdfService
     /**
      * @return \Illuminate\Database\Eloquent\Collection<WmsInventoryCountItem>
      */
-    private function queryItems(WmsInventoryCount $inventoryCount): \Illuminate\Database\Eloquent\Collection
+    private function queryItems(WmsInventoryCount $inventoryCount, bool $excludeZeroTheory = false): \Illuminate\Database\Eloquent\Collection
     {
-        return WmsInventoryCountItem::where('inventory_count_id', $inventoryCount->id)
+        $query = WmsInventoryCountItem::where('inventory_count_id', $inventoryCount->id)
             ->withoutOwnedSetItems()
-            ->with(['item'])
+            ->with(['item']);
+
+        if ($excludeZeroTheory) {
+            $query->whereRaw($this->systemQuantityExpression().' != 0');
+        }
+
+        $items = $query
             ->orderByRaw("
                 CASE
                     WHEN location_id IS NULL
@@ -175,6 +182,26 @@ class InventoryInstructionPdfService
             ->orderBy('location_code3')
             ->orderBy('item_code')
             ->get();
+
+        return (new InventoryCountLocationResolver)
+            ->enrich($items, (int) $inventoryCount->warehouse_id)
+            ->sortBy(fn (WmsInventoryCountItem $item): array => [
+                InventoryCountLocationResolver::locationNo($item) === InventoryCountLocationResolver::NO_LOCATION_LABEL ? 1 : 0,
+                InventoryCountLocationResolver::locationCode1($item),
+                InventoryCountLocationResolver::locationCode2($item),
+                InventoryCountLocationResolver::locationCode3($item),
+                (string) ($item->item_code ?? ''),
+            ])
+            ->values();
+    }
+
+    private function systemQuantityExpression(): string
+    {
+        if (Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')) {
+            return 'COALESCE(ending_system_quantity, system_quantity)';
+        }
+
+        return 'system_quantity';
     }
 
     private function buildHeader(WmsInventoryCount $inventoryCount): array
@@ -338,7 +365,10 @@ class InventoryInstructionPdfService
         // === JANコード（Row1-3の右端、左右交互）===
         $barcodeAreaX = $x + self::COL_W1 + self::COL_W2 + self::COL_W3 + self::COL_W4;
         $barcodeW = min(self::BARCODE_WIDTH, self::COL_W5 - 3);
-        $barcodeX = $barcodeAreaX + ((self::COL_W5 - $barcodeW) / 2);
+        $barcodeInset = 1.5;
+        $barcodeX = $this->renderedItemCount % 2 === 0
+            ? $barcodeAreaX + $barcodeInset
+            : $barcodeAreaX + self::COL_W5 - $barcodeW - $barcodeInset;
         $barcodeH = self::BARCODE_HEIGHT;
         $barcodeTextH = 3;
         $barcodeTextGap = 1;
@@ -423,20 +453,15 @@ class InventoryInstructionPdfService
 
     private function shelfCode(WmsInventoryCountItem $countItem): string
     {
-        $code = \App\Models\Sakemaru\Location::formatCode(
-            $countItem->location_code1,
-            $countItem->location_code2,
-            $countItem->location_code3,
-            ''
-        );
-
-        return $code !== '' ? $code : (string) ($countItem->location_no ?? '');
+        return InventoryCountLocationResolver::locationNo($countItem);
     }
 
     private function shelfPagePrefix(WmsInventoryCountItem $countItem): string
     {
         $shelfCode = $this->shelfCode($countItem);
 
-        return mb_substr($shelfCode, 0, 2);
+        return $shelfCode === InventoryCountLocationResolver::NO_LOCATION_LABEL
+            ? $shelfCode
+            : mb_substr($shelfCode, 0, 2);
     }
 }

@@ -7,6 +7,7 @@ use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
 use App\Models\WmsInventoryCountItemLog;
 use App\Models\WmsInventoryCountRescueData;
+use App\Services\InventoryCount\InventoryCountLocationResolver;
 use App\Services\InventoryCount\InventoryCountService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -159,9 +160,13 @@ class InventoryCountController extends ApiController
 
         $perPage = min((int) $request->input('per_page', 500), 500);
         $paginator = $query->paginate($perPage, ['*'], 'page', $request->input('page', 1));
+        $items = (new InventoryCountLocationResolver)->enrich(
+            collect($paginator->items()),
+            (int) $count->warehouse_id,
+        );
 
         return $this->success([
-            'items' => collect($paginator->items())
+            'items' => $items
                 ->map(fn (WmsInventoryCountItem $item) => $this->itemPayload($item, $request->boolean('compact')))
                 ->values()
                 ->all(),
@@ -290,6 +295,7 @@ class InventoryCountController extends ApiController
             ->orderBy('location_code3')
             ->limit(50)
             ->get();
+        $items = (new InventoryCountLocationResolver)->enrich($items, (int) $count->warehouse_id);
 
         return $this->success([
             'items' => $items->map(fn (WmsInventoryCountItem $item) => $this->itemPayload($item))->values()->all(),
@@ -303,6 +309,11 @@ class InventoryCountController extends ApiController
      */
     public function count(Request $request, int $itemId): JsonResponse
     {
+        return DB::connection('sakemaru')->transaction(fn (): JsonResponse => $this->countWithinTransaction($request, $itemId));
+    }
+
+    private function countWithinTransaction(Request $request, int $itemId): JsonResponse
+    {
         $countItem = WmsInventoryCountItem::query()
             ->withoutOwnedSetItems()
             ->find($itemId);
@@ -312,7 +323,7 @@ class InventoryCountController extends ApiController
         }
 
         // Verify parent inventory count is in counting status
-        $inventoryCount = WmsInventoryCount::find($countItem->inventory_count_id);
+        $inventoryCount = WmsInventoryCount::query()->lockForUpdate()->find($countItem->inventory_count_id);
         if (! $inventoryCount || ! $this->isHandyCountable($inventoryCount)) {
             return $this->error('この棚卸はカウント中ではありません', 422, 'INVALID_STATUS');
         }
@@ -357,14 +368,20 @@ class InventoryCountController extends ApiController
             accumulate: true,
         );
 
-        return $this->success([
-            'item' => $this->itemPayload($countItem->refresh()),
-        ]);
+        $updatedItem = $countItem->refresh();
+        (new InventoryCountLocationResolver)->enrich(collect([$updatedItem]), (int) $inventoryCount->warehouse_id);
+
+        return $this->success(['item' => $this->itemPayload($updatedItem)]);
     }
 
     public function bulkCount(Request $request, int $id): JsonResponse
     {
-        $count = WmsInventoryCount::find($id);
+        return DB::connection('sakemaru')->transaction(fn (): JsonResponse => $this->bulkCountWithinTransaction($request, $id));
+    }
+
+    private function bulkCountWithinTransaction(Request $request, int $id): JsonResponse
+    {
+        $count = WmsInventoryCount::query()->lockForUpdate()->find($id);
 
         if (! $count) {
             return $this->notFound('棚卸データが見つかりません');
@@ -397,7 +414,7 @@ class InventoryCountController extends ApiController
         $round = (int) $request->input('count_round');
         $picker = $request->user();
         $userId = $picker ? $picker->id : null;
-        $updated = [];
+        $updatedItems = collect();
         $missingItemIds = [];
         $rows = $request->input('items', []);
 
@@ -431,8 +448,17 @@ class InventoryCountController extends ApiController
                 accumulate: true,
             );
 
-            $updated[] = $this->itemPayload($updatedItem->refresh(), true);
+            $updatedItems->push($updatedItem->refresh());
         }
+
+        $updatedItems = (new InventoryCountLocationResolver)->enrich(
+            $updatedItems,
+            (int) $count->warehouse_id,
+        );
+        $updated = $updatedItems
+            ->map(fn (WmsInventoryCountItem $item): array => $this->itemPayload($item, true))
+            ->values()
+            ->all();
 
         Log::info('Inventory bulk count received', [
             'inventory_count_id' => $count->id,
@@ -615,7 +641,7 @@ class InventoryCountController extends ApiController
                 $item->item_code,
                 $item->item_name,
                 $item->barcode,
-                $item->location_no,
+                InventoryCountLocationResolver::locationNo($item),
                 ...array_column($searchCodes, 'c'),
             ])))),
             'item_id' => $item->item_id,
@@ -628,12 +654,12 @@ class InventoryCountController extends ApiController
             'capacity_case' => $capacityCase,
             'capacity_carton' => $master?->capacity_carton !== null ? (int) $master->capacity_carton : null,
             'location' => [
-                'id' => $item->location_id,
-                'floor_name' => $item->floor_name,
-                'location_no' => $item->location_no,
-                'code1' => $item->location_code1,
-                'code2' => $item->location_code2,
-                'code3' => $item->location_code3,
+                'id' => $item->getAttribute('report_location_id') ?? $item->location_id,
+                'floor_name' => InventoryCountLocationResolver::floorName($item),
+                'location_no' => InventoryCountLocationResolver::locationNo($item),
+                'code1' => InventoryCountLocationResolver::locationCode1($item),
+                'code2' => InventoryCountLocationResolver::locationCode2($item),
+                'code3' => InventoryCountLocationResolver::locationCode3($item),
             ],
             'system_quantity' => $systemQuantity,
             'system_quantity_start' => $systemQuantity,
@@ -868,10 +894,8 @@ class InventoryCountController extends ApiController
             return;
         }
 
-        $count->forceFill([
-            'status' => WmsInventoryCount::STATUS_COUNTING,
-            'started_at' => now(),
-        ])->save();
+        $this->inventoryCountService->startCounting($count);
+        $count->refresh();
     }
 
     private function inventoryCountItemsQuery(int $inventoryCountId): \Illuminate\Database\Eloquent\Builder

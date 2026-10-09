@@ -107,11 +107,14 @@ class InventoryDifferenceWorkbookService
      */
     private function queryItems(WmsInventoryCount $inventoryCount): Collection
     {
-        return WmsInventoryCountItem::query()
+        $items = WmsInventoryCountItem::query()
             ->where('inventory_count_id', $inventoryCount->id)
             ->withoutOwnedSetItems()
             ->with(['inventoryCount', 'item.item_category1', 'item.item_category2', 'item.item_category3'])
-            ->get()
+            ->get();
+
+        return (new InventoryCountLocationResolver)
+            ->enrich($items, (int) $inventoryCount->warehouse_id)
             ->sort($this->inventoryItemSorter(...))
             ->values();
     }
@@ -529,7 +532,7 @@ class InventoryDifferenceWorkbookService
             : null;
         $difference ??= $quantity - $systemQuantity;
         $difference = (int) $difference;
-        $differenceAmount = $costPrice === null ? null : $difference * $costPrice;
+        $differenceAmount = $costPrice === null ? null : round($difference * $costPrice, 2);
 
         return [
             'quantity' => $quantity,
@@ -582,6 +585,10 @@ class InventoryDifferenceWorkbookService
 
     private function costPrice(WmsInventoryCountItem $item, Collection $costPrices): ?float
     {
+        if ($this->isManagedStockItem($item)) {
+            return (float) $item->cost_price;
+        }
+
         if ($item->item_id === null) {
             return null;
         }
@@ -595,6 +602,8 @@ class InventoryDifferenceWorkbookService
      */
     private function costPricesByItem(Collection $items, WmsInventoryCount $inventoryCount): Collection
     {
+        // Only unmanaged CP valuation uses current selling prices; differences use saved costs.
+        $items = $items->reject(fn (WmsInventoryCountItem $item): bool => $this->isManagedStockItem($item));
         $itemIds = $items
             ->pluck('item_id')
             ->filter(fn ($itemId): bool => $itemId !== null)
@@ -655,7 +664,7 @@ class InventoryDifferenceWorkbookService
     }
 
     /**
-     * 管理品は棚卸終了理論数×現在原価、非管理品は棚卸終了理論数×現在販売価格×分類原価率で評価する。
+     * 管理品は棚卸終了理論数×保存原価、非管理品は棚卸終了理論数×現在販売価格×分類原価率で評価する。
      *
      * @param  Collection<int, WmsInventoryCountItem>  $items
      * @param  Collection<int, float>  $costPrices
@@ -739,17 +748,19 @@ class InventoryDifferenceWorkbookService
     private function inventoryItemSortValues(WmsInventoryCountItem $item): array
     {
         $inventoryCount = $item->inventoryCount;
-        $locationMissing = $item->location_id === null
-            || trim((string) ($item->location_no ?? '')) === ''
-            || trim((string) ($item->location_code1 ?? '')) === '' ? 1 : 0;
+        $locationNo = InventoryCountLocationResolver::locationNo($item);
+        $locationCode1 = InventoryCountLocationResolver::locationCode1($item);
+        $locationCode2 = InventoryCountLocationResolver::locationCode2($item);
+        $locationCode3 = InventoryCountLocationResolver::locationCode3($item);
+        $locationMissing = $locationNo === InventoryCountLocationResolver::NO_LOCATION_LABEL ? 1 : 0;
 
         if ($inventoryCount instanceof WmsInventoryCount && $this->isWarehouse91($inventoryCount)) {
             return [
                 $locationMissing,
                 $this->shelfPrefix($item) ?? '',
-                (string) ($item->location_code1 ?? ''),
-                (string) ($item->location_code2 ?? ''),
-                (string) ($item->location_code3 ?? ''),
+                $locationCode1,
+                $locationCode2,
+                $locationCode3,
                 (string) ($item->item_code ?? ''),
                 (int) $item->id,
             ];
@@ -758,9 +769,9 @@ class InventoryDifferenceWorkbookService
         return [
             ...$this->middleCategorySortValues($item),
             $locationMissing,
-            (string) ($item->location_code1 ?? ''),
-            (string) ($item->location_code2 ?? ''),
-            (string) ($item->location_code3 ?? ''),
+            $locationCode1,
+            $locationCode2,
+            $locationCode3,
             (string) ($item->item_code ?? ''),
             (int) $item->id,
         ];
@@ -774,9 +785,11 @@ class InventoryDifferenceWorkbookService
 
     private function shelfPrefix(WmsInventoryCountItem $item): ?string
     {
-        $locationNo = trim((string) ($item->location_no ?? ''));
+        $locationNo = InventoryCountLocationResolver::locationNo($item);
 
-        return $locationNo === '' ? null : mb_substr($locationNo, 0, 2);
+        return $locationNo === InventoryCountLocationResolver::NO_LOCATION_LABEL
+            ? $locationNo
+            : mb_substr($locationNo, 0, 2);
     }
 
     private function middleCategory(WmsInventoryCountItem $item): ?ItemCategory

@@ -20,6 +20,7 @@
         '納品予定数' => '既に発注済みで、まだ入荷完了またはキャンセルされていない納品予定数です。',
         '納品予定日' => '既に発注済みの最新発注日に紐づく本来の納品予定日です。入荷確定済みでも表示します。',
         '最終発注日' => 'この商品の直近の発注日です。',
+        '実績合計' => '画面上部で指定した販売実績期間の出荷実績合計（バラ換算）です。',
         '1週' => '基準日を含む直近7日間の販売数量です。',
         '2週' => '1週の前の7日間の販売数量です。',
         '3週' => '2週の前の7日間の販売数量です。',
@@ -50,6 +51,8 @@
         conditions: {},
         orderChannel: 'AUTO',
         channelControlled: false,
+        submitting: false,
+        submitError: null,
         today: @js($today),
         fallbackExpectedArrivalDate: @js($defaultExpectedArrivalDate),
         expectedArrivalDate: @js($conditions['expected_arrival_date'] ?? $defaultExpectedArrivalDate),
@@ -128,7 +131,6 @@
         },
         syncExpectedArrivalDate() {
             this.conditions.expected_arrival_date = this.expectedArrivalDate;
-            $wire.updateSalesBasedExternalOrderPreviewExpectedArrivalDate(this.expectedArrivalDate);
         },
         initExpectedArrivalDate() {
             this.expectedArrivalDisplayValue = this.expectedArrivalDate || '';
@@ -219,7 +221,6 @@
             this.expectedArrivalPreviousValue = value || '';
             this.applyExpectedArrivalDateToRows(this.expectedArrivalDate);
             this.syncExpectedArrivalDate();
-            this.sync();
         },
         applyExpectedArrivalDateToRows(value) {
             if (!value) return;
@@ -240,7 +241,6 @@
             const fallback = this.expectedArrivalDate || this.fallbackExpectedArrivalDate;
             const date = value || row.default_expected_arrival_date || fallback;
             row.default_expected_arrival_date = date < this.today ? this.today : date;
-            this.sync();
         },
         restoreExpectedArrivalDate() {
             this.expectedArrivalDisplayValue = this.expectedArrivalPreviousValue || '';
@@ -261,11 +261,54 @@
 
             picker.click();
         },
-        sync() {
-            this.rows.forEach((row) => {
-                this.rowExpectedArrivalDateFor(row);
+        submitInputs() {
+            const normalizeQuantity = (value) => (value === null || value === undefined || value === '') ? null : String(value);
+
+            return this.rows
+                .map((row, index) => ({
+                    index,
+                    item_id: Number(row.item_id || 0),
+                    contractor_id: Number(row.contractor_id || 0),
+                    case_qty: normalizeQuantity(row.input_order_case_qty),
+                    piece_qty: normalizeQuantity(row.input_order_piece_qty),
+                    expected_arrival_date: this.rowExpectedArrivalDateFor(row),
+                }))
+                .filter((input) => input.case_qty !== null || input.piece_qty !== null);
+        },
+        async submit() {
+            if (this.submitting) return;
+
+            const inputs = this.submitInputs();
+            if (inputs.length === 0) {
+                this.submitError = '数量が入力された候補がありません。ケースまたはバラに数量を入力してください。';
+                return;
+            }
+
+            this.submitError = null;
+            this.submitting = true;
+
+            // Livewire は通信失敗時に呼び出しの Promise を解決しないため、失敗フックで確実にローディングを解除する。
+            let unhook = () => {};
+            unhook = Livewire.hook('request', ({ fail }) => {
+                fail(() => {
+                    unhook();
+                    this.submitting = false;
+                    this.submitError = '通信エラーのため登録リストに追加できませんでした。もう一度「登録リストに追加」を押してください。';
+                });
             });
-            $wire.updateSalesBasedExternalOrderPreviewRows(this.rows);
+
+            try {
+                const result = await $wire.addSalesBasedExternalOrderPreviewRowsToRegistration(inputs, this.expectedArrivalDate || null);
+                if (result && Number(result.created || 0) <= 0) {
+                    this.submitError = result.message || '登録リストに追加できませんでした。';
+                }
+            } catch (error) {
+                console.error('登録リストへの追加に失敗しました。', error);
+                this.submitError = '登録リストに追加できませんでした。もう一度お試しください。';
+            } finally {
+                unhook();
+                this.submitting = false;
+            }
         },
         cleanQuantity(row, field, oppositeField) {
             let value = String(row[field] ?? '');
@@ -278,7 +321,6 @@
         },
         commitQuantity(row, field, oppositeField) {
             this.cleanQuantity(row, field, oppositeField);
-            this.sync();
         },
         focusNextInput(event) {
             this.$nextTick(() => {
@@ -316,7 +358,7 @@
         },
     }"
     x-init="initSalesPreview()"
-    class="space-y-3"
+    class="relative flex min-h-0 flex-1 flex-col"
 >
     <div
         x-cloak
@@ -346,6 +388,7 @@
         </div>
     </div>
 
+    <div class="min-h-0 flex-1 space-y-3 overflow-auto p-4">
     <div class="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
         <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
             <label class="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
@@ -429,7 +472,7 @@
 
     <div x-show="rows.length > 0">
         <div class="max-h-[58vh] overflow-auto rounded-md border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-            <table class="logistics-candidate-table divide-y divide-slate-200 text-xs dark:divide-slate-700" style="table-layout: fixed; width: 1660px; min-width: 1660px;">
+            <table class="logistics-candidate-table divide-y divide-slate-200 text-xs dark:divide-slate-700" style="table-layout: fixed; width: 1714px; min-width: 1714px;">
                 <colgroup>
                     <col class="logistics-candidate-contractor-col" style="width: 180px !important;">
                     <col class="logistics-candidate-code-col" style="width: 64px !important;">
@@ -443,11 +486,12 @@
                     <col class="logistics-candidate-number-col" style="width: 92px !important;">
                     <col class="logistics-candidate-number-col" style="width: 110px !important;">
                     <col class="logistics-candidate-date-col" style="width: 136px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
                     <col class="logistics-candidate-date-col" style="width: 136px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
                     <col class="logistics-candidate-number-col" style="width: 54px !important;">
                 </colgroup>
                 <thead class="sticky top-0 z-10 bg-slate-100 text-slate-700 shadow-sm dark:bg-slate-800 dark:text-slate-200">
@@ -474,11 +518,12 @@
                                 <x-order-registration.column-help-heading label="納品予定日" align="center" />
                             </div>
                         </th>
-                        <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold"><x-order-registration.column-help-heading label="予定日" align="center" /></th>
+                        <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="実績合計" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="1週" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="2週" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="3週" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="前月" align="right" /></th>
+                        <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold"><x-order-registration.column-help-heading label="予定日" align="center" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold"><x-order-registration.column-help-heading label="備考" align="center" /></th>
                     </tr>
                 </thead>
@@ -520,7 +565,7 @@
                                     x-model="row.input_order_case_qty"
                                     x-bind:disabled="isRowDisabled(row)"
                                     x-on:focus="$event.target.select()"
-                                    x-on:input.debounce.150ms="cleanQuantity(row, 'input_order_case_qty', 'input_order_piece_qty'); sync()"
+                                    x-on:input.debounce.150ms="cleanQuantity(row, 'input_order_case_qty', 'input_order_piece_qty')"
                                     x-on:blur="commitQuantity(row, 'input_order_case_qty', 'input_order_piece_qty')"
                                     x-on:change="commitQuantity(row, 'input_order_case_qty', 'input_order_piece_qty')"
                                     x-on:keydown.arrow-up.prevent="commitQuantity(row, 'input_order_case_qty', 'input_order_piece_qty'); focusAdjacentInput($event, 'up')"
@@ -542,7 +587,7 @@
                                     x-model="row.input_order_piece_qty"
                                     x-bind:disabled="isRowDisabled(row)"
                                     x-on:focus="$event.target.select()"
-                                    x-on:input.debounce.150ms="cleanQuantity(row, 'input_order_piece_qty', 'input_order_case_qty'); sync()"
+                                    x-on:input.debounce.150ms="cleanQuantity(row, 'input_order_piece_qty', 'input_order_case_qty')"
                                     x-on:blur="commitQuantity(row, 'input_order_piece_qty', 'input_order_case_qty')"
                                     x-on:change="commitQuantity(row, 'input_order_piece_qty', 'input_order_case_qty')"
                                     x-on:keydown.arrow-up.prevent="commitQuantity(row, 'input_order_piece_qty', 'input_order_case_qty'); focusAdjacentInput($event, 'up')"
@@ -579,6 +624,11 @@
                                     <div x-text="formatShortDate(row.incoming_expected_arrival_date)"></div>
                                 </div>
                             </td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono font-semibold text-slate-900 dark:text-white" x-text="formatNumber(row.sales_qty)"></td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.sales_week1_qty)"></td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.sales_week2_qty)"></td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.sales_week3_qty)"></td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.previous_month_sales_qty)"></td>
                             <td class="whitespace-nowrap px-1 py-1.5 text-center">
                                 <input
                                     type="date"
@@ -588,10 +638,6 @@
                                     class="w-[128px] rounded-md border border-slate-300 bg-white px-1 py-0.5 text-xs font-mono text-slate-900 shadow-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-primary-500 dark:focus:ring-primary-900 dark:disabled:border-slate-700 dark:disabled:bg-slate-800"
                                 >
                             </td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.sales_week1_qty)"></td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.sales_week2_qty)"></td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.sales_week3_qty)"></td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.previous_month_sales_qty)"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-center">
                                 <button type="button" x-on:click.stop="openNoteModal(row.item_contractor_note)" class="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">表示</button>
                             </td>
@@ -600,5 +646,43 @@
                 </tbody>
             </table>
         </div>
+    </div>
+    </div>
+
+    <div
+        x-cloak
+        x-show="submitting"
+        class="absolute inset-0 z-20 flex items-center justify-center bg-white/70 dark:bg-gray-900/70"
+    >
+        <div class="flex items-center gap-3 rounded-md border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-800 shadow-lg dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+            <span class="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-danger-600"></span>
+            登録リストに追加しています…
+        </div>
+    </div>
+
+    <div class="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800">
+        <p
+            x-cloak
+            x-show="submitError"
+            x-text="submitError"
+            class="mr-auto whitespace-pre-line text-sm font-semibold text-danger-600 dark:text-danger-400"
+        ></p>
+        <button
+            type="button"
+            x-bind:disabled="submitting"
+            x-on:click="if (!submitting && confirm('外部発注候補リストを閉じますか？入力中の内容は破棄されます。')) { $wire.closeSalesBasedExternalOrderPreviewModal() }"
+            class="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+        >
+            閉じる
+        </button>
+        <button
+            type="button"
+            x-bind:disabled="submitting"
+            x-on:click="submit()"
+            class="inline-flex items-center gap-2 rounded-md bg-danger-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-danger-500 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+            <span x-cloak x-show="submitting" class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"></span>
+            <span x-text="submitting ? '追加中…' : '登録リストに追加'"></span>
+        </button>
     </div>
 </div>

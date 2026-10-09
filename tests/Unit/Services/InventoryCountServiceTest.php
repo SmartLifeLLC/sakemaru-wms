@@ -105,6 +105,23 @@ class InventoryCountServiceTest extends TestCase
         $clientId = (int) $item->client_id;
         $warehouseId = 990130;
         $realStockId = $this->createRealStock($item->id, 0, $clientId, $warehouseId);
+        $defaultLocationId = DB::connection('sakemaru')->table('locations')->insertGetId([
+            'client_id' => $clientId,
+            'warehouse_id' => $warehouseId,
+            'code1' => 'T',
+            'code2' => '01',
+            'code3' => '001',
+            'name' => '棚卸既定棚番テスト',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::connection('sakemaru')->table('item_incoming_default_locations')->insert([
+            'warehouse_id' => $warehouseId,
+            'item_id' => $item->id,
+            'location_id' => $defaultLocationId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
         $inventoryCount = WmsInventoryCount::create([
             'count_no' => 'TST-'.Str::upper(Str::random(12)),
@@ -128,6 +145,73 @@ class InventoryCountServiceTest extends TestCase
         $this->assertSame($item->id, $countItem->item_id);
         $this->assertSame(0, $countItem->system_quantity);
         $this->assertSame(0, $countItem->ending_system_quantity);
+        $this->assertSame($defaultLocationId, $countItem->location_id);
+        $this->assertSame('T01001', $countItem->location_no);
+    }
+
+    public function test_take_snapshot_prefers_default_location_over_active_lot_location(): void
+    {
+        $items = $this->ledgerTestItems();
+        if ($items->isEmpty()) {
+            $this->markTestSkipped('items table does not have enough ledger-testable rows.');
+        }
+
+        $item = $items[0];
+        $clientId = (int) $item->client_id;
+        $warehouseId = 990131;
+        $realStockId = $this->createRealStock($item->id, 1, $clientId, $warehouseId);
+        $lotLocationId = DB::connection('sakemaru')->table('locations')->insertGetId([
+            'client_id' => $clientId,
+            'warehouse_id' => $warehouseId,
+            'code1' => 'L',
+            'code2' => '01',
+            'code3' => '001',
+            'name' => '棚卸ロット棚番テスト',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $defaultLocationId = DB::connection('sakemaru')->table('locations')->insertGetId([
+            'client_id' => $clientId,
+            'warehouse_id' => $warehouseId,
+            'code1' => 'D',
+            'code2' => '02',
+            'code3' => '002',
+            'name' => '棚卸既定棚番優先テスト',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $realStockLotId = $this->createRealStockLot($realStockId, 1);
+        DB::connection('sakemaru')->table('real_stock_lots')
+            ->where('id', $realStockLotId)
+            ->update(['location_id' => $lotLocationId]);
+        DB::connection('sakemaru')->table('item_incoming_default_locations')->insert([
+            'warehouse_id' => $warehouseId,
+            'item_id' => $item->id,
+            'location_id' => $defaultLocationId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => $clientId,
+            'warehouse_id' => $warehouseId,
+            'warehouse_code' => (string) $warehouseId,
+            'warehouse_name' => '既定棚番優先テスト倉庫',
+            'count_date' => InventoryCountLedgerBalanceService::OPENING_DATE,
+            'status' => WmsInventoryCount::STATUS_DRAFT,
+        ]);
+
+        (new InventoryCountService)->takeSnapshot($inventoryCount);
+
+        $countItem = WmsInventoryCountItem::query()
+            ->where('inventory_count_id', $inventoryCount->id)
+            ->where('real_stock_id', $realStockId)
+            ->first();
+
+        $this->assertNotNull($countItem);
+        $this->assertSame($defaultLocationId, $countItem->location_id);
+        $this->assertSame('D02002', $countItem->location_no);
     }
 
     public function test_add_single_item_uses_ledger_balance_for_starting_system_quantity(): void
@@ -818,7 +902,7 @@ class InventoryCountServiceTest extends TestCase
         $this->assertSame('8.000', (string) $insertedBackup->new_ending_system_quantity);
     }
 
-    public function test_ledger_balance_counts_transfer_inbound_by_delivered_date_without_delivered_flag_filter(): void
+    public function test_ledger_balance_counts_only_delivered_transfer_inbound_by_delivered_date(): void
     {
         foreach ([
             'trades',
@@ -847,7 +931,11 @@ class InventoryCountServiceTest extends TestCase
 
         $balances = (new InventoryCountLedgerBalanceService)->balancesByItem($clientId, $warehouseId, $endDate);
 
-        $this->assertSame(12.0, $balances[(int) $item->id] ?? null);
+        $this->assertSame(5.0, $balances[(int) $item->id] ?? null);
+        // 最終確定の伝票残高は基幹受払に合わせるが、棚卸理論の入庫完了条件は維持する。
+        $adjustmentBalances = (new InventoryCountLedgerBalanceService)->balancesBeforeAdjustmentByItem($clientId, $warehouseId, $endDate);
+        $this->assertSame(12.0, $adjustmentBalances[(int) $item->id] ?? null);
+        $this->assertSame(5.0, (new InventoryCountLedgerBalanceService)->balancesByItem($clientId, $warehouseId, $endDate)[(int) $item->id]);
     }
 
     public function test_ledger_balance_counts_transfer_outbound_by_picking_date_with_process_date_fallback(): void
@@ -1310,7 +1398,7 @@ class InventoryCountServiceTest extends TestCase
         $this->assertNotNull($inventoryCount->stock_movement_calculated_at);
     }
 
-    public function test_confirm_is_currently_disabled(): void
+    public function test_confirm_requires_confirmed_round(): void
     {
         $clientId = (int) DB::connection('sakemaru')->table('clients')->value('id');
         if ($clientId <= 0) {
@@ -1345,10 +1433,10 @@ class InventoryCountServiceTest extends TestCase
         ]);
 
         try {
-            (new InventoryCountService)->confirm($inventoryCount, 1);
-            $this->fail('棚卸し確定は現在利用不可である必要があります。');
-        } catch (\RuntimeException $e) {
-            $this->assertSame(InventoryCountService::CONFIRM_DISABLED_MESSAGE, $e->getMessage());
+            (new InventoryCountService)->confirm($inventoryCount, 1, '2026-06-19', 'invalid');
+            $this->fail('3回目未確定の棚卸しを最終確定できません。');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->assertStringContainsString('確定後、その回を選択', $e->getMessage());
         }
 
         $inventoryCount->refresh();

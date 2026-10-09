@@ -125,6 +125,7 @@ html.fi {
 
 /* mega-menu(2.5rem)に合わせてメインコンテンツの高さを調整 */
 .fi-body.fi-body-has-topbar .fi-main-ctn {
+    height: calc(100dvh - 2.5rem) !important;
     min-height: calc(100dvh - 2.5rem) !important;
 }
 
@@ -1274,6 +1275,12 @@ html.fi {
     z-index: 30;
 }
 
+/* フィルタ展開時にページスクロールを発生させず、ドロップダウン内でスクロールする */
+.fi-ta-header-ctn .fi-ta-filters {
+    max-height: 32rem;
+    overflow-y: auto;
+}
+
 /* テーブルコンテンツ: ここだけスクロール */
 .fi-ta .fi-ta-content-ctn {
     flex: 1;
@@ -1305,6 +1312,51 @@ html.fi {
 .fi-ta-col-manager-items {
     columns: 2 !important;
     column-gap: 1.5rem !important;
+}
+
+/* 入荷予定: カラム一覧だけをスクロールし、適用ボタンを常時表示する */
+.incoming-schedules-table .fi-ta-col-manager-dropdown .fi-dropdown-panel {
+    display: flex;
+    height: min(32rem, calc(100dvh - 14rem));
+    overflow-y: hidden;
+}
+
+.incoming-schedules-table .fi-ta-col-manager,
+.incoming-schedules-table .fi-ta-col-manager-ctn {
+    min-height: 0;
+    height: 100%;
+}
+
+.incoming-schedules-table .fi-ta-col-manager {
+    flex: 1;
+}
+
+.incoming-schedules-table .fi-ta-col-manager-ctn {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.incoming-schedules-table .fi-ta-col-manager-items {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+    columns: auto !important;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    padding-right: 0.5rem;
+    scrollbar-gutter: stable;
+}
+
+.incoming-schedules-table .fi-ta-col-manager-apply-action-ctn {
+    border-top: 1px solid rgb(229, 231, 235);
+    padding-top: 1rem;
+    background-color: white;
+}
+
+.dark .incoming-schedules-table .fi-ta-col-manager-apply-action-ctn {
+    border-top-color: rgba(255, 255, 255, 0.1);
+    background-color: rgb(17, 24, 39);
 }
 
 /* 一括変更モーダル（コース・入荷日） */

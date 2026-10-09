@@ -21,6 +21,33 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
 
     protected $connectionsToTransact = ['sakemaru'];
 
+    public function test_saved_cost_is_used_per_detail_even_when_master_is_missing_or_changed(): void
+    {
+        $service = new InventoryDifferenceWorkbookService;
+        $count = new WmsInventoryCount(['count_date' => '2026-08-19', 'second_count_confirmed_at' => now()]);
+        $rowMethod = new \ReflectionMethod($service, 'buildDiffRow');
+        foreach ([10.25, 21.43, 0, null] as $savedCost) {
+            $item = new WmsInventoryCountItem([
+                'item_id' => 123,
+                'cost_price' => $savedCost,
+                'system_quantity' => 10,
+                'ending_system_quantity' => 20,
+                'second_count_quantity' => 7,
+                'second_count_confirmed_system_quantity' => 10,
+                'second_count_confirmed_difference_quantity' => -3,
+            ]);
+            $item->setRelation('item', null);
+            foreach ([collect([123 => 999]), collect()] as $masterPrices) {
+                $row = $rowMethod->invoke($service, $count, $item, $masterPrices, 2);
+                $this->assertSame((float) $savedCost, $row['原価']);
+                $this->assertSame(-3, $row['2回目±差異']);
+                $this->assertSame(round(-3 * (float) $savedCost, 2), $row['2回目±差異金額']);
+                $this->assertSame(abs(round(-3 * (float) $savedCost, 2)), $row['2回目絶対差異金額']);
+                $this->assertEquals(20 * (float) $savedCost, $row['CP在庫金額']);
+            }
+        }
+    }
+
     public function test_difference_workbook_exports_diff_and_uncounted_sheets(): void
     {
         $this->travelTo(CarbonImmutable::parse('2026-08-20 10:00:00'));
@@ -51,7 +78,7 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $this->createItemPrice($targetItemId, '2026-08-19', 25);
         $this->createItemPrice($targetItemId, '2026-08-19', 999, false);
         $this->createItemPrice($targetItemId, '2026-08-20', 500);
-        $expectedCostPrice = 500;
+        $expectedCostPrice = 10;
         $expectedNonManagedCostPrice = Schema::connection('sakemaru')->hasColumn('item_categories', 'cost_rate') ? 80 : 0;
         $expectedNonManagedStockAmount = 13 * $expectedNonManagedCostPrice;
         $expectedMajorStockAmount = (40 * $expectedCostPrice) + $expectedNonManagedStockAmount;
@@ -278,7 +305,7 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertEquals(-17 * $expectedCostPrice, $departmentSheet->getCell('N4')->getValue());
         $this->assertSame('合計', $departmentSheet->getCell('C8')->getValue());
         $this->assertSame(6, $departmentSheet->getCell('L8')->getValue());
-        $this->assertEquals($expectedMajorStockAmount, $departmentSheet->getCell('D8')->getValue());
+        $this->assertEquals($expectedMajorStockAmount + 120, $departmentSheet->getCell('D8')->getValue());
 
         $absoluteDepartmentSheet = $workbook->getSheetByName('部門別(絶対値)');
         $this->assertSame('26.8月実施　在庫差異状況一覧＜絶対値＞', $absoluteDepartmentSheet->getCell('B1')->getValue());
@@ -300,7 +327,7 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertEquals(-17 * $expectedCostPrice, $executiveSheet->getCell('E5')->getValue());
         $this->assertEquals(17 * $expectedCostPrice, $executiveSheet->getCell('G5')->getValue());
         $this->assertSame('合計', $executiveSheet->getCell('C9')->getValue());
-        $this->assertEquals($expectedMajorStockAmount, $executiveSheet->getCell('D9')->getValue());
+        $this->assertEquals($expectedMajorStockAmount + 120, $executiveSheet->getCell('D9')->getValue());
         $this->assertEquals(-17 * $expectedCostPrice, $executiveSheet->getCell('E9')->getValue());
         $this->assertEquals(17 * $expectedCostPrice, $executiveSheet->getCell('G9')->getValue());
 
@@ -308,7 +335,7 @@ class InventoryDifferenceWorkbookServiceTest extends TestCase
         $this->assertArrayHasKey('全体', $summaryRows);
         $this->assertArrayHasKey('差異あり', $summaryRows);
         $this->assertArrayHasKey('未棚', $summaryRows);
-        $this->assertEquals((40 * $expectedCostPrice) + $expectedNonManagedStockAmount, $summaryRows['全体']['CP在庫金額']);
+        $this->assertEquals((40 * $expectedCostPrice) + $expectedNonManagedStockAmount + 170, $summaryRows['全体']['CP在庫金額']);
         $this->assertEquals(28 * $expectedCostPrice, $summaryRows['差異あり']['CP在庫金額']);
         $this->assertEquals(16 * $expectedCostPrice, $summaryRows['未棚']['CP在庫金額']);
         $this->assertEquals(-18 * $expectedCostPrice, $summaryRows['全体']['1回目±差異金額']);

@@ -7,7 +7,9 @@ use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class WmsInventoryCount extends WmsModel
 {
@@ -48,6 +50,8 @@ class WmsInventoryCount extends WmsModel
         'stock_adjustment_created_at',
         'stock_adjustment_error_message',
         'inventory_adjustment_request_id',
+        'inventory_adjustment_date',
+        'inventory_adjustment_count_round',
         'inventory_adjustment_request_ids',
         'inventory_adjustment_queue_id',
         'inventory_adjustment_queue_ids',
@@ -83,6 +87,8 @@ class WmsInventoryCount extends WmsModel
         'inventory_adjustment_queue_ids' => 'array',
         'inventory_adjustment_queue_count' => 'integer',
         'inventory_adjustment_created_at' => 'datetime',
+        'inventory_adjustment_date' => 'date',
+        'inventory_adjustment_count_round' => 'integer',
         'first_count_confirmed_at' => 'datetime',
         'second_count_confirmed_at' => 'datetime',
         'final_count_confirmed_at' => 'datetime',
@@ -252,17 +258,32 @@ class WmsInventoryCount extends WmsModel
 
     public function enableHandyReception(): void
     {
-        static::where('warehouse_id', $this->warehouse_id)
-            ->where('id', '!=', $this->id)
-            ->where('handy_reception', true)
-            ->update(['handy_reception' => false]);
+        DB::connection('sakemaru')->transaction(function (): void {
+            $locked = static::query()->whereKey($this->id)->lockForUpdate()->firstOrFail();
+            if (! $locked->canToggleHandyReception()) {
+                throw ValidationException::withMessages(['inventory_count' => 'この棚卸しはHANDY受付を開始できません。']);
+            }
 
-        $this->update(['handy_reception' => true]);
+            static::where('warehouse_id', $this->warehouse_id)
+                ->where('id', '!=', $this->id)
+                ->where('handy_reception', true)
+                ->update(['handy_reception' => false]);
+
+            $locked->update(['handy_reception' => true]);
+            $this->refresh();
+        });
     }
 
     public function disableHandyReception(): void
     {
-        $this->update(['handy_reception' => false]);
+        DB::connection('sakemaru')->transaction(function (): void {
+            $locked = static::query()->whereKey($this->id)->lockForUpdate()->firstOrFail();
+            if ($locked->status === self::STATUS_CONFIRMED) {
+                return;
+            }
+            $locked->update(['handy_reception' => false]);
+            $this->refresh();
+        });
     }
 
     public function canToggleHandyReception(): bool

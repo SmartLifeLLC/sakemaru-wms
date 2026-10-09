@@ -189,6 +189,65 @@ class WmsStockTransferCandidate extends WmsModel
         return $this->calculationLog?->safety_stock_setting ?? null;
     }
 
+    /**
+     * 発注数量をバラ数に換算する。
+     *
+     * transfer_quantity は quantity_type の単位（ケース発注ならケース数）で持っているので、
+     * 在庫や需要と比べるときは必ずこの値を使う。
+     */
+    public function totalPieceQuantity(): int
+    {
+        return self::toPieceQuantity(
+            (int) ($this->transfer_quantity ?? 0),
+            $this->quantity_type,
+            $this->item?->capacity_case,
+            $this->item?->capacity_carton,
+        );
+    }
+
+    /**
+     * 数量と単位からバラ数を求める。入数が未設定（0 以下）のときは 1 として扱う。
+     */
+    public static function toPieceQuantity(
+        int $quantity,
+        QuantityType|string|null $quantityType,
+        mixed $capacityCase,
+        mixed $capacityCarton = null,
+    ): int {
+        $type = $quantityType instanceof QuantityType
+            ? $quantityType
+            : QuantityType::tryFrom((string) $quantityType);
+
+        return match ($type) {
+            QuantityType::CASE => $quantity * max(1, (int) ($capacityCase ?? 1)),
+            QuantityType::CARTON => $quantity * max(1, (int) ($capacityCarton ?? 1)),
+            default => $quantity,
+        };
+    }
+
+    /**
+     * ケース発注できるのは入数が 1 以上の商品だけ。
+     * 入数が 0 の商品をケースで移動すると、基幹側の移動伝票で総バラ数が 0 になる。
+     */
+    public static function canOrderByCase(mixed $capacityCase): bool
+    {
+        return (int) ($capacityCase ?? 0) >= 1;
+    }
+
+    /**
+     * バラ換算の数量を求める SQL 式（集計クエリ用）。
+     *
+     * @param  string  $candidateAlias  wms_stock_transfer_candidates のテーブル別名
+     * @param  string  $itemAlias  items のテーブル別名（JOIN 済みであること）
+     */
+    public static function pieceQuantitySql(string $candidateAlias, string $itemAlias): string
+    {
+        return "CASE {$candidateAlias}.quantity_type"
+            ." WHEN 'CASE' THEN {$candidateAlias}.transfer_quantity * GREATEST(COALESCE({$itemAlias}.capacity_case, 1), 1)"
+            ." WHEN 'CARTON' THEN {$candidateAlias}.transfer_quantity * GREATEST(COALESCE({$itemAlias}.capacity_carton, 1), 1)"
+            ." ELSE {$candidateAlias}.transfer_quantity END";
+    }
+
     public function scopeForBatch(Builder $query, string $batchCode): Builder
     {
         return $query->where('batch_code', $batchCode);

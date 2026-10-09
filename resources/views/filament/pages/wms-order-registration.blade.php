@@ -940,22 +940,8 @@
                     </button>
                 </div>
 
-                <div wire:ignore class="overflow-auto p-4">
+                <div wire:ignore class="flex min-h-0 flex-1 flex-col">
                     @include('filament.components.order-registration-sales-preview-edit', ['lw' => $this])
-                </div>
-
-                <div class="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800">
-                    <button
-                        type="button"
-                        x-data
-                        x-on:click="if (confirm('外部発注候補リストを閉じますか？入力中の内容は破棄されます。')) { $wire.closeSalesBasedExternalOrderPreviewModal() }"
-                        class="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
-                    >
-                        閉じる
-                    </button>
-                    <button type="button" wire:click="addSalesBasedExternalOrderPreviewRowsToRegistration" class="rounded-md bg-danger-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-danger-500">
-                        登録リストに追加
-                    </button>
                 </div>
             </div>
         </div>

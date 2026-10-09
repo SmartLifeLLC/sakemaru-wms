@@ -176,7 +176,7 @@
                                     {{ $item?->item_name ?? '-' }}
                                 </td>
                                 <td class="whitespace-nowrap border border-slate-200 px-2 py-1.5 font-mono text-slate-900">
-                                    {{ $item?->location_no ?? '-' }}
+                                    {{ $item ? \App\Services\InventoryCount\InventoryCountLocationResolver::locationNo($item) : '-' }}
                                 </td>
                                 <td class="whitespace-nowrap border border-slate-200 px-2 py-1.5 font-mono text-slate-700">
                                     {{ $item?->lot_no ?? '-' }}
