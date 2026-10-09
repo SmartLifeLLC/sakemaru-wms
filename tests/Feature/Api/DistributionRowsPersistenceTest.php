@@ -297,6 +297,7 @@ class DistributionRowsPersistenceTest extends TestCase
                     'checked' => false,
                     'confirmedAt' => 'ILLEGAL TIMESTAMP',
                     'memo' => 'illegal memo update',
+                    'alloc_'.$destinationKey => 4,
                 ]],
             ]),
             $permissionService

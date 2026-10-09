@@ -1435,6 +1435,11 @@ class DistributionProductController extends ApiController
                 continue;
             }
 
+            if (array_key_exists('checked', $row) && ! filter_var($row['checked'], FILTER_VALIDATE_BOOL)) {
+                $row['confirmedAt'] = '';
+                $row['confirmed_at'] = '';
+            }
+
             $businessKey = trim((string) ($row['distributionBusinessKey'] ?? ''));
             if (preg_match('/^[0-9a-f]{40}$/i', $businessKey) !== 1) {
                 $businessKey = sha1(json_encode([
@@ -2386,6 +2391,11 @@ SQL;
 
             if ($mode === 'direct') {
                 $incomingData = $existingData;
+                foreach (['checked', 'confirmedAt', 'confirmed_at', 'memo'] as $field) {
+                    if (array_key_exists($field, $before)) {
+                        $incomingData[$field] = $before[$field];
+                    }
+                }
             }
 
             if ($mode !== 'direct') {
@@ -2457,6 +2467,7 @@ SQL;
             $persisted = $persistedRows->get($rowId);
             if (! $persisted) {
                 $staleRowIds[] = $rowId;
+
                 continue;
             }
 

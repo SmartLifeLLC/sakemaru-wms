@@ -1,9 +1,7 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
@@ -14,30 +12,34 @@ return new class extends Migration
     public function up(): void
     {
         if (! $this->hasIndex('item_search_information', self::ITEM_SEARCH_INDEX)) {
-            Schema::connection('sakemaru')->table('item_search_information', function (Blueprint $table) {
-                $table->index(['client_id', 'code_type', 'search_string', 'item_id'], self::ITEM_SEARCH_INDEX);
-            });
+            DB::connection('sakemaru')->statement(
+                'ALTER TABLE item_search_information ADD INDEX '.self::ITEM_SEARCH_INDEX
+                .' (client_id, code_type, search_string, item_id), ALGORITHM=INPLACE, LOCK=NONE'
+            );
         }
 
         if (! $this->hasIndex('item_contractors', self::ITEM_CONTRACTOR_INDEX)) {
-            Schema::connection('sakemaru')->table('item_contractors', function (Blueprint $table) {
-                $table->index(['client_id', 'contractor_id', 'item_id'], self::ITEM_CONTRACTOR_INDEX);
-            });
+            DB::connection('sakemaru')->statement(
+                'ALTER TABLE item_contractors ADD INDEX '.self::ITEM_CONTRACTOR_INDEX
+                .' (client_id, contractor_id, item_id), ALGORITHM=INPLACE, LOCK=NONE'
+            );
         }
     }
 
     public function down(): void
     {
         if ($this->hasIndex('item_contractors', self::ITEM_CONTRACTOR_INDEX)) {
-            Schema::connection('sakemaru')->table('item_contractors', function (Blueprint $table) {
-                $table->dropIndex(self::ITEM_CONTRACTOR_INDEX);
-            });
+            DB::connection('sakemaru')->statement(
+                'ALTER TABLE item_contractors DROP INDEX '.self::ITEM_CONTRACTOR_INDEX
+                .', ALGORITHM=INPLACE, LOCK=NONE'
+            );
         }
 
         if ($this->hasIndex('item_search_information', self::ITEM_SEARCH_INDEX)) {
-            Schema::connection('sakemaru')->table('item_search_information', function (Blueprint $table) {
-                $table->dropIndex(self::ITEM_SEARCH_INDEX);
-            });
+            DB::connection('sakemaru')->statement(
+                'ALTER TABLE item_search_information DROP INDEX '.self::ITEM_SEARCH_INDEX
+                .', ALGORITHM=INPLACE, LOCK=NONE'
+            );
         }
     }
 
