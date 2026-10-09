@@ -2,10 +2,13 @@
 
 namespace App\Services\AutoOrder;
 
+use App\Enums\AutoOrder\CalculationType;
 use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\AutoOrder\OriginType;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsStockTransferCandidate;
+use App\Services\Distribution\DistributionStockTransferSlipService;
 use Illuminate\Support\Facades\DB;
 
 class OrderCandidateToTransferCandidateService
@@ -13,6 +16,30 @@ class OrderCandidateToTransferCandidateService
     private const INTERNAL_CONTRACTOR_CODE = '9012';
 
     private const HUB_WAREHOUSE_CODE = '91';
+
+    /**
+     * @var array<int, bool>
+     */
+    private static array $distributionWarehouseTransferGeneratedCache = [];
+
+    private static bool $hubWarehouseIdLoaded = false;
+
+    private static ?int $hubWarehouseIdCache = null;
+
+    public function __construct(
+        private readonly DistributionStockTransferSlipService $distributionStockTransferSlipService
+    ) {}
+
+    public function canConvert(WmsOrderCandidate $candidate): bool
+    {
+        $candidate->loadMissing(['contractor', 'warehouse']);
+
+        return $candidate->status === CandidateStatus::PENDING
+            && (string) $candidate->contractor?->code === self::INTERNAL_CONTRACTOR_CODE
+            && (int) $candidate->order_quantity > 0
+            && ! $this->isHubWarehouseCandidate($candidate)
+            && ! $this->hasGeneratedDistributionWarehouseTransfer($candidate);
+    }
 
     public function convert(WmsOrderCandidate $candidate, ?int $modifiedBy = null): WmsStockTransferCandidate
     {
@@ -28,6 +55,10 @@ class OrderCandidateToTransferCandidateService
 
         if ((int) $candidate->order_quantity <= 0) {
             throw new \RuntimeException('発注数が0以下の候補は移動候補へ変更できません。');
+        }
+
+        if ($this->hasGeneratedDistributionWarehouseTransfer($candidate)) {
+            throw new \RuntimeException('分配画面で倉庫移動生成済みのため、移動候補へ変更できません。');
         }
 
         $hubWarehouse = Warehouse::query()
@@ -106,5 +137,124 @@ class OrderCandidateToTransferCandidateService
             ->value('delivery_course_id');
 
         return $deliveryCourseId !== null ? (int) $deliveryCourseId : $currentDeliveryCourseId;
+    }
+
+    private function hasGeneratedDistributionWarehouseTransfer(WmsOrderCandidate $candidate): bool
+    {
+        $candidateId = (int) $candidate->id;
+        if (array_key_exists($candidateId, self::$distributionWarehouseTransferGeneratedCache)) {
+            return self::$distributionWarehouseTransferGeneratedCache[$candidateId];
+        }
+
+        if ($candidate->origin_type !== OriginType::DIST) {
+            return self::$distributionWarehouseTransferGeneratedCache[$candidateId] = false;
+        }
+
+        $sourceWarehouseId = $this->hubWarehouseId();
+
+        if (! $sourceWarehouseId) {
+            return self::$distributionWarehouseTransferGeneratedCache[$candidateId] = false;
+        }
+
+        $dedupeKeys = $this->distributionWarehouseTransferDedupeKeys($candidate, (int) $sourceWarehouseId);
+        if ($dedupeKeys === []) {
+            return self::$distributionWarehouseTransferGeneratedCache[$candidateId] = false;
+        }
+
+        return self::$distributionWarehouseTransferGeneratedCache[$candidateId] =
+            $this->distributionStockTransferSlipService->hasExistingDistributionDedupeKeys($dedupeKeys);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function distributionWarehouseTransferDedupeKeys(WmsOrderCandidate $candidate, int $sourceWarehouseId): array
+    {
+        $logs = DB::connection('sakemaru')
+            ->table('wms_order_calculation_logs')
+            ->where('batch_code', $candidate->batch_code)
+            ->where('warehouse_id', (int) $candidate->warehouse_id)
+            ->where('item_id', (int) $candidate->item_id)
+            ->where('contractor_id', (int) $candidate->contractor_id)
+            ->where('calculation_type', CalculationType::EXTERNAL->value)
+            ->get(['calculation_details']);
+
+        $candidateId = (int) $candidate->id;
+        $supplierId = (int) ($candidate->supplier_id ?? 0);
+        $quantityType = $candidate->quantity_type?->value;
+        $dedupeKeys = [];
+
+        foreach ($logs as $log) {
+            $details = json_decode((string) ($log->calculation_details ?? ''), true);
+            if (! is_array($details) || (string) ($details['source'] ?? '') !== 'distribution') {
+                continue;
+            }
+
+            $logCandidateId = (int) ($details['candidate_id'] ?? 0);
+            if ($logCandidateId > 0 && $logCandidateId !== $candidateId) {
+                continue;
+            }
+
+            if (isset($details['supplier_id']) && (int) $details['supplier_id'] !== $supplierId) {
+                continue;
+            }
+
+            if (isset($details['quantity_type']) && $quantityType !== null && (string) $details['quantity_type'] !== $quantityType) {
+                continue;
+            }
+
+            $rowId = trim((string) ($details['distribution_business_key'] ?? ''));
+            if ($rowId === '') {
+                $rowId = trim((string) ($details['row_id'] ?? ''));
+            }
+            if ($rowId === '') {
+                continue;
+            }
+
+            foreach (($details['demand_breakdown'] ?? []) as $demand) {
+                if (! is_array($demand)) {
+                    continue;
+                }
+
+                $destinationWarehouseId = (int) ($demand['warehouse_id'] ?? 0);
+                if ($destinationWarehouseId <= 0) {
+                    continue;
+                }
+
+                $dedupeKey = $this->distributionStockTransferSlipService->makeDistributionLineDedupeKey(
+                    $sourceWarehouseId,
+                    $destinationWarehouseId,
+                    $rowId
+                );
+                $dedupeKeys[$dedupeKey] = $dedupeKey;
+            }
+        }
+
+        return array_values($dedupeKeys);
+    }
+
+    private function isHubWarehouseCandidate(WmsOrderCandidate $candidate): bool
+    {
+        if ((string) $candidate->warehouse?->code === self::HUB_WAREHOUSE_CODE) {
+            return true;
+        }
+
+        $hubWarehouseId = $this->hubWarehouseId();
+
+        return $hubWarehouseId !== null && (int) $candidate->warehouse_id === $hubWarehouseId;
+    }
+
+    private function hubWarehouseId(): ?int
+    {
+        if (! self::$hubWarehouseIdLoaded) {
+            $hubWarehouseId = Warehouse::query()
+                ->where('code', self::HUB_WAREHOUSE_CODE)
+                ->value('id');
+
+            self::$hubWarehouseIdCache = $hubWarehouseId === null ? null : (int) $hubWarehouseId;
+            self::$hubWarehouseIdLoaded = true;
+        }
+
+        return self::$hubWarehouseIdCache;
     }
 }

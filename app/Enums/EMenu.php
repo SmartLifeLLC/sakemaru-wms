@@ -37,6 +37,11 @@ enum EMenu: string
     // 倉庫移動
     case WMS_SHORTAGE_ALLOCATIONS = 'horizontal_shipment.wms_shortage_allocations';
 
+    // 分配
+    case DISTRIBUTION_ADJUSTMENT = 'distribution.adjustment';
+    case DIRECT_DISTRIBUTION = 'distribution.direct';
+    case STORE_DISTRIBUTION_MANAGEMENT = 'distribution.store_management';
+
     // 発注処理
     case WMS_AUTO_ORDER_JOBS = 'auto_order.wms_auto_order_jobs';
     case WMS_STOCK_TRANSFER_CANDIDATES = 'auto_order.wms_stock_transfer_candidates';
@@ -136,6 +141,10 @@ enum EMenu: string
             self::WMS_SHORTAGES_APPROVED => EMenuCategory::SHORTAGE,
 
             self::WMS_SHORTAGE_ALLOCATIONS => EMenuCategory::HORIZONTAL_SHIPMENT,
+
+            self::DISTRIBUTION_ADJUSTMENT,
+            self::DIRECT_DISTRIBUTION,
+            self::STORE_DISTRIBUTION_MANAGEMENT => EMenuCategory::DISTRIBUTION,
 
             self::WMS_AUTO_ORDER_JOBS,
             self::WMS_STOCK_TRANSFER_CANDIDATES,
@@ -238,6 +247,10 @@ enum EMenu: string
 
             self::WMS_SHORTAGE_ALLOCATIONS => '横持ち出荷依頼',
 
+            self::DISTRIBUTION_ADJUSTMENT => '本部分配',
+            self::DIRECT_DISTRIBUTION => '直送分配',
+            self::STORE_DISTRIBUTION_MANAGEMENT => '店舗別管理',
+
             self::WMS_AUTO_ORDER_EXECUTION_LOG => '自動発注実行ログ',
             self::WMS_STOCK_TRANSFER_CANDIDATES => '物流発注(店間）',
             self::WMS_ORDER_REGISTRATION => '（新）外部発注',
@@ -331,6 +344,10 @@ enum EMenu: string
             self::WMS_SHORTAGES_APPROVED => 'heroicon-o-check-badge',
 
             self::WMS_SHORTAGE_ALLOCATIONS => 'heroicon-o-truck',
+
+            self::DISTRIBUTION_ADJUSTMENT => 'heroicon-o-arrows-right-left',
+            self::DIRECT_DISTRIBUTION => 'heroicon-o-truck',
+            self::STORE_DISTRIBUTION_MANAGEMENT => 'heroicon-o-building-storefront',
 
             self::WMS_AUTO_ORDER_EXECUTION_LOG => 'heroicon-o-clipboard-document-check',
             self::WMS_STOCK_TRANSFER_CANDIDATES => 'heroicon-o-arrows-right-left',
@@ -427,6 +444,11 @@ enum EMenu: string
 
             // 倉庫移動
             self::WMS_SHORTAGE_ALLOCATIONS => 1,
+
+            // 分配
+            self::DISTRIBUTION_ADJUSTMENT => 1,
+            self::DIRECT_DISTRIBUTION => 2,
+            self::STORE_DISTRIBUTION_MANAGEMENT => 3,
 
             // 発注処理
             self::WMS_AUTO_ORDER_JOBS => 0,
