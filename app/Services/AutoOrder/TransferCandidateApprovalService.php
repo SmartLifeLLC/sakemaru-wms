@@ -107,7 +107,8 @@ class TransferCandidateApprovalService
      */
     private function reserveStockFromHub(WmsStockTransferCandidate $candidate): void
     {
-        $remainingQty = $candidate->transfer_quantity;
+        // 在庫（バラ数）と比べるので、ケース発注はバラ数に換算する
+        $remainingQty = $candidate->totalPieceQuantity();
 
         // 供給倉庫の利用可能在庫を取得（FEFO→FIFO順）
         // available_quantity = current_quantity - reserved_quantity（生成カラム）

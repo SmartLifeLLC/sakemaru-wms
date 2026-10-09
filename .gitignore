@@ -6,6 +6,7 @@
 .sqlite.db
 .phpactor.json
 .phpunit.result.cache
+~$*
 /.fleet
 /.idea
 /.nova
@@ -21,7 +22,10 @@
 /storage/api-docs
 /storage/pail
 /storage/reports
+/system-investigations
 /vendor
+/outputs/**/*.inspect.ndjson
+/outputs/**/previews/
 Homestead.json
 Homestead.yaml
 Thumbs.db
