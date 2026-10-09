@@ -394,6 +394,14 @@ class MegaMenuBuilder
                 ],
             ],
             [
+                'id' => 'distribution',
+                'label' => '分配',
+                'icon' => 'fa-share-nodes',
+                'categories' => [
+                    EMenuCategory::DISTRIBUTION,
+                ],
+            ],
+            [
                 'id' => 'inventory',
                 'label' => '在庫',
                 'icon' => 'fa-boxes-stacked',

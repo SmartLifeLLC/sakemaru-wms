@@ -33,6 +33,8 @@ class AdminPanelProvider extends PanelProvider
             ->default()
             ->id('admin')
             ->path('admin')
+            ->brandName('酒丸蔵')
+            ->favicon(asset('images/kura-favicon.png'))
             ->login(\App\Filament\Pages\Auth\Login::class)
             ->favicon(asset('favicon.ico'))
             ->topNavigation() // トップナビゲーションを有効化

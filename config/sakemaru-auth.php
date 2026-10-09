@@ -54,12 +54,15 @@ $resourcePermissions = $buildPermissions(
 
 $pagePermissions = $buildPermissions([
     'dashboard',
+    'direct-distribution',
+    'distribution-adjustment',
     'auto-order-guide',
     'floor-plan-editor',
     'jx-test-data',
     'lot-adjustment',
     'modal-showcase',
     'picking-route-visualization',
+    'store-distribution-management',
     'test-data-generator',
     'wms-inbound',
     'wms-outbound',
