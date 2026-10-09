@@ -183,6 +183,7 @@ class DistributionOrderCandidateService
         foreach ($rows as $row) {
             $rowId = (string) ($row['row_id'] ?? '');
             $resultRowId = (string) ($row['source_row_id'] ?? $rowId);
+            $dedupeRowIds = $this->distributionDedupeRowIds($row, $rowId);
             if ($resultRowId === '') {
                 continue;
             }
@@ -211,19 +212,20 @@ class DistributionOrderCandidateService
                 }
 
                 $quantityType = QuantityType::from($quantityTypeValue);
-                $orderDedupeKey = $this->orderDedupeKey(
-                    $source,
-                    (int) $warehouse->id,
-                    $itemId,
-                    (int) $itemContractor->contractor_id,
-                    (int) $itemContractor->supplier_id,
-                    $quantityType,
-                    $rowId
-                );
+                $orderDedupeKeys = collect($dedupeRowIds)
+                    ->map(fn (string $dedupeRowId): string => $this->orderDedupeKey(
+                        $source,
+                        (int) $warehouse->id,
+                        $itemId,
+                        (int) $itemContractor->contractor_id,
+                        (int) $itemContractor->supplier_id,
+                        $quantityType,
+                        $dedupeRowId
+                    ));
 
                 $rowStatuses[$resultRowId]['expected']++;
 
-                if ($existing = $existingGeneratedCandidates->get($orderDedupeKey)) {
+                if ($existing = $this->firstExistingGeneratedCandidate($existingGeneratedCandidates, $orderDedupeKeys)) {
                     $rowStatuses[$resultRowId]['existing']++;
                     $candidateIds[] = (int) ($existing['candidate_id'] ?? 0);
                 }
@@ -328,6 +330,8 @@ class DistributionOrderCandidateService
 
         foreach ($rows as $row) {
             $rowId = (string) ($row['row_id'] ?? '');
+            $dedupeRowIds = $this->distributionDedupeRowIds($row, $rowId);
+            $dedupeRowId = $dedupeRowIds[0] ?? $rowId;
             $item = $this->resolveRowItem($items, $row);
 
             if (! $item) {
@@ -381,9 +385,22 @@ class DistributionOrderCandidateService
                     (int) $itemContractor->contractor_id,
                     (int) $itemContractor->supplier_id,
                     $quantityType,
-                    $rowId
+                    $dedupeRowId
                 );
-                $existingGeneratedCandidate = $existingGeneratedCandidates->get($orderDedupeKey);
+                $legacyOrderDedupeKeys = collect(array_slice($dedupeRowIds, 1))
+                    ->map(fn (string $legacyRowId): string => $this->orderDedupeKey(
+                        $source,
+                        (int) $warehouse->id,
+                        $itemId,
+                        (int) $itemContractor->contractor_id,
+                        (int) $itemContractor->supplier_id,
+                        $quantityType,
+                        $legacyRowId
+                    ));
+                $existingGeneratedCandidate = $this->firstExistingGeneratedCandidate(
+                    $existingGeneratedCandidates,
+                    collect([$orderDedupeKey])->concat($legacyOrderDedupeKeys)
+                );
                 $resultRowId = (string) ($row['source_row_id'] ?? $rowId);
 
                 if ($existingGeneratedCandidate) {
@@ -493,6 +510,7 @@ class DistributionOrderCandidateService
                         'source' => $source,
                         'row_id' => $rowId,
                         'source_row_id' => $row['source_row_id'] ?? null,
+                        'distribution_business_key' => $dedupeRowId,
                         'distribution_order_dedupe_key' => $orderDedupeKey,
                         'candidate_id' => (int) $candidate->id,
                         'quantity_type' => $quantityType->value,
@@ -1263,22 +1281,13 @@ class DistributionOrderCandidateService
 
             $source = (string) ($row->source ?? '');
             $rowId = (string) ($row->row_id ?? '');
-            $dedupeKey = (string) ($row->distribution_order_dedupe_key ?? '');
+            $dedupeKeys = collect([(string) ($row->distribution_order_dedupe_key ?? '')])
+                ->filter();
+            $hasLegacyQuantity = ($quantityType === QuantityType::CASE && (int) ($row->order_case_qty ?? 0) > 0)
+                || ($quantityType === QuantityType::PIECE && (int) ($row->order_piece_qty ?? 0) > 0);
 
-            if ($dedupeKey === '') {
-                if ($source === '' || $rowId === '') {
-                    return $carry;
-                }
-
-                if ($quantityType === QuantityType::CASE && (int) ($row->order_case_qty ?? 0) <= 0) {
-                    return $carry;
-                }
-
-                if ($quantityType === QuantityType::PIECE && (int) ($row->order_piece_qty ?? 0) <= 0) {
-                    return $carry;
-                }
-
-                $dedupeKey = $this->orderDedupeKey(
+            if ($source !== '' && $rowId !== '' && $hasLegacyQuantity) {
+                $dedupeKeys->push($this->orderDedupeKey(
                     $source,
                     (int) $row->warehouse_id,
                     (int) $row->item_id,
@@ -1286,15 +1295,17 @@ class DistributionOrderCandidateService
                     (int) ($row->supplier_id ?? 0),
                     $quantityType,
                     $rowId
-                );
+                ));
             }
 
-            if (! $carry->has($dedupeKey)) {
-                $carry->put($dedupeKey, [
-                    'candidate_id' => (int) $row->candidate_id,
-                    'row_id' => (string) ($row->source_row_id ?: $rowId),
-                ]);
-            }
+            $dedupeKeys->unique()->each(function (string $dedupeKey) use ($carry, $row, $rowId): void {
+                if (! $carry->has($dedupeKey)) {
+                    $carry->put($dedupeKey, [
+                        'candidate_id' => (int) $row->candidate_id,
+                        'row_id' => (string) ($row->source_row_id ?: $rowId),
+                    ]);
+                }
+            });
 
             return $carry;
         }, collect());
@@ -1318,6 +1329,43 @@ class DistributionOrderCandidateService
             'quantity_type' => $quantityType->value,
             'row_id' => $rowId,
         ], JSON_UNESCAPED_UNICODE));
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     * @return array<int, string>
+     */
+    private function distributionDedupeRowIds(array $row, string $fallbackRowId): array
+    {
+        $businessKey = trim((string) ($row['distribution_business_key'] ?? ''));
+        $keys = [];
+
+        if (preg_match('/^[0-9a-f]{40}$/i', $businessKey) === 1) {
+            $keys[] = strtolower($businessKey);
+        }
+
+        if ($fallbackRowId !== '') {
+            $keys[] = $fallbackRowId;
+        }
+
+        return array_values(array_unique($keys));
+    }
+
+    /**
+     * @param  Collection<string, array{candidate_id: int, row_id: string}>  $existingCandidates
+     * @param  iterable<int, string>  $dedupeKeys
+     * @return array{candidate_id: int, row_id: string}|null
+     */
+    private function firstExistingGeneratedCandidate(Collection $existingCandidates, iterable $dedupeKeys): ?array
+    {
+        foreach ($dedupeKeys as $dedupeKey) {
+            $candidate = $existingCandidates->get($dedupeKey);
+            if (is_array($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     private function findOrCreateJob(int $warehouseId, int $createdBy): WmsAutoOrderJobControl

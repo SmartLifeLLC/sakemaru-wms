@@ -203,7 +203,10 @@ class OrderCandidateToTransferCandidateService
                 continue;
             }
 
-            $rowId = (string) ($details['row_id'] ?? '');
+            $rowId = trim((string) ($details['distribution_business_key'] ?? ''));
+            if ($rowId === '') {
+                $rowId = trim((string) ($details['row_id'] ?? ''));
+            }
             if ($rowId === '') {
                 continue;
             }

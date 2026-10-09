@@ -273,7 +273,16 @@ class DistributionStockTransferSlipService
                 ]);
 
                 $detailNote = trim((string) ($row['memo'] ?? ''));
-                $dedupeKey = $this->makeDistributionLineDedupeKey($sourceRealWarehouseId, (int) $destination->id, $rowId);
+                $dedupeKeys = collect($this->distributionDedupeRowIds($row, $rowId))
+                    ->map(fn (string $dedupeRowId): string => $this->makeDistributionLineDedupeKey(
+                        $sourceRealWarehouseId,
+                        (int) $destination->id,
+                        $dedupeRowId
+                    ))
+                    ->unique()
+                    ->values()
+                    ->all();
+                $dedupeKey = $dedupeKeys[0];
 
                 $group['items'][] = [
                     'item_code' => (string) $item->code,
@@ -286,9 +295,12 @@ class DistributionStockTransferSlipService
                 $group['line_meta'][] = [
                     'row_id' => $rowId,
                     'dedupe_key' => $dedupeKey,
+                    'dedupe_keys' => $dedupeKeys,
                 ];
                 $group['row_ids'][$rowId] = $rowId;
-                $group['dedupe_keys'][$dedupeKey] = $dedupeKey;
+                foreach ($dedupeKeys as $compatibleDedupeKey) {
+                    $group['dedupe_keys'][$compatibleDedupeKey] = $compatibleDedupeKey;
+                }
                 $groups->put($groupKey, $group);
             }
         }
@@ -303,6 +315,26 @@ class DistributionStockTransferSlipService
             'destination_warehouse_id' => $destinationWarehouseId,
             'row_id' => $rowId,
         ], JSON_UNESCAPED_UNICODE));
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     * @return array<int, string>
+     */
+    private function distributionDedupeRowIds(array $row, string $fallbackRowId): array
+    {
+        $businessKey = trim((string) ($row['distribution_business_key'] ?? ''));
+        $keys = [];
+
+        if (preg_match('/^[0-9a-f]{40}$/i', $businessKey) === 1) {
+            $keys[] = strtolower($businessKey);
+        }
+
+        if ($fallbackRowId !== '') {
+            $keys[] = $fallbackRowId;
+        }
+
+        return array_values(array_unique($keys));
     }
 
     /**
@@ -383,15 +415,22 @@ class DistributionStockTransferSlipService
 
                 foreach (($group['items'] ?? []) as $index => $item) {
                     $meta = $group['line_meta'][$index] ?? [];
-                    $dedupeKey = (string) ($meta['dedupe_key'] ?? '');
+                    $lineDedupeKeys = collect($meta['dedupe_keys'] ?? [$meta['dedupe_key'] ?? ''])
+                        ->map(fn ($key): string => (string) $key)
+                        ->filter()
+                        ->unique()
+                        ->values();
+                    $dedupeKey = (string) ($lineDedupeKeys->first() ?? '');
                     $rowId = (string) ($meta['row_id'] ?? '');
+                    $existingDedupeKey = $lineDedupeKeys
+                        ->first(fn (string $key): bool => isset($existingByDedupeKey[$key]));
 
-                    if ($dedupeKey !== '' && isset($existingByDedupeKey[$dedupeKey])) {
+                    if ($existingDedupeKey !== null) {
                         if ($rowId !== '') {
                             $skippedRows[$rowId] = $rowId;
                         }
 
-                        $existing = $existingByDedupeKey[$dedupeKey];
+                        $existing = $existingByDedupeKey[$existingDedupeKey];
                         $skippedQueues[(int) $existing['queue_id']] = $existing + [
                             'line_count' => 0,
                             'created' => false,
@@ -407,8 +446,8 @@ class DistributionStockTransferSlipService
                         $rowIds[$rowId] = $rowId;
                     }
 
-                    if ($dedupeKey !== '') {
-                        $dedupeKeys[$dedupeKey] = $dedupeKey;
+                    foreach ($lineDedupeKeys as $compatibleDedupeKey) {
+                        $dedupeKeys[$compatibleDedupeKey] = $compatibleDedupeKey;
                     }
                 }
 

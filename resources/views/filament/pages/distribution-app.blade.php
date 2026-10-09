@@ -1,3 +1,140 @@
+@php
+    if (app()->bound('debugbar')) {
+        app('debugbar')->disable();
+    }
+
+    $distributionToday = now()->timezone(config('app.timezone'))->toDateString();
+    $distributionInitialTabForView = method_exists($this, 'getDistributionInitialTab')
+        ? (string) $this->getDistributionInitialTab()
+        : 'allocation';
+
+    $formatDistributionRegistrationNumber = static function ($value): string {
+        $number = trim((string) ($value ?? ''));
+        if ($number === '') {
+            return '';
+        }
+
+        return 'T' . ltrim($number, 'Tt');
+    };
+
+    $distributionRequestCompanyInfoDefaults = [
+        'address' => '〒918-8231 福井県福井市問屋町2丁目35番地',
+        'tel' => '0776-24-1187',
+        'fax' => '0776-24-1164',
+        'registrationNumber' => $formatDistributionRegistrationNumber('5210001004494'),
+    ];
+    $distributionRequestCompanyInfo = $distributionRequestCompanyInfoDefaults;
+
+    try {
+        $distributionRequestClient = \Illuminate\Support\Facades\DB::connection('sakemaru')
+            ->table('clients')
+            ->where('id', (int) config('app.client_id'))
+            ->first([
+                'postal_code',
+                'order_form_address1',
+                'order_form_address2',
+                'address1',
+                'address2',
+                'tel',
+                'fax',
+                'business_number',
+            ]);
+
+        if ($distributionRequestClient) {
+            $address1 = trim((string) ($distributionRequestClient->order_form_address1 ?: $distributionRequestClient->address1 ?: ''));
+            $address2 = trim((string) ($distributionRequestClient->order_form_address2 ?: $distributionRequestClient->address2 ?: ''));
+            $postalCode = trim((string) ($distributionRequestClient->postal_code ?? ''));
+            $address = trim($address1 . $address2);
+
+            $distributionRequestCompanyInfo = [
+                'address' => trim(($postalCode !== '' ? '〒' . $postalCode . ' ' : '') . $address),
+                'tel' => trim((string) ($distributionRequestClient->tel ?? '')),
+                'fax' => trim((string) ($distributionRequestClient->fax ?? '')),
+                'registrationNumber' => $formatDistributionRegistrationNumber($distributionRequestClient->business_number ?? ''),
+            ];
+        }
+    } catch (\Throwable $e) {
+        $distributionRequestCompanyInfo = $distributionRequestCompanyInfoDefaults;
+    }
+
+    $distributionRequestCompanyInfo = array_merge(
+        $distributionRequestCompanyInfoDefaults,
+        array_filter($distributionRequestCompanyInfo, fn ($value) => trim((string) $value) !== '')
+    );
+    $distributionRequestOrderStaffName = trim((string) (auth()->user()?->name ?? ''));
+
+    $distributionHiddenDestinationCodes = [
+        '5',
+        '05',
+        '6',
+        '06',
+        '23',
+        '63',
+        '71',
+        '72',
+        '73',
+        '74',
+        '75',
+        '80',
+        '89',
+        '90',
+        '91',
+        '92',
+        '93',
+        '94',
+        '95',
+        '96',
+        '97',
+        '98',
+        '100',
+        '101',
+    ];
+    $distributionCsvDestinations = [];
+
+    try {
+        $distributionCsvDestinations = \Illuminate\Support\Facades\DB::connection('sakemaru')
+            ->table('warehouses')
+            ->where('client_id', (int) config('app.client_id'))
+            ->where('is_active', true)
+            ->orderBy('code')
+            ->limit(200)
+            ->get(['id', 'code', 'name'])
+            ->map(function ($warehouse) use ($distributionHiddenDestinationCodes) {
+                $code = trim((string) $warehouse->code);
+                $key = $code !== '' && ctype_digit($code) && strlen($code) < 2
+                    ? str_pad($code, 2, '0', STR_PAD_LEFT)
+                    : $code;
+
+                return [
+                    'id' => (int) $warehouse->id,
+                    'key' => $key !== '' ? $key : (string) $warehouse->id,
+                    'code' => $code,
+                    'name' => (string) $warehouse->name,
+                    'isHidden' => in_array($code, $distributionHiddenDestinationCodes, true),
+                    'isSelectedWarehouse' => false,
+                ];
+            })
+            ->values()
+            ->all();
+    } catch (\Throwable $e) {
+        $distributionCsvDestinations = [];
+    }
+
+    $distributionPreloadedRows = [
+        'allocation' => [],
+        'direct' => [],
+        'persisted' => false,
+        'read_only' => false,
+        'context' => 'edit',
+        'total_count' => 0,
+        'mode_counts' => [
+            'allocation' => 0,
+            'direct' => 0,
+        ],
+        'limit' => 3000,
+    ];
+
+@endphp
 <div class="livewire-root"><x-filament-panels::page>
     <div class="distribution-app-shell">
         <style>
@@ -62,6 +199,7 @@
     }
     .distribution-search-input { padding-right: 3.5rem !important; }
     .filter-row .date-entry { flex: 0 0 8.75rem; width: 8.75rem !important; min-width: 8.75rem; }
+    .filter-row .direct-filter-date-entry { flex-basis: 7.5rem; width: 7.5rem !important; min-width: 7.5rem; }
     .filter-row .date-entry-text { padding-left: 0.5rem !important; padding-right: 1.35rem !important; width: 100% !important; }
     .product-search-table { border-collapse: separate; border-spacing: 0; }
     .product-search-sticky { background-clip: padding-box; position: sticky; }
@@ -73,7 +211,9 @@
     .product-search-scroll { container-type: inline-size; position: relative; }
     .product-search-state { align-items: center; display: flex; flex-direction: column; justify-content: center; left: 0; min-height: 7rem; position: sticky; width: 100%; }
     .distribution-list-empty-state { align-items: center; display: flex; justify-content: center; left: 0; min-height: 5.5rem; position: sticky; width: calc(100vw - 2rem); }
+    .distribution-list-load-more-state { align-items: center; display: flex; flex-wrap: wrap; gap: .5rem; justify-content: center; left: 0; position: sticky; width: calc(100vw - 2rem); }
     @media (min-width: 1024px) { .distribution-list-empty-state { width: calc(100vw - 3rem); } }
+    @media (min-width: 1024px) { .distribution-list-load-more-state { width: calc(100vw - 3rem); } }
     .store-distribution-detail-table thead th { background: #f9fafb; border-bottom: 1px solid #94a3b8; position: sticky; top: 0; z-index: 20; }
     .store-distribution-detail-table tbody tr { border-top: 1px solid #94a3b8 !important; }
     .store-distribution-detail-table tbody td { border-bottom: 1px solid #94a3b8; }
@@ -173,6 +313,12 @@
       </div>
     </div>
   </div>
+  <div x-show="directRequestPrintInProgress && directRequestPrintStatusSaving" x-cloak class="filter-loading-overlay">
+    <div class="filter-loading-panel text-sm">
+      <span class="filter-loading-spinner"></span>
+      <div class="font-semibold text-slate-800">直送発注書の出力処理中です</div>
+    </div>
+  </div>
 
   <!-- Alert Modal -->
   <div x-show="modalVisible" x-cloak class="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4">
@@ -250,7 +396,7 @@
           </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-2 text-xs">
+        <div class="grid grid-cols-4 gap-2 text-xs">
           <div class="rounded-md bg-slate-50 p-3">
             <div class="text-gray-500">CSV明細行</div>
             <div class="mt-1 text-lg font-bold text-gray-900" x-text="csvImportProgress.totalRows"></div>
@@ -270,9 +416,11 @@
         </div>
 
         <div class="rounded-md border border-slate-200 bg-white p-3 text-xs leading-5">
-          <div>スキップ: <span class="font-semibold" x-text="csvImportProgress.skippedRows"></span> 件</div>
-          <div>商品未確定: <span class="font-semibold" x-text="csvImportProgress.unresolvedRows"></span> 件</div>
-          <div>商品候補複数: <span class="font-semibold" x-text="csvImportProgress.ambiguousRows"></span> 件</div>
+          <div class="grid grid-cols-3 items-center gap-2">
+            <div class="whitespace-nowrap px-2 text-center">スキップ: <span class="font-semibold" x-text="csvImportProgress.skippedRows"></span> 件</div>
+            <div class="whitespace-nowrap border-l border-slate-300 px-2 text-center">商品未確定: <span class="font-semibold" x-text="csvImportProgress.unresolvedRows"></span> 件</div>
+            <div class="whitespace-nowrap border-l border-slate-300 px-2 text-center">商品候補複数: <span class="font-semibold" x-text="csvImportProgress.ambiguousRows"></span> 件</div>
+          </div>
           <template x-if="csvImportProgress.error">
             <div class="mt-2 text-red-600" x-text="csvImportProgress.error"></div>
           </template>
@@ -291,7 +439,7 @@
               <div class="text-amber-700" x-text="csvImportProgress.failureDetails.length + '件'"></div>
             </div>
             <div class="max-h-52 overflow-auto rounded border border-amber-100 bg-white">
-              <template x-for="(detail, index) in csvImportProgress.failureDetails" :key="index">
+              <template x-for="(detail, index) in getCsvImportFailureDetails()" :key="String(detail.rowNumber || '-') + ':' + index">
                 <div class="grid grid-cols-[4.5rem_1fr] gap-2 border-b border-amber-100 px-2 py-1.5 last:border-b-0">
                   <div class="font-mono text-amber-800" x-text="'行 ' + (detail.rowNumber || '-')"></div>
                   <div class="min-w-0">
@@ -351,28 +499,28 @@
     </div>
   </div>
 
+@if ($distributionInitialTabForView === 'allocation')
   <!-- ==================== Allocation Tab ==================== -->
-  <div x-show="activeSubTab === 'allocation'" x-cloak>
+  <template x-if="activeSubTab === 'allocation'">
+    <div>
 
     <!-- Filters -->
     <div class="sticky top-0 z-20 bg-white/90 backdrop-blur shadow-sm">
       <div class="px-0 py-1">
         <div class="distribution-filter-controls flex flex-wrap items-center gap-1.5 text-xs">
-          <div class="relative w-full flex-none sm:w-[20rem] lg:w-[24rem]">
-            <input type="text" x-model="allocationFilterDraft.keywordSearch" @keydown.enter.prevent="applyAllocationFilters()" placeholder="商品CD/商品名/JAN 複数語OK" class="distribution-search-input w-full rounded-md border border-gray-300 bg-white px-2 py-1 pr-14 text-xs shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-            <button x-show="allocationFilterDraft.keywordSearch" x-cloak @click="allocationFilterDraft.keywordSearch = ''; applyAllocationFilters()" class="absolute rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600" style="right: 1.75rem; top: 50%; transform: translateY(-50%);" title="検索クリア">
+          <div class="relative flex-none" style="width: 18rem; max-width: 100%;">
+            <input type="text" x-model="allocationFilterDraft.keywordSearch" @keydown.enter.prevent="applyAllocationFilters()" placeholder="商品コード/商品名/JAN" class="distribution-search-input w-full rounded-md border border-gray-300 bg-white px-2 py-1 pr-14 text-xs shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+            <button x-show="allocationFilterDraft.keywordSearch" x-cloak @click="allocationFilterDraft.keywordSearch = ''; applyAllocationFilters()" class="absolute rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600" style="right: 2.25rem; top: 50%; transform: translateY(-50%);" title="検索クリア">
               <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
-            <button type="button" @click="applyAllocationFilters()" :disabled="filterApplying" class="absolute z-10 inline-flex h-5 w-5 items-center justify-center rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 shadow-sm hover:bg-indigo-100 hover:text-indigo-800 disabled:cursor-wait disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400" style="right: 0.375rem; top: 50%; transform: translateY(-50%);" title="検索実行">
+            <button type="button" @click="applyAllocationFilters()" :disabled="filterApplying" class="absolute bottom-px right-px top-px z-10 inline-flex w-8 items-center justify-center rounded-r-[5px] border-l border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:text-indigo-800 disabled:cursor-wait disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400" title="検索実行">
               <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path stroke-linecap="round" stroke-linejoin="round" d="M20 20l-4.35-4.35"></path></svg>
             </button>
           </div>
-          <label class="text-gray-700 font-medium whitespace-nowrap">状態</label>
           <select x-model="allocationFilterDraft.statusFilter" @change="applyAllocationFilters()" class="rounded-md border-gray-300 border px-2 py-1 text-xs bg-white shadow-sm">
-            <option value="hide">修正不可を非表示</option>
+            <option value="hide">未対応</option>
             <option value="all">すべて表示</option>
-            <option value="warehouse_transfer_creatable">倉庫移動・伝票待ち</option>
-            <option value="printed">出力済のみ</option>
+            <option value="printed">移動生成済</option>
           </select>
           <span x-show="filterApplying" x-cloak class="filter-loading-spinner filter-loading-spinner-sm"></span>
         </div>
@@ -382,40 +530,34 @@
     <!-- Controls -->
     <div class="px-0 pt-1">
       <div class="mb-1 flex flex-wrap items-center gap-1.5 sm:gap-2">
-        <button @click="addRow()" class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-md bg-green-600 hover:bg-green-700 text-white font-medium shadow transition text-xs sm:text-sm">+ 行追加</button>
-        <button @click="toggleAllCheckedVisible()"
+        <button @click="addRow()" class="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md bg-green-600 hover:bg-green-700 text-white font-medium shadow transition text-xs">+ 行追加</button>
+        <button x-show="false" x-cloak @click="toggleAllCheckedVisible()"
           :class="allVisibleChecked() ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' : 'bg-indigo-600 hover:bg-indigo-700 text-white'"
-          class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-md font-medium shadow transition text-xs sm:text-sm"
+          class="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md font-medium shadow transition text-xs"
           x-text="allVisibleChecked() ? '☐ 全解除（表示中）' : '全確定'">
         </button>
         <button @click="deleteSelectedRows(false)"
           :disabled="getSelectedDeleteRowCount(false) === 0"
           :class="getSelectedDeleteRowCount(false) > 0 ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'"
-          class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-md font-medium shadow transition text-xs sm:text-sm"
+          class="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md font-medium shadow transition text-xs"
           x-text="'選択削除 (' + getSelectedDeleteRowCount(false) + '件)'">
         </button>
-        <div class="whitespace-nowrap rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-600 shadow-sm" aria-live="polite">
-          <span>表示件数: </span>
-          <span class="font-semibold text-gray-900" x-text="getVisibleRows().length"></span>
-          <span> / 全</span>
-          <span class="font-semibold text-gray-900" x-text="getAllocationTotalRowCount()"></span>
-          <span>件</span>
-        </div>
-
-        <div class="flex flex-wrap items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs shadow-sm">
-          <span class="font-semibold text-slate-700 whitespace-nowrap">一括設定</span>
-          <span class="text-slate-500 whitespace-nowrap">入力日</span>
+        <div class="flex flex-wrap items-center gap-1 text-xs">
+          <span class="text-slate-500 whitespace-nowrap">出荷日</span>
           <div class="date-entry" style="width: 8.75rem; min-width: 8.75rem;">
-            <input type="text" x-model="bulkInputDate" @blur="bulkInputDate = normalizeFlexibleDate(bulkInputDate)" @keydown.enter.prevent="bulkInputDate = normalizeFlexibleDate(bulkInputDate); $event.target.blur()" inputmode="numeric" placeholder="YYYY-MM-DD" class="date-entry-text w-full rounded-md border-gray-300 border px-2 py-1 text-xs shadow-sm" />
+            <input type="text" x-model="bulkInputDate" @blur="bulkInputDate = normalizeFlexibleDate(bulkInputDate); queueBulkAllocationAutoApply()" @keydown.enter.prevent="bulkInputDate = normalizeFlexibleDate(bulkInputDate); queueBulkAllocationAutoApply(); $event.target.blur()" inputmode="numeric" placeholder="YYYY-MM-DD" class="date-entry-text w-full rounded-md border-gray-300 border px-2 py-1 text-xs shadow-sm" />
             <label class="date-entry-picker" title="カレンダー選択">
-              <input type="date" :value="bulkInputDate" @change="bulkInputDate = $event.target.value" class="date-entry-native" />
+              <input type="date" :value="bulkInputDate" @change="bulkInputDate = $event.target.value; queueBulkAllocationAutoApply()" class="date-entry-native" />
               <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
             </label>
           </div>
-          <span class="text-slate-500 whitespace-nowrap">配送コース</span>
           <div class="relative" @click.outside="bulkDeliveryCourseOptions = []">
-            <input type="text" x-model="bulkDeliveryCourseSearch" @focus="openBulkDeliveryCourseOptions()" @input.debounce.300ms="bulkDeliveryCourseSelected = null; searchBulkDeliveryCourses()" @keydown.enter.prevent="selectExactBulkDeliveryCourse()" placeholder="CD/名称" class="w-44 rounded-md border border-gray-300 px-2 py-1 text-xs shadow-sm focus:ring-2 focus:ring-slate-500" />
-            <button type="button" x-show="bulkDeliveryCourseSelected" x-cloak @click="clearBulkDeliveryCourse()" class="absolute right-1 top-1/2 -translate-y-1/2 rounded px-1 text-[10px] text-gray-500 hover:bg-gray-100">×</button>
+            <span class="pointer-events-none absolute bottom-px left-px top-px z-10 flex items-center whitespace-nowrap rounded-l-[5px] border-r border-red-200 bg-red-50 px-1.5 text-[9px] font-semibold leading-none text-red-600">必須</span>
+            <input type="text" x-model="bulkDeliveryCourseSearch" @focus="openBulkDeliveryCourseOptions()" @input="bulkDeliveryCourseSelected = null" @input.debounce.300ms="searchBulkDeliveryCourses()" @keydown.enter.prevent="selectExactBulkDeliveryCourse()" placeholder="配送コースCD/名称" aria-required="true" :class="hasSelectedBulkDeliveryCourse() ? 'border-gray-300' : 'border-red-400 bg-red-50'" class="w-64 max-w-[70vw] rounded-md border py-1 pr-11 text-xs shadow-sm focus:ring-2 focus:ring-slate-500" style="padding-left: 2.5rem;" />
+            <button type="button" x-show="hasSelectedBulkDeliveryCourse()" x-cloak @click="clearBulkDeliveryCourse()" class="absolute right-6 top-1/2 -translate-y-1/2 rounded px-1 text-[10px] text-gray-500 hover:bg-gray-100" title="配送コースをクリア">×</button>
+            <button type="button" @click="bulkDeliveryCourseOptions.length > 0 ? bulkDeliveryCourseOptions = [] : openBulkDeliveryCourseOptions()" class="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-gray-500 hover:bg-gray-100" title="配送コース候補を表示">
+              <svg class="h-3.5 w-3.5 transition-transform" :class="bulkDeliveryCourseOptions.length > 0 ? 'rotate-180' : ''" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            </button>
             <div x-show="bulkDeliveryCourseOptions.length > 0 || bulkDeliveryCourseLoading || bulkDeliveryCourseError" x-cloak class="absolute left-0 top-full z-50 mt-1 max-h-56 w-72 overflow-auto rounded-md border border-gray-200 bg-white shadow-lg">
               <div x-show="bulkDeliveryCourseLoading" class="px-2 py-1.5 text-xs text-gray-500">検索中...</div>
               <div x-show="bulkDeliveryCourseError" class="px-2 py-1.5 text-xs text-red-600" x-text="bulkDeliveryCourseError"></div>
@@ -427,10 +569,6 @@
               </template>
             </div>
           </div>
-          <button @click="applyBulkAllocationDates()" :disabled="bulkDateApplying || !hasBulkAllocationDateTargets()" :class="bulkDateApplying || !hasBulkAllocationDateTargets() ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-slate-700 hover:bg-slate-800 text-white'" class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium shadow-sm transition">
-            <span x-show="bulkDateApplying" x-cloak class="filter-loading-spinner filter-loading-spinner-sm"></span>
-            <span x-text="bulkDateApplying ? '反映中' : '表示中に反映'"></span>
-          </button>
         </div>
 
         <div class="ml-auto flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs sm:text-sm">
@@ -451,8 +589,8 @@
             </svg>
             <span>CSV出力</span>
           </button>
-          <button type="button" data-slip-action="warehouse-transfer" @click.prevent.stop="generateWarehouseTransfers()" :disabled="warehouseTransferCreating || transferSlipCreating" :title="getWarehouseTransferButtonTitle()" :class="(warehouseTransferCreating || transferSlipCreating) ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : (hasWarehouseTransferCreatableRows() ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-gray-300 text-gray-600 hover:bg-gray-400 hover:text-white')" class="font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">倉庫移動生成</button>
-          <button x-cloak style="display: none;" @click="generateOrderCandidates()" :disabled="orderCandidateCreating || !hasOrderCandidateGeneratableRows()" :class="(orderCandidateCreating || !hasOrderCandidateGeneratableRows()) ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-amber-500 hover:bg-amber-600 text-white'" class="inline-flex items-center gap-1.5 font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">
+          <button type="button" data-slip-action="warehouse-transfer" @click.prevent.stop="generateWarehouseTransfers()" :disabled="warehouseTransferCreating || transferSlipCreating || !hasWarehouseTransferCreatableRows()" :title="getWarehouseTransferButtonTitle()" :class="(warehouseTransferCreating || transferSlipCreating || !hasWarehouseTransferCreatableRows()) ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 text-white'" class="font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">倉庫移動生成</button>
+          <button x-show="showAllocationOrderCandidateButton" x-cloak @click="generateOrderCandidates()" :disabled="orderCandidateCreating || !hasOrderCandidateGeneratableRows()" :class="(orderCandidateCreating || !hasOrderCandidateGeneratableRows()) ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-amber-500 hover:bg-amber-600 text-white'" class="inline-flex items-center gap-1.5 font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">
             <svg x-show="orderCandidateCreating" x-cloak class="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
@@ -470,12 +608,14 @@
           <thead class="sticky top-0 z-10">
             <tr class="divide-x divide-gray-200 border-t border-gray-300 bg-neutral-50 text-xs text-neutral-500">
               <th class="whitespace-nowrap w-10 p-1 text-center">
+                <div class="leading-tight">選択</div>
                 <input type="checkbox"
                   :checked="allVisibleDeleteSelected(false)"
                   :disabled="getDeleteSelectableRows(false).length === 0"
                   @change="toggleVisibleDeleteSelection(false, $event.target.checked)"
-                  class="rounded border-gray-300"
-                  title="表示中の削除可能行を選択" />
+                  autocomplete="off"
+                  class="mt-1 rounded border-gray-300"
+                  title="表示中の処理可能行を全選択" />
               </th>
               <th class="date-stack-column hidden whitespace-nowrap p-1 text-left">
                 <div>発注日</div>
@@ -488,35 +628,36 @@
               <th class="whitespace-nowrap w-28 p-1 text-left">商品コード</th>
               <th class="whitespace-nowrap min-w-[192px] p-1 text-left">商品名</th>
               <th class="whitespace-nowrap w-12 p-1 text-center">入数</th>
-              <th class="whitespace-nowrap w-12 p-1 text-center">ロット</th>
+              <th class="whitespace-nowrap w-12 p-1 text-center">備考</th>
               <th class="whitespace-nowrap w-14 min-w-[3.5rem] p-1 text-center">理論</th>
-              <th class="whitespace-nowrap w-14 min-w-[3.5rem] p-1 text-center">希計</th>
-              <th class="whitespace-nowrap w-14 min-w-[3.5rem] p-1 text-center">分計</th>
-              <th class="whitespace-nowrap w-16 p-1 text-center">発注ケース</th>
-              <th class="whitespace-nowrap w-16 p-1 text-center">発注バラ</th>
+              <th class="whitespace-nowrap w-14 min-w-[3.5rem] p-0 text-center">
+                <div class="flex h-6 items-center justify-center px-1 leading-tight">希計</div>
+                <div class="flex h-6 items-center justify-center border-t border-gray-300 px-1 leading-tight">分計</div>
+              </th>
+              <th class="whitespace-nowrap w-16 p-1 text-center">ケース</th>
+              <th class="whitespace-nowrap w-16 p-1 text-center">バラ</th>
               <th class="whitespace-nowrap w-12 p-1 text-center">総バラ</th>
-              <th class="whitespace-nowrap w-10 p-1 text-center">確定</th>
+              <th class="w-px whitespace-nowrap p-0.5 text-center">状態</th>
               <template x-for="dest in getAllocationDisplayDestinations()" :key="dest.key">
-                <th class="p-1 text-center border-l border-gray-300 w-[80px] min-w-[80px] max-w-[80px]">
-                  <div class="text-[10px] text-gray-400 leading-tight" x-text="dest.key"></div>
-                  <div class="font-semibold text-neutral-700 leading-tight" :class="dest.name.length > 5 ? 'text-[10px]' : 'text-xs'" x-text="dest.name"></div>
+                <th class="w-[60px] min-w-[60px] max-w-[60px] border-l border-gray-300 p-1 text-center">
+                  <div class="text-xs font-semibold leading-tight text-neutral-700" x-text="dest.key"></div>
                 </th>
               </template>
               <th x-show="showAllocationDetailMemoButton" x-cloak class="whitespace-nowrap w-24 p-1 text-center">明細備考</th>
-              <th class="whitespace-nowrap w-10 p-1 text-center">削除</th>
             </tr>
           </thead>
-          <template x-for="row in getVisibleRows()" :key="row.id">
+          <template x-for="row in getRenderableVisibleRows()" :key="row.id">
             <tbody class="text-xs">
-              <tr :class="row.checked ? 'bg-gray-100' : ''" class="divide-x divide-gray-200 border-t border-gray-200 hover:bg-neutral-50">
+              <tr :class="isAllocationTransferCompleted(row) ? 'bg-gray-100' : ''" class="divide-x divide-gray-200 border-t border-gray-200 hover:bg-neutral-50">
                 <td class="p-1 text-center">
                   <input type="checkbox"
                     :checked="isRowDeleteSelected(row, false)"
                     :disabled="isRowDeleteLocked(row)"
                     @change="setRowDeleteSelected(row, false, $event.target.checked)"
+                    autocomplete="off"
                     :class="isRowDeleteLocked(row) ? 'cursor-not-allowed opacity-50' : ''"
                     class="rounded border-gray-300"
-                    title="削除対象にする" />
+                    title="処理対象にする" />
                 </td>
                 <!-- 発注日 / 納品希望日 -->
                 <td class="date-stack-column hidden p-1">
@@ -586,7 +727,7 @@
                 <td class="p-1 text-center"><div class="px-1 py-1 whitespace-nowrap text-xs" x-text="row.unitsPerCase || ''"></div></td>
                 <!-- ロット (clickable for popover) -->
                 <td class="p-1 text-center">
-                  <button @click="if(lotPopoverRowId === row.id){ lotPopoverRowId = null; } else { const r = $event.currentTarget.getBoundingClientRect(); const ph = 360; const below = r.bottom + 4; const above = r.top - 4; lotPopoverPos = (below + ph > window.innerHeight) ? { top: above, left: r.left + r.width/2, anchor: 'above' } : { top: below, left: r.left + r.width/2, anchor: 'below' }; lotPopoverRowId = row.id; }" class="w-6 h-6 rounded-full bg-amber-500 hover:bg-amber-600 text-white inline-flex items-center justify-center transition shadow-sm" title="ロット条件">
+                  <button @click="toggleItemContractorNote(row, false, $event)" class="w-6 h-6 rounded-full bg-amber-500 hover:bg-amber-600 text-white inline-flex items-center justify-center transition shadow-sm" title="備考を確認">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                   </button>
                 </td>
@@ -594,19 +735,22 @@
                 <td class="w-14 min-w-[3.5rem] p-1 text-right" :class="toInt(row.reserved) < calcAllocTotal(row) ? 'bg-red-100' : ''">
                   <div class="px-1 py-1 font-semibold" :class="toInt(row.reserved) < calcAllocTotal(row) ? 'text-red-700' : ''" :title="getStockSummaryTitle(row)" x-text="row.reserved"></div>
                 </td>
-                <!-- 希計 -->
-                <td class="w-14 min-w-[3.5rem] p-1 text-right"><div class="px-1 py-1 font-semibold" x-text="calcWishTotal(row)"></div></td>
-                <!-- 分計 -->
-                <td class="w-14 min-w-[3.5rem] p-1 text-right"><div class="px-1 py-1 font-semibold" x-text="calcAllocTotal(row)"></div></td>
+                <!-- 希計 / 分計 -->
+                <td class="w-14 min-w-[3.5rem] p-0 text-right" style="background: linear-gradient(to bottom, #fef2f2 0%, #fef2f2 50%, #f0fdf4 50%, #f0fdf4 100%);">
+                  <div class="flex h-full min-h-14 flex-col">
+                    <div class="flex flex-1 items-center justify-end px-2 font-semibold text-red-800" x-text="calcWishTotal(row)"></div>
+                    <div class="flex flex-1 items-center justify-end border-t border-gray-300 px-2 font-semibold text-green-900" x-text="calcAllocTotal(row)"></div>
+                  </div>
+                </td>
                 <!-- 発注ケース -->
                 <td class="p-1 text-right">
-                  <input type="number" :value="orderQuantityInputValue(row.poCase)" @input="setOrderQuantity(row, 'poCase', $event.target.value)" :disabled="isQuantityLocked(row)"
+                  <input type="number" :value="orderQuantityInputValue(row.poCase)" @input="setOrderQuantity(row, 'poCase', $event.target.value, false)" @blur="flushQuantitySave(false)" :disabled="isQuantityLocked(row)"
                     :class="isQuantityLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : 'focus:ring-2 focus:ring-indigo-500'"
                     class="w-full rounded-md border-gray-300 border px-1 py-1 text-right shadow-sm alloc-spin-hide" />
                 </td>
                 <!-- 発注バラ -->
                 <td class="p-1 text-right">
-                  <input type="number" :value="orderQuantityInputValue(row.poEach)" @input="setOrderQuantity(row, 'poEach', $event.target.value)" :disabled="isQuantityLocked(row)"
+                  <input type="number" :value="orderQuantityInputValue(row.poEach)" @input="setOrderQuantity(row, 'poEach', $event.target.value, false)" @blur="flushQuantitySave(false)" :disabled="isQuantityLocked(row)"
                     :class="isQuantityLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : 'focus:ring-2 focus:ring-indigo-500'"
                     class="w-full rounded-md border-gray-300 border px-1 py-1 text-right shadow-sm alloc-spin-hide" />
                 </td>
@@ -614,22 +758,19 @@
                 <td class="p-1 text-right bg-gray-50">
                   <div class="px-1 py-1 font-semibold" x-text="calcOrderTotalPieces(row, currentRow => calcAllocTotal(currentRow))"></div>
                 </td>
-                <!-- チェック -->
-                <td class="p-1 text-center">
-                  <input type="checkbox" x-model="row.checked"
-                    :disabled="isRowLocked(row) || !hasRowProductInfo(row)"
-                    :title="!hasRowProductInfo(row) ? getMissingProductInfoMessage() : ''"
-                    :class="(isRowLocked(row) || !hasRowProductInfo(row)) ? 'cursor-not-allowed opacity-70' : ''"
-                    class="rounded border-gray-300" />
+                <!-- 状態 -->
+                <td class="w-px whitespace-nowrap p-0.5 text-center">
+                  <span class="inline-flex whitespace-nowrap rounded px-1 py-0.5 text-[10px] font-semibold" :class="getAllocationStatusClass(row)" x-text="getAllocationStatusLabel(row)"></span>
                 </td>
                 <template x-for="dest in getAllocationDisplayDestinations()" :key="dest.key">
-                  <td class="p-0 border-l border-gray-300 w-[80px] min-w-[80px] max-w-[80px]">
+                  <td class="w-[60px] min-w-[60px] max-w-[60px] border-l border-gray-300 p-0">
                     <div class="flex flex-col">
                       <div class="bg-red-50 border-b-2 border-gray-300 px-2 py-1.5 text-right text-xs font-medium text-red-800"
                         x-text="row['wish_'+dest.key] || 0"></div>
                       <input type="text" inputmode="numeric"
                         :value="row['alloc_'+dest.key] || 0"
-                        @input="row['alloc_'+dest.key] = parseInt($event.target.value) || 0"
+                        @input="setAllocationQuantity(row, dest.key, $event.target.value, false)"
+                        @blur="flushQuantitySave(false)"
                         @keydown.enter.prevent="focusNextAllocationDestinationInput($event)"
                         @focus="$event.target.select()"
                         :disabled="isQuantityLocked(row)"
@@ -639,18 +780,12 @@
                   </td>
                 </template>
                 <!-- 明細備考 -->
-                <td class="p-1 text-center">
+                <td x-show="showAllocationDetailMemoButton" x-cloak class="p-1 text-center">
                   <button @click="memoPopupRowId = row.id; memoPopupText = row.memo || ''" :disabled="isRowEditLocked(row)"
                     :class="isRowEditLocked(row) ? 'text-gray-300 cursor-not-allowed' : row.memo ? 'text-indigo-600 hover:text-indigo-800' : 'text-gray-400 hover:text-gray-600'"
                     class="p-1 relative" :title="row.memo || '明細備考入力'">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                     <span x-show="row.memo" class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-indigo-500 rounded-full"></span>
-                  </button>
-                </td>
-                <!-- 削除 -->
-                <td class="p-1 text-center">
-                  <button @click="removeRow(row.id)" :disabled="isRowDeleteLocked(row)" :class="isRowDeleteLocked(row) ? 'text-gray-300 cursor-not-allowed' : 'text-red-400 hover:text-red-600'" class="p-1" title="削除">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                   </button>
                 </td>
               </tr>
@@ -660,93 +795,49 @@
             <template x-if="getVisibleRows().length === 0">
               <tr><td colspan="99" class="p-8 text-center text-gray-500"><div class="distribution-list-empty-state">該当するデータがありません</div></td></tr>
             </template>
+            <template x-if="getVisibleRows().length > 0">
+              <tr>
+                <td colspan="99" class="px-3 py-1.5 text-center text-xs text-amber-700 bg-amber-50">
+                  <div class="distribution-list-load-more-state">
+                    <span x-text="getAllocationCountLabel()"></span>
+                    <button x-show="isAllocationRenderLimited()" x-cloak type="button" @click="loadMoreAllocationRows()" class="rounded-md bg-amber-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm hover:bg-amber-700" x-text="'さらに ' + getAllocationLoadMoreCount() + ' 件表示'"></button>
+                  </div>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
     </div>
-  </div>
+    </div>
+  </template>
+@endif
 
+@if ($distributionInitialTabForView === 'direct')
   <!-- ==================== 直送分配 Tab ==================== -->
-  <div x-show="activeSubTab === 'direct'" x-cloak>
+  <template x-if="activeSubTab === 'direct'">
+    <div>
 
     <!-- Filters -->
     <div class="sticky top-0 z-20 bg-white/90 backdrop-blur shadow-sm">
       <div class="px-0 py-1">
         <div class="distribution-filter-controls flex flex-wrap items-center gap-1.5 text-xs">
-          <div class="relative w-full flex-none sm:w-[20rem] lg:w-[24rem]">
-            <input type="text" x-model="directFilterDraft.keywordSearch" @keydown.enter.prevent="applyDirectFilters()" placeholder="商品/JAN/発注先CD/仕入先CD 複数語OK" class="distribution-search-input w-full rounded-md border border-gray-300 bg-white px-2 py-1 pr-14 text-xs shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-            <button x-show="directFilterDraft.keywordSearch" x-cloak @click="directFilterDraft.keywordSearch = ''; applyDirectFilters()" class="absolute rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600" style="right: 1.75rem; top: 50%; transform: translateY(-50%);" title="検索クリア">
+          <div class="relative flex-none" style="width: 18rem; max-width: 100%;">
+            <input type="text" x-model="directFilterDraft.keywordSearch" @keydown.enter.prevent="applyDirectFilters()" placeholder="商品コード/商品名/JAN" class="distribution-search-input w-full rounded-md border border-gray-300 bg-white px-2 py-1 pr-14 text-xs shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+            <button x-show="directFilterDraft.keywordSearch" x-cloak @click="directFilterDraft.keywordSearch = ''; applyDirectFilters()" class="absolute rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600" style="right: 2.25rem; top: 50%; transform: translateY(-50%);" title="検索クリア">
               <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
-            <button type="button" @click="applyDirectFilters()" :disabled="filterApplying" class="absolute z-10 inline-flex h-5 w-5 items-center justify-center rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 shadow-sm hover:bg-indigo-100 hover:text-indigo-800 disabled:cursor-wait disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400" style="right: 0.375rem; top: 50%; transform: translateY(-50%);" title="検索実行">
+            <button type="button" @click="applyDirectFilters()" :disabled="filterApplying" class="absolute bottom-px right-px top-px z-10 inline-flex w-8 items-center justify-center rounded-r-[5px] border-l border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:text-indigo-800 disabled:cursor-wait disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400" title="検索実行">
               <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path stroke-linecap="round" stroke-linejoin="round" d="M20 20l-4.35-4.35"></path></svg>
             </button>
           </div>
-          <button @click="directFilterOpen = !directFilterOpen"
-            :class="directFilterOpen ? 'bg-indigo-600 text-white hover:bg-indigo-700' : (getDirectFilterCount() ? 'border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100' : 'bg-white text-gray-700 hover:bg-gray-50')"
-            :title="getDirectFilterCount() ? 'フィルタ（' + getDirectFilterCount() + '件）' : 'フィルタ'"
-            class="relative inline-flex items-center gap-1 rounded-md border border-gray-300 px-2 py-1 text-xs font-medium shadow-sm transition">
-            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 5h18l-7 8v5l-4 2v-7L3 5z"/></svg>
-            フィルタ
-            <span x-show="getDirectFilterCount()" x-cloak class="ml-0.5 inline-flex min-w-4 justify-center text-[11px] font-semibold leading-none" :class="directFilterOpen ? 'text-white' : 'text-slate-700'" x-text="formatFilterCount(getDirectFilterCount())"></span>
-          </button>
-        </div>
-        <div x-show="directFilterOpen" x-cloak class="mt-1 rounded-md border border-slate-200 bg-white p-2 shadow-lg">
-          <div class="filter-row flex flex-wrap items-center gap-1 text-xs">
-            <label class="text-gray-700 font-medium whitespace-nowrap">発注日</label>
-            <div class="date-entry w-32">
-              <input type="text" x-model="directFilterDraft.dateFrom" @blur="directFilterDraft.dateFrom = normalizeFlexibleDate(directFilterDraft.dateFrom)" @keydown.enter.prevent="directFilterDraft.dateFrom = normalizeFlexibleDate(directFilterDraft.dateFrom); $event.target.blur()" inputmode="numeric" placeholder="YYYY-MM-DD" class="date-entry-text w-full rounded-md border-gray-300 border px-2 py-1 text-xs shadow-sm" />
-              <label class="date-entry-picker" title="カレンダー選択">
-                <input type="date" :value="directFilterDraft.dateFrom" @change="directFilterDraft.dateFrom = $event.target.value" class="date-entry-native" />
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-              </label>
-            </div>
-            <span class="text-gray-500">～</span>
-            <div class="date-entry w-32">
-              <input type="text" x-model="directFilterDraft.dateTo" @blur="directFilterDraft.dateTo = normalizeFlexibleDate(directFilterDraft.dateTo)" @keydown.enter.prevent="directFilterDraft.dateTo = normalizeFlexibleDate(directFilterDraft.dateTo); $event.target.blur()" inputmode="numeric" placeholder="YYYY-MM-DD" class="date-entry-text w-full rounded-md border-gray-300 border px-2 py-1 text-xs shadow-sm" />
-              <label class="date-entry-picker" title="カレンダー選択">
-                <input type="date" :value="directFilterDraft.dateTo" @change="directFilterDraft.dateTo = $event.target.value" class="date-entry-native" />
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-              </label>
-            </div>
-            <label class="text-gray-700 font-medium xl:ml-3 whitespace-nowrap">納品希望日</label>
-            <div class="date-entry w-32">
-              <input type="text" x-model="directFilterDraft.deliveryFrom" @blur="directFilterDraft.deliveryFrom = normalizeFlexibleDate(directFilterDraft.deliveryFrom)" @keydown.enter.prevent="directFilterDraft.deliveryFrom = normalizeFlexibleDate(directFilterDraft.deliveryFrom); $event.target.blur()" inputmode="numeric" placeholder="YYYY-MM-DD" class="date-entry-text w-full rounded-md border-gray-300 border px-2 py-1 text-xs shadow-sm" />
-              <label class="date-entry-picker" title="カレンダー選択">
-                <input type="date" :value="directFilterDraft.deliveryFrom" @change="directFilterDraft.deliveryFrom = $event.target.value" class="date-entry-native" />
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-              </label>
-            </div>
-            <span class="text-gray-500">～</span>
-            <div class="date-entry w-32">
-              <input type="text" x-model="directFilterDraft.deliveryTo" @blur="directFilterDraft.deliveryTo = normalizeFlexibleDate(directFilterDraft.deliveryTo)" @keydown.enter.prevent="directFilterDraft.deliveryTo = normalizeFlexibleDate(directFilterDraft.deliveryTo); $event.target.blur()" inputmode="numeric" placeholder="YYYY-MM-DD" class="date-entry-text w-full rounded-md border-gray-300 border px-2 py-1 text-xs shadow-sm" />
-              <label class="date-entry-picker" title="カレンダー選択">
-                <input type="date" :value="directFilterDraft.deliveryTo" @change="directFilterDraft.deliveryTo = $event.target.value" class="date-entry-native" />
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-              </label>
-            </div>
-            <label class="text-gray-700 font-medium xl:ml-3 whitespace-nowrap">商品</label>
-            <input type="text" x-model="directFilterDraft.productSearch" placeholder="コード/名前/JAN" class="rounded-md border-gray-300 border px-2 py-1 text-xs shadow-sm w-28 sm:w-36" />
-            <label class="text-gray-700 font-medium xl:ml-3 whitespace-nowrap">発注先</label>
-            <input type="text" x-model="directFilterDraft.orderToSearch" placeholder="発注先CD/名" class="rounded-md border-gray-300 border px-2 py-1 text-xs shadow-sm w-24 sm:w-28" />
-            <label class="text-gray-700 font-medium xl:ml-3 whitespace-nowrap">仕入先</label>
-            <input type="text" x-model="directFilterDraft.supplierSearch" placeholder="仕入先CD/名" class="rounded-md border-gray-300 border px-2 py-1 text-xs shadow-sm w-24 sm:w-28" />
-            <label class="inline-flex items-center gap-1 text-xs text-gray-700 whitespace-nowrap">
-              <input type="checkbox" x-model="directFilterDraft.checkedOnly" class="rounded border-gray-300" />
-              確定のみ
-            </label>
-            <select x-model="directFilterDraft.printedFilter" class="rounded-md border-gray-300 border px-2 py-1 text-xs bg-white shadow-sm">
-              <option value="all">全て表示</option>
-              <option value="printed">出力済みのみ</option>
-              <option value="unprinted">未出力のみ</option>
-            </select>
-            <button @click="applyDirectFilters()" :disabled="filterApplying" class="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2 py-1 text-xs font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-70 whitespace-nowrap">
-              <span x-show="filterApplying" x-cloak class="filter-loading-spinner filter-loading-spinner-sm"></span>
-              フィルタ実行
-            </button>
-            <button @click="clearDirectFilters()" class="px-2 py-1 text-xs rounded-md bg-gray-200 hover:bg-gray-300 text-gray-700 whitespace-nowrap">条件クリア</button>
-            <button @click="directFilterOpen = false" class="px-2 py-1 text-xs rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 whitespace-nowrap">閉じる</button>
-          </div>
+          <select x-model="directFilterDraft.statusFilter" @change="applyDirectFilters()" class="rounded-md border-gray-300 border px-2 py-1 text-xs bg-white shadow-sm">
+            <option value="all">全て表示</option>
+            <option value="unprocessed">未処理</option>
+            <option value="request_printed">帳票出力済</option>
+            <option value="order_created">候補生成済</option>
+          </select>
+          <span x-show="filterApplying" x-cloak class="filter-loading-spinner filter-loading-spinner-sm flex-none"></span>
         </div>
       </div>
     </div>
@@ -754,22 +845,44 @@
     <!-- Controls -->
     <div class="px-0 pt-1">
       <div class="mb-1 flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs sm:text-sm">
-        <button @click="addDirectRow()" class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-md bg-blue-600 text-white text-xs sm:text-sm font-medium hover:bg-blue-700">+ 行追加</button>
-        <button @click="toggleAllDirectChecked()"
-          :class="allVisibleDirectChecked() ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' : 'bg-indigo-600 hover:bg-indigo-700 text-white'"
-          class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-xs sm:text-sm font-medium"
-          x-text="allVisibleDirectChecked() ? '☐ 全解除（表示中）' : '全確定'"></button>
+        <button @click="addDirectRow()" class="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 shadow transition">+ 行追加</button>
         <button @click="deleteSelectedRows(true)"
           :disabled="getSelectedDeleteRowCount(true) === 0"
           :class="getSelectedDeleteRowCount(true) > 0 ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'"
-          class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-xs sm:text-sm font-medium shadow transition"
+          class="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-xs font-medium shadow transition"
           x-text="'選択削除 (' + getSelectedDeleteRowCount(true) + '件)'"></button>
-        <div class="whitespace-nowrap rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-600 shadow-sm" aria-live="polite">
-          <span>表示件数: </span>
-          <span class="font-semibold text-gray-900" x-text="getVisibleDirectRows().length"></span>
-          <span> / 全 </span>
-          <span class="font-semibold text-gray-900" x-text="getDirectTotalRowCount()"></span>
-          <span> 件</span>
+        <div class="flex flex-wrap items-center gap-1.5 text-xs">
+          <label class="whitespace-nowrap font-medium text-gray-700">発注日</label>
+          <div class="date-entry direct-filter-date-entry">
+            <input type="text" x-model="directFilterDraft.dateFrom" @blur="directFilterDraft.dateFrom = normalizeFlexibleDate(directFilterDraft.dateFrom); applyDirectFilters()" @keydown.enter.prevent="directFilterDraft.dateFrom = normalizeFlexibleDate(directFilterDraft.dateFrom); $event.target.blur()" inputmode="numeric" placeholder="YYYY-MM-DD" class="date-entry-text w-full rounded-md border border-gray-300 px-2 py-1 text-xs shadow-sm" />
+            <label class="date-entry-picker" title="カレンダー選択"><input type="date" :value="directFilterDraft.dateFrom" @change="directFilterDraft.dateFrom = $event.target.value; applyDirectFilters()" class="date-entry-native" /><svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></label>
+          </div>
+          <span class="text-gray-500">～</span>
+          <div class="date-entry direct-filter-date-entry">
+            <input type="text" x-model="directFilterDraft.dateTo" @blur="directFilterDraft.dateTo = normalizeFlexibleDate(directFilterDraft.dateTo); applyDirectFilters()" @keydown.enter.prevent="directFilterDraft.dateTo = normalizeFlexibleDate(directFilterDraft.dateTo); $event.target.blur()" inputmode="numeric" placeholder="YYYY-MM-DD" class="date-entry-text w-full rounded-md border border-gray-300 px-2 py-1 text-xs shadow-sm" />
+            <label class="date-entry-picker" title="カレンダー選択"><input type="date" :value="directFilterDraft.dateTo" @change="directFilterDraft.dateTo = $event.target.value; applyDirectFilters()" class="date-entry-native" /><svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></label>
+          </div>
+          <label class="whitespace-nowrap font-medium text-gray-700">入荷予定日</label>
+          <div class="date-entry direct-filter-date-entry">
+            <input type="text" x-model="directFilterDraft.deliveryFrom" @blur="directFilterDraft.deliveryFrom = normalizeFlexibleDate(directFilterDraft.deliveryFrom); applyDirectFilters()" @keydown.enter.prevent="directFilterDraft.deliveryFrom = normalizeFlexibleDate(directFilterDraft.deliveryFrom); $event.target.blur()" inputmode="numeric" placeholder="YYYY-MM-DD" class="date-entry-text w-full rounded-md border border-gray-300 px-2 py-1 text-xs shadow-sm" />
+            <label class="date-entry-picker" title="カレンダー選択"><input type="date" :value="directFilterDraft.deliveryFrom" @change="directFilterDraft.deliveryFrom = $event.target.value; applyDirectFilters()" class="date-entry-native" /><svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></label>
+          </div>
+          <span class="text-gray-500">～</span>
+          <div class="date-entry direct-filter-date-entry">
+            <input type="text" x-model="directFilterDraft.deliveryTo" @blur="directFilterDraft.deliveryTo = normalizeFlexibleDate(directFilterDraft.deliveryTo); applyDirectFilters()" @keydown.enter.prevent="directFilterDraft.deliveryTo = normalizeFlexibleDate(directFilterDraft.deliveryTo); $event.target.blur()" inputmode="numeric" placeholder="YYYY-MM-DD" class="date-entry-text w-full rounded-md border border-gray-300 px-2 py-1 text-xs shadow-sm" />
+            <label class="date-entry-picker" title="カレンダー選択"><input type="date" :value="directFilterDraft.deliveryTo" @change="directFilterDraft.deliveryTo = $event.target.value; applyDirectFilters()" class="date-entry-native" /><svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></label>
+          </div>
+          <div class="relative" @click.outside="directOrderToOptionsOpen = false">
+            <input type="text" x-model="directFilterDraft.orderToSearch" @focus="directOrderToOptionsOpen = true" @input="directOrderToOptionsOpen = true" @input.debounce.500ms="applyDirectFilters()" @keydown.enter.prevent="directOrderToOptionsOpen = false; applyDirectFilters()" @keydown.escape.prevent="directOrderToOptionsOpen = false" placeholder="発注先CD/名" class="w-36 rounded-md border border-gray-300 bg-white py-1 pl-2 pr-7 text-xs shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+            <button type="button" @click="directOrderToOptionsOpen = !directOrderToOptionsOpen" class="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-gray-500 hover:bg-gray-100" title="発注先候補を表示"><svg class="h-3.5 w-3.5 transition-transform" :class="directOrderToOptionsOpen ? 'rotate-180' : ''" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg></button>
+            <div x-show="directOrderToOptionsOpen" x-cloak class="absolute left-0 top-full z-50 mt-1 max-h-56 w-72 overflow-auto rounded-md border border-gray-200 bg-white shadow-lg"><template x-for="option in getDirectPartnerFilterOptions('orderTo')" :key="option.key"><button type="button" @click="selectDirectPartnerFilterOption('orderTo', option)" class="block w-full px-2 py-1.5 text-left text-xs text-gray-700 hover:bg-indigo-50 hover:text-indigo-800" x-text="formatDirectPartnerFilterOption(option)"></button></template><div x-show="getDirectPartnerFilterOptions('orderTo').length === 0" class="px-2 py-2 text-center text-xs text-gray-500">候補がありません。直接入力できます。</div></div>
+          </div>
+          <div class="relative" @click.outside="directSupplierOptionsOpen = false">
+            <input type="text" x-model="directFilterDraft.supplierSearch" @focus="directSupplierOptionsOpen = true" @input="directSupplierOptionsOpen = true" @input.debounce.500ms="applyDirectFilters()" @keydown.enter.prevent="directSupplierOptionsOpen = false; applyDirectFilters()" @keydown.escape.prevent="directSupplierOptionsOpen = false" placeholder="仕入先CD/名" class="w-36 rounded-md border border-gray-300 bg-white py-1 pl-2 pr-7 text-xs shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+            <button type="button" @click="directSupplierOptionsOpen = !directSupplierOptionsOpen" class="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-gray-500 hover:bg-gray-100" title="仕入先候補を表示"><svg class="h-3.5 w-3.5 transition-transform" :class="directSupplierOptionsOpen ? 'rotate-180' : ''" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg></button>
+            <div x-show="directSupplierOptionsOpen" x-cloak class="absolute left-0 top-full z-50 mt-1 max-h-56 w-72 overflow-auto rounded-md border border-gray-200 bg-white shadow-lg"><template x-for="option in getDirectPartnerFilterOptions('supplier')" :key="option.key"><button type="button" @click="selectDirectPartnerFilterOption('supplier', option)" class="block w-full px-2 py-1.5 text-left text-xs text-gray-700 hover:bg-indigo-50 hover:text-indigo-800" x-text="formatDirectPartnerFilterOption(option)"></button></template><div x-show="getDirectPartnerFilterOptions('supplier').length === 0" class="px-2 py-2 text-center text-xs text-gray-500">候補がありません。直接入力できます。</div></div>
+          </div>
+          <button @click="clearDirectFilters()" class="whitespace-nowrap rounded-md bg-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-300">クリア</button>
         </div>
         <div class="ml-auto flex flex-wrap items-center gap-1.5 sm:gap-2">
           <input x-ref="directCsvInput" type="file" accept=".csv,text/csv" class="hidden" @change="importDirectCsv($event)" />
@@ -784,7 +897,7 @@
             <span x-text="csvImporting ? '取込中' : 'CSV取込'"></span>
           </button>
           <button @click="downloadDirectCSV()" class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-md bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 shadow transition">CSV出力</button>
-          <button type="button" data-slip-action="direct-request" @click.prevent.stop="openDirectRequestOutput()" :disabled="transferSlipCreating" :class="hasDirectRequestPrintableRows() ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-gray-300 text-gray-600 hover:bg-gray-400 hover:text-white'" class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-xs font-medium shadow transition">依頼書出力</button>
+          <button type="button" data-slip-action="direct-request" @click.prevent.stop="openDirectRequestOutput()" :disabled="transferSlipCreating || !hasDirectRequestPrintableRows()" :class="hasDirectRequestPrintableRows() ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'" class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-xs font-medium shadow transition">依頼書出力</button>
           <button @click="generateDirectOrderCandidates()" :disabled="orderCandidateCreating || !hasDirectOrderCandidateGeneratableRows()" :class="(!orderCandidateCreating && hasDirectOrderCandidateGeneratableRows()) ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'" class="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-xs font-medium shadow transition">
             <svg x-show="orderCandidateCreating" x-cloak class="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -798,21 +911,23 @@
 
     <!-- Table -->
     <div class="px-0 pb-4">
-      <div class="overflow-auto rounded-lg bg-white shadow-md" style="max-height: calc(100vh - 220px);">
-        <table class="w-full min-w-[2160px] table-auto text-xs">
+      <div class="overflow-auto rounded-lg bg-white shadow-md" style="max-height: calc(100vh - 190px);">
+        <table class="w-full table-auto text-xs" :style="'min-width: ' + getDirectTableMinWidth() + 'px;'">
           <thead class="sticky top-0 z-10">
             <tr class="divide-x divide-gray-200 border-t border-gray-300 bg-neutral-50 text-xs text-neutral-500">
               <th class="whitespace-nowrap w-10 p-1 text-center">
+                <div class="leading-tight">選択</div>
                 <input type="checkbox"
                   :checked="allVisibleDeleteSelected(true)"
-                  :disabled="getDeleteSelectableRows(true).length === 0"
+                  :disabled="getDirectSelectableRows().length === 0"
                   @change="toggleVisibleDeleteSelection(true, $event.target.checked)"
-                  class="rounded border-gray-300"
-                  title="表示中の削除可能行を選択" />
+                  autocomplete="off"
+                  class="mt-1 rounded border-gray-300"
+                  title="表示中の行を全選択" />
               </th>
               <th class="date-stack-column whitespace-nowrap p-1 text-left">
                 <div>発注日</div>
-                <div class="mt-0.5 text-[10px] leading-none text-neutral-400">納品希望日</div>
+                <div class="mt-0.5 text-[10px] leading-none text-neutral-400">入荷予定日</div>
               </th>
               <th class="partner-stack-column whitespace-nowrap p-1 text-left">
                 <div>発注先</div>
@@ -821,58 +936,62 @@
               <th class="whitespace-nowrap w-28 p-1 text-left">商品コード</th>
               <th class="whitespace-nowrap min-w-[192px] p-1 text-left">商品名</th>
               <th class="whitespace-nowrap w-12 p-1 text-center">入数</th>
-              <th class="whitespace-nowrap w-12 p-1 text-center">ロット</th>
+              <th class="whitespace-nowrap w-12 p-1 text-center">備考</th>
               <th class="whitespace-nowrap w-14 min-w-[3.5rem] p-1 text-center">理論</th>
-              <th class="whitespace-nowrap w-14 min-w-[3.5rem] p-1 text-center">希計</th>
-              <th class="whitespace-nowrap w-14 min-w-[3.5rem] p-1 text-center">分計</th>
-              <th class="whitespace-nowrap w-16 p-1 text-center">発注ケース</th>
-              <th class="whitespace-nowrap w-16 p-1 text-center">発注バラ</th>
+              <th class="whitespace-nowrap w-14 min-w-[3.5rem] p-0 text-center">
+                <div class="flex h-6 items-center justify-center px-1 leading-tight">希計</div>
+                <div class="flex h-6 items-center justify-center border-t border-gray-300 px-1 leading-tight">分計</div>
+              </th>
+              <th class="whitespace-nowrap w-16 p-1 text-center">ケース</th>
+              <th class="whitespace-nowrap w-16 p-1 text-center">バラ</th>
               <th class="whitespace-nowrap w-12 p-1 text-center">総バラ</th>
-              <th class="whitespace-nowrap w-10 p-1 text-center">確定</th>
-              <template x-for="dest in DESTS" :key="dest.key">
-                <th class="p-1 text-center border-l border-gray-300 w-[80px] min-w-[80px] max-w-[80px]">
-                  <div class="text-[10px] text-gray-400 leading-tight" x-text="dest.key"></div>
-                  <div class="font-semibold text-neutral-700 leading-tight" :class="dest.name.length > 5 ? 'text-[10px]' : 'text-xs'" x-text="dest.name"></div>
+              <th class="w-px whitespace-nowrap p-0.5 text-center">状態</th>
+              <template x-for="dest in getDirectDisplayDestinations()" :key="dest.key">
+                <th class="w-[60px] min-w-[60px] max-w-[60px] border-l border-gray-300 p-1 text-center">
+                  <div class="text-xs font-semibold leading-tight text-neutral-700" x-text="dest.key"></div>
                 </th>
               </template>
               <th class="whitespace-nowrap w-10 p-1 text-center">削除</th>
             </tr>
           </thead>
           <tbody class="text-xs">
-            <template x-for="row in getVisibleDirectRows()" :key="row.id">
-              <tr :class="row.checked ? 'bg-gray-100' : ''" class="divide-x divide-gray-200 border-t border-gray-200 hover:bg-neutral-50">
+            <template x-for="row in getRenderableVisibleDirectRows()" :key="row.id">
+              <tr :class="isOrderCandidateCreated(row) ? 'bg-gray-100' : ''" class="divide-x divide-gray-200 border-t border-gray-200 hover:bg-neutral-50">
                 <td class="p-1 text-center">
                   <input type="checkbox"
                     :checked="isRowDeleteSelected(row, true)"
-                    :disabled="isRowDeleteLocked(row)"
+                    :disabled="isDirectRequestPrintLocked(row)"
                     @change="setRowDeleteSelected(row, true, $event.target.checked)"
-                    :class="isRowDeleteLocked(row) ? 'cursor-not-allowed opacity-50' : ''"
+                    autocomplete="off"
+                    :class="isDirectRequestPrintLocked(row) ? 'cursor-not-allowed opacity-50' : ''"
                     class="rounded border-gray-300"
-                    title="削除対象にする" />
+                    title="処理対象にする" />
                 </td>
                 <td class="date-stack-column p-1">
                   <div class="date-stack">
                     <div class="date-entry">
-                      <input type="text" :value="row.orderDate" @input.debounce.600ms="row.orderDate = $event.target.value; handleOrderDateChanged(row, true)" @blur="row.orderDate = $event.target.value; handleOrderDateChanged(row, true)" @keydown.enter.prevent="$event.target.blur()" inputmode="numeric" :disabled="isRowEditLocked(row)" :class="isRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : 'focus:ring-2 focus:ring-indigo-500'" class="date-entry-text w-full rounded-md border-gray-300 border px-1 py-1 text-xs shadow-sm" />
-                      <label class="date-entry-picker" :class="isRowEditLocked(row) ? 'is-disabled' : ''" title="発注日をカレンダー選択">
-                        <input type="date" :value="row.orderDate" @change="row.orderDate = $event.target.value; handleOrderDateChanged(row, true)" :disabled="isRowEditLocked(row)" class="date-entry-native" />
+                      <input type="text" :value="row.orderDate" @input.debounce.600ms="row.orderDate = $event.target.value; handleOrderDateChanged(row, true)" @blur="row.orderDate = $event.target.value; handleOrderDateChanged(row, true)" @keydown.enter.prevent="$event.target.blur()" inputmode="numeric" :disabled="isDirectRowEditLocked(row)" :class="isDirectRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : 'focus:ring-2 focus:ring-indigo-500'" class="date-entry-text w-full rounded-md border-gray-300 border px-1 py-1 text-xs shadow-sm" />
+                      <label class="date-entry-picker" :class="isDirectRowEditLocked(row) ? 'is-disabled' : ''" title="発注日をカレンダー選択">
+                        <input type="date" :value="row.orderDate" @change="row.orderDate = $event.target.value; handleOrderDateChanged(row, true)" :disabled="isDirectRowEditLocked(row)" class="date-entry-native" />
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                       </label>
                     </div>
                     <div class="date-entry">
-                      <input type="text" x-model="row.deliveryDate" @blur="row.deliveryDate = normalizeFlexibleDate(row.deliveryDate)" @keydown.enter.prevent="row.deliveryDate = normalizeFlexibleDate(row.deliveryDate); $event.target.blur()" inputmode="numeric" :disabled="isRowEditLocked(row)" :class="isRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : (isDeliveryDateBeforeOrderDate(row) ? 'border-red-500 bg-red-50 text-red-700 focus:ring-2 focus:ring-red-500' : 'focus:ring-2 focus:ring-indigo-500')" class="date-entry-text w-full rounded-md border-gray-300 border px-1 py-1 text-xs shadow-sm" />
-                      <label class="date-entry-picker" :class="isRowEditLocked(row) ? 'is-disabled' : ''" title="納品希望日をカレンダー選択">
-                        <input type="date" :value="row.deliveryDate" @change="row.deliveryDate = $event.target.value" :disabled="isRowEditLocked(row)" class="date-entry-native" />
+                      <input type="text" x-model="row.deliveryDate" @blur="row.deliveryDate = normalizeFlexibleDate(row.deliveryDate)" @keydown.enter.prevent="row.deliveryDate = normalizeFlexibleDate(row.deliveryDate); $event.target.blur()" inputmode="numeric" :disabled="isDirectRowEditLocked(row)" :class="isDirectRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : (isDeliveryDateBeforeOrderDate(row) ? 'border-red-500 bg-red-50 text-red-700 focus:ring-2 focus:ring-red-500' : 'focus:ring-2 focus:ring-indigo-500')" class="date-entry-text w-full rounded-md border-gray-300 border px-1 py-1 text-xs shadow-sm" />
+                      <label class="date-entry-picker" :class="isDirectRowEditLocked(row) ? 'is-disabled' : ''" title="入荷予定日をカレンダー選択">
+                        <input type="date" :value="row.deliveryDate" @change="row.deliveryDate = $event.target.value" :disabled="isDirectRowEditLocked(row)" class="date-entry-native" />
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                       </label>
                     </div>
-                    <div x-show="isDeliveryDateBeforeOrderDate(row)" x-cloak class="text-[10px] font-semibold leading-tight text-red-600">納品希望日が発注日より過去です</div>
+                    <div x-show="isDeliveryDateBeforeOrderDate(row)" x-cloak class="text-[10px] font-semibold leading-tight text-red-600">入荷予定日が発注日より過去です</div>
                     <div x-show="isKeptVisibleByPendingFilter(row, true)" x-cloak class="text-[10px] font-semibold leading-tight text-amber-600">現在の条件外</div>
                   </div>
                 </td>
                 <td class="partner-stack-column align-middle p-1">
                   <div class="partner-stack">
-                    <div class="partner-stack-line px-1 py-0.5 text-xs text-gray-600" :title="getOrderToDisplay(row)" x-text="getOrderToDisplay(row)"></div>
+                    <div class="partner-stack-line flex items-center gap-1 px-1 py-0.5 text-xs text-gray-600">
+                      <span class="min-w-0 flex-1 truncate" :title="getOrderToDisplay(row)" x-text="getOrderToDisplay(row)"></span>
+                    </div>
                     <div class="partner-stack-line px-1 py-0.5 text-xs text-gray-500" :title="getSupplierDisplay(row)" x-text="getSupplierDisplay(row)"></div>
                   </div>
                 </td>
@@ -884,11 +1003,11 @@
                       @blur="resolveManualProductCode(row)"
                       @keydown.enter.prevent="resolveManualProductCode(row)"
                       inputmode="numeric"
-                      :disabled="isProductEditLocked(row)"
-                      :class="isProductEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed text-gray-400' : 'focus:ring-2 focus:ring-indigo-500'"
+                      :disabled="isDirectRowEditLocked(row)"
+                      :class="isDirectRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed text-gray-400' : 'focus:ring-2 focus:ring-indigo-500'"
                       class="product-code-entry rounded-md border border-gray-300 px-1 py-1 font-mono text-xs shadow-sm"
                       placeholder="商品CD/JAN" />
-                    <button @click="openDirectProductSearch(row.id)" :disabled="isProductEditLocked(row)" :class="isProductEditLocked(row) ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-indigo-600'" class="shrink-0 p-0.5" title="商品検索">
+                    <button @click="openDirectProductSearch(row.id)" :disabled="isDirectRowEditLocked(row)" :class="isDirectRowEditLocked(row) ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-indigo-600'" class="shrink-0 p-0.5" title="商品検索">
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                     </button>
                   </div>
@@ -896,42 +1015,62 @@
                 <td class="p-1"><div class="px-1 py-1 whitespace-nowrap text-xs" x-text="row.name || '-'"></div></td>
                 <td class="p-1 text-center"><div class="px-1 py-1 whitespace-nowrap text-xs" x-text="row.unitsPerCase || ''"></div></td>
                 <td class="p-1 text-center">
-                  <button @click="if(directLotPopoverRowId === row.id){ directLotPopoverRowId = null; } else { const r = $event.currentTarget.getBoundingClientRect(); const ph = 360; const below = r.bottom + 4; const above = r.top - 4; directLotPopoverPos = (below + ph > window.innerHeight) ? { top: above, left: r.left + r.width/2, anchor: 'above' } : { top: below, left: r.left + r.width/2, anchor: 'below' }; directLotPopoverRowId = row.id; }" class="w-6 h-6 rounded-full bg-amber-500 hover:bg-amber-600 text-white inline-flex items-center justify-center transition shadow-sm" title="ロット条件">
+                  <button @click="toggleItemContractorNote(row, true, $event)" class="w-6 h-6 rounded-full bg-amber-500 hover:bg-amber-600 text-white inline-flex items-center justify-center transition shadow-sm" title="備考を確認">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                   </button>
                 </td>
                 <td class="w-14 min-w-[3.5rem] p-1 text-right" :class="toInt(row.reserved) < calcDirectAllocTotal(row) ? 'bg-red-100' : ''"><div class="px-1 py-1 font-semibold" :class="toInt(row.reserved) < calcDirectAllocTotal(row) ? 'text-red-700' : ''" :title="getStockSummaryTitle(row)" x-text="row.reserved"></div></td>
-                <td class="w-14 min-w-[3.5rem] p-1 text-right"><div class="px-1 py-1 font-semibold" x-text="calcDirectWishTotal(row)"></div></td>
-                <td class="w-14 min-w-[3.5rem] p-1 text-right"><div class="px-1 py-1 font-semibold" x-text="calcDirectAllocTotal(row)"></div></td>
-                <td class="p-1 text-right"><input type="number" :value="orderQuantityInputValue(row.poCase)" @input="setOrderQuantity(row, 'poCase', $event.target.value)" :disabled="isQuantityLocked(row)" :class="isQuantityLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : 'focus:ring-2 focus:ring-indigo-500'" class="w-full rounded-md border-gray-300 border px-1 py-1 text-right shadow-sm alloc-spin-hide" /></td>
-                <td class="p-1 text-right"><input type="number" :value="orderQuantityInputValue(row.poEach)" @input="setOrderQuantity(row, 'poEach', $event.target.value)" :disabled="isQuantityLocked(row)" :class="isQuantityLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : 'focus:ring-2 focus:ring-indigo-500'" class="w-full rounded-md border-gray-300 border px-1 py-1 text-right shadow-sm alloc-spin-hide" /></td>
-                <td class="p-1 text-right bg-gray-50"><div class="px-1 py-1 font-semibold" x-text="calcOrderTotalPieces(row, currentRow => calcDirectAllocTotal(currentRow))"></div></td>
-                <td class="p-1 text-center">
-                  <input type="checkbox" x-model="row.checked"
-                    :disabled="isRowLocked(row) || !hasRowProductInfo(row)"
-                    :title="!hasRowProductInfo(row) ? getMissingProductInfoMessage() : ''"
-                    :class="(isRowLocked(row) || !hasRowProductInfo(row)) ? 'cursor-not-allowed opacity-70' : ''"
-                    class="rounded border-gray-300" />
+                <td class="w-14 min-w-[3.5rem] p-0 text-right" style="background: linear-gradient(to bottom, #fef2f2 0%, #fef2f2 50%, #eff6ff 50%, #eff6ff 100%);">
+                  <div class="flex h-full min-h-14 flex-col">
+                    <div class="flex flex-1 items-center justify-end px-2 font-semibold text-red-800" x-text="calcDirectWishTotal(row)"></div>
+                    <div class="flex flex-1 items-center justify-end border-t border-gray-300 px-2 font-semibold text-blue-900" x-text="calcDirectAllocTotal(row)"></div>
+                  </div>
                 </td>
-                <template x-for="dest in DESTS" :key="dest.key">
-                  <td class="p-0 border-l border-gray-300 w-[80px] min-w-[80px] max-w-[80px]">
+                <td class="p-1 text-right"><input type="number" :value="orderQuantityInputValue(row.poCase)" @input="setOrderQuantity(row, 'poCase', $event.target.value, true)" @blur="flushQuantitySave(true)" :disabled="isDirectRowEditLocked(row)" :class="isDirectRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : 'focus:ring-2 focus:ring-indigo-500'" class="w-full rounded-md border-gray-300 border px-1 py-1 text-right shadow-sm alloc-spin-hide" /></td>
+                <td class="p-1 text-right"><input type="number" :value="orderQuantityInputValue(row.poEach)" @input="setOrderQuantity(row, 'poEach', $event.target.value, true)" @blur="flushQuantitySave(true)" :disabled="isDirectRowEditLocked(row)" :class="isDirectRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : 'focus:ring-2 focus:ring-indigo-500'" class="w-full rounded-md border-gray-300 border px-1 py-1 text-right shadow-sm alloc-spin-hide" /></td>
+                <td class="p-1 text-right bg-gray-50"><div class="px-1 py-1 font-semibold" x-text="calcOrderTotalPieces(row, currentRow => calcDirectAllocTotal(currentRow))"></div></td>
+                <td class="w-px whitespace-nowrap p-0.5 text-center">
+                  <span class="inline-flex whitespace-nowrap rounded px-0.5 py-0.5 text-[10px] font-semibold" :class="getDirectStatusClass(row)" x-text="getDirectStatusLabel(row)"></span>
+                </td>
+                <template x-for="dest in getDirectDisplayDestinations()" :key="dest.key">
+                  <td class="w-[60px] min-w-[60px] max-w-[60px] border-l border-gray-300 p-0">
                     <div class="flex flex-col">
-                      <div class="bg-red-50 border-b-2 border-gray-300 px-2 py-1.5 text-right text-xs font-medium text-red-800" x-text="row['wish_'+dest.key] || 0"></div>
-                      <input type="text" inputmode="numeric" :value="row['alloc_'+dest.key] || 0" @input="row['alloc_'+dest.key] = parseInt($event.target.value) || 0" @keydown.enter.prevent="focusNextAllocationDestinationInput($event)" @focus="$event.target.select()" :disabled="isQuantityLocked(row)"
-                        :class="isQuantityLocked(row) ? 'bg-gray-100 cursor-not-allowed text-gray-400 border-gray-300' : (Number(row['alloc_'+dest.key] || 0) > 0 ? 'bg-yellow-50 border-2 border-yellow-400 focus:ring-2 focus:ring-yellow-400 text-yellow-800' : 'bg-blue-50 border-2 border-blue-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white text-blue-900')"
+                      <div class="border-b-2 border-gray-300 bg-red-50 px-1 py-1.5 text-right text-xs font-medium text-red-800" x-text="row['wish_'+dest.key] || 0"></div>
+                      <input type="text" inputmode="numeric" :value="row['alloc_'+dest.key] || 0" @input="setAllocationQuantity(row, dest.key, $event.target.value, true)" @blur="flushQuantitySave(true)" @keydown.enter.prevent="focusNextAllocationDestinationInput($event)" @focus="$event.target.select()" :disabled="isDirectRowEditLocked(row)"
+                        :class="isDirectRowEditLocked(row) ? 'bg-gray-100 cursor-not-allowed text-gray-400 border-gray-300' : (Number(row['alloc_'+dest.key] || 0) > 0 ? 'bg-yellow-50 border-2 border-yellow-400 focus:ring-2 focus:ring-yellow-400 text-yellow-800' : 'bg-blue-50 border-2 border-blue-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white text-blue-900')"
                         class="allocation-destination-input w-full m-0.5 rounded px-1.5 py-1 text-right text-xs font-semibold" />
                     </div>
                   </td>
                 </template>
                 <td class="p-1 text-center">
-                  <button @click="removeDirectRow(row.id)" :disabled="isRowDeleteLocked(row)" :class="isRowDeleteLocked(row) ? 'text-gray-300 cursor-not-allowed' : 'text-red-400 hover:text-red-600'" class="p-1" title="削除">
+                  <button @click="removeDirectRow(row.id)" :disabled="isDirectRowDeleteLocked(row)" :class="isDirectRowDeleteLocked(row) ? 'text-gray-300 cursor-not-allowed' : 'text-red-400 hover:text-red-600'" class="p-1" title="削除">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                   </button>
                 </td>
               </tr>
             </template>
-            <template x-if="getVisibleDirectRows().length === 0">
+            <template x-if="distributionRowsLoading && getVisibleDirectRows().length === 0">
+              <tr>
+                <td colspan="99" class="p-8 text-center text-gray-500">
+                  <div class="inline-flex items-center justify-center gap-2">
+                    <span class="filter-loading-spinner"></span>
+                    <span>分配データを読み込み中...</span>
+                  </div>
+                </td>
+              </tr>
+            </template>
+            <template x-if="!distributionRowsLoading && getVisibleDirectRows().length === 0">
               <tr><td colspan="99" class="p-8 text-center text-gray-500"><div class="distribution-list-empty-state">該当するデータがありません</div></td></tr>
+            </template>
+            <template x-if="getVisibleDirectRows().length > 0">
+              <tr>
+                <td colspan="99" class="p-3 text-center text-xs text-amber-700 bg-amber-50">
+                  <div class="distribution-list-load-more-state">
+                    <span x-text="'表示中: ' + getDirectRenderedRowCount() + ' 件 / 全 ' + getDirectTotalRowCount() + ' 件'"></span>
+                    <button x-show="isDirectRenderLimited()" x-cloak type="button" @click="loadMoreDirectRows()" class="rounded-md bg-amber-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm hover:bg-amber-700" x-text="getDirectLoadMoreLabel()"></button>
+                  </div>
+                </td>
+              </tr>
             </template>
           </tbody>
         </table>
@@ -939,7 +1078,8 @@
     </div>
 
   <!-- 直送分配明細備考入力ポップアップ -->
-  </div>
+    </div>
+  </template>
 
   <div x-show="directMemoPopupRowId !== null" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4">
     <div class="absolute inset-0 bg-black/30" @click="directMemoPopupRowId = null"></div>
@@ -957,13 +1097,29 @@
       </div>
     </div>
   </div>
+@endif
 
+@if ($distributionInitialTabForView === 'store-view')
   <!-- ==================== Store View Tab ==================== -->
-  <div x-show="activeSubTab === 'store-view'" x-cloak>
+  <template x-if="activeSubTab === 'store-view'">
+    <div>
     <div class="bg-gray-50 p-0">
       <div class="hidden">
         <h1 class="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800 mb-1 sm:mb-2">店舗別分配管理</h1>
         <p class="text-gray-600 text-xs sm:text-sm lg:text-base">各店舗に配分された商品を確認・管理します</p>
+      </div>
+
+      <div class="m-0 flex border-b-2 border-gray-200 bg-white p-0 shadow-sm">
+        <button type="button" @click="setStoreSourceTab('allocation')"
+          :class="storeIndividualSourceView === 'allocation' ? 'border-emerald-600 bg-emerald-50 text-emerald-800' : 'border-transparent bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700'"
+          class="min-w-[9rem] border-b-4 px-4 py-1.5 text-center text-sm font-bold transition-colors">
+          通常分配
+        </button>
+        <button type="button" @click="setStoreSourceTab('direct')"
+          :class="storeIndividualSourceView === 'direct' ? 'border-sky-600 bg-sky-50 text-sky-800' : 'border-transparent bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700'"
+          class="min-w-[9rem] border-b-4 px-4 py-1.5 text-center text-sm font-bold transition-colors">
+          直送分配
+        </button>
       </div>
 
       <!-- Controls -->
@@ -971,220 +1127,287 @@
         <div class="space-y-2">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div class="distribution-filter-controls flex flex-wrap items-center gap-1.5 text-xs">
-              <div class="relative w-full flex-none sm:w-[20rem] lg:w-[24rem]">
+              <div class="relative flex-none" style="width: 16rem; max-width: 100%;">
                 <input type="text" x-model="storeFilterDraft.productSearch" @keydown.enter.prevent="applyStoreFilters()" placeholder="商品コード/商品名" class="distribution-search-input w-full rounded-md border border-gray-300 bg-white px-2 py-1 pr-14 text-xs shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-                <button x-show="storeFilterDraft.productSearch" x-cloak @click="storeFilterDraft.productSearch = ''; applyStoreFilters()" class="absolute rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600" style="right: 1.75rem; top: 50%; transform: translateY(-50%);" title="商品検索クリア">
+                <button x-show="storeFilterDraft.productSearch" x-cloak @click="storeFilterDraft.productSearch = ''; applyStoreFilters()" class="absolute rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600" style="right: 2.25rem; top: 50%; transform: translateY(-50%);" title="商品検索クリア">
                   <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
-                <button type="button" @click="applyStoreFilters()" :disabled="filterApplying" class="absolute z-10 inline-flex h-5 w-5 items-center justify-center rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 shadow-sm hover:bg-indigo-100 hover:text-indigo-800 disabled:cursor-wait disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400" style="right: 0.375rem; top: 50%; transform: translateY(-50%);" title="検索実行">
+                <button type="button" @click="applyStoreFilters()" :disabled="filterApplying" class="absolute bottom-px right-px top-px z-10 inline-flex w-8 items-center justify-center rounded-r-[5px] border-l border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:text-indigo-800 disabled:cursor-wait disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400" title="検索実行">
                   <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path stroke-linecap="round" stroke-linejoin="round" d="M20 20l-4.35-4.35"></path></svg>
                 </button>
               </div>
-              <label class="text-gray-700 font-medium whitespace-nowrap">確定</label>
+              <div x-show="storeIndividualSourceView === 'direct'" x-cloak class="flex flex-wrap items-center gap-1.5">
+                <div class="relative" @click.outside="storeOrderToOptionsOpen = false">
+                  <input type="text" x-model="storeFilterDraft.orderToSearch"
+                    @focus="storeOrderToOptionsOpen = true"
+                    @input="storeOrderToOptionsOpen = true"
+                    @keydown.enter.prevent="storeOrderToOptionsOpen = false; applyStoreFilters()"
+                    @keydown.escape.prevent="storeOrderToOptionsOpen = false"
+                    placeholder="発注先CD/発注先名"
+                    class="w-48 rounded-md border border-gray-300 bg-white px-2 py-1 pr-7 text-xs shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                  <button type="button" @click="storeOrderToOptionsOpen = !storeOrderToOptionsOpen" class="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-gray-500 hover:bg-gray-100" title="発注先候補を表示">
+                    <svg class="h-3.5 w-3.5 transition-transform" :class="storeOrderToOptionsOpen ? 'rotate-180' : ''" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                  </button>
+                  <div x-show="storeOrderToOptionsOpen" x-cloak class="absolute left-0 top-full z-50 mt-1 max-h-56 w-72 overflow-auto rounded-md border border-gray-200 bg-white shadow-lg">
+                    <template x-for="option in getStoreOrderToFilterOptions()" :key="option.key">
+                      <button type="button" @click="selectStoreOrderToFilterOption(option)" class="block w-full px-2 py-1.5 text-left text-xs text-gray-700 hover:bg-indigo-50 hover:text-indigo-800">
+                        <span x-text="formatStoreOrderToFilterOption(option)"></span>
+                      </button>
+                    </template>
+                    <div x-show="getStoreOrderToFilterOptions().length === 0" class="px-2 py-2 text-center text-xs text-gray-500">候補がありません。直接入力できます。</div>
+                  </div>
+                </div>
+                <label class="text-gray-700 font-medium whitespace-nowrap">入荷予定日</label>
+                <div class="date-entry w-32">
+                  <input type="text" x-model="storeFilterDraft.deliveryFrom" @blur="storeFilterDraft.deliveryFrom = normalizeFlexibleDate(storeFilterDraft.deliveryFrom)" @keydown.enter.prevent="storeFilterDraft.deliveryFrom = normalizeFlexibleDate(storeFilterDraft.deliveryFrom); applyStoreFilters()" inputmode="numeric" placeholder="YYYY-MM-DD" class="date-entry-text w-full rounded-md border-gray-300 border px-2 py-1 text-xs shadow-sm" />
+                  <label class="date-entry-picker" title="カレンダー選択">
+                    <input type="date" :value="storeFilterDraft.deliveryFrom" @change="storeFilterDraft.deliveryFrom = $event.target.value; applyStoreFilters()" class="date-entry-native" />
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                  </label>
+                </div>
+                <span class="text-gray-500">～</span>
+                <div class="date-entry w-32">
+                  <input type="text" x-model="storeFilterDraft.deliveryTo" @blur="storeFilterDraft.deliveryTo = normalizeFlexibleDate(storeFilterDraft.deliveryTo)" @keydown.enter.prevent="storeFilterDraft.deliveryTo = normalizeFlexibleDate(storeFilterDraft.deliveryTo); applyStoreFilters()" inputmode="numeric" placeholder="YYYY-MM-DD" class="date-entry-text w-full rounded-md border-gray-300 border px-2 py-1 text-xs shadow-sm" />
+                  <label class="date-entry-picker" title="カレンダー選択">
+                    <input type="date" :value="storeFilterDraft.deliveryTo" @change="storeFilterDraft.deliveryTo = $event.target.value; applyStoreFilters()" class="date-entry-native" />
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                  </label>
+                </div>
+              </div>
+              <div x-show="storeIndividualSourceView === 'allocation'" x-cloak class="flex flex-wrap items-center gap-1.5">
+                <label class="text-gray-700 font-medium whitespace-nowrap">出荷日</label>
+                <div class="date-entry" style="width: 7.5rem; min-width: 7.5rem;">
+                  <input type="text" x-model="storeFilterDraft.shipmentFrom" @blur="storeFilterDraft.shipmentFrom = normalizeFlexibleDate(storeFilterDraft.shipmentFrom)" @keydown.enter.prevent="storeFilterDraft.shipmentFrom = normalizeFlexibleDate(storeFilterDraft.shipmentFrom); applyStoreFilters()" inputmode="numeric" placeholder="YYYY-MM-DD" class="date-entry-text w-full rounded-md border-gray-300 border px-2 py-1 text-xs shadow-sm" />
+                  <label class="date-entry-picker" title="カレンダー選択">
+                    <input type="date" :value="storeFilterDraft.shipmentFrom" @change="storeFilterDraft.shipmentFrom = $event.target.value; applyStoreFilters()" class="date-entry-native" />
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                  </label>
+                </div>
+                <span class="text-gray-500">～</span>
+                <div class="date-entry" style="width: 7.5rem; min-width: 7.5rem;">
+                  <input type="text" x-model="storeFilterDraft.shipmentTo" @blur="storeFilterDraft.shipmentTo = normalizeFlexibleDate(storeFilterDraft.shipmentTo)" @keydown.enter.prevent="storeFilterDraft.shipmentTo = normalizeFlexibleDate(storeFilterDraft.shipmentTo); applyStoreFilters()" inputmode="numeric" placeholder="YYYY-MM-DD" class="date-entry-text w-full rounded-md border-gray-300 border px-2 py-1 text-xs shadow-sm" />
+                  <label class="date-entry-picker" title="カレンダー選択">
+                    <input type="date" :value="storeFilterDraft.shipmentTo" @change="storeFilterDraft.shipmentTo = $event.target.value; applyStoreFilters()" class="date-entry-native" />
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                  </label>
+                </div>
+              </div>
               <select x-model="storeFilterDraft.confirmStatus" @change="applyStoreFilters()" class="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500">
                 <option value="unconfirmed">未確定のみ</option>
                 <option value="confirmed">確定のみ</option>
                 <option value="all">全て</option>
               </select>
-              <label class="text-gray-700 font-medium whitespace-nowrap">区分</label>
-              <select x-model="storeFilterDraft.distributionType" @change="applyStoreFilters()" class="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500">
-                <option value="all">すべて</option>
-                <option value="allocation">通常分配</option>
-                <option value="direct">直送分配</option>
-              </select>
               <button @click="clearStoreFilters()" class="px-2 py-1 text-xs rounded-md bg-gray-200 hover:bg-gray-300 text-gray-700 whitespace-nowrap">クリア</button>
             </div>
-            <button type="button" data-slip-action="store-slip" data-store-slip-output-button="1" @click.prevent.stop="openStoreSlipOutput()"
-              :disabled="transferSlipCreating"
-              :class="hasStoreSlipOutputTarget() ? 'bg-indigo-600 hover:bg-indigo-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'"
-              class="font-medium py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg shadow transition text-xs sm:text-sm disabled:cursor-not-allowed"
-              x-text="getStoreSlipOutputButtonLabel()">
-            </button>
+            <div class="flex shrink-0 items-center gap-1.5">
+              <button type="button" data-slip-action="store-slip" data-store-slip-output-button="1" @click.prevent.stop="openStoreSlipOutput()"
+                :disabled="transferSlipCreating"
+                :class="hasStoreSlipOutputTarget() ? 'bg-indigo-600 hover:bg-indigo-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'"
+                class="inline-flex items-center gap-1.5 font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs disabled:cursor-not-allowed"
+                x-text="getStoreSlipOutputButtonLabel()">
+              </button>
+            </div>
           </div>
 
-          <div class="flex items-center gap-2 overflow-x-auto pb-0.5">
-            <div class="flex items-center gap-1.5 shrink-0">
-              <label class="text-xs font-medium text-gray-700 whitespace-nowrap">表示モード:</label>
-              <div class="flex gap-1">
-                <button @click="storeViewMode = 'individual'"
+            <div class="grid items-start gap-x-2 gap-y-1.5 pb-0.5" style="grid-template-columns:max-content minmax(0,1fr);">
+              <div class="flex items-center gap-1.5 shrink-0">
+                <label class="text-xs font-medium text-gray-700 whitespace-nowrap">表示モード:</label>
+                <div class="flex gap-1">
+                  <button @click="setStoreViewMode('individual')"
                   :class="storeViewMode === 'individual' ? 'bg-slate-700 text-white ring-1 ring-slate-700' : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200 hover:bg-slate-200'"
                   class="px-2 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap">店別表示</button>
-                <button @click="storeViewMode = 'comparison'"
+                <button x-show="isHqStoreViewWarehouse()" x-cloak @click="setStoreViewMode('comparison')"
                   :class="storeViewMode === 'comparison' ? 'bg-slate-700 text-white ring-1 ring-slate-700' : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200 hover:bg-slate-200'"
-                  class="px-2 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap">比較表示</button>
+                    class="px-2 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap">比較表示</button>
+                </div>
               </div>
-            </div>
-            <div class="flex min-w-max items-center gap-1">
-              <span class="text-xs font-medium text-gray-600 shrink-0">店舗:</span>
-              <button x-show="isHqStoreViewWarehouse()" x-cloak @click="toggleAllStores()"
+              <div class="flex flex-wrap items-center gap-1">
+                <span class="text-xs font-medium text-gray-600 shrink-0">店舗:</span>
+                <button x-show="isHqStoreViewWarehouse()" x-cloak @click="toggleAllDestinationGroup('store')"
                 class="px-2 py-1 rounded-md text-xs font-medium border transition-colors whitespace-nowrap shrink-0"
-                :class="selectedStores.length === getStoreDisplayDestinationKeys().length ? 'border-blue-400 bg-blue-50 text-blue-600' : 'border-gray-300 bg-white text-gray-500 hover:bg-gray-50'"
-                x-text="selectedStores.length === getStoreDisplayDestinationKeys().length ? '全解除' : '全選択'"></button>
-              <template x-for="store in getStoreDisplayDestinations()" :key="store.key">
+                :class="areAllDestinationGroupSelected('store') ? 'border-blue-400 bg-blue-50 text-blue-600' : 'border-gray-300 bg-white text-gray-500 hover:bg-gray-50'"
+                x-text="areAllDestinationGroupSelected('store') ? '全解除' : '全選択'"></button>
+              <template x-for="store in getStoreControlStoreDestinations()" :key="store.key">
                 <button @click="toggleStore(store.key)"
                   :class="selectedStores.includes(store.key)
                     ? 'bg-blue-600 text-white ring-1 ring-blue-600'
-                    : (getStoreProductCount(store.key) > 0
-                      ? 'bg-green-50 text-green-700 ring-1 ring-green-300 hover:bg-green-100'
-                      : 'bg-gray-50 text-gray-400 ring-1 ring-gray-200 hover:bg-gray-100')"
+                    : 'bg-gray-50 text-gray-600 ring-1 ring-gray-200 hover:bg-gray-100'"
                   class="inline-flex items-center gap-0.5 px-2 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap shrink-0">
-                  <span x-text="store.name"></span>
-                  <template x-if="getStoreProductCount(store.key) > 0">
-                    <span class="opacity-70 text-[10px]" x-text="getStoreProductCount(store.key)"></span>
-                  </template>
+                  <span x-text="getStoreLabel(store.key)"></span>
                 </button>
               </template>
             </div>
+              <div x-show="storeIndividualSourceView === 'allocation' && getStoreControlDepartmentDestinations().length > 0" x-cloak class="flex flex-wrap items-center gap-1" style="grid-column:2;">
+                <span class="text-xs font-medium text-gray-600 shrink-0">部門:</span>
+                <button x-show="isHqStoreViewWarehouse()" x-cloak @click="toggleAllDestinationGroup('department')"
+                  class="px-2 py-1 rounded-md text-xs font-medium border transition-colors whitespace-nowrap shrink-0"
+                  :class="areAllDestinationGroupSelected('department') ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-gray-300 bg-white text-gray-500 hover:bg-gray-50'"
+                  x-text="areAllDestinationGroupSelected('department') ? '全解除' : '全選択'"></button>
+                <template x-for="department in getStoreControlDepartmentDestinations()" :key="department.key">
+                  <button @click="toggleStore(department.key)"
+                    :class="selectedStores.includes(department.key)
+                      ? 'bg-amber-600 text-white ring-1 ring-amber-600'
+                      : 'bg-amber-50 text-amber-800 ring-1 ring-amber-200 hover:bg-amber-100'"
+                    class="inline-flex items-center gap-0.5 px-2 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap shrink-0">
+                    <span x-text="getStoreLabel(department.key)"></span>
+                  </button>
+                </template>
+              </div>
           </div>
         </div>
         </div>
       </div>
 
       <!-- Individual View -->
-      <div x-show="storeViewMode === 'individual'" class="space-y-1.5">
-        <template x-if="selectedStores.length > 0">
-          <div class="bg-white rounded-lg shadow-md overflow-hidden">
-            <div class="overflow-auto" style="max-height: calc(100vh - 285px);">
-              <table class="store-distribution-detail-table w-full border-collapse text-xs">
-                <thead class="bg-gray-50 border-b border-gray-200">
-                  <tr class="divide-x divide-gray-200">
-                    <th class="px-2 py-1 text-center font-semibold text-gray-700 whitespace-nowrap">選択</th>
-                    <th class="px-2 py-1 text-center font-semibold text-gray-700 whitespace-nowrap">区分</th>
-                    <th class="px-2 py-1 text-left font-semibold text-gray-700 whitespace-nowrap">商品コード</th>
-                    <th class="px-2 py-1 text-left font-semibold text-gray-700 whitespace-nowrap">商品名</th>
-                    <th class="px-2 py-1 text-center font-semibold text-gray-700 whitespace-nowrap">入数</th>
-                    <th class="px-2 py-1 text-right font-semibold text-gray-700 whitespace-nowrap">希望</th>
-                    <th class="px-2 py-1 text-right font-semibold text-gray-700 whitespace-nowrap">分配</th>
-                    <th class="px-2 py-1 text-center font-semibold text-gray-700 whitespace-nowrap">状態</th>
-                  </tr>
-                </thead>
-                <template x-for="storeKey in selectedStores" :key="storeKey">
-                  <tbody>
-                    <tr class="bg-blue-50 border-t border-blue-100">
-                      <td class="px-2 py-1 text-center">
-                        <input type="checkbox"
-                          :checked="areAllStoreSlipRowsSelected(storeKey)"
-                          :disabled="!hasStoreSlipSelectableRows(storeKey)"
-                          x-effect="$el.indeterminate = isSomeStoreSlipRowsSelected(storeKey) && !areAllStoreSlipRowsSelected(storeKey)"
-                          @change.stop="toggleStoreSlipRows(storeKey, $event.target.checked)"
-                          class="h-3.5 w-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
-                          title="この店舗の表示中の伝票出力対象を全選択" />
-                      </td>
-                      <td colspan="7" class="px-2 py-1">
-                        <div class="flex flex-wrap items-center justify-between gap-1 text-blue-900">
-                          <h2 class="text-sm font-bold" x-text="getStoreLabel(storeKey)"></h2>
-                          <div class="flex items-center gap-3 text-blue-800 text-xs">
-                            <span>商品数: <span class="font-bold" x-text="getStoreFilteredProducts(storeKey).length"></span></span>
-                            <span>配分合計: <span class="font-bold" x-text="getStoreFilteredProducts(storeKey).reduce((s,p) => s + p.alloc, 0)"></span></span>
-                          </div>
+      <template x-if="storeViewMode === 'individual'">
+        <div class="space-y-1.5">
+          <template x-if="selectedStores.length > 0">
+            <div class="bg-white rounded-lg shadow-md overflow-hidden">
+              <div class="overflow-auto" style="max-height: calc(100vh - 200px);">
+                <table x-show="getStoreIndividualRows().length > 0" x-cloak class="store-distribution-detail-table w-full border-collapse text-xs">
+                  <thead class="sticky top-0 z-20 border-b-2 border-gray-300 bg-gray-50">
+                    <tr class="divide-x divide-gray-200">
+                      <th class="px-2 py-1 text-center font-semibold text-gray-700 whitespace-nowrap">
+                        <div class="flex flex-col items-center gap-0.5">
+                          <span>選択</span>
+                          <input type="checkbox"
+                            :checked="areAllStoreIndividualRowsSelected()"
+                            :disabled="getStoreIndividualRows().length === 0"
+                            x-effect="$el.indeterminate = isSomeStoreIndividualRowsSelected() && !areAllStoreIndividualRowsSelected()"
+                            @change.stop="toggleAllStoreIndividualRows($event.target.checked)"
+                            class="h-3.5 w-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
+                          title="表示中の伝票出力対象を全選択" />
                         </div>
-                      </td>
+                      </th>
+                      <th x-show="storeIndividualSourceView === 'direct'" class="px-2 py-1 text-left font-semibold text-gray-700 whitespace-nowrap">発注先CD</th>
+                      <th x-show="storeIndividualSourceView === 'direct'" class="px-2 py-1 text-left font-semibold text-gray-700 whitespace-nowrap">発注先名</th>
+                      <th x-show="storeIndividualSourceView === 'allocation'" class="px-2 py-1 text-center font-semibold text-gray-700 whitespace-nowrap">出荷日</th>
+                      <th class="px-2 py-1 text-center font-semibold text-gray-700 whitespace-nowrap">店舗CD</th>
+                      <th class="px-2 py-1 text-left font-semibold text-gray-700 whitespace-nowrap">商品コード</th>
+                      <th class="px-2 py-1 text-left font-semibold text-gray-700 whitespace-nowrap">商品名</th>
+                      <th x-show="storeIndividualSourceView === 'direct'" class="px-2 py-1 text-center font-semibold text-gray-700 whitespace-nowrap">入荷予定日</th>
+                      <th class="px-2 py-1 text-center font-semibold text-gray-700 whitespace-nowrap">入数</th>
+                      <th class="px-2 py-1 text-right font-semibold text-gray-700 whitespace-nowrap">希望</th>
+                      <th class="px-2 py-1 text-right font-semibold text-gray-700 whitespace-nowrap">分配</th>
+                      <th class="px-2 py-1 text-center font-semibold text-gray-700 whitespace-nowrap">状態</th>
                     </tr>
-                    <template x-for="(product, idx) in getStoreFilteredProducts(storeKey)" :key="product.rowId + '-' + storeKey">
-                      <tr :class="product.checked ? 'bg-emerald-50 hover:bg-emerald-100' : (product.alloc <= 0 ? 'bg-amber-50 hover:bg-amber-100' : 'hover:bg-gray-50')" class="divide-x divide-gray-200 border-t border-slate-400">
+                  </thead>
+                  <tbody>
+                    <template x-for="entry in getStoreIndividualRows()" :key="entry.product.rowId + '-' + entry.storeKey">
+                      <tr :class="entry.product.checked ? 'bg-emerald-50 hover:bg-emerald-100' : (entry.product.alloc <= 0 ? 'bg-amber-50 hover:bg-amber-100' : 'hover:bg-gray-50')" class="divide-x divide-gray-200 border-t border-slate-400" style="content-visibility:auto; contain-intrinsic-size:auto 28px;">
                         <td class="px-2 py-1 text-center">
                           <input type="checkbox"
                             data-store-slip-row-checkbox="1"
-                            :data-row-key="product.rowKey"
-                            :data-store-key="storeKey"
-                            :checked="isStoreSlipRowSelected(product.rowKey, storeKey)"
-                            @change.stop="setStoreSlipRowSelected(product.rowKey, storeKey, $event.target.checked)"
+                            :data-row-key="entry.product.rowKey"
+                            :data-store-key="entry.storeKey"
+                            :checked="isStoreSlipRowSelected(entry.product.rowKey, entry.storeKey)"
+                            @change.stop="setStoreSlipRowSelected(entry.product.rowKey, entry.storeKey, $event.target.checked)"
                             class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
                             title="伝票出力対象" />
                         </td>
-                        <td class="px-2 py-1 text-center whitespace-nowrap">
-                          <span class="inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold"
-                            :class="product.sourceType === 'direct' ? 'bg-sky-100 text-sky-700' : 'bg-emerald-100 text-emerald-700'"
-                            x-text="product.sourceLabel"></span>
-                        </td>
-                        <td class="px-2 py-1 font-mono text-xs whitespace-nowrap" x-text="product.productCode"></td>
-                        <td class="px-2 py-1" x-text="product.name"></td>
-                        <td class="px-2 py-1 text-center" x-text="product.unitsPerCase"></td>
-                        <td class="px-2 py-1 text-right text-red-700 font-semibold" x-text="product.wish"></td>
-                        <td class="px-2 py-1 text-right font-semibold" :class="product.checked ? 'bg-emerald-100 text-emerald-800 ring-1 ring-inset ring-emerald-200' : (product.alloc <= 0 ? 'bg-amber-100 text-amber-800 ring-1 ring-inset ring-amber-200' : 'text-green-700')" x-text="product.alloc"></td>
+                        <td x-show="storeIndividualSourceView === 'direct'" class="px-2 py-1 font-mono text-xs whitespace-nowrap" x-text="entry.product.orderToCode || '-'"></td>
+                        <td x-show="storeIndividualSourceView === 'direct'" class="px-2 py-1 whitespace-nowrap" :title="entry.product.orderTo || ''" x-text="entry.product.orderTo || '-'"></td>
+                        <td x-show="storeIndividualSourceView === 'allocation'" class="px-2 py-1 text-center whitespace-nowrap" x-text="getStoreAllocationShipmentDate(entry.product)"></td>
+                        <td class="px-2 py-1 text-center font-mono font-semibold whitespace-nowrap" :title="entry.storeLabel" x-text="entry.storeCode"></td>
+                        <td class="px-2 py-1 font-mono text-xs whitespace-nowrap" x-text="entry.product.productCode"></td>
+                        <td class="px-2 py-1" x-text="entry.product.name"></td>
+                        <td x-show="storeIndividualSourceView === 'direct'" class="px-2 py-1 text-center whitespace-nowrap" x-text="entry.product.deliveryDate || '-'"></td>
+                        <td class="px-2 py-1 text-center" x-text="entry.product.unitsPerCase"></td>
+                        <td class="px-2 py-1 text-right text-red-700 font-semibold" x-text="entry.product.wish"></td>
+                        <td class="px-2 py-1 text-right font-semibold" :class="entry.product.checked ? 'bg-emerald-100 text-emerald-800 ring-1 ring-inset ring-emerald-200' : (entry.product.alloc <= 0 ? 'bg-amber-100 text-amber-800 ring-1 ring-inset ring-amber-200' : 'text-green-700')" x-text="entry.product.alloc"></td>
                         <td class="px-2 py-1 text-center">
-                          <span x-show="product.checked" class="inline-block px-2 py-0.5 bg-green-100 text-green-800 text-[10px] font-semibold rounded-full">確定済</span>
-                          <span x-show="!product.checked" class="inline-block px-2 py-0.5 bg-yellow-100 text-yellow-800 text-[10px] font-semibold rounded-full">未確定</span>
+                          <span x-show="entry.product.checked" class="inline-block px-2 py-0.5 bg-green-100 text-green-800 text-[10px] font-semibold rounded-full">確定済</span>
+                          <span x-show="!entry.product.checked" class="inline-block px-2 py-0.5 bg-yellow-100 text-yellow-800 text-[10px] font-semibold rounded-full">未確定</span>
                         </td>
-                      </tr>
-                    </template>
-                    <template x-if="getStoreFilteredProducts(storeKey).length === 0">
-                      <tr>
-                        <td colspan="8" class="px-4 py-4 text-center text-gray-500 text-xs">配分商品がありません</td>
                       </tr>
                     </template>
                   </tbody>
-                </template>
+                </table>
+                <div x-show="getStoreIndividualRows().length === 0" x-cloak class="px-4 py-6 text-center text-gray-500 text-xs">配分商品がありません</div>
+              </div>
+            </div>
+          </template>
+          <template x-if="selectedStores.length === 0">
+            <div class="bg-white rounded-lg shadow-md p-6 text-center text-gray-500 text-sm">店舗または部門を選択してください</div>
+          </template>
+        </div>
+      </template>
+
+      <!-- Comparison View -->
+      <template x-if="storeViewMode === 'comparison' && selectedStores.length > 0">
+        <div>
+          <div class="bg-white rounded-lg shadow-md overflow-hidden">
+            <div x-show="getComparisonProductPageCount() > 1" x-cloak class="flex flex-wrap items-center justify-end gap-2 border-b border-gray-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">
+              <span x-text="getComparisonProductPageRangeLabel()"></span>
+              <button type="button"
+                @click="moveComparisonProductPage(-1)"
+                :disabled="getComparisonProductPage() <= 1"
+                class="rounded border border-slate-300 bg-white px-2 py-0.5 font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40">前へ</button>
+              <button type="button"
+                @click="moveComparisonProductPage(1)"
+                :disabled="getComparisonProductPage() >= getComparisonProductPageCount()"
+                class="rounded border border-slate-300 bg-white px-2 py-0.5 font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40">次へ</button>
+            </div>
+            <div class="overflow-auto" style="max-height: calc(100vh - 200px);">
+              <table class="store-distribution-detail-table w-full border-collapse text-xs">
+                <thead class="bg-gray-50 border-b-2 border-gray-200 sticky top-0 z-20">
+                  <tr>
+                    <th class="border-r border-gray-200 px-2 py-1.5 sm:py-2 text-left font-semibold text-gray-700 sticky bg-gray-50 z-30" style="left: 0; width: 7rem; min-width: 7rem;">商品コード</th>
+                    <th class="border-r border-gray-200 px-2 sm:px-3 py-1.5 sm:py-2 text-left font-semibold text-gray-700 sticky bg-gray-50 z-30" style="left: 7rem; min-width: 14rem;">商品名</th>
+                    <template x-for="storeKey in selectedStores" :key="storeKey">
+                      <th class="store-comparison-store-col border-l border-gray-200 px-0 py-0 text-center align-middle font-semibold text-gray-700">
+                        <div class="flex min-h-[2.75rem] flex-col justify-center">
+                          <span class="flex min-h-[1.45rem] items-center justify-center whitespace-nowrap px-1 text-[10px] leading-tight sm:text-[11px]" :title="getStoreLabel(storeKey)" x-text="getStoreLabel(storeKey)"></span>
+                          <div class="grid grid-cols-2 border-t border-gray-200 text-[10px] sm:text-xs font-normal">
+                            <span class="bg-red-50 px-0.5 py-0.5 text-red-700">希望</span>
+                            <span class="border-l border-gray-200 bg-green-50 px-0.5 py-0.5 text-green-700">分配</span>
+                          </div>
+                        </div>
+                      </th>
+                    </template>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="productCode in getRenderableComparisonProductCodes()" :key="productCode">
+                    <tr :class="isComparisonProductConfirmed(productCode) ? 'bg-emerald-50 hover:bg-emerald-100' : 'hover:bg-gray-50'" class="border-t border-slate-400">
+                      <td class="border-r border-gray-200 bg-white px-2 py-1.5 sm:py-2 sticky z-10 align-middle" style="left: 0; width: 7rem; min-width: 7rem;">
+                        <span class="font-mono text-[11px] font-semibold text-gray-600 whitespace-nowrap" x-text="getComparisonProductDisplayCode(productCode) || '-'"></span>
+                      </td>
+                      <td class="border-r border-gray-200 bg-white px-2 sm:px-3 py-1.5 sm:py-2 sticky z-10 align-middle" style="left: 7rem; min-width: 14rem;">
+                        <div class="whitespace-nowrap" :title="getComparisonProductName(productCode)" x-text="getComparisonProductName(productCode)"></div>
+                      </td>
+                      <template x-for="storeKey in selectedStores" :key="storeKey">
+                        <td x-data="{ cell: getComparisonCell(productCode, storeKey) }"
+                          :class="cell ? (cell.checked ? 'bg-emerald-50' : (cell.alloc <= 0 ? 'bg-amber-50' : '')) : ''"
+                          class="border-l border-gray-200 p-0 text-center align-middle">
+                          <template x-if="cell">
+                            <div class="grid min-h-[2.25rem] grid-cols-2 text-center font-semibold">
+                              <div class="flex items-center justify-end px-1 py-1 text-red-700" x-text="cell.wish"></div>
+                              <div class="flex items-center justify-end border-l border-gray-200 px-1 py-1" :class="cell.checked ? 'bg-emerald-100 text-emerald-800' : (cell.alloc <= 0 ? 'bg-amber-100 text-amber-800' : 'text-green-700')" x-text="cell.alloc"></div>
+                            </div>
+                          </template>
+                          <template x-if="!cell">
+                            <span class="text-gray-300">-</span>
+                          </template>
+                        </td>
+                      </template>
+                    </tr>
+                  </template>
+                </tbody>
               </table>
             </div>
           </div>
-        </template>
-        <template x-if="selectedStores.length === 0">
-          <div class="bg-white rounded-lg shadow-md p-6 text-center text-gray-500 text-sm">店舗を選択してください</div>
-        </template>
-      </div>
-
-      <!-- Comparison View -->
-      <div x-show="storeViewMode === 'comparison' && selectedStores.length > 0">
-        <div class="bg-white rounded-lg shadow-md overflow-hidden">
-          <div class="overflow-auto" style="max-height: calc(100vh - 285px);">
-            <table class="store-distribution-detail-table w-full border-collapse text-xs">
-              <thead class="bg-gray-50 border-b-2 border-gray-200 sticky top-0 z-20">
-                <tr>
-                  <th class="border-r border-gray-200 px-2 py-1.5 sm:py-2 text-center font-semibold text-gray-700 sticky bg-gray-50 z-30" style="left: 0; width: 4.5rem; min-width: 4.5rem;">区分</th>
-                  <th class="border-r border-gray-200 px-2 py-1.5 sm:py-2 text-left font-semibold text-gray-700 sticky bg-gray-50 z-30" style="left: 4.5rem; width: 7rem; min-width: 7rem;">商品コード</th>
-                  <th class="border-r border-gray-200 px-2 sm:px-3 py-1.5 sm:py-2 text-left font-semibold text-gray-700 sticky bg-gray-50 z-30" style="left: 11.5rem; min-width: 14rem;">商品名</th>
-                  <template x-for="storeKey in selectedStores" :key="storeKey">
-                    <th class="store-comparison-store-col border-l border-gray-200 px-0 py-0 text-center font-semibold text-gray-700">
-                      <span class="block whitespace-nowrap px-1 text-[10px] leading-tight sm:text-[11px]" :title="getStoreLabel(storeKey)" x-text="getStoreLabel(storeKey)"></span>
-                      <div class="mt-1 grid grid-cols-2 border-t border-gray-200 text-[10px] sm:text-xs font-normal">
-                        <span class="bg-red-50 px-0.5 py-0.5 text-red-700">希望</span>
-                        <span class="border-l border-gray-200 bg-green-50 px-0.5 py-0.5 text-green-700">分配</span>
-                      </div>
-                    </th>
-                  </template>
-                </tr>
-              </thead>
-              <tbody>
-                <template x-for="productCode in getComparisonProductCodes()" :key="productCode">
-                  <tr :class="isComparisonProductConfirmed(productCode) ? 'bg-emerald-50 hover:bg-emerald-100' : 'hover:bg-gray-50'" class="border-t border-slate-400">
-                    <td class="border-r border-gray-200 bg-white px-2 py-1.5 sm:py-2 sticky z-10 text-center align-middle" style="left: 0; width: 4.5rem; min-width: 4.5rem;">
-                        <span class="inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
-                          :class="getComparisonProductSourceType(productCode) === 'direct' ? 'bg-sky-100 text-sky-700' : 'bg-emerald-100 text-emerald-700'"
-                          x-text="getComparisonProductSourceLabel(productCode)"></span>
-                    </td>
-                    <td class="border-r border-gray-200 bg-white px-2 py-1.5 sm:py-2 sticky z-10 align-middle" style="left: 4.5rem; width: 7rem; min-width: 7rem;">
-                      <span class="font-mono text-[11px] font-semibold text-gray-600 whitespace-nowrap" x-text="getComparisonProductDisplayCode(productCode) || '-'"></span>
-                    </td>
-                    <td class="border-r border-gray-200 bg-white px-2 sm:px-3 py-1.5 sm:py-2 sticky z-10 align-middle" style="left: 11.5rem; min-width: 14rem;">
-                      <div class="whitespace-nowrap" :title="getComparisonProductName(productCode)" x-text="getComparisonProductName(productCode)"></div>
-                    </td>
-                    <template x-for="storeKey in selectedStores" :key="storeKey">
-                      <td :class="getComparisonCellStateClass(productCode, storeKey)" class="border-l border-gray-200 p-0 text-center align-middle">
-                        <template x-if="getComparisonCell(productCode, storeKey)">
-                          <div class="grid min-h-[2.25rem] grid-cols-2 text-center font-semibold">
-                            <div class="flex items-center justify-end px-1 py-1 text-red-700" x-text="getComparisonCell(productCode, storeKey).wish"></div>
-                            <div class="flex items-center justify-end border-l border-gray-200 px-1 py-1" :class="getComparisonCell(productCode, storeKey).checked ? 'bg-emerald-100 text-emerald-800' : (getComparisonCell(productCode, storeKey).alloc <= 0 ? 'bg-amber-100 text-amber-800' : 'text-green-700')" x-text="getComparisonCell(productCode, storeKey).alloc"></div>
-                          </div>
-                        </template>
-                        <template x-if="!getComparisonCell(productCode, storeKey)">
-                          <span class="text-gray-300">-</span>
-                        </template>
-                      </td>
-                    </template>
-                  </tr>
-                </template>
-              </tbody>
-            </table>
-          </div>
         </div>
-      </div>
-      <div x-show="storeViewMode === 'comparison' && selectedStores.length === 0">
-        <div class="bg-white rounded-lg shadow-md p-12 text-center text-gray-500">店舗を選択してください</div>
-      </div>
+      </template>
+      <template x-if="storeViewMode === 'comparison' && selectedStores.length === 0">
+        <div class="bg-white rounded-lg shadow-md p-12 text-center text-gray-500">店舗または部門を選択してください</div>
+      </template>
     </div>
 
   <!-- ==================== 明細備考入力ポップアップ ==================== -->
+  </template>
+@endif
+
   <div x-show="memoPopupRowId !== null" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4">
     <div class="absolute inset-0 bg-black/30" @click="memoPopupRowId = null"></div>
     <div class="relative bg-white rounded-lg shadow-2xl w-full max-w-sm sm:max-w-[384px] flex flex-col" @click.stop>
@@ -1208,17 +1431,10 @@
       <div class="fixed bg-white border border-gray-300 rounded-xl shadow-2xl p-4 sm:p-5 w-64 sm:w-72 text-sm max-w-[90vw]" :style="(lotPopoverPos.anchor === 'above' ? 'bottom:' + (window.innerHeight - lotPopoverPos.top) + 'px;' : 'top:' + lotPopoverPos.top + 'px;') + ' left:' + lotPopoverPos.left + 'px; transform: translateX(-50%);'" @click.stop>
         <template x-for="row in rows.filter(r => r.id === lotPopoverRowId)" :key="row.id">
           <div>
-            <div class="font-bold text-gray-800 mb-3 pb-2 border-b text-base">ロット条件</div>
+            <div class="font-bold text-gray-800 mb-3 pb-2 border-b text-base">備考</div>
             <div class="space-y-2">
-              <div class="flex justify-between"><span class="text-gray-600">ロット数:</span><span class="font-mono font-semibold" x-text="row.lot || 0"></span></div>
-              <div class="flex justify-between"><span class="text-gray-600">入数:</span><span class="font-mono font-semibold" x-text="row.unitsPerCase || 1"></span></div>
-              <div class="flex justify-between"><span class="text-gray-600">ロット入数:</span><span class="font-mono font-semibold" x-text="(row.lot || 0) * (row.unitsPerCase || 1)"></span></div>
-              <div class="flex justify-between mt-2 pt-2 border-t"><span class="text-gray-600">希望合計:</span><span class="font-mono font-semibold" :class="calcWishTotal(row) > (row.lot || 0) * (row.unitsPerCase || 1) ? 'text-red-600' : 'text-green-600'" x-text="calcWishTotal(row)"></span></div>
-              <div class="flex justify-between"><span class="text-gray-600">分配合計:</span><span class="font-mono font-semibold" x-text="calcAllocTotal(row)"></span></div>
-              <div class="flex justify-between"><span class="text-gray-600">残:</span><span class="font-mono font-semibold" :class="((row.lot || 0) * (row.unitsPerCase || 1) - calcAllocTotal(row)) < 0 ? 'text-red-600' : ''" x-text="(row.lot || 0) * (row.unitsPerCase || 1) - calcAllocTotal(row)"></span></div>
-              <div class="mt-3 pt-3 border-t border-amber-200">
-                <div class="text-xs font-semibold text-gray-600 mb-1">備考</div>
-                <div class="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-gray-700 whitespace-pre-wrap max-h-28 overflow-y-auto" x-text="getItemContractorNote(row) || '備考は登録されていません'"></div>
+              <div>
+                <div class="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-gray-700 whitespace-pre-wrap max-h-28 overflow-y-auto" x-text="itemContractorNoteLoadingRowId === String(row.id) ? '備考を読み込んでいます...' : (getItemContractorNote(row) || '備考は登録されていません')"></div>
               </div>
             </div>
             <button @click="lotPopoverRowId = null" class="mt-3 w-full py-1.5 rounded-md bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium">閉じる</button>
@@ -1234,17 +1450,10 @@
       <div class="fixed bg-white border border-gray-300 rounded-xl shadow-2xl p-4 sm:p-5 w-64 sm:w-72 text-sm max-w-[90vw]" :style="(directLotPopoverPos.anchor === 'above' ? 'bottom:' + (window.innerHeight - directLotPopoverPos.top) + 'px;' : 'top:' + directLotPopoverPos.top + 'px;') + ' left:' + directLotPopoverPos.left + 'px; transform: translateX(-50%);'" @click.stop>
         <template x-for="row in directRows.filter(r => r.id === directLotPopoverRowId)" :key="row.id">
           <div>
-            <div class="font-bold text-gray-800 mb-3 pb-2 border-b text-base">ロット条件</div>
+            <div class="font-bold text-gray-800 mb-3 pb-2 border-b text-base">備考</div>
             <div class="space-y-2">
-              <div class="flex justify-between"><span class="text-gray-600">ロット数:</span><span class="font-mono font-semibold" x-text="row.lot || 0"></span></div>
-              <div class="flex justify-between"><span class="text-gray-600">入数:</span><span class="font-mono font-semibold" x-text="row.unitsPerCase || 1"></span></div>
-              <div class="flex justify-between"><span class="text-gray-600">ロット入数:</span><span class="font-mono font-semibold" x-text="(row.lot || 0) * (row.unitsPerCase || 1)"></span></div>
-              <div class="flex justify-between mt-2 pt-2 border-t"><span class="text-gray-600">希望合計:</span><span class="font-mono font-semibold" :class="calcDirectWishTotal(row) > (row.lot || 0) * (row.unitsPerCase || 1) ? 'text-red-600' : 'text-green-600'" x-text="calcDirectWishTotal(row)"></span></div>
-              <div class="flex justify-between"><span class="text-gray-600">分配合計:</span><span class="font-mono font-semibold" x-text="calcDirectAllocTotal(row)"></span></div>
-              <div class="flex justify-between"><span class="text-gray-600">残:</span><span class="font-mono font-semibold" :class="((row.lot || 0) * (row.unitsPerCase || 1) - calcDirectAllocTotal(row)) < 0 ? 'text-red-600' : ''" x-text="(row.lot || 0) * (row.unitsPerCase || 1) - calcDirectAllocTotal(row)"></span></div>
-              <div class="mt-3 pt-3 border-t border-amber-200">
-                <div class="text-xs font-semibold text-gray-600 mb-1">備考</div>
-                <div class="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-gray-700 whitespace-pre-wrap max-h-28 overflow-y-auto" x-text="getItemContractorNote(row) || '備考は登録されていません'"></div>
+              <div>
+                <div class="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-gray-700 whitespace-pre-wrap max-h-28 overflow-y-auto" x-text="itemContractorNoteLoadingRowId === String(row.id) ? '備考を読み込んでいます...' : (getItemContractorNote(row) || '備考は登録されていません')"></div>
               </div>
             </div>
             <button @click="directLotPopoverRowId = null" class="mt-3 w-full py-1.5 rounded-md bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium">閉じる</button>
@@ -1309,7 +1518,7 @@
               <input type="checkbox" class="h-3 w-3 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                 :checked="isReprintStoreSelected(dest)"
                 @change="setReprintStoreSelected(dest, $event.target.checked)" />
-              <span class="truncate" :title="dest.code + ' ' + dest.name" x-text="'[' + dest.code + ']' + dest.name"></span>
+              <span class="truncate" :title="getReprintStoreLabel(dest)" x-text="getReprintStoreLabel(dest)"></span>
             </label>
           </template>
         </div>
@@ -1420,8 +1629,8 @@
           </div>
         </div>
         <div x-show="slipRemarkMode === 'request'">
-          <label class="block text-xs font-medium text-gray-600 mb-1">コメント（任意）</label>
-          <textarea x-model="slipManagementComment" rows="3" class="w-full rounded-md border-gray-300 border px-3 py-2 text-sm shadow-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500" placeholder="コメントを入力..."></textarea>
+          <label class="block text-xs font-medium text-gray-600 mb-1">連絡事項（PDF通信欄）</label>
+          <textarea x-model="slipManagementComment" rows="3" class="w-full rounded-md border-gray-300 border px-3 py-2 text-sm shadow-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500" placeholder="依頼書の通信欄に表示する内容を入力"></textarea>
         </div>
       </div>
       <div class="px-4 pb-4 flex justify-end gap-2">
@@ -1449,8 +1658,8 @@
           </svg>
         </button>
       </div>
-      <div class="flex-1 overflow-auto p-3 sm:p-4 space-y-3">
-        <div class="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-2">
+      <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3 sm:p-4">
+        <div class="shrink-0 rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-2">
           <div class="text-xs font-semibold text-gray-700">商品検索フィルタ</div>
           <div class="grid grid-cols-1 gap-2 md:grid-cols-3">
             <label class="block">
@@ -1522,7 +1731,7 @@
           </div>
         </div>
 
-        <div class="flex items-center justify-between">
+        <div class="flex shrink-0 items-center justify-between">
           <div class="text-xs text-gray-500">
             検索結果: <span class="font-bold text-gray-700" x-text="productMaster.length"></span>件
             <span x-show="productSelectedCodes.length > 0" class="ml-2 font-bold text-blue-600">
@@ -1531,7 +1740,7 @@
           </div>
         </div>
 
-        <div x-show="productSearchLoading" class="flex items-center justify-center py-4">
+        <div x-show="productSearchLoading" class="flex min-h-0 flex-1 items-center justify-center py-4">
           <svg class="mr-2 h-5 w-5 animate-spin text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
@@ -1539,7 +1748,7 @@
           <span class="text-sm text-gray-500">検索中...</span>
         </div>
 
-        <div x-show="!productSearchLoading" class="product-search-scroll overflow-auto rounded-lg border border-gray-200" style="max-height: 420px">
+        <div x-show="!productSearchLoading" class="product-search-scroll min-h-0 flex-1 overflow-auto rounded-lg border border-gray-200">
           <table class="product-search-table w-full min-w-[1900px] table-fixed text-sm">
             <colgroup>
               <col style="width: 54px" />
@@ -1625,8 +1834,8 @@
           <div x-show="productSearchLoaded && !productSearchLoading && !productSearchError && productMaster.length === 0" x-cloak class="product-search-state px-4 py-6 text-center text-sm text-gray-400">該当する商品が見つかりませんでした</div>
         </div>
 
-        <div class="flex items-center justify-end text-xs text-gray-500">
-          <span x-text="productSelectedCodes.length"></span>件の商品を追加予定
+        <div class="flex shrink-0 items-center justify-end text-xs text-gray-500">
+          <span x-text="productSelectedCodes.length"></span><span>件の商品を追加予定</span>
         </div>
       </div>
       <div class="flex items-center justify-end gap-2 border-t border-gray-200 bg-gray-50 px-4 py-3">
@@ -1642,46 +1851,68 @@
 
   <!-- ==================== Arrival Schedule Modal ==================== -->
   <div x-show="arrivalScheduleProduct !== null" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4">
-    <div class="absolute inset-0 bg-black/50" @click="arrivalScheduleProduct = null"></div>
-    <div class="relative bg-white rounded-lg shadow-2xl w-full max-w-[880px] max-h-[85vh] sm:max-h-[600px] flex flex-col">
-      <div class="px-3 py-1.5 border-b flex items-center gap-2 bg-gradient-to-r from-green-600 to-green-500">
-        <div class="text-sm sm:text-base font-bold text-white">入荷予定</div>
-        <div class="ml-auto"></div>
-        <button class="rounded-md bg-white/20 hover:bg-white/30 px-2 py-0.5 text-xs text-white font-medium transition-colors"
-          @click="arrivalScheduleProduct = null">閉じる</button>
-      </div>
-      <div class="px-3 py-2 border-b bg-gray-50">
-        <div class="flex flex-wrap items-start gap-3 sm:gap-5">
-          <div>
-            <div class="text-xs text-gray-600 mb-0.5">商品コード</div>
-            <div class="font-mono text-sm font-semibold text-gray-900" x-text="arrivalScheduleProduct"></div>
-          </div>
-          <div>
-            <div class="text-xs text-gray-600 mb-0.5">JANコード</div>
-            <div class="font-mono text-sm font-semibold text-gray-900" x-text="getProductJan(arrivalScheduleProduct) || '-'"></div>
+    <div class="absolute inset-0 bg-black/40" @click="closeArrivalSchedule()"></div>
+    <div class="relative flex w-full max-w-5xl max-h-[88vh] flex-col overflow-hidden rounded-lg bg-white shadow-2xl" @click.stop>
+      <div class="flex items-center justify-between bg-green-600 px-4 py-3 text-white">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <svg class="h-4 w-4 shrink-0 text-green-100" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z"/>
+            </svg>
+            <div class="truncate text-sm font-semibold">入荷予定</div>
           </div>
         </div>
-        <div class="text-xs text-gray-600 mt-1.5 mb-0.5">商品名</div>
-        <div class="text-sm font-semibold text-gray-900" x-text="getProductName(arrivalScheduleProduct)"></div>
+        <button @click="closeArrivalSchedule()" class="rounded-md p-1.5 text-white/75 hover:bg-white/10 hover:text-white" title="閉じる">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div class="border-b border-green-100 bg-green-50 px-4 py-2">
+        <div class="grid gap-2 text-xs sm:grid-cols-[9rem_10rem_minmax(0,1fr)]">
+          <div class="min-w-0">
+            <div class="mb-0.5 font-medium text-green-800">商品CD</div>
+            <div class="truncate font-mono text-sm font-semibold text-gray-900" x-text="arrivalScheduleProduct"></div>
+          </div>
+          <div class="min-w-0">
+            <div class="mb-0.5 font-medium text-green-800">JANコード</div>
+            <div class="truncate font-mono text-sm font-semibold text-gray-900" x-text="getProductJan(arrivalScheduleProduct) || '-'"></div>
+          </div>
+          <div class="min-w-0">
+            <div class="mb-0.5 font-medium text-green-800">商品名</div>
+            <div class="flex min-w-0 items-center gap-3">
+              <div class="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900" :title="getProductName(arrivalScheduleProduct)" x-text="getProductName(arrivalScheduleProduct)"></div>
+              <div
+                x-show="arrivalScheduleLoaded && !arrivalScheduleLoading && !arrivalScheduleError"
+                x-cloak
+                class="shrink-0 whitespace-nowrap rounded border border-green-200 bg-white px-2 py-0 text-sm font-bold leading-5 text-green-800"
+              >
+                総バラ合計: <span class="font-mono" x-text="getArrivalScheduleTotalPieces().toLocaleString('ja-JP')"></span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="flex-1 overflow-auto">
-        <table class="w-full min-w-[960px] text-sm">
-          <thead class="sticky top-0 bg-gray-100 border-b-2 border-gray-300">
-            <tr>
-              <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold text-gray-700">入荷予定日</th>
-              <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold text-gray-700">残入荷予定数</th>
-              <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold text-gray-700">発注先</th>
-              <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold text-gray-700">仕入先</th>
-              <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold text-gray-700">倉庫</th>
-              <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold text-gray-700">状態</th>
-              <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold text-gray-700">備考</th>
+        <table class="w-full min-w-[960px] text-xs">
+          <thead class="sticky top-0 z-10 bg-neutral-50 text-neutral-600">
+            <tr class="divide-x divide-gray-200 border-b border-gray-200">
+              <th class="whitespace-nowrap px-2 py-2 text-left font-semibold">入荷予定日</th>
+              <th class="whitespace-nowrap px-2 py-2 text-right font-semibold">残入荷予定数</th>
+              <th class="whitespace-nowrap px-2 py-2 text-right font-semibold">総バラ</th>
+              <th class="whitespace-nowrap px-2 py-2 text-left font-semibold">発注先</th>
+              <th class="whitespace-nowrap px-2 py-2 text-left font-semibold">仕入先</th>
+              <th class="whitespace-nowrap px-2 py-2 text-left font-semibold">倉庫</th>
+              <th class="whitespace-nowrap px-2 py-2 text-left font-semibold">状態</th>
+              <th class="whitespace-nowrap px-2 py-2 text-left font-semibold">備考</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody class="divide-y divide-gray-100">
             <template x-for="(item, idx) in getArrivalSchedule(arrivalScheduleProduct)" :key="item.id || idx">
               <tr class="hover:bg-green-50 transition-colors">
-                <td class="whitespace-nowrap px-2 py-1.5 font-mono" x-text="item.arrivalDate"></td>
-                <td class="px-2 py-1.5 text-right font-semibold" x-text="formatArrivalQuantity(item)"></td>
+                <td class="whitespace-nowrap px-2 py-1.5 font-mono text-gray-900" x-text="item.arrivalDate"></td>
+                <td class="px-2 py-1.5 text-right font-semibold text-green-700" x-text="formatArrivalQuantity(item)"></td>
+                <td class="whitespace-nowrap px-2 py-1.5 text-right font-semibold text-gray-800" x-text="formatArrivalTotalPieces(item)"></td>
                 <td class="px-2 py-1.5" x-text="formatArrivalOrderTo(item)"></td>
                 <td class="px-2 py-1.5" x-text="formatArrivalSupplier(item)"></td>
                 <td class="px-2 py-1.5 whitespace-nowrap" x-text="formatArrivalWarehouse(item)"></td>
@@ -1690,16 +1921,19 @@
               </tr>
             </template>
             <template x-if="arrivalScheduleLoading">
-              <tr><td class="p-4 text-center text-gray-500 text-sm" colspan="7">読み込み中...</td></tr>
+              <tr><td class="p-6 text-center text-sm text-gray-500" colspan="8">読み込み中...</td></tr>
             </template>
             <template x-if="arrivalScheduleError">
-              <tr><td class="p-4 text-center text-red-600 text-sm" colspan="7" x-text="arrivalScheduleError"></td></tr>
+              <tr><td class="p-6 text-center text-sm text-red-600" colspan="8" x-text="arrivalScheduleError"></td></tr>
             </template>
             <template x-if="arrivalScheduleLoaded && !arrivalScheduleLoading && !arrivalScheduleError && getArrivalSchedule(arrivalScheduleProduct).length === 0">
-              <tr><td class="p-4 text-center text-gray-500 text-sm" colspan="7">入荷予定がありません</td></tr>
+              <tr><td class="p-6 text-center text-sm text-gray-500" colspan="8">入荷予定がありません</td></tr>
             </template>
           </tbody>
         </table>
+      </div>
+      <div class="flex justify-end border-t border-gray-200 bg-white px-4 py-3">
+        <button @click="closeArrivalSchedule()" class="rounded-md border border-gray-300 px-4 py-1.5 text-sm text-gray-600 hover:bg-gray-50">閉じる</button>
       </div>
     </div>
   </div>
@@ -1707,10 +1941,6 @@
 </div>
 
     @push('scripts')
-        @once
-            <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
-        @endonce
-
         @php
             $distributionProductCategories = \App\Models\Sakemaru\ItemCategory::query()
                 ->where('client_id', (int) config('app.client_id'))
@@ -1824,9 +2054,11 @@ window.distributionApp = function distributionApp() {
   const DIRECT_STORAGE_KEY = 'direct-alloc-ui-v2';
   const DELETED_ALLOCATION_SOURCE_KEY = 'alloc-ui-deleted-source-keys-v1';
   const FILTER_STORAGE_KEY = 'distribution-filters-v1';
-  const STORE_FILTER_VERSION = 2;
+  const ALLOCATION_FILTER_VERSION = 3;
+  const DIRECT_FILTER_VERSION = 3;
+  const STORE_FILTER_VERSION = 7;
 
-  let DESTS = [
+  const DEFAULT_DESTS = [
     { key: '01', name: '本店' },
     { key: '02', name: '二の宮店' },
     { key: '03', name: '坂井店' },
@@ -1839,21 +2071,56 @@ window.distributionApp = function distributionApp() {
     { key: '21', name: '江守店' },
     { key: '22', name: '小浜店' },
   ];
+  let DESTS = DEFAULT_DESTS.map(destination => ({ ...destination }));
+  let activeDirectRequestPrintWindow = null;
+
+  const SERVER_CSV_DESTS = {{ \Illuminate\Support\Js::from($distributionCsvDestinations) }};
+  const SERVER_PRELOADED_DISTRIBUTION_ROWS = {{ \Illuminate\Support\Js::from($distributionPreloadedRows) }};
+  let CSV_DESTS = Array.isArray(SERVER_CSV_DESTS) && SERVER_CSV_DESTS.length > 0
+    ? SERVER_CSV_DESTS
+    : DESTS;
 
   const requestedTab = window.__distributionInitialTab || new URLSearchParams(window.location.search).get('tab') || window.location.hash.replace('#', '');
   const initialSubTab = ['allocation', 'direct', 'store-view'].includes(requestedTab) ? requestedTab : 'allocation';
   const DEFAULT_STORE_SELECTION_CODES = new Set(['01', '02', '03', '04', '07', '08', '09', '10', '11', '21', '22']);
+  const STORE_WHOLESALE_DESTINATION_CODES = new Set(['90', '92', '93', '94', '95', '96', '97', '98']);
   const HQ_ORDER_CONTRACTOR_CODE = '9012';
   const HQ_ORDER_PARTNER_NAME = 'LW華本部 物流担当';
   const HQ_WAREHOUSE_CODE = '91';
   const HQ_WAREHOUSE_NAME = '華むすびの蔵センター';
   const SHOW_ALLOCATION_DETAIL_MEMO_BUTTON = false;
+  const SHOW_ALLOCATION_ORDER_CANDIDATE_BUTTON = false;
+  const SHOW_DIRECT_REQUEST_DEPARTMENT = false;
+  const DISTRIBUTION_SERVER_TODAY = {{ \Illuminate\Support\Js::from($distributionToday) }};
+  const DIRECT_REQUEST_COMPANY_INFO = {{ \Illuminate\Support\Js::from($distributionRequestCompanyInfo) }};
+  const DIRECT_REQUEST_ORDER_STAFF_NAME = {{ \Illuminate\Support\Js::from($distributionRequestOrderStaffName) }};
   const PRODUCT_CATEGORIES = Array.isArray(window.__distributionProductCategories)
     ? window.__distributionProductCategories
     : [];
+  const STORE_PRODUCTS_CACHE = new WeakMap();
+  const STORE_COMPARISON_CACHE = new WeakMap();
+  const STORE_DESTINATIONS_CACHE = new WeakMap();
+  const DISTRIBUTION_TABLE_RENDER_LIMIT = 15;
+  const DISTRIBUTION_TABLE_RENDER_INCREMENT = 15;
+  const DISTRIBUTION_COMPARISON_PRODUCT_RENDER_LIMIT = 60;
+  const DISTRIBUTION_DIRECT_TABLE_RENDER_LIMIT = 15;
+  const DISTRIBUTION_DIRECT_INITIAL_RENDER_LIMIT = 15;
+  const DISTRIBUTION_DIRECT_AUTO_LOAD_REMAINDER = 20;
+  const DISTRIBUTION_DIRECT_RENDER_INCREMENT = 15;
+  const DISTRIBUTION_LOCAL_STORAGE_READ_LIMIT = 6 * 1024 * 1024;
+  const DISTRIBUTION_LOCAL_STORAGE_ROW_READ_LIMIT = 1000;
 
   // ---------- Helpers ----------
   const uuid = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).slice(2));
+  const getComponentCache = (cacheMap, component) => {
+    let cache = cacheMap.get(component);
+    if (!cache) {
+      cache = Object.create(null);
+      cacheMap.set(component, cache);
+    }
+
+    return cache;
+  };
 
   const toInt = (v) => {
     const s = String(v ?? '');
@@ -1867,6 +2134,10 @@ window.distributionApp = function distributionApp() {
   };
 
   const getTodayString = () => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(DISTRIBUTION_SERVER_TODAY || ''))) {
+      return DISTRIBUTION_SERVER_TODAY;
+    }
+
     const today = new Date();
     const year = today.getFullYear();
     const month = String(today.getMonth() + 1).padStart(2, '0');
@@ -1886,7 +2157,7 @@ window.distributionApp = function distributionApp() {
   // ---------- Build initial wish/alloc keys ----------
   function buildDestKeys(overrides) {
     const keys = {};
-    DESTS.forEach(d => {
+    DEFAULT_DESTS.forEach(d => {
       keys['wish_' + d.key] = 0;
       keys['alloc_' + d.key] = 0;
     });
@@ -1903,7 +2174,9 @@ window.distributionApp = function distributionApp() {
   return {
     // ---------- State ----------
     DESTS: DESTS,
+    csvDestinations: CSV_DESTS,
     showAllocationDetailMemoButton: SHOW_ALLOCATION_DETAIL_MEMO_BUTTON,
+    showAllocationOrderCandidateButton: SHOW_ALLOCATION_ORDER_CANDIDATE_BUTTON,
     destinationLoading: false,
     destinationError: '',
     activeSubTab: initialSubTab,
@@ -1932,6 +2205,7 @@ window.distributionApp = function distributionApp() {
     bulkDeliveryCourseError: '',
     bulkDeliveryCourseAbortController: null,
     bulkDateApplying: false,
+    bulkAutoApplyTimer: null,
     allocationFilterDraft: {
       keywordSearch: '',
       orderDateFrom: '',
@@ -1961,6 +2235,12 @@ window.distributionApp = function distributionApp() {
     productSearchLoaded: false,
     productSearchError: '',
     productSearchAbortController: null,
+    directRequestPrintMessageHandler: null,
+    beforeUnloadHandler: null,
+    directRequestPrintInProgress: false,
+    directRequestPrintStatusSaving: false,
+    directRequestPrintLockedRowIds: [],
+    directRequestPrintWindowTimer: null,
     productCodeEditBefore: {},
     transferSlipCreating: false,
     warehouseTransferCreating: false,
@@ -2002,6 +2282,23 @@ window.distributionApp = function distributionApp() {
     productCandidatesByJan: {},
     productCodeResolveTokens: {},
     orderDateResolveTokens: {},
+    distributionRowsLoading: false,
+    serverRowsLoaded: false,
+    serverRowsPersisted: false,
+    serverRowsReadOnly: false,
+    serverSaveTimers: {},
+    quantitySaveTimers: { allocation: null, direct: null },
+    serverSavePending: {},
+    serverSaveRunning: {},
+    serverSaveBlocked: {},
+    serverSaveErrors: { allocation: null, direct: null },
+    serverSaveAttempts: { allocation: 0, direct: 0 },
+    serverRowRevisions: { allocation: 0, direct: 0 },
+    serverLoadedRowIds: { allocation: [], direct: [] },
+    serverRowPagination: {
+      allocation: { page: 1, lastPage: 1, total: 0, perPage: 3000 },
+      direct: { page: 1, lastPage: 1, total: 0, perPage: 100 },
+    },
     allocationFilterRetainedRowIds: [],
     directFilterRetainedRowIds: [],
     arrivalScheduleProduct: null,
@@ -2010,14 +2307,33 @@ window.distributionApp = function distributionApp() {
     arrivalScheduleLoading: false,
     arrivalScheduleLoaded: false,
     arrivalScheduleError: '',
+    arrivalScheduleCache: {},
+    arrivalScheduleCacheTtlMs: 120000,
+    arrivalScheduleAbortController: null,
+    arrivalScheduleRequestId: 0,
     lotPopoverRowId: null,
     lotPopoverPos: { top: 0, left: 0, anchor: 'below' },
+    itemContractorNoteLoadingRowId: null,
     memoPopupRowId: null,
     memoPopupText: '',
+    allocationRowsVersion: 0,
+    allocationVisibleRowsCacheKey: '',
+    allocationVisibleRowsCache: [],
+    allocationRenderLimit: DISTRIBUTION_TABLE_RENDER_LIMIT,
 
     // 直送分配
     directRows: [],
+    directRowsVersion: 0,
+    directRenderReady: false,
+    directRenderLimit: DISTRIBUTION_DIRECT_TABLE_RENDER_LIMIT,
+    directRenderTimer: null,
+    directVisibleRowsCacheKey: '',
+    directVisibleRowsCache: [],
+    directDisplayDestinationsCacheKey: '',
+    directDisplayDestinationsCache: [],
     directFilterOpen: false,
+    directOrderToOptionsOpen: false,
+    directSupplierOptionsOpen: false,
     directKeywordSearch: '',
     directDateFrom: getTodayString(),
     directDateTo: getTodayString(),
@@ -2027,7 +2343,7 @@ window.distributionApp = function distributionApp() {
     directDeliveryFrom: '',
     directDeliveryTo: '',
     directCheckedOnly: false,
-    directPrintedFilter: 'all',
+    directPrintedFilter: 'unprocessed',
     directFilterDraft: {
       keywordSearch: '',
       dateFrom: getTodayString(),
@@ -2037,8 +2353,7 @@ window.distributionApp = function distributionApp() {
       supplierSearch: '',
       deliveryFrom: '',
       deliveryTo: '',
-      checkedOnly: false,
-      printedFilter: 'all',
+      statusFilter: 'unprocessed',
     },
     directLotPopoverRowId: null,
     directLotPopoverPos: { top: 0, left: 0, anchor: 'below' },
@@ -2047,21 +2362,34 @@ window.distributionApp = function distributionApp() {
     directSearchOpenForRow: null,
 
     // Store view
-    storeViewMode: 'individual',
+    storeViewMode: 'comparison',
+    storeIndividualSourceView: 'allocation',
     selectedStores: [],
     selectedStoreSlipKeys: [],
     storeSelectionInitialized: false,
     storeProductSearch: '',
+    storeOrderToSearch: '',
+    storeOrderToOptionsOpen: false,
+    storeDeliveryFrom: '',
+    storeDeliveryTo: '',
+    storeShipmentFrom: '',
+    storeShipmentTo: '',
     storeConfirmStatus: 'unconfirmed',
-    storeDistributionType: 'all',
+    storeDistributionType: 'allocation',
+    storeDestinationScope: 'all',
     storeRowsVersion: 0,
     storeFilteredRowsCacheKey: '',
     storeFilteredRowsCache: [],
-    storeProductsCache: {},
+    storeComparisonPage: 1,
     storeFilterDraft: {
       productSearch: '',
+      orderToSearch: '',
+      deliveryFrom: '',
+      deliveryTo: '',
+      shipmentFrom: '',
+      shipmentTo: '',
       confirmStatus: 'unconfirmed',
-      distributionType: 'all',
+      distributionType: 'allocation',
     },
 
     // 伝票備考ポップアップ
@@ -2101,6 +2429,42 @@ window.distributionApp = function distributionApp() {
 
     // ---------- Init ----------
     init() {
+      if (this.directRequestPrintMessageHandler) {
+        window.removeEventListener('message', this.directRequestPrintMessageHandler);
+      }
+      this.directRequestPrintMessageHandler = async event => {
+        if (event.origin !== window.location.origin) return;
+        if (!activeDirectRequestPrintWindow || event.source !== activeDirectRequestPrintWindow) return;
+        if (event.data?.type === 'distribution-direct-request-printing') {
+          return;
+        }
+        if (event.data?.type === 'distribution-direct-request-printed') {
+          this.directRequestPrintStatusSaving = true;
+          try {
+            await this.markDirectRequestRowsPrinted(event.data?.rowIds || []);
+          } finally {
+            this.directRequestPrintStatusSaving = false;
+            this.finishDirectRequestPrint(true);
+          }
+          return;
+        }
+        if (event.data?.type === 'distribution-direct-request-cancelled') {
+          this.directRequestPrintStatusSaving = false;
+          this.finishDirectRequestPrint(true);
+        }
+      };
+      window.addEventListener('message', this.directRequestPrintMessageHandler);
+      if (this.beforeUnloadHandler) {
+        window.removeEventListener('beforeunload', this.beforeUnloadHandler);
+      }
+      this.beforeUnloadHandler = event => {
+        if (!this.hasPendingDistributionSave()) return;
+
+        event.preventDefault();
+        event.returnValue = '';
+      };
+      window.addEventListener('beforeunload', this.beforeUnloadHandler);
+
       window.__distributionOpenStoreSlipOutput = (button) => {
         const root = button && typeof button.closest === 'function' ? button.closest('[x-data]') : null;
         const data = root && root._x_dataStack && root._x_dataStack[0] ? root._x_dataStack[0] : this;
@@ -2150,108 +2514,324 @@ window.distributionApp = function distributionApp() {
       this.restorePersistedFilters();
       this.restoreDeletedAllocationSourceKeys();
 
-      try {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            // Ensure all dest keys exist on each row
-            this.rows = parsed
-              .map(r => this.normalizeAllocationRow(r))
-              .filter(row => !this.isDeletedAllocationRow(row));
-          } else {
-            this.rows = makeInitialRows();
-          }
+      if (this.shouldLoadAllocationRowsForCurrentView()) {
+        const parsed = this.readDistributionLocalStorageArray(STORAGE_KEY, '本部分配');
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Ensure all dest keys exist on each row
+          this.rows = parsed
+            .map(r => this.normalizeAllocationRow(r))
+            .filter(row => !this.isDeletedAllocationRow(row));
         } else {
           this.rows = makeInitialRows();
         }
-      } catch (e) {
-        console.error('Failed to load from localStorage:', e);
-        this.rows = makeInitialRows();
+      } else {
+        this.rows = [];
       }
+      this.touchAllocationRows();
 
       // Listen for external updates
       window.addEventListener('alloc-data-updated', () => {
+        if (!this.shouldLoadAllocationRowsForCurrentView()) return;
+
         try {
-          const saved = localStorage.getItem(STORAGE_KEY);
-          if (saved) {
-            const newData = JSON.parse(saved);
+          const newData = this.readDistributionLocalStorageArray(STORAGE_KEY, '本部分配');
+          if (Array.isArray(newData)) {
             this.rows = newData
               .map(r => this.normalizeAllocationRow(r))
               .filter(row => !this.isDeletedAllocationRow(row));
+            this.touchAllocationRows();
             this.touchStoreRows();
             this.hydrateProductMetaFromRows();
+          } else {
+            this.rows = [];
+            this.touchAllocationRows();
           }
         } catch (e) {
           console.error('Failed to reload data:', e);
         }
       });
 
-      // Load direct rows
-      try {
-        const directSaved = localStorage.getItem(DIRECT_STORAGE_KEY);
-        if (directSaved) {
-          const parsed = JSON.parse(directSaved);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            this.directRows = parsed.map(r => {
-              const base = buildDestKeys();
-              const normalized = this.normalizeRowDateFields({
-                ...base,
-                checked: false,
-                printed: false,
-                locked: false,
-                warehouseTransferGenerated: false,
-                warehouseTransferQueueIds: [],
-                warehouseTransferCreatedAt: '',
-                orderCandidateGenerated: false,
-                orderCandidateIds: [],
-                orderCandidateCreatedAt: '',
-                memo: '',
-                itemContractorNote: '',
-                deliveryDate: '',
-                ...r,
-              }, true);
+      // Direct rows are loaded from the server store. Avoid parsing old browser cache on boot.
+      this.directRows = [];
+      this.deleteSelectedRowIds = [];
+      this.directDeleteSelectedRowIds = [];
+      this.prepareDirectInitialRender();
+      this.touchDirectRows();
 
-              if (this.isRowLocked(normalized)) {
-                normalized.checked = true;
-                normalized.locked = true;
-              } else {
-                if (!this.hasRowProductInfo(normalized)) {
-                  normalized.checked = false;
-                }
-                normalized.locked = false;
-              }
+      const distributionRowsPromise = this.loadPreloadedDistributionRowsForCurrentView()
+        ? Promise.resolve()
+        : this.loadDistributionRowsFromServer();
 
-              return normalized;
-            });
-          }
+      distributionRowsPromise.finally(() => {
+        if (this.activeSubTab === 'direct') {
+          this.scheduleDirectFullRender();
         }
-      } catch (e) {
-        console.error('Failed to load direct data:', e);
-      }
-
-      this.touchStoreRows();
-      this.hydrateProductMetaFromRows();
-      this.loadDestinations().then(() => {
+        this.touchStoreRows();
+        this.hydrateProductMetaFromRows();
+        if (this.activeSubTab === 'store-view') {
+          this.applyDefaultStoreSelection();
+        }
         if (this.activeSubTab === 'allocation') {
-          this.loadHqTransferRequests();
+          this.queueBulkAllocationAutoApply();
         }
+        if (this.activeSubTab === 'direct') {
+          return;
+        }
+        this.loadDestinations().then(() => {
+          if (this.activeSubTab === 'allocation') {
+            this.loadHqTransferRequests();
+          }
+        }).catch(error => {
+          console.warn('Failed to finish destination initialization:', error);
+        });
       });
     },
 
     // ---------- Utility ----------
     toInt: toInt,
 
+    shouldLoadAllocationRowsForCurrentView() {
+      return this.activeSubTab === 'allocation';
+    },
+
+    shouldLoadDirectRowsForCurrentView() {
+      return this.activeSubTab === 'direct';
+    },
+
+    readDistributionLocalStorageArray(key, label = '分配') {
+      try {
+        const saved = localStorage.getItem(key);
+        if (!saved) return [];
+
+        if (saved.length > DISTRIBUTION_LOCAL_STORAGE_READ_LIMIT) {
+          console.warn(label + 'のlocalStorageが大きすぎるため、ブラウザ保護のため読み込みをスキップしました。サーバー保存データを読み込みます。');
+          return [];
+        }
+
+        const parsed = JSON.parse(saved);
+        if (!Array.isArray(parsed)) return [];
+
+        if (parsed.length > DISTRIBUTION_LOCAL_STORAGE_ROW_READ_LIMIT) {
+          console.warn(label + 'のlocalStorage行数が多すぎるため、ブラウザ保護のため先頭 ' + DISTRIBUTION_LOCAL_STORAGE_ROW_READ_LIMIT + ' 件だけ読み込みます。');
+          return parsed.slice(0, DISTRIBUTION_LOCAL_STORAGE_ROW_READ_LIMIT);
+        }
+
+        return parsed;
+      } catch (e) {
+        console.error('Failed to load ' + label + ' localStorage:', e);
+        return [];
+      }
+    },
+
+    async fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+      try {
+        return await fetch(url, {
+          ...options,
+          signal: controller.signal,
+        });
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    },
+
+    getTableRenderLimit() {
+      return Math.max(DISTRIBUTION_TABLE_RENDER_LIMIT, toInt(this.allocationRenderLimit || 0));
+    },
+
+    getDirectTableRenderLimit() {
+      if (!this.directRenderReady) {
+        return Math.min(DISTRIBUTION_DIRECT_INITIAL_RENDER_LIMIT, DISTRIBUTION_DIRECT_TABLE_RENDER_LIMIT);
+      }
+
+      return Math.max(DISTRIBUTION_DIRECT_TABLE_RENDER_LIMIT, toInt(this.directRenderLimit || 0));
+    },
+
+    getRenderableVisibleRows() {
+      return this.getVisibleRows().slice(0, this.getTableRenderLimit());
+    },
+
+    getRenderableVisibleDirectRows() {
+      return this.getVisibleDirectRows().slice(0, this.getDirectTableRenderLimit());
+    },
+
+    isAllocationRenderLimited() {
+      return this.getVisibleRows().length > this.getTableRenderLimit();
+    },
+
+    getAllocationRenderedRowCount() {
+      return Math.min(this.getVisibleRows().length, this.getTableRenderLimit());
+    },
+
+    getAllocationLoadMoreCount() {
+      return Math.min(
+        DISTRIBUTION_TABLE_RENDER_INCREMENT,
+        Math.max(this.getVisibleRows().length - this.getTableRenderLimit(), 0)
+      );
+    },
+
+    loadMoreAllocationRows() {
+      this.allocationRenderLimit = Math.min(
+        this.getVisibleRows().length,
+        this.getTableRenderLimit() + DISTRIBUTION_TABLE_RENDER_INCREMENT
+      );
+    },
+
+    resetAllocationRenderWindow() {
+      this.allocationRenderLimit = DISTRIBUTION_TABLE_RENDER_LIMIT;
+    },
+
+    getAllocationCountLabel() {
+      const renderedCount = this.getAllocationRenderedRowCount();
+      const matchedCount = this.getVisibleRows().length;
+
+      return '表示中: ' + renderedCount + ' 件 / 全 ' + matchedCount + ' 件';
+    },
+
+    isDirectRenderLimited() {
+      return this.getVisibleDirectRows().length > this.getDirectTableRenderLimit()
+        || this.hasMoreDirectServerRows();
+    },
+
+    getDirectRenderedRowCount() {
+      return Math.min(this.getVisibleDirectRows().length, this.getDirectTableRenderLimit());
+    },
+
+    getDirectRemainingRowCount() {
+      const localRemaining = Math.max(this.getVisibleDirectRows().length - this.getDirectTableRenderLimit(), 0);
+      const serverRemaining = Math.max(
+        toInt(this.serverRowPagination.direct?.total || 0) - this.directRows.length,
+        0
+      );
+      return localRemaining + serverRemaining;
+    },
+
+    getDirectLoadedRowCount() {
+      return Array.isArray(this.directRows) ? this.directRows.length : 0;
+    },
+
+    getDirectServerRemainingRowCount() {
+      return Math.max(
+        toInt(this.serverRowPagination.direct?.total || 0) - this.getDirectLoadedRowCount(),
+        0
+      );
+    },
+
+    getDirectLoadMoreCount() {
+      return Math.min(DISTRIBUTION_DIRECT_RENDER_INCREMENT, this.getDirectRemainingRowCount());
+    },
+
+    getDirectLoadMoreLabel() {
+      return 'さらに ' + this.getDirectLoadMoreCount() + ' 件表示';
+    },
+
+    hasMoreDirectServerRows() {
+      return toInt(this.serverRowPagination.direct?.page || 1)
+        < toInt(this.serverRowPagination.direct?.lastPage || 1);
+    },
+
+    async loadMoreDirectRows() {
+      const visibleCountBefore = this.getVisibleDirectRows().length;
+      const loadedCountBefore = this.getDirectLoadedRowCount();
+      if (visibleCountBefore <= this.getDirectTableRenderLimit() && this.hasMoreDirectServerRows()) {
+        await this.loadDistributionRowsFromServer({
+          append: true,
+          mode: 'direct',
+          page: toInt(this.serverRowPagination.direct.page || 1) + 1,
+        });
+      }
+
+      this.directRenderReady = true;
+      this.directRenderLimit = Math.min(
+        this.getVisibleDirectRows().length,
+        this.getDirectTableRenderLimit() + DISTRIBUTION_DIRECT_RENDER_INCREMENT
+      );
+
+      const loadedCount = this.getDirectLoadedRowCount() - loadedCountBefore;
+      const visibleCount = this.getVisibleDirectRows().length - visibleCountBefore;
+      if (loadedCount > 0 && visibleCount <= 0) {
+        this.showToast(loadedCount + '件を読み込みましたが、現在の絞り込み条件の対象外です');
+      }
+    },
+
     orderQuantityInputValue(value) {
       const quantity = toInt(value);
       return quantity > 0 ? quantity : '';
     },
 
-    setOrderQuantity(row, key, value) {
-      if (this.isQuantityLocked(row)) return;
+    setOrderQuantity(row, key, value, isDirect = false) {
+      if (isDirect ? this.isDirectRowEditLocked(row) : this.isQuantityLocked(row)) return;
 
       const raw = String(value ?? '').trim();
       row[key] = raw === '' ? '' : Math.max(0, toInt(raw));
+      this.queueQuantitySave(isDirect);
+    },
+
+    setAllocationQuantity(row, destinationKey, value, isDirect = false) {
+      if (!row || (isDirect ? this.isDirectRowEditLocked(row) : this.isQuantityLocked(row))) return;
+
+      const key = 'alloc_' + String(destinationKey || '');
+      if (key === 'alloc_') return;
+
+      row[key] = Math.max(0, toInt(value));
+      this.queueQuantitySave(isDirect);
+    },
+
+    queueQuantitySave(isDirect = false, delay = 250) {
+      const mode = isDirect ? 'direct' : 'allocation';
+      if (this.quantitySaveTimers[mode]) {
+        window.clearTimeout(this.quantitySaveTimers[mode]);
+      }
+
+      this.quantitySaveTimers[mode] = window.setTimeout(() => {
+        this.quantitySaveTimers[mode] = null;
+        this.saveRowsForMode(isDirect, { immediate: true });
+      }, delay);
+    },
+
+    flushQuantitySave(isDirect = false) {
+      const mode = isDirect ? 'direct' : 'allocation';
+      if (!this.quantitySaveTimers[mode]) return;
+
+      window.clearTimeout(this.quantitySaveTimers[mode]);
+      this.quantitySaveTimers[mode] = null;
+      this.saveRowsForMode(isDirect, { immediate: true });
+    },
+
+    hasPendingDistributionSave() {
+      return ['allocation', 'direct'].some(mode => !!(
+        this.quantitySaveTimers[mode]
+        || this.serverSaveTimers[mode]
+        || this.serverSaveRunning[mode]
+        || this.serverSavePending[mode]
+      ));
+    },
+
+    async waitForDistributionSaves(mode, timeoutMs = 20000) {
+      this.flushQuantitySave(mode === 'direct');
+      const startedAt = Date.now();
+
+      while (
+        this.quantitySaveTimers[mode]
+        || this.serverSaveTimers[mode]
+        || this.serverSaveRunning[mode]
+        || this.serverSavePending[mode]
+      ) {
+        if (Date.now() - startedAt >= timeoutMs) {
+          throw new Error('入力内容の保存完了を確認できませんでした。時間をおいて再実行してください。');
+        }
+
+        await new Promise(resolve => window.setTimeout(resolve, 50));
+      }
+
+      if (this.serverSaveBlocked[mode]) {
+        throw new Error('別の画面で更新されています。画面を再読み込みしてください。');
+      }
+      if (this.serverSaveErrors[mode]) {
+        throw new Error('入力内容を保存できなかったため、絞り込みを中止しました。画面を再読み込みせず、保存状態を確認してください。');
+      }
     },
 
     normalizeFlexibleDate(value) {
@@ -2377,10 +2957,57 @@ window.distributionApp = function distributionApp() {
       const normalized = {
         ...base,
         checked: false,
+        confirmedAt: '',
         printed: false,
         locked: false,
         transferSlipQueueIds: [],
         transferSlipCreatedAt: '',
+        warehouseTransferGenerated: false,
+        warehouseTransferQueueIds: [],
+        warehouseTransferCreatedAt: '',
+        warehouseTransferShipmentDate: '',
+        orderCandidateGenerated: false,
+        orderCandidateIds: [],
+        orderCandidateCreatedAt: '',
+        memo: '',
+        itemContractorNote: '',
+        itemContractorNoteLoaded: false,
+        destinationsExpanded: false,
+        deliveryDate: '',
+        suggestedDeliveryDate: '',
+        deliveryDateCalculation: null,
+        visibleDestinationKeys: [],
+        enteredDestinationKeys: [],
+        ...row,
+      };
+
+      normalized.visibleDestinationKeys = this.getRowVisibleDestinationKeys(normalized);
+      normalized.enteredDestinationKeys = this.getRowEnteredDestinationKeys(normalized);
+
+      if (!normalized.id) {
+        normalized.id = uuid();
+      }
+
+      if (this.isRowLocked(normalized)) {
+        normalized.checked = true;
+        normalized.locked = true;
+      } else {
+        normalized.checked = false;
+        normalized.confirmedAt = '';
+        normalized.locked = false;
+      }
+
+      return this.normalizeRowDateFields(normalized, true);
+    },
+
+    normalizeDirectRow(row) {
+      const base = buildDestKeys();
+      const normalized = this.normalizeRowDateFields({
+        ...base,
+        checked: false,
+        confirmedAt: '',
+        printed: false,
+        locked: false,
         warehouseTransferGenerated: false,
         warehouseTransferQueueIds: [],
         warehouseTransferCreatedAt: '',
@@ -2389,15 +3016,15 @@ window.distributionApp = function distributionApp() {
         orderCandidateCreatedAt: '',
         memo: '',
         itemContractorNote: '',
-        destinationsExpanded: false,
+        itemContractorNoteLoaded: false,
         deliveryDate: '',
-        suggestedDeliveryDate: '',
-        deliveryDateCalculation: null,
         visibleDestinationKeys: [],
+        enteredDestinationKeys: [],
         ...row,
-      };
+      }, true);
 
       normalized.visibleDestinationKeys = this.getRowVisibleDestinationKeys(normalized);
+      normalized.enteredDestinationKeys = this.getRowEnteredDestinationKeys(normalized);
 
       if (!normalized.id) {
         normalized.id = uuid();
@@ -2413,26 +3040,29 @@ window.distributionApp = function distributionApp() {
         normalized.locked = false;
       }
 
-      return this.normalizeRowDateFields(normalized, true);
+      return normalized;
     },
 
     isRowLocked(row) {
-      return this.isWarehouseTransferCreated(row);
+      return this.isAllocationTransferCompleted(row);
+    },
+
+    isDirectRequestPrintLocked(row) {
+      return !!(
+        this.directRequestPrintInProgress &&
+        this.directRequestPrintLockedRowIds.includes(String(row?.id || ''))
+      );
     },
 
     isQuantityLocked(row) {
       return !!(
-        row?.checked ||
         this.isOrderCandidateCreated(row) ||
         this.isRowLocked(row)
       );
     },
 
     isRowEditLocked(row) {
-      return !!(
-        this.isRowLocked(row) ||
-        (row?.checked && !this.isOrderCandidateCreated(row))
-      );
+      return this.isRowLocked(row);
     },
 
     isProductEditLocked(row) {
@@ -2443,17 +3073,57 @@ window.distributionApp = function distributionApp() {
     },
 
     isRowDeleteLocked(row) {
+      return this.isRowLocked(row);
+    },
+
+    isDirectRowEditLocked(row) {
+      return this.isOrderCandidateCreated(row);
+    },
+
+    isDirectRowDeleteLocked(row) {
+      return this.isOrderCandidateCreated(row);
+    },
+
+    getDirectStatusLabel(row) {
+      if (this.isOrderCandidateCreated(row)) return '候補生成済';
+      if (this.isTransferSlipCreated(row)) return '帳票出力済';
+      return '未処理';
+    },
+
+    getDirectStatusClass(row) {
+      if (this.isOrderCandidateCreated(row)) return 'bg-gray-200 text-gray-700';
+      if (this.isTransferSlipCreated(row)) return 'bg-emerald-100 text-emerald-800';
+      return 'bg-amber-100 text-amber-800';
+    },
+
+    getAllocationStatusLabel(row) {
+      if (this.isAllocationTransferCompleted(row)) return '移動生成済';
+      return '未対応';
+    },
+
+    getAllocationStatusClass(row) {
+      if (this.isAllocationTransferCompleted(row)) return 'bg-gray-200 text-gray-700';
+      return 'bg-amber-100 text-amber-800';
+    },
+
+    isAllocationTransferCompleted(row) {
       return !!(
-        row?.checked ||
-        this.isOrderCandidateCreated(row) ||
-        this.isRowLocked(row)
+        this.isWarehouseTransferCreated(row) ||
+        (Array.isArray(row?.transferSlipQueueIds) && row.transferSlipQueueIds.length > 0) ||
+        (Array.isArray(row?.transfer_slip_queue_ids) && row.transfer_slip_queue_ids.length > 0)
       );
+    },
+
+    isDistributionCompletedFlag(value) {
+      return value === true || value === 1 || String(value ?? '').toLowerCase() === 'true' || String(value ?? '') === '1';
     },
 
     isWarehouseTransferCreated(row) {
       return !!(
-        row?.warehouseTransferGenerated ||
-        (Array.isArray(row?.warehouseTransferQueueIds) && row.warehouseTransferQueueIds.length > 0)
+        this.isDistributionCompletedFlag(row?.warehouseTransferGenerated) ||
+        this.isDistributionCompletedFlag(row?.warehouse_transfer_generated) ||
+        (Array.isArray(row?.warehouseTransferQueueIds) && row.warehouseTransferQueueIds.length > 0) ||
+        (Array.isArray(row?.warehouse_transfer_queue_ids) && row.warehouse_transfer_queue_ids.length > 0)
       );
     },
 
@@ -2479,6 +3149,18 @@ window.distributionApp = function distributionApp() {
       return '商品情報がない行は確定できません。商品検索または商品コード入力で商品マスタを反映してください。';
     },
 
+    hasAllocationDeliveryCourse(row) {
+      return toInt(row?.deliveryCourseId || row?.delivery_course_id || 0) > 0;
+    },
+
+    hasAllocationRequiredInfo(row) {
+      return this.hasRowProductInfo(row) && this.hasAllocationDeliveryCourse(row);
+    },
+
+    getMissingDeliveryCourseMessage() {
+      return '配送コースは必須です。画面上部の配送コースを検索候補から選択してください。';
+    },
+
     normalizeDestination(destination) {
       const rawCode = String(destination.code || destination.key || destination.id || '').trim();
       const key = String(destination.key || rawCode || destination.id || '').trim();
@@ -2495,21 +3177,112 @@ window.distributionApp = function distributionApp() {
       };
     },
 
+    mergeDestinationLists(...lists) {
+      const merged = new Map();
+
+      lists.forEach(list => {
+        if (!Array.isArray(list)) return;
+
+        list.forEach(destination => {
+          const normalized = this.normalizeDestination(destination);
+          if (!normalized) return;
+
+          const code = this.getStoreSelectionCode(normalized);
+          const mapKey = code || String(normalized.key);
+          const existing = merged.get(mapKey);
+
+          merged.set(mapKey, {
+            ...(existing || {}),
+            ...normalized,
+            isHidden: !!(existing?.isHidden || normalized.isHidden),
+            isSelectedWarehouse: !!(existing?.isSelectedWarehouse || normalized.isSelectedWarehouse),
+          });
+        });
+      });
+
+      return Array.from(merged.values()).sort((a, b) =>
+        String(a.code || a.key).localeCompare(String(b.code || b.key), 'ja', { numeric: true })
+      );
+    },
+
+    getStoreDestinationPool() {
+      return this.mergeDestinationLists(
+        DEFAULT_DESTS,
+        Array.isArray(this.DESTS) ? this.DESTS : DESTS,
+        Array.isArray(this.csvDestinations) ? this.csvDestinations : [],
+        CSV_DESTS,
+        SERVER_CSV_DESTS
+      );
+    },
+
+    isWholesaleDestination(destination) {
+      const code = this.getStoreSelectionCode(destination);
+      const name = String(destination?.name || '');
+
+      return STORE_WHOLESALE_DESTINATION_CODES.has(code)
+        || name.includes('業販')
+        || name.includes('卸')
+        || name.includes('外商');
+    },
+
+    getStoreRowsActiveDestinationKeySet(rows = this.getStoreFilteredRows()) {
+      const cache = this.getStoreDestinationsCache();
+      const cacheKey = 'activeKeys::' + this.storeFilteredRowsCacheKey + '::' + this.storeRowsVersion;
+      if (cache.activeKeysKey === cacheKey && cache.activeKeys instanceof Set) {
+        return cache.activeKeys;
+      }
+
+      const keys = new Set();
+
+      (Array.isArray(rows) ? rows : []).forEach(row => {
+        this.getRowActiveDestinationKeys(row).forEach(key => keys.add(String(key)));
+      });
+
+      cache.activeKeysKey = cacheKey;
+      cache.activeKeys = keys;
+
+      return keys;
+    },
+
+    getStoreSourceActiveDestinationKeySet(sourceType) {
+      const keys = new Set();
+
+      this.getStoreSourceRows().forEach(row => {
+        if ((row?.storeSourceType || 'allocation') !== sourceType) return;
+
+        this.getRowActiveDestinationKeys(row).forEach(key => keys.add(String(key)));
+      });
+
+      return keys;
+    },
+
     ensureDestinationKeys() {
       this.rows = this.rows.map(row => ({ ...buildDestKeys(), ...row }));
       this.directRows = this.directRows.map(row => ({ ...buildDestKeys(), ...row }));
+      this.touchDirectRows();
       this.touchStoreRows();
 
-      const validKeys = new Set(this.getStoreDisplayDestinationKeys());
-      this.selectedStores = this.selectedStores.map(key => String(key)).filter(key => validKeys.has(key));
+      if (!this.isHqStoreViewWarehouse()) {
+        this.storeViewMode = 'individual';
+      }
+
+      const displayKeys = this.getStoreControlDestinationKeys();
+      if (displayKeys.length === 0) {
+        return;
+      }
+
+      const validKeys = new Set(displayKeys);
+      this.selectedStores = this.orderStoreSelectionKeys(
+        this.selectedStores.map(key => String(key)).filter(key => validKeys.has(key))
+      );
 
       if (!this.isHqStoreViewWarehouse()) {
-        this.selectedStores = this.getStoreDisplayDestinationKeys();
+        this.selectedStores = displayKeys;
         return;
       }
 
       if (this.selectedStores.length === 0 && validKeys.size > 0) {
-        this.selectedStores = Array.from(validKeys).slice(0, 1);
+        this.selectedStores = this.orderStoreSelectionKeys(this.getDefaultStoreSelectionKeys());
       }
     },
 
@@ -2531,42 +3304,257 @@ window.distributionApp = function distributionApp() {
     },
 
     getStoreDisplayDestinations() {
-      const destinations = Array.isArray(this.DESTS) ? this.DESTS : DESTS;
-      const selected = this.getSelectedWarehouseDestination();
+      const cache = this.getStoreDestinationsCache();
+      const cacheKey = [
+        this.storeFilteredRowsCacheKey,
+        this.storeRowsVersion || 0,
+        this.storeDestinationScope || 'all',
+        this.storeViewMode || 'individual',
+        this.storeIndividualSourceView || 'allocation',
+        Array.isArray(this.DESTS) ? this.DESTS.length : 0,
+        Array.isArray(this.csvDestinations) ? this.csvDestinations.length : 0,
+      ].join('::');
 
-      if (selected && this.getStoreSelectionCode(selected) !== HQ_WAREHOUSE_CODE) {
-        return selected.isHidden ? [] : [selected];
+      if (cache.displayDestinationsKey === cacheKey && Array.isArray(cache.displayDestinations)) {
+        return cache.displayDestinations;
       }
 
-      return destinations.filter(destination =>
-        !destination.isHidden &&
-        this.getStoreSelectionCode(destination) !== HQ_WAREHOUSE_CODE
-      );
+      const isWholesaleScope = this.storeDestinationScope === 'wholesale';
+      const isCombinedScope = this.storeDestinationScope === 'all';
+      const isComparisonMode = this.storeViewMode === 'comparison';
+      const isDirectView = this.storeIndividualSourceView === 'direct';
+      const destinations = this.getStoreDestinationPool();
+      const selected = this.getSelectedWarehouseDestination();
+      const activeKeys = isDirectView
+        ? this.getStoreSourceActiveDestinationKeySet('direct')
+        : this.getStoreRowsActiveDestinationKeySet();
+      let result = [];
+
+      if (selected && this.getStoreSelectionCode(selected) !== HQ_WAREHOUSE_CODE) {
+        result = this.storeIndividualSourceView === 'direct' && this.isWholesaleDestination(selected)
+          ? []
+          : [selected];
+      } else if (isComparisonMode) {
+        result = destinations.filter(destination => {
+          if (this.getStoreSelectionCode(destination) === HQ_WAREHOUSE_CODE) {
+            return false;
+          }
+
+          if (this.storeIndividualSourceView === 'direct' && this.isWholesaleDestination(destination)) {
+            return false;
+          }
+
+          if (activeKeys.size === 0) {
+            return !destination.isHidden;
+          }
+
+          return activeKeys.has(String(destination.key));
+        });
+      } else if (isWholesaleScope) {
+        result = destinations.filter(destination =>
+          this.isWholesaleDestination(destination) &&
+          this.getStoreSelectionCode(destination) !== HQ_WAREHOUSE_CODE &&
+          activeKeys.has(String(destination.key))
+        );
+      } else if (isCombinedScope) {
+        result = destinations.filter(destination => {
+          if (this.getStoreSelectionCode(destination) === HQ_WAREHOUSE_CODE) {
+            return false;
+          }
+
+          if (this.isWholesaleDestination(destination)) {
+            if (this.storeIndividualSourceView === 'direct') {
+              return false;
+            }
+
+            return activeKeys.has(String(destination.key));
+          }
+
+          return !destination.isHidden || (isDirectView && activeKeys.has(String(destination.key)));
+        });
+      } else {
+        result = destinations.filter(destination =>
+          !destination.isHidden &&
+          this.getStoreSelectionCode(destination) !== HQ_WAREHOUSE_CODE
+        );
+      }
+
+      cache.displayDestinationsKey = cacheKey;
+      cache.displayDestinations = result;
+
+      return result;
     },
 
     getStoreDisplayDestinationKeys() {
       return this.getStoreDisplayDestinations().map(destination => String(destination.key));
     },
 
+    getFallbackStandardStoreDestinations() {
+      return this.mergeDestinationLists(DEFAULT_DESTS)
+        .filter(destination =>
+          !destination.isHidden &&
+          this.getStoreSelectionCode(destination) !== HQ_WAREHOUSE_CODE
+        );
+    },
+
+    getStoreControlDestinations() {
+      const displayDestinations = this.getStoreDisplayDestinations();
+      if (displayDestinations.length > 0) {
+        return displayDestinations;
+      }
+
+      if (this.isHqStoreViewWarehouse() && this.storeViewMode === 'individual' && this.storeDestinationScope !== 'wholesale') {
+        return this.getFallbackStandardStoreDestinations();
+      }
+
+      return displayDestinations;
+    },
+
+    getStoreControlDestinationKeys() {
+      return Array.from(new Set([
+        ...this.getStoreControlStoreDestinations(),
+        ...this.getStoreControlDepartmentDestinations(),
+      ].map(destination => String(destination.key))));
+    },
+
+    orderStoreSelectionKeys(keys) {
+      const selected = new Set((Array.isArray(keys) ? keys : []).map(key => String(key)));
+      return [
+        ...this.getStoreControlStoreDestinations(),
+        ...this.getStoreControlDepartmentDestinations(),
+      ]
+        .map(destination => String(destination.key))
+        .filter(key => selected.has(key));
+    },
+
+    getStoreControlStoreDestinations() {
+      return this.getStoreControlDestinations().filter(destination => !this.isWholesaleDestination(destination));
+    },
+
+    getStoreControlDepartmentDestinations() {
+      if (this.storeIndividualSourceView === 'direct') {
+        return [];
+      }
+
+      if (!this.isHqStoreViewWarehouse()) {
+        return this.getStoreControlDestinations().filter(destination => this.isWholesaleDestination(destination));
+      }
+
+      return this.getStoreDestinationPool().filter(destination =>
+        this.isWholesaleDestination(destination) &&
+        this.getStoreSelectionCode(destination) !== HQ_WAREHOUSE_CODE
+      );
+    },
+
+    getDestinationGroupKeys(group) {
+      const destinations = group === 'department'
+        ? this.getStoreControlDepartmentDestinations()
+        : this.getStoreControlStoreDestinations();
+
+      return destinations.map(destination => String(destination.key));
+    },
+
+    areAllDestinationGroupSelected(group) {
+      const keys = this.getDestinationGroupKeys(group);
+      return keys.length > 0 && keys.every(key => this.selectedStores.includes(key));
+    },
+
+    toggleAllDestinationGroup(group) {
+      const keys = this.getDestinationGroupKeys(group);
+      if (keys.length === 0) return;
+
+      if (!this.isHqStoreViewWarehouse()) {
+        this.selectedStores = this.getStoreControlDestinationKeys();
+        return;
+      }
+
+      const keySet = new Set(keys);
+      if (this.areAllDestinationGroupSelected(group)) {
+        this.selectedStores = this.orderStoreSelectionKeys(
+          this.selectedStores.filter(key => !keySet.has(String(key)))
+        );
+      } else {
+        this.selectedStores = this.orderStoreSelectionKeys([...this.selectedStores, ...keys]);
+      }
+      this.selectedStoreSlipKeys = [];
+      this.clearStoreRowsCache();
+    },
+
+    getDefaultStoreSelectionKeys() {
+      const displayDestinations = this.getStoreControlDestinations();
+
+      if (!this.isHqStoreViewWarehouse() || this.storeViewMode === 'comparison' || this.storeDestinationScope === 'wholesale') {
+        return displayDestinations.map(destination => String(destination.key));
+      }
+
+      const defaultStores = displayDestinations.filter(destination =>
+        !this.isWholesaleDestination(destination) &&
+        DEFAULT_STORE_SELECTION_CODES.has(this.getStoreSelectionCode(destination))
+      );
+      const selectedDestinations = defaultStores.length > 0
+        ? defaultStores
+        : displayDestinations.slice(0, 1);
+
+      return selectedDestinations.map(destination => String(destination.key));
+    },
+
+    resetSelectedStoresForCurrentScope() {
+      this.selectedStores = this.orderStoreSelectionKeys(this.getDefaultStoreSelectionKeys());
+      this.selectedStoreSlipKeys = [];
+    },
+
+    setStoreViewMode(mode) {
+      const normalized = mode === 'comparison' && this.isHqStoreViewWarehouse()
+        ? 'comparison'
+        : 'individual';
+      if (this.storeViewMode === normalized) return;
+
+      this.storeViewMode = normalized;
+      this.resetSelectedStoresForCurrentScope();
+      this.clearStoreRowsCache();
+    },
+
+    async setStoreSourceTab(sourceType) {
+      const normalized = sourceType === 'direct' ? 'direct' : 'allocation';
+      if (this.storeIndividualSourceView === normalized) return;
+
+      this.storeIndividualSourceView = normalized;
+      this.storeDistributionType = normalized;
+      this.storeFilterDraft.distributionType = normalized;
+      this.selectedStoreSlipKeys = [];
+      this.clearStoreRowsCache();
+      await this.loadDistributionRowsFromServer();
+      this.touchStoreRows();
+      this.resetSelectedStoresForCurrentScope();
+      this.persistFilters();
+    },
+
+    setStoreDestinationScope(scope) {
+      const normalized = ['wholesale', 'standard'].includes(scope) ? scope : 'all';
+      if (this.storeDestinationScope === normalized) return;
+
+      this.storeDestinationScope = normalized;
+      this.resetSelectedStoresForCurrentScope();
+      this.clearStoreRowsCache();
+      this.persistFilters();
+    },
+
     applyDefaultStoreSelection() {
-      if (this.storeSelectionInitialized || this.activeSubTab !== 'store-view' || this.DESTS.length === 0) {
+      if (this.activeSubTab !== 'store-view') {
+        return;
+      }
+
+      const displayKeys = this.getStoreControlDestinationKeys();
+      if (displayKeys.length === 0) {
+        return;
+      }
+
+      if (this.storeSelectionInitialized && this.selectedStores.length > 0) {
         return;
       }
 
       this.storeSelectionInitialized = true;
-      if (!this.isHqStoreViewWarehouse()) {
-        this.selectedStores = this.getStoreDisplayDestinationKeys();
-        return;
-      }
-
-      const defaultStores = this.getStoreDisplayDestinations().filter(destination => DEFAULT_STORE_SELECTION_CODES.has(this.getStoreSelectionCode(destination)));
-
-      if (defaultStores.length === 0) {
-        this.ensureDestinationKeys();
-        return;
-      }
-
-      this.selectedStores = defaultStores.map(destination => destination.key);
+      this.resetSelectedStoresForCurrentScope();
     },
 
     isHqTransferRequestRow(row) {
@@ -2657,9 +3645,9 @@ window.distributionApp = function distributionApp() {
           params.set('include_selected', '1');
         }
         const url = '/api/distribution/destinations' + (params.toString() ? '?' + params.toString() : '');
-        const response = await fetch(url, {
+        const response = await this.fetchWithTimeout(url, {
           headers: { Accept: 'application/json' },
-        });
+        }, 15000);
 
         if (!response.ok) {
           throw new Error('HTTP ' + response.status);
@@ -2671,7 +3659,7 @@ window.distributionApp = function distributionApp() {
           : (Array.isArray(payload) ? payload : []);
         const destinations = data
           .map(destination => this.normalizeDestination(destination))
-          .filter(destination => destination !== null);
+          .filter(destination => destination !== null && this.getStoreSelectionCode(destination) !== HQ_WAREHOUSE_CODE);
 
         if (destinations.length > 0) {
           DESTS = destinations;
@@ -2679,12 +3667,63 @@ window.distributionApp = function distributionApp() {
           this.ensureDestinationKeys();
           this.applyDefaultStoreSelection();
         }
+
+        await this.loadCsvDestinations();
       } catch (e) {
         console.error('Failed to load distribution destinations:', e);
         this.destinationError = '分配先マスタの取得に失敗しました';
       } finally {
         this.destinationLoading = false;
       }
+    },
+
+    async loadCsvDestinations(options = {}) {
+      const includeHqDestination = !!options.includeHqDestination;
+
+      try {
+        const response = await this.fetchWithTimeout('/api/distribution/destinations?include_hidden=1&include_selected=1', {
+          headers: { Accept: 'application/json' },
+        }, 15000);
+
+        if (!response.ok) {
+          throw new Error('HTTP ' + response.status);
+        }
+
+        const payload = await response.json();
+        const data = Array.isArray(payload?.result?.data)
+          ? payload.result.data
+          : (Array.isArray(payload) ? payload : []);
+        const destinations = data
+          .map(destination => this.normalizeDestination(destination))
+          .filter(destination =>
+            destination !== null
+            && (includeHqDestination || this.getStoreSelectionCode(destination) !== HQ_WAREHOUSE_CODE)
+          );
+
+        if (destinations.length > 0) {
+          CSV_DESTS = destinations;
+          this.csvDestinations = destinations;
+          this.ensureDestinationKeys();
+        }
+      } catch (e) {
+        console.warn('Failed to load CSV distribution destinations:', e);
+        CSV_DESTS = this.getServerCsvDestinationFallback(includeHqDestination);
+        this.csvDestinations = CSV_DESTS;
+        this.ensureDestinationKeys();
+      }
+    },
+
+    getServerCsvDestinationFallback(includeHqDestination = false) {
+      const source = Array.isArray(SERVER_CSV_DESTS) && SERVER_CSV_DESTS.length > 0
+        ? SERVER_CSV_DESTS
+        : DESTS;
+
+      return source
+        .map(destination => this.normalizeDestination(destination))
+        .filter(destination =>
+          destination !== null
+          && (includeHqDestination || this.getStoreSelectionCode(destination) !== HQ_WAREHOUSE_CODE)
+        );
     },
 
     normalizeHqTransferRequestRow(request) {
@@ -2757,9 +3796,11 @@ window.distributionApp = function distributionApp() {
         'warehouseTransferGenerated',
         'warehouseTransferQueueIds',
         'warehouseTransferCreatedAt',
+        'warehouseTransferShipmentDate',
         'orderCandidateGenerated',
         'orderCandidateIds',
         'orderCandidateCreatedAt',
+        'confirmedAt',
         'deliveryCourseId',
         'deliveryCourseCode',
         'deliveryCourseName',
@@ -2818,6 +3859,7 @@ window.distributionApp = function distributionApp() {
 
         this.hydrateProductMetaFromRows();
         this.saveData();
+        this.queueBulkAllocationAutoApply();
       } catch (e) {
         console.error('Failed to load HQ transfer requests:', e);
         this.hqTransferError = '本部向け発注データの取得に失敗しました';
@@ -2859,16 +3901,63 @@ window.distributionApp = function distributionApp() {
       this.confirmCallback = null;
     },
 
+    getCsvDestinationPool() {
+      return Array.isArray(this.csvDestinations) && this.csvDestinations.length > 0
+        ? this.csvDestinations
+        : CSV_DESTS;
+    },
+
+    getKnownDestinationPool() {
+      const merged = [];
+      const seen = new Set();
+      const addDestinations = destinations => {
+        (Array.isArray(destinations) ? destinations : []).forEach(destination => {
+          const key = String(destination?.key || '');
+          if (!key || seen.has(key)) return;
+          seen.add(key);
+          merged.push(destination);
+        });
+      };
+
+      addDestinations(this.getCsvDestinationPool());
+      addDestinations(DESTS);
+
+      return merged.length > 0 ? merged : DESTS;
+    },
+
+    getDestinationsForKeys(keys) {
+      const destinationByKey = new Map(
+        this.getKnownDestinationPool().map(destination => [String(destination?.key || ''), destination])
+      );
+
+      return this.normalizeDestinationKeyList(keys)
+        .sort((a, b) => String(a).localeCompare(String(b), 'ja', { numeric: true }))
+        .map(key => destinationByKey.get(String(key)) || {
+          id: null,
+          key: String(key),
+          code: String(key),
+          name: '',
+          isHidden: true,
+        });
+    },
+
+    getRowDestinationPool(row) {
+      const keys = this.getRowActiveDestinationKeys(row);
+      if (keys.length === 0) return DESTS;
+
+      return this.getDestinationsForKeys(keys);
+    },
+
     // ---------- Calculations ----------
     calcWishTotal(row) {
       let total = 0;
-      DESTS.forEach(d => { total += toInt(row['wish_' + d.key] || 0); });
+      this.getRowDestinationPool(row).forEach(d => { total += toInt(row['wish_' + d.key] || 0); });
       return total;
     },
 
     calcAllocTotal(row) {
       let total = 0;
-      DESTS.forEach(d => { total += toInt(row['alloc_' + d.key] || 0); });
+      this.getRowDestinationPool(row).forEach(d => { total += toInt(row['alloc_' + d.key] || 0); });
       return total;
     },
 
@@ -2882,13 +3971,12 @@ window.distributionApp = function distributionApp() {
     },
 
     normalizeDestinationKeyList(keys) {
-      const validKeys = new Set(DESTS.map(dest => String(dest.key)));
       const seen = new Set();
       const normalized = [];
 
       (Array.isArray(keys) ? keys : []).forEach(key => {
         const value = String(key || '');
-        if (!value || !validKeys.has(value) || seen.has(value)) return;
+        if (!value || seen.has(value)) return;
         seen.add(value);
         normalized.push(value);
       });
@@ -2900,25 +3988,104 @@ window.distributionApp = function distributionApp() {
       return this.normalizeDestinationKeyList(row?.visibleDestinationKeys || row?.visible_destination_keys || []);
     },
 
+    getRowEnteredDestinationKeys(row) {
+      return this.normalizeDestinationKeyList(
+        row?.enteredDestinationKeys
+        || row?.entered_destination_keys
+        || row?.csvEnteredDestinationKeys
+        || row?.csv_entered_destination_keys
+        || []
+      );
+    },
+
+    isCsvImportRow(row) {
+      const source = String(row?.source || '');
+      const sourceKey = String(row?.sourceKey || row?.source_key || '');
+
+      return source.includes('csv_import') || sourceKey.includes('csv_import');
+    },
+
+    getRowActiveDestinationKeys(row) {
+      const enteredKeys = this.getRowEnteredDestinationKeys(row);
+      const keys = new Set(enteredKeys);
+
+      if (!this.isCsvImportRow(row) || enteredKeys.length > 0) {
+        this.getRowVisibleDestinationKeys(row).forEach(key => keys.add(key));
+      }
+
+      Object.keys(row || {}).forEach(field => {
+        const match = /^(wish|alloc)_(.+)$/.exec(field);
+        if (!match) return;
+
+        if (toInt(row?.[field] || 0) > 0) {
+          keys.add(String(match[2]));
+        }
+      });
+
+      return this.normalizeDestinationKeyList(Array.from(keys));
+    },
+
     getAllocationDisplayDestinations(rows = this.getVisibleRows()) {
       const sourceRows = Array.isArray(rows) ? rows : [];
       if (sourceRows.length === 0) return [];
 
       const mergedKeys = new Set();
       for (const row of sourceRows) {
-        const keys = this.getRowVisibleDestinationKeys(row);
-        if (keys.length === 0) return DESTS;
-        keys.forEach(key => mergedKeys.add(key));
+        const keys = this.getRowActiveDestinationKeys(row);
+        if (keys.length === 0) {
+          DESTS.forEach(destination => mergedKeys.add(String(destination.key)));
+        } else {
+          keys.forEach(key => mergedKeys.add(key));
+        }
       }
 
       if (mergedKeys.size === 0) return DESTS;
 
-      return DESTS.filter(dest => mergedKeys.has(String(dest.key)));
+      return this.getDestinationsForKeys(Array.from(mergedKeys));
     },
 
     getAllocationTableMinWidth() {
       const destinationCount = this.getAllocationDisplayDestinations().length;
-      return 1020 + destinationCount * 80;
+      return 1020 + destinationCount * 60;
+    },
+
+    getDirectDisplayDestinations(rows = this.getVisibleDirectRows()) {
+      const sourceRows = Array.isArray(rows) ? rows : [];
+      if (sourceRows.length === 0) return [];
+
+      const cacheKey = [
+        this.directRowsVersion || 0,
+        this.directVisibleRowsCacheKey || '',
+        sourceRows.length,
+      ].join('::');
+
+      if (this.directDisplayDestinationsCacheKey === cacheKey && Array.isArray(this.directDisplayDestinationsCache)) {
+        return this.directDisplayDestinationsCache;
+      }
+
+      const mergedKeys = new Set();
+      sourceRows.forEach(row => {
+        this.getRowActiveDestinationKeys(row).forEach(key => mergedKeys.add(String(key)));
+      });
+
+      if (mergedKeys.size === 0) {
+        const fallbackDestinations = this.getFallbackStandardStoreDestinations();
+        this.directDisplayDestinationsCacheKey = cacheKey;
+        this.directDisplayDestinationsCache = fallbackDestinations;
+
+        return fallbackDestinations;
+      }
+
+      const destinations = this.getKnownDestinationPool().filter(dest => mergedKeys.has(String(dest.key)));
+      this.directDisplayDestinationsCacheKey = cacheKey;
+      this.directDisplayDestinationsCache = destinations;
+
+      return destinations;
+    },
+
+    getDirectTableMinWidth() {
+      const destinationCount = this.getDirectDisplayDestinations().length;
+      return 1280 + destinationCount * 60;
     },
 
     toggleAllocationDestinations(row) {
@@ -2978,14 +4145,13 @@ window.distributionApp = function distributionApp() {
       if (!field) return false;
       if (field.includes(q)) return true;
 
-      const compactField = field.replace(/[\s\[\]（）(){}｛｝\-_/／\\.:：]/g, '');
-      const compactQ = q.replace(/[\s\[\]（）(){}｛｝\-_/／\\.:：]/g, '');
+      const compactField = field.replace(/[\s\[\]（）(){}｛｝\-_/／.:：]/g, '');
+      const compactQ = q.replace(/[\s\[\]（）(){}｛｝\-_/／.:：]/g, '');
       if (compactQ && compactField.includes(compactQ)) return true;
 
-      const fieldDigits = field.replace(/\D/g, '').replace(/^0+/, '') || (field.replace(/\D/g, '') ? '0' : '');
-      const qDigits = q.replace(/\D/g, '').replace(/^0+/, '') || (q.replace(/\D/g, '') ? '0' : '');
+      if (!/^\d+$/.test(compactField) || !/^\d+$/.test(compactQ)) return false;
 
-      return !!(fieldDigits && qDigits && fieldDigits.includes(qDigits));
+      return (compactField.replace(/^0+/, '') || '0') === (compactQ.replace(/^0+/, '') || '0');
     },
 
     splitSearchKeywords(value) {
@@ -3024,23 +4190,33 @@ window.distributionApp = function distributionApp() {
       this.filterApplyingLabel = label || 'フィルタ適用中';
 
       window.setTimeout(() => {
-        callback();
-        window.setTimeout(() => {
-          this.filterApplying = false;
-        }, 220);
+        Promise.resolve()
+          .then(() => callback())
+          .catch(error => {
+            console.error('Failed to apply filter:', error);
+            this.openModal('エラー', 'フィルタ適用中にエラーが発生しました: ' + (error?.message || error));
+          })
+          .finally(() => {
+            window.setTimeout(() => {
+              this.filterApplying = false;
+            }, 220);
+          });
       }, 30);
     },
 
     getAllocationFilterState() {
       return {
+        version: ALLOCATION_FILTER_VERSION,
         keywordSearch: this.allocationKeywordSearch || '',
         statusFilter: this.allocationStatusFilter || 'hide',
       };
     },
 
     setAllocationFilterState(state = {}) {
-      const statusFilter = state.statusFilter
-        || this.getAllocationStatusFilterFromLegacy(state.lockedVisibilityFilter, state.printedFilter);
+      const isCurrentAllocationFilter = Number(state.version || 0) >= ALLOCATION_FILTER_VERSION;
+      const statusFilter = isCurrentAllocationFilter
+        ? (state.statusFilter || this.getAllocationStatusFilterFromLegacy(state.lockedVisibilityFilter, state.printedFilter))
+        : 'hide';
 
       this.allocationKeywordSearch = state.keywordSearch || '';
       this.orderDateFrom = '';
@@ -3068,55 +4244,77 @@ window.distributionApp = function distributionApp() {
     },
 
     getDirectFilterState() {
+      const statusFilter = ['unprocessed', 'request_printed', 'order_created'].includes(this.directPrintedFilter)
+        ? this.directPrintedFilter
+        : 'all';
+
       return {
+        version: DIRECT_FILTER_VERSION,
         keywordSearch: this.directKeywordSearch || '',
         dateFrom: this.directDateFrom || '',
-        dateTo: this.directDateTo || '',
-        productSearch: this.directProductSearch || '',
+        dateTo: this.directDateTo || getTodayString(),
         orderToSearch: this.directOrderToSearch || '',
         supplierSearch: this.directSupplierSearch || '',
         deliveryFrom: this.directDeliveryFrom || '',
         deliveryTo: this.directDeliveryTo || '',
+        statusFilter,
         checkedOnly: !!this.directCheckedOnly,
         printedFilter: this.directPrintedFilter || 'all',
       };
     },
 
     setDirectFilterState(state = {}) {
+      const isCurrentDirectFilter = Number(state.version || 0) >= DIRECT_FILTER_VERSION;
       this.directKeywordSearch = state.keywordSearch || '';
-      this.directDateFrom = this.normalizeFlexibleDate(state.dateFrom || '') || '';
-      this.directDateTo = this.normalizeFlexibleDate(state.dateTo || '') || '';
-      this.directProductSearch = state.productSearch || '';
+      this.directDateFrom = isCurrentDirectFilter
+        ? (this.normalizeFlexibleDate(state.dateFrom || '') || '')
+        : getTodayString();
+      this.directDateTo = isCurrentDirectFilter
+        ? (this.normalizeFlexibleDate(state.dateTo || '') || '')
+        : getTodayString();
+      this.directProductSearch = '';
       this.directOrderToSearch = state.orderToSearch || '';
       this.directSupplierSearch = state.supplierSearch || '';
       this.directDeliveryFrom = this.normalizeFlexibleDate(state.deliveryFrom || '') || '';
       this.directDeliveryTo = this.normalizeFlexibleDate(state.deliveryTo || '') || '';
-      this.directCheckedOnly = !!state.checkedOnly;
-      this.directPrintedFilter = ['all', 'printed', 'unprinted'].includes(state.printedFilter)
-        ? state.printedFilter
-        : 'all';
+      const statusFilter = isCurrentDirectFilter && ['all', 'unprocessed', 'request_printed', 'order_created'].includes(state.statusFilter)
+        ? state.statusFilter
+        : 'unprocessed';
+      this.directCheckedOnly = false;
+      this.directPrintedFilter = statusFilter;
 
       Object.assign(this.directFilterDraft, this.getDirectFilterState());
+      this.directFilterDraft.productSearch = '';
     },
 
     getStoreFilterState() {
       return {
         version: STORE_FILTER_VERSION,
         productSearch: this.storeProductSearch || '',
-        confirmStatus: this.storeConfirmStatus || 'unconfirmed',
-        distributionType: this.storeDistributionType || 'all',
+        orderToSearch: this.storeOrderToSearch || '',
+        deliveryFrom: this.storeDeliveryFrom || '',
+        deliveryTo: this.storeDeliveryTo || '',
+        shipmentFrom: this.storeShipmentFrom || '',
+        shipmentTo: this.storeShipmentTo || '',
+        distributionType: this.storeDistributionType || 'allocation',
+        destinationScope: 'all',
       };
     },
 
     setStoreFilterState(state = {}) {
       const isCurrentStoreFilter = Number(state.version || 0) >= STORE_FILTER_VERSION;
       this.storeProductSearch = state.productSearch || '';
-      this.storeConfirmStatus = ['confirmed', 'unconfirmed', 'all'].includes(state.confirmStatus)
-        ? (isCurrentStoreFilter ? state.confirmStatus : 'unconfirmed')
-        : 'unconfirmed';
-      this.storeDistributionType = ['all', 'allocation', 'direct'].includes(state.distributionType)
+      this.storeOrderToSearch = isCurrentStoreFilter ? (state.orderToSearch || '') : '';
+      this.storeDeliveryFrom = isCurrentStoreFilter ? (this.normalizeFlexibleDate(state.deliveryFrom || '') || '') : '';
+      this.storeDeliveryTo = isCurrentStoreFilter ? (this.normalizeFlexibleDate(state.deliveryTo || '') || '') : '';
+      this.storeShipmentFrom = this.normalizeFlexibleDate(state.shipmentFrom || '') || '';
+      this.storeShipmentTo = this.normalizeFlexibleDate(state.shipmentTo || '') || '';
+      this.storeConfirmStatus = 'unconfirmed';
+      this.storeDistributionType = isCurrentStoreFilter && ['allocation', 'direct'].includes(state.distributionType)
         ? state.distributionType
-        : 'all';
+        : 'allocation';
+      this.storeIndividualSourceView = this.storeDistributionType;
+      this.storeDestinationScope = 'all';
 
       Object.assign(this.storeFilterDraft, this.getStoreFilterState());
     },
@@ -3141,6 +4339,10 @@ window.distributionApp = function distributionApp() {
       try {
         const saved = localStorage.getItem(FILTER_STORAGE_KEY);
         if (!saved) return;
+        if (saved.length > 100000) {
+          console.warn('分配フィルタのlocalStorageが大きすぎるため、ブラウザ保護のため読み込みをスキップしました。');
+          return;
+        }
 
         const parsed = JSON.parse(saved);
         if (!parsed || typeof parsed !== 'object') return;
@@ -3169,7 +4371,7 @@ window.distributionApp = function distributionApp() {
     },
 
     getAllocationStatusFilterFromLegacy(lockedVisibilityFilter = 'hide', printedFilter = 'all') {
-      if (['warehouse_transfer_creatable', 'unprinted'].includes(printedFilter)) return 'warehouse_transfer_creatable';
+      if (['warehouse_transfer_creatable', 'unprinted'].includes(printedFilter)) return 'hide';
       if (printedFilter === 'printed') return 'printed';
       if (lockedVisibilityFilter === 'locked') return 'locked';
       if (lockedVisibilityFilter === 'all') return 'all';
@@ -3181,7 +4383,7 @@ window.distributionApp = function distributionApp() {
       const normalized = statusFilter || 'hide';
 
       if (['warehouse_transfer_creatable', 'unprinted'].includes(normalized)) {
-        return { lockedVisibilityFilter: 'all', printedFilter: 'warehouse_transfer_creatable' };
+        return { lockedVisibilityFilter: 'hide', printedFilter: 'all' };
       }
 
       if (normalized === 'printed') {
@@ -3213,6 +4415,7 @@ window.distributionApp = function distributionApp() {
     applyAllocationFilters() {
       this.normalizeAllocationFilterDraft();
       this.runFilterApply('フィルタ適用中', () => {
+        this.resetAllocationRenderWindow();
         const statusFilter = this.allocationFilterDraft.statusFilter
           || this.getAllocationStatusFilterFromLegacy(
             this.allocationFilterDraft.lockedVisibilityFilter,
@@ -3232,50 +4435,76 @@ window.distributionApp = function distributionApp() {
         this.syncAllocationStatusFilter(statusFilter);
         this.clearFilterRetainedRows(false);
         this.persistFilters();
+        this.queueBulkAllocationAutoApply();
       });
     },
 
     normalizeDirectFilterDraft() {
       this.directFilterDraft.dateFrom = this.normalizeFlexibleDate(this.directFilterDraft.dateFrom || '') || '';
-      this.directFilterDraft.dateTo = this.normalizeFlexibleDate(this.directFilterDraft.dateTo || '') || '';
+      this.directFilterDraft.dateTo = this.normalizeFlexibleDate(this.directFilterDraft.dateTo || '') || getTodayString();
       this.directFilterDraft.deliveryFrom = this.normalizeFlexibleDate(this.directFilterDraft.deliveryFrom || '') || '';
       this.directFilterDraft.deliveryTo = this.normalizeFlexibleDate(this.directFilterDraft.deliveryTo || '') || '';
     },
 
     applyDirectFilters() {
       this.normalizeDirectFilterDraft();
-      this.runFilterApply('フィルタ適用中', () => {
+      this.runFilterApply('フィルタ適用中', async () => {
         this.directKeywordSearch = this.directFilterDraft.keywordSearch || '';
         this.directDateFrom = this.directFilterDraft.dateFrom || '';
         this.directDateTo = this.directFilterDraft.dateTo || '';
-        this.directProductSearch = this.directFilterDraft.productSearch || '';
+        this.directProductSearch = '';
+        this.directFilterDraft.productSearch = '';
         this.directOrderToSearch = this.directFilterDraft.orderToSearch || '';
         this.directSupplierSearch = this.directFilterDraft.supplierSearch || '';
         this.directDeliveryFrom = this.directFilterDraft.deliveryFrom || '';
         this.directDeliveryTo = this.directFilterDraft.deliveryTo || '';
-        this.directCheckedOnly = Boolean(this.directFilterDraft.checkedOnly);
-        this.directPrintedFilter = this.directFilterDraft.printedFilter || 'all';
+        const statusFilter = ['all', 'unprocessed', 'request_printed', 'order_created'].includes(this.directFilterDraft.statusFilter)
+          ? this.directFilterDraft.statusFilter
+          : 'all';
+        this.directCheckedOnly = false;
+        this.directPrintedFilter = statusFilter;
         this.clearFilterRetainedRows(true);
+        this.resetDirectRenderWindow();
         this.persistFilters();
+        await this.waitForDistributionSaves('direct');
+        await this.loadDistributionRowsFromServer({ mode: 'direct', page: 1 });
       });
     },
 
     normalizeStoreFilterDraft() {
+      this.storeFilterDraft.deliveryFrom = this.normalizeFlexibleDate(this.storeFilterDraft.deliveryFrom || '') || '';
+      this.storeFilterDraft.deliveryTo = this.normalizeFlexibleDate(this.storeFilterDraft.deliveryTo || '') || '';
+      this.storeFilterDraft.shipmentFrom = this.normalizeFlexibleDate(this.storeFilterDraft.shipmentFrom || '') || '';
+      this.storeFilterDraft.shipmentTo = this.normalizeFlexibleDate(this.storeFilterDraft.shipmentTo || '') || '';
       if (!['confirmed', 'unconfirmed', 'all'].includes(this.storeFilterDraft.confirmStatus)) {
         this.storeFilterDraft.confirmStatus = 'unconfirmed';
       }
-      if (!['all', 'allocation', 'direct'].includes(this.storeFilterDraft.distributionType)) {
-        this.storeFilterDraft.distributionType = 'all';
+      if (
+        this.storeIndividualSourceView === 'allocation'
+        && (this.storeFilterDraft.shipmentFrom || this.storeFilterDraft.shipmentTo)
+        && this.storeFilterDraft.confirmStatus === 'unconfirmed'
+      ) {
+        this.storeFilterDraft.confirmStatus = 'confirmed';
+      }
+      if (!['allocation', 'direct'].includes(this.storeFilterDraft.distributionType)) {
+        this.storeFilterDraft.distributionType = this.storeIndividualSourceView || 'allocation';
       }
     },
 
     applyStoreFilters() {
       this.normalizeStoreFilterDraft();
-      this.runFilterApply('フィルタ適用中', () => {
+      this.runFilterApply('フィルタ適用中', async () => {
         this.storeProductSearch = this.storeFilterDraft.productSearch || '';
+        this.storeOrderToSearch = this.storeFilterDraft.orderToSearch || '';
+        this.storeDeliveryFrom = this.storeFilterDraft.deliveryFrom || '';
+        this.storeDeliveryTo = this.storeFilterDraft.deliveryTo || '';
+        this.storeShipmentFrom = this.storeFilterDraft.shipmentFrom || '';
+        this.storeShipmentTo = this.storeFilterDraft.shipmentTo || '';
         this.storeConfirmStatus = this.storeFilterDraft.confirmStatus || 'unconfirmed';
-        this.storeDistributionType = this.storeFilterDraft.distributionType || 'all';
+        this.storeDistributionType = this.storeFilterDraft.distributionType || this.storeIndividualSourceView || 'allocation';
         this.clearStoreRowsCache();
+        await this.loadDistributionRowsFromServer();
+        this.touchStoreRows();
         this.persistFilters();
       });
     },
@@ -3308,7 +4537,6 @@ window.distributionApp = function distributionApp() {
       if (this.directKeywordSearch.trim()) count++;
       if (this.hasCustomOrderDateFilter(this.directDateFrom, this.directDateTo)) count++;
       if (this.directDeliveryFrom || this.directDeliveryTo) count++;
-      if (this.directProductSearch.trim()) count++;
       if (this.directOrderToSearch.trim()) count++;
       if (this.directSupplierSearch.trim()) count++;
       if (this.directCheckedOnly) count++;
@@ -3430,21 +4658,21 @@ window.distributionApp = function distributionApp() {
 
       const statusFilter = this.allocationStatusFilter
         || this.getAllocationStatusFilterFromLegacy(this.lockedVisibilityFilter, this.printedFilter);
-      const showingWarehouseTransferPending = ['warehouse_transfer_creatable', 'unprinted'].includes(statusFilter);
+      const normalizedStatusFilter = ['warehouse_transfer_creatable', 'unprinted'].includes(statusFilter)
+        ? 'hide'
+        : statusFilter;
 
       // Status filters that target output rows must include locked rows.
       if (applyLockedFilter) {
-        if (statusFilter === 'hide') {
+        if (normalizedStatusFilter === 'hide') {
           if (this.isRowLocked(r)) return false;
-        } else if (statusFilter === 'locked') {
+        } else if (normalizedStatusFilter === 'locked') {
           if (!this.isRowLocked(r)) return false;
         }
       }
 
-      if (showingWarehouseTransferPending) {
-        if (!this.isWarehouseTransferWorkflowPendingRow(r)) return false;
-      } else if (statusFilter === 'printed') {
-        if (!this.isAllocationOutputCreated(r)) return false;
+      if (normalizedStatusFilter === 'printed') {
+        if (!this.isAllocationTransferCompleted(r)) return false;
       }
 
       return true;
@@ -3457,8 +4685,28 @@ window.distributionApp = function distributionApp() {
       return this.sortRowsByOrderDateDesc(this.mergeFilterRetainedRows(filtered, sourceRows, false));
     },
 
+    getAllocationVisibleRowsCacheKey() {
+      return [
+        this.allocationRowsVersion || 0,
+        Array.isArray(this.rows) ? this.rows.length : 0,
+        this.allocationKeywordSearch || '',
+        this.lockedVisibilityFilter || '',
+        this.printedFilter || '',
+        (this.allocationFilterRetainedRowIds || []).join(','),
+      ].join('::');
+    },
+
     getVisibleRows() {
-      return this.getAllocationFilteredRows({ applyLockedFilter: true });
+      const cacheKey = this.getAllocationVisibleRowsCacheKey();
+      if (this.allocationVisibleRowsCacheKey === cacheKey && Array.isArray(this.allocationVisibleRowsCache)) {
+        return this.allocationVisibleRowsCache;
+      }
+
+      const visibleRows = this.getAllocationFilteredRows({ applyLockedFilter: true });
+      this.allocationVisibleRowsCacheKey = cacheKey;
+      this.allocationVisibleRowsCache = visibleRows;
+
+      return visibleRows;
     },
 
     matchesDirectActiveFilters(r) {
@@ -3471,12 +4719,6 @@ window.distributionApp = function distributionApp() {
       if (this.directDateFrom || this.directDateTo) {
         const d = r.orderDate || '';
         if (!(d >= (this.directDateFrom || '0000-00-00') && d <= (this.directDateTo || '9999-12-31'))) return false;
-      }
-
-      if (this.directProductSearch.trim()) {
-        const q = this.directProductSearch;
-        const meta = this.getProductMeta(r.productCode);
-        if (!this.matchesAllSearchKeywords([r.productCode, r.name, r.jan, meta.code, meta.name, meta.jan], q)) return false;
       }
 
       if (this.directOrderToSearch.trim()) {
@@ -3495,21 +4737,50 @@ window.distributionApp = function distributionApp() {
         if (!(d >= (this.directDeliveryFrom || '0000-00-00') && d <= (this.directDeliveryTo || '9999-12-31'))) return false;
       }
 
-      if (this.directCheckedOnly && !r.checked) return false;
-      if (this.directPrintedFilter === 'printed') {
+      if (this.directPrintedFilter === 'order_created') {
+        if (!this.isOrderCandidateCreated(r)) return false;
+      } else if (this.directPrintedFilter === 'request_printed') {
         if (!this.isTransferSlipCreated(r)) return false;
-      } else if (this.directPrintedFilter === 'unprinted') {
-        if (this.isTransferSlipCreated(r)) return false;
+        if (this.isOrderCandidateCreated(r)) return false;
+      } else if (this.directPrintedFilter === 'unprocessed') {
+        if (this.isTransferSlipCreated(r) || this.isOrderCandidateCreated(r)) return false;
       }
 
       return true;
     },
 
-    getVisibleDirectRows() {
-      const sourceRows = this.directRows;
-      const filtered = sourceRows.filter(row => this.matchesDirectActiveFilters(row));
+    getDirectVisibleRowsCacheKey() {
+      return [
+        this.directRowsVersion || 0,
+        Array.isArray(this.directRows) ? this.directRows.length : 0,
+        this.directKeywordSearch || '',
+        this.directDateFrom || '',
+        this.directDateTo || '',
+        this.directProductSearch || '',
+        this.directOrderToSearch || '',
+        this.directSupplierSearch || '',
+        this.directDeliveryFrom || '',
+        this.directDeliveryTo || '',
+        this.directCheckedOnly ? 1 : 0,
+        this.directPrintedFilter || '',
+        (this.directFilterRetainedRowIds || []).join(','),
+      ].join('::');
+    },
 
-      return this.sortRowsByOrderDateDesc(this.mergeFilterRetainedRows(filtered, sourceRows, true));
+    getVisibleDirectRows() {
+      const cacheKey = this.getDirectVisibleRowsCacheKey();
+      if (this.directVisibleRowsCacheKey === cacheKey && Array.isArray(this.directVisibleRowsCache)) {
+        return this.directVisibleRowsCache;
+      }
+
+      const sourceRows = Array.isArray(this.directRows) ? this.directRows : [];
+      const filtered = sourceRows.filter(row => this.matchesDirectActiveFilters(row));
+      const visibleRows = this.sortRowsByOrderDateDesc(this.mergeFilterRetainedRows(filtered, sourceRows, true));
+
+      this.directVisibleRowsCacheKey = cacheKey;
+      this.directVisibleRowsCache = visibleRows;
+
+      return visibleRows;
     },
 
     getAllocationTotalRowCount() {
@@ -3517,7 +4788,10 @@ window.distributionApp = function distributionApp() {
     },
 
     getDirectTotalRowCount() {
-      return this.directRows.length;
+      return Math.max(
+        this.getVisibleDirectRows().length,
+        toInt(this.serverRowPagination.direct?.total || 0)
+      );
     },
 
     clearFilters() {
@@ -3557,7 +4831,7 @@ window.distributionApp = function distributionApp() {
       this.directDeliveryFrom = '';
       this.directDeliveryTo = '';
       this.directCheckedOnly = false;
-      this.directPrintedFilter = 'all';
+      this.directPrintedFilter = 'unprocessed';
       this.clearFilterRetainedRows(true);
       Object.assign(this.directFilterDraft, {
         keywordSearch: '',
@@ -3568,22 +4842,35 @@ window.distributionApp = function distributionApp() {
         supplierSearch: '',
         deliveryFrom: '',
         deliveryTo: '',
-        checkedOnly: false,
-        printedFilter: 'all',
+        statusFilter: 'unprocessed',
       });
+      this.resetDirectRenderWindow();
       this.persistFilters();
     },
 
     clearStoreFilters() {
       this.storeProductSearch = '';
+      this.storeOrderToSearch = '';
+      this.storeDeliveryFrom = '';
+      this.storeDeliveryTo = '';
+      this.storeShipmentFrom = '';
+      this.storeShipmentTo = '';
       this.storeConfirmStatus = 'unconfirmed';
-      this.storeDistributionType = 'all';
+      this.storeDistributionType = this.storeIndividualSourceView || 'allocation';
       Object.assign(this.storeFilterDraft, {
         productSearch: '',
+        orderToSearch: '',
+        deliveryFrom: '',
+        deliveryTo: '',
+        shipmentFrom: '',
+        shipmentTo: '',
         confirmStatus: 'unconfirmed',
-        distributionType: 'all',
+        distributionType: this.storeDistributionType,
       });
       this.clearStoreRowsCache();
+      if (this.activeSubTab === 'store-view') {
+        this.loadDistributionRowsFromServer().finally(() => this.touchStoreRows());
+      }
       this.persistFilters();
     },
 
@@ -3602,7 +4889,7 @@ window.distributionApp = function distributionApp() {
     },
 
     getVisibleRowsForDeleteMode(isDirect = false) {
-      return isDirect ? this.getVisibleDirectRows() : this.getVisibleRows();
+      return isDirect ? this.getVisibleDirectRows() : this.getRenderableVisibleRows();
     },
 
     getRowsForDeleteMode(isDirect = false) {
@@ -3611,7 +4898,16 @@ window.distributionApp = function distributionApp() {
 
     getDeleteSelectableRows(isDirect = false) {
       return this.getVisibleRowsForDeleteMode(isDirect)
-        .filter(row => row && !this.isRowDeleteLocked(row));
+        .filter(row => row && !(isDirect ? this.isDirectRowDeleteLocked(row) : this.isRowDeleteLocked(row)));
+    },
+
+    getDirectSelectableRows(rows = this.getVisibleDirectRows()) {
+      return rows.filter(row => row && !this.isDirectRequestPrintLocked(row));
+    },
+
+    getSelectedDirectRows(rows = this.getVisibleDirectRows()) {
+      const selectedIds = new Set(this.directDeleteSelectedRowIds.map(id => String(id)));
+      return rows.filter(row => row && selectedIds.has(String(row.id || '')));
     },
 
     getSelectedDeleteRows(isDirect = false) {
@@ -3625,12 +4921,12 @@ window.distributionApp = function distributionApp() {
     },
 
     isRowDeleteSelected(row, isDirect = false) {
-      if (!row || this.isRowDeleteLocked(row)) return false;
+      if (!row || (isDirect ? this.isDirectRequestPrintLocked(row) : this.isRowDeleteLocked(row))) return false;
       return this.getDeleteSelectionIds(isDirect).includes(String(row.id || ''));
     },
 
     setRowDeleteSelected(row, isDirect = false, selected = false) {
-      if (!row || this.isRowDeleteLocked(row)) return;
+      if (!row || (isDirect ? this.isDirectRequestPrintLocked(row) : this.isRowDeleteLocked(row))) return;
 
       const rowId = String(row.id || '');
       if (!rowId) return;
@@ -3646,7 +4942,7 @@ window.distributionApp = function distributionApp() {
     },
 
     allVisibleDeleteSelected(isDirect = false) {
-      const rows = this.getDeleteSelectableRows(isDirect);
+      const rows = isDirect ? this.getDirectSelectableRows() : this.getDeleteSelectableRows(false);
       if (rows.length === 0) return false;
 
       const selectedIds = new Set(this.getDeleteSelectionIds(isDirect));
@@ -3655,7 +4951,7 @@ window.distributionApp = function distributionApp() {
 
     toggleVisibleDeleteSelection(isDirect = false, selected = false) {
       const selectedIds = new Set(this.getDeleteSelectionIds(isDirect));
-      this.getDeleteSelectableRows(isDirect).forEach(row => {
+      (isDirect ? this.getDirectSelectableRows() : this.getDeleteSelectableRows(false)).forEach(row => {
         const rowId = String(row.id || '');
         if (!rowId) return;
 
@@ -3672,7 +4968,7 @@ window.distributionApp = function distributionApp() {
     pruneDeleteSelection(isDirect = false) {
       const rowIds = new Set(
         this.getRowsForDeleteMode(isDirect)
-          .filter(row => row && !this.isRowDeleteLocked(row))
+          .filter(row => row && !(isDirect ? false : this.isRowDeleteLocked(row)))
           .map(row => String(row.id || ''))
       );
 
@@ -3683,36 +4979,81 @@ window.distributionApp = function distributionApp() {
     },
 
     deleteSelectedRows(isDirect = false) {
-      const targetRows = this.getSelectedDeleteRows(isDirect);
+      const selectedRows = isDirect
+        ? this.getSelectedDirectRows()
+        : this.getSelectedDeleteRows(false);
+      const targetRows = selectedRows.filter(row => isDirect
+        ? !this.isDirectRowDeleteLocked(row)
+        : !this.isOrderCandidateCreated(row) && !this.isAllocationTransferCompleted(row));
       if (targetRows.length === 0) {
-        this.openModal('エラー', '削除できる選択行がありません。');
+        this.openModal('エラー', selectedRows.length > 0
+          ? '選択したデータは処理済みのため削除できません。'
+          : '削除できる選択行がありません。');
         return;
       }
 
-      this.openConfirm(targetRows.length + '件のデータを削除しますか？', () => {
-        const targetIds = new Set(targetRows.map(row => String(row.id || '')));
-        const targetKeys = new Set(targetRows.map(row => this.getAllocationRowDeleteKey(row)).filter(key => key !== ''));
+      const skippedCount = selectedRows.length - targetRows.length;
+      const confirmMessage = targetRows.length + '件のデータを削除しますか？'
+        + (skippedCount > 0 ? '\n処理済みの' + skippedCount + '件は削除対象から除外します。' : '');
+      this.openConfirm(confirmMessage, () => {
+        this.deleteRowsAndPersist(targetRows, isDirect, targetRows.length + '件のデータを削除しました');
+      }, 'delete');
+    },
+
+    async deleteRowsAndPersist(targetRows, isDirect = false, successMessage = 'データを削除しました') {
+      const mode = isDirect ? 'direct' : 'allocation';
+      const rows = Array.isArray(targetRows) ? targetRows.filter(Boolean) : [];
+      if (rows.length === 0) return;
+
+      const previousRows = isDirect ? this.directRows : this.rows;
+      const previousSelection = isDirect ? this.directDeleteSelectedRowIds : this.deleteSelectedRowIds;
+      const previousDeletedSourceKeys = [...this.deletedAllocationSourceKeys];
+
+      try {
+        await this.waitForDistributionSaves(mode);
+
+        const targetIds = new Set(rows.map(row => String(row.id || '')));
+        const targetKeys = new Set(rows.map(row => this.getAllocationRowDeleteKey(row)).filter(key => key !== ''));
 
         if (isDirect) {
           this.directRows = this.directRows.filter(row => !targetIds.has(String(row.id || '')));
           this.directDeleteSelectedRowIds = [];
-          this.saveDirectData();
+          this.saveDirectData({ skipServer: true });
         } else {
-          this.rememberDeletedAllocationRows(targetRows);
+          this.rememberDeletedAllocationRows(rows);
           this.rows = this.rows.filter(row => !targetKeys.has(this.getAllocationRowDeleteKey(row)));
           this.deleteSelectedRowIds = [];
-          this.saveData();
+          this.saveData({ skipServer: true });
         }
 
-        this.showToast(targetRows.length + '件のデータを削除しました');
-      }, 'delete');
+        const persistable = isDirect ? this.getPersistableDirectRows() : this.getPersistableAllocationRows();
+        await this.persistDistributionRowsImmediately(mode, persistable);
+        this.serverSaveErrors[mode] = null;
+        this.showToast(successMessage);
+      } catch (error) {
+        if (isDirect) {
+          this.directRows = previousRows;
+          this.directDeleteSelectedRowIds = previousSelection;
+          this.saveDirectData({ skipServer: true });
+        } else {
+          this.rows = previousRows;
+          this.deleteSelectedRowIds = previousSelection;
+          this.deletedAllocationSourceKeys = previousDeletedSourceKeys;
+          this.persistDeletedAllocationSourceKeys();
+          this.saveData({ skipServer: true });
+        }
+
+        console.warn('Failed to delete distribution rows:', error);
+        this.openModal('エラー', '削除内容をサーバーへ保存できなかったため、画面上の削除を取り消しました: ' + (error?.message || error));
+      }
     },
 
     // ---------- Check helpers ----------
     allVisibleChecked() {
-      const visible = this.getVisibleRows().filter(r => !this.isRowLocked(r) && this.hasRowProductInfo(r));
+      const renderedRows = this.getRenderableVisibleRows();
+      const visible = renderedRows.filter(r => !this.isRowLocked(r) && this.hasAllocationRequiredInfo(r));
       if (visible.length === 0) {
-        const allVisible = this.getVisibleRows().filter(r => this.hasRowProductInfo(r));
+        const allVisible = renderedRows.filter(r => this.hasAllocationRequiredInfo(r));
         return allVisible.length > 0 && allVisible.every(r => r.checked);
       }
 
@@ -3781,7 +5122,11 @@ window.distributionApp = function distributionApp() {
     },
 
     getDirectOrderCandidateGeneratableRows(rows = this.getVisibleDirectRows()) {
-      return this.getOrderCandidateGeneratableRows(rows, row => this.calcDirectAllocTotal(row));
+      return this.getSelectedDirectRows(rows).filter(row =>
+        this.hasRowProductInfo(row) &&
+        !this.isOrderCandidateCreated(row) &&
+        this.hasOrderCandidateQuantity(row, currentRow => this.calcDirectAllocTotal(currentRow))
+      );
     },
 
     hasDirectOrderCandidateGeneratableRows(rows = this.getVisibleDirectRows()) {
@@ -3789,9 +5134,22 @@ window.distributionApp = function distributionApp() {
     },
 
     getDirectRequestPrintableRows(rows = this.getVisibleDirectRows()) {
-      return rows.filter(row =>
-        this.isActionableCheckedRow(row) &&
-        this.calcDirectAllocTotal(row) > 0
+      return this.getSelectedDirectRows(rows).filter(row =>
+        this.hasRowProductInfo(row) &&
+        this.calcDirectRequestAllocTotal(row) > 0
+      );
+    },
+
+    getDirectRequestDestinationPool(row) {
+      return this.getRowDestinationPool(row).filter(destination =>
+        !this.isWholesaleDestination(destination)
+      );
+    },
+
+    calcDirectRequestAllocTotal(row) {
+      return this.getDirectRequestDestinationPool(row).reduce(
+        (total, destination) => total + toInt(row?.['alloc_' + destination.key] || 0),
+        0
       );
     },
 
@@ -3801,7 +5159,7 @@ window.distributionApp = function distributionApp() {
 
     openDirectRequestOutput() {
       if (!this.hasDirectRequestPrintableRows()) {
-        this.openModal('エラー', '依頼書を出力するデータがありません。確定チェックと分配数を確認してください。');
+        this.openModal('エラー', '依頼書を出力するデータがありません。対象を選択し、分配数を確認してください。');
         return;
       }
 
@@ -3989,6 +5347,19 @@ window.distributionApp = function distributionApp() {
       if (stores.length === 0) return '-';
 
       return stores.map(dest => '[' + dest.key + '] ' + dest.name).join(' / ');
+    },
+
+    getReprintStoreLabel(destination) {
+      const candidates = [destination?.key, destination?.code]
+        .map(value => String(value || '').trim())
+        .filter(value => value !== '');
+      const numericCode = candidates.find(value => /^\d+$/.test(value));
+      const displayCode = numericCode
+        ? (numericCode.length < 2 ? numericCode.padStart(2, '0') : numericCode)
+        : (candidates[0] || '');
+      const name = String(destination?.name || '').trim();
+
+      return (displayCode ? '[' + displayCode + '] ' : '') + name;
     },
 
     getReprintCandidateStores(rows = this.getSelectedReprintRows()) {
@@ -4184,21 +5555,51 @@ window.distributionApp = function distributionApp() {
     },
 
     getWarehouseTransferSourceRows() {
-      return this.getAllocationFilteredRows({ applyLockedFilter: false });
+      return this.getSelectedDeleteRows(false);
     },
 
     isWarehouseTransferPendingRow(row) {
       return !!(
-        (row?.checked || this.isOrderCandidateCreated(row)) &&
-        this.hasRowProductInfo(row) &&
+        this.hasAllocationRequiredInfo(row) &&
         !this.isWarehouseTransferCreated(row)
       );
     },
 
     hasWarehouseTransferTargetDestination(row) {
-      return DESTS.some(dest =>
-        toInt(row?.['alloc_' + dest.key] || 0) > 0
+      const destinationByKey = new Map(
+        this.getKnownDestinationPool().map(destination => [String(destination?.key || ''), destination])
       );
+
+      return Object.entries(row || {}).some(([field, value]) => {
+        if (!field.startsWith('alloc_') || toInt(value) <= 0) return false;
+
+        const key = field.slice(6);
+        return !this.isWarehouseTransferExcludedDestination(key, destinationByKey.get(String(key)));
+      });
+    },
+
+    isWarehouseTransferExcludedDestination(key, destination = null) {
+      return STORE_WHOLESALE_DESTINATION_CODES.has(String(key || ''))
+        || (destination ? this.isWholesaleDestination(destination) : false);
+    },
+
+    getWarehouseTransferDestinationPool(row) {
+      const destinationByKey = new Map(
+        this.getKnownDestinationPool().map(destination => [String(destination?.key || ''), destination])
+      );
+      const allocationKeys = Object.entries(row || {})
+        .filter(([field, value]) => field.startsWith('alloc_') && toInt(value) > 0)
+        .map(([field]) => field.slice(6))
+        .filter(key => !this.isWarehouseTransferExcludedDestination(key, destinationByKey.get(String(key))));
+
+      return allocationKeys.map(key => {
+        const destination = destinationByKey.get(String(key));
+        if (!destination?.id) {
+          throw new Error('分配先マスタを確認できません。店舗・部門CD: ' + key);
+        }
+
+        return destination;
+      });
     },
 
     getWarehouseTransferPendingRows(rows = null) {
@@ -4222,11 +5623,7 @@ window.distributionApp = function distributionApp() {
     },
 
     isWarehouseTransferSlipPendingRow(row) {
-      return !!(
-        this.hasRowProductInfo(row) &&
-        this.isWarehouseTransferCreated(row) &&
-        !this.isTransferSlipCreated(row)
-      );
+      return false;
     },
 
     isWarehouseTransferWorkflowPendingRow(row) {
@@ -4254,7 +5651,7 @@ window.distributionApp = function distributionApp() {
       if (this.transferSlipCreating) return '伝票出力中です';
       if (this.hasWarehouseTransferCreatableRows()) return '倉庫移動生成または伝票出力できます';
 
-      return '倉庫移動・伝票待ちのデータがありません';
+      return '倉庫移動生成前のデータがありません';
     },
 
     async refreshWarehouseTransferCandidateStocks(rows = this.getWarehouseTransferPendingRows()) {
@@ -4286,20 +5683,36 @@ window.distributionApp = function distributionApp() {
 
     toggleAllCheckedVisible() {
       const flag = !this.allVisibleChecked();
-      const visibleRows = this.getVisibleRows();
-      const confirmableRows = visibleRows.filter(r => !this.isRowLocked(r) && this.hasRowProductInfo(r));
+      const visibleRows = this.getRenderableVisibleRows();
+      const confirmableRows = visibleRows.filter(r => !this.isRowLocked(r) && this.hasAllocationRequiredInfo(r));
       const visibleIds = new Set(confirmableRows.map(r => r.id));
 
       if (flag && visibleRows.length > 0 && confirmableRows.length === 0) {
-        this.openModal('注意', this.getMissingProductInfoMessage());
+        const hasMissingProduct = visibleRows.some(row => !this.hasRowProductInfo(row));
+        this.openModal('注意', hasMissingProduct ? this.getMissingProductInfoMessage() : this.getMissingDeliveryCourseMessage());
         return;
       }
 
-      this.rows.forEach(r => {
-        if (visibleIds.has(r.id)) {
-          r.checked = flag;
-        }
-      });
+      this.rememberFilterRetainedRows(confirmableRows, false);
+      this.rows = this.rows.map(row => visibleIds.has(row.id)
+        ? { ...row, checked: flag, confirmedAt: flag ? (row.confirmedAt || new Date().toISOString()) : '' }
+        : row);
+      this.saveData();
+    },
+
+    setRowChecked(row, checked, isDirect = false) {
+      if (!row) return;
+      if (isDirect && this.isDirectRequestPrintLocked(row)) return;
+
+      this.rememberFilterRetainedRow(row, isDirect);
+      row.checked = !!checked;
+      row.confirmedAt = row.checked ? (row.confirmedAt || new Date().toISOString()) : '';
+
+      if (isDirect) {
+        this.saveDirectData();
+      } else {
+        this.saveData();
+      }
     },
 
     getActiveRows() {
@@ -4309,7 +5722,85 @@ window.distributionApp = function distributionApp() {
     clearStoreRowsCache() {
       this.storeFilteredRowsCacheKey = '';
       this.storeFilteredRowsCache = [];
-      this.storeProductsCache = {};
+      this.storeComparisonPage = 1;
+      this.clearStoreRuntimeCaches();
+    },
+
+    clearStoreRuntimeCaches() {
+      STORE_PRODUCTS_CACHE.set(this, Object.create(null));
+      STORE_COMPARISON_CACHE.set(this, Object.create(null));
+      STORE_DESTINATIONS_CACHE.set(this, Object.create(null));
+    },
+
+    getStoreProductsCache() {
+      return getComponentCache(STORE_PRODUCTS_CACHE, this);
+    },
+
+    getStoreComparisonCache() {
+      return getComponentCache(STORE_COMPARISON_CACHE, this);
+    },
+
+    getStoreDestinationsCache() {
+      return getComponentCache(STORE_DESTINATIONS_CACHE, this);
+    },
+
+    clearDirectRowsCache() {
+      this.directVisibleRowsCacheKey = '';
+      this.directVisibleRowsCache = [];
+      this.directDisplayDestinationsCacheKey = '';
+      this.directDisplayDestinationsCache = [];
+    },
+
+    touchDirectRows() {
+      this.directRowsVersion = (toInt(this.directRowsVersion || 0) + 1);
+      this.clearDirectRowsCache();
+    },
+
+    clearAllocationRowsCache() {
+      this.allocationVisibleRowsCacheKey = '';
+      this.allocationVisibleRowsCache = [];
+    },
+
+    touchAllocationRows() {
+      this.allocationRowsVersion = toInt(this.allocationRowsVersion || 0) + 1;
+      this.clearAllocationRowsCache();
+    },
+
+    prepareDirectInitialRender() {
+      this.directRenderReady = false;
+      this.directRenderLimit = DISTRIBUTION_DIRECT_TABLE_RENDER_LIMIT;
+      if (this.directRenderTimer) {
+        window.clearTimeout(this.directRenderTimer);
+        this.directRenderTimer = null;
+      }
+    },
+
+    resetDirectRenderWindow() {
+      if (this.directRenderTimer) {
+        window.clearTimeout(this.directRenderTimer);
+        this.directRenderTimer = null;
+      }
+
+      this.directRenderReady = true;
+      this.directRenderLimit = DISTRIBUTION_DIRECT_TABLE_RENDER_LIMIT;
+    },
+
+    scheduleDirectFullRender() {
+      if (this.directRenderReady) return;
+
+      if (this.directRenderTimer) {
+        window.clearTimeout(this.directRenderTimer);
+      }
+
+      const release = () => {
+        this.directRenderTimer = null;
+        this.directRenderReady = true;
+        this.directRenderLimit = Math.max(toInt(this.directRenderLimit || 0), DISTRIBUTION_DIRECT_TABLE_RENDER_LIMIT);
+      };
+
+      window.requestAnimationFrame(() => {
+        this.directRenderTimer = window.setTimeout(release, 250);
+      });
     },
 
     touchStoreRows() {
@@ -4323,8 +5814,15 @@ window.distributionApp = function distributionApp() {
         this.rows.length,
         this.directRows.length,
         this.storeProductSearch || '',
-        this.storeConfirmStatus || 'confirmed',
+        this.storeOrderToSearch || '',
+        this.storeDeliveryFrom || '',
+        this.storeDeliveryTo || '',
+        this.storeShipmentFrom || '',
+        this.storeShipmentTo || '',
+        this.storeConfirmStatus || 'unconfirmed',
         this.storeDistributionType || 'all',
+        this.storeDestinationScope || 'all',
+        this.storeViewMode || 'individual',
       ].join('|');
     },
 
@@ -4384,6 +5882,134 @@ window.distributionApp = function distributionApp() {
       ], keyword);
     },
 
+    matchesStoreOrderToSearch(row) {
+      if ((row?.storeSourceType || 'allocation') !== 'direct') return true;
+
+      const keyword = this.normalizeSearchText(this.storeOrderToSearch);
+      if (!keyword) return true;
+
+      return this.matchesAllSearchKeywords([
+        row.orderToCode,
+        row.order_to_code,
+        row.orderTo,
+        row.order_to,
+      ], keyword);
+    },
+
+    getDirectPartnerFilterOptions(type) {
+      const isSupplier = type === 'supplier';
+      const query = this.normalizeSearchText(
+        isSupplier ? this.directFilterDraft.supplierSearch : this.directFilterDraft.orderToSearch
+      );
+      const orderToQuery = isSupplier
+        ? this.normalizeSearchText(this.directFilterDraft.orderToSearch)
+        : '';
+      const options = new Map();
+
+      this.directRows.forEach(row => {
+        if (orderToQuery && !this.matchesAllSearchKeywords(this.getOrderToSearchFields(row), orderToQuery)) {
+          return;
+        }
+
+        const meta = this.getProductMeta(row?.productCode);
+        const code = String(isSupplier
+          ? (row?.supplierCode || row?.supplier_code || meta?.supplierCode || '')
+          : (row?.orderToCode || row?.order_to_code || meta?.orderToCode || '')).trim();
+        const name = String(isSupplier
+          ? (row?.supplier || row?.supplier_name || meta?.supplier || '')
+          : (row?.orderTo || row?.order_to || meta?.orderTo || '')).trim();
+        if (!code && !name) return;
+
+        const key = type + '\u001f' + code + '\u001f' + name;
+        if (!options.has(key)) {
+          options.set(key, { key, code, name });
+        }
+      });
+
+      return Array.from(options.values())
+        .filter(option => !query || this.matchesAllSearchKeywords([option.code, option.name], query))
+        .sort((left, right) => (left.code || left.name).localeCompare(right.code || right.name, 'ja'))
+        .slice(0, 50);
+    },
+
+    formatDirectPartnerFilterOption(option) {
+      const code = String(option?.code || '').trim();
+      const name = String(option?.name || '').trim();
+      return code ? '[' + code + '] ' + name : name;
+    },
+
+    selectDirectPartnerFilterOption(type, option) {
+      const value = String(option?.code || option?.name || '').trim();
+      if (type === 'supplier') {
+        this.directFilterDraft.supplierSearch = value;
+        this.directSupplierOptionsOpen = false;
+      } else {
+        this.directFilterDraft.orderToSearch = value;
+        this.directOrderToOptionsOpen = false;
+      }
+      this.applyDirectFilters();
+    },
+
+    getStoreOrderToFilterOptions() {
+      const query = this.normalizeSearchText(this.storeFilterDraft.orderToSearch || '');
+      const options = new Map();
+
+      this.directRows.forEach(row => {
+        const code = String(row?.orderToCode || row?.order_to_code || '').trim();
+        const name = String(row?.orderTo || row?.order_to || '').trim();
+        if (!code && !name) return;
+
+        const key = code + '\u001f' + name;
+        if (!options.has(key)) {
+          options.set(key, { key, code, name });
+        }
+      });
+
+      return Array.from(options.values())
+        .filter(option => !query || this.matchesAllSearchKeywords([option.code, option.name], query))
+        .sort((left, right) => (left.code || left.name).localeCompare(right.code || right.name, 'ja'))
+        .slice(0, 50);
+    },
+
+    formatStoreOrderToFilterOption(option) {
+      const code = String(option?.code || '').trim();
+      const name = String(option?.name || '').trim();
+      return code ? '[' + code + '] ' + name : name;
+    },
+
+    selectStoreOrderToFilterOption(option) {
+      this.storeFilterDraft.orderToSearch = String(option?.code || option?.name || '').trim();
+      this.storeOrderToOptionsOpen = false;
+      this.applyStoreFilters();
+    },
+
+    matchesStoreDeliveryDate(row) {
+      if ((row?.storeSourceType || 'allocation') !== 'direct') return true;
+      if (!this.storeDeliveryFrom && !this.storeDeliveryTo) return true;
+
+      const deliveryDate = this.normalizeFlexibleDate(row.deliveryDate || row.delivery_date || '') || '';
+      if (!deliveryDate) return false;
+      if (this.storeDeliveryFrom && deliveryDate < this.storeDeliveryFrom) return false;
+      if (this.storeDeliveryTo && deliveryDate > this.storeDeliveryTo) return false;
+
+      return true;
+    },
+
+    matchesStoreShipmentDate(row) {
+      if ((row?.storeSourceType || 'allocation') !== 'allocation') return true;
+      if (!this.storeShipmentFrom && !this.storeShipmentTo) return true;
+      if (!row?.checked || !this.isWarehouseTransferCreated(row)) return false;
+
+      const shipmentDate = this.normalizeFlexibleDate(
+        row?.warehouseTransferShipmentDate || row?.warehouse_transfer_shipment_date || ''
+      ) || '';
+      if (!shipmentDate) return false;
+      if (this.storeShipmentFrom && shipmentDate < this.storeShipmentFrom) return false;
+      if (this.storeShipmentTo && shipmentDate > this.storeShipmentTo) return false;
+
+      return true;
+    },
+
     matchesStoreConfirmStatus(row) {
       const status = this.storeConfirmStatus || 'unconfirmed';
       if (status === 'all') return true;
@@ -4394,6 +6020,9 @@ window.distributionApp = function distributionApp() {
     filterStoreRows(rows) {
       return this.getStoreSortedRows(rows).filter(row =>
         this.matchesStoreProductSearch(row) &&
+        this.matchesStoreOrderToSearch(row) &&
+        this.matchesStoreDeliveryDate(row) &&
+        this.matchesStoreShipmentDate(row) &&
         this.matchesStoreConfirmStatus(row) &&
         this.matchesStoreDistributionType(row)
       );
@@ -4408,7 +6037,7 @@ window.distributionApp = function distributionApp() {
       if (this.storeFilteredRowsCacheKey !== cacheKey) {
         this.storeFilteredRowsCache = this.filterStoreRows(this.getStoreSourceRows());
         this.storeFilteredRowsCacheKey = cacheKey;
-        this.storeProductsCache = {};
+        this.clearStoreRuntimeCaches();
       }
 
       return this.storeFilteredRowsCache;
@@ -4441,6 +6070,14 @@ window.distributionApp = function distributionApp() {
       }
     },
 
+    removeStoreSlipSelectionsForStore(storeKey) {
+      this.ensureStoreSlipSelectionState();
+      const prefix = String(storeKey || '') + '::';
+      this.selectedStoreSlipKeys = this.selectedStoreSlipKeys
+        .map(key => String(key))
+        .filter(key => !key.startsWith(prefix));
+    },
+
     isStoreSlipRowSelected(rowRef, storeKey) {
       this.ensureStoreSlipSelectionState();
 
@@ -4466,7 +6103,96 @@ window.distributionApp = function distributionApp() {
     },
 
     getStoreSlipSelectableProducts(storeKey) {
+      if (this.storeViewMode === 'individual') {
+        return this.getStoreFilteredProductsBySource(storeKey, this.storeIndividualSourceView);
+      }
+
       return this.getStoreFilteredProducts(storeKey);
+    },
+
+    getStoreIndividualRows() {
+      this.getStoreFilteredRows();
+      const selectedStoreKeys = Array.isArray(this.selectedStores)
+        ? this.selectedStores.map(key => String(key))
+        : [];
+      const cacheKey = [
+        'individualRows',
+        this.storeFilteredRowsCacheKey,
+        this.storeIndividualSourceView || 'allocation',
+        selectedStoreKeys.join(','),
+      ].join('::');
+      const productsCache = this.getStoreProductsCache();
+
+      if (Array.isArray(productsCache[cacheKey])) {
+        return productsCache[cacheKey];
+      }
+
+      const destinationPool = this.getStoreDestinationPool();
+      const entries = [];
+
+      selectedStoreKeys.forEach(storeKey => {
+        const destination = destinationPool.find(item => String(item.key) === storeKey);
+        const storeCode = this.getStoreSelectionCode(destination || { key: storeKey });
+        const storeLabel = destination ? this.getStoreLabel(storeKey) : storeKey;
+
+        this.getStoreFilteredProductsBySource(storeKey, this.storeIndividualSourceView).forEach(product => {
+          entries.push({ storeKey, storeCode, storeLabel, product });
+        });
+      });
+
+      productsCache[cacheKey] = entries;
+      return entries;
+    },
+
+    getStoreAllocationInputDate(product) {
+      return this.normalizeFlexibleDate(product?.orderDate || product?.sourceRow?.orderDate || '') || '-';
+    },
+
+    getStoreAllocationShipmentDate(product) {
+      const row = product?.sourceRow;
+      if (!row?.checked || !this.isWarehouseTransferCreated(row)) {
+        return '-';
+      }
+
+      return this.normalizeFlexibleDate(
+        row.warehouseTransferShipmentDate
+        || row.warehouse_transfer_shipment_date
+        || row.orderDate
+        || ''
+      ) || '-';
+    },
+
+    isSomeStoreIndividualRowsSelected() {
+      const selected = new Set(this.selectedStoreSlipKeys.map(key => String(key)));
+      return this.getStoreIndividualRows().some(entry =>
+        selected.has(this.makeStoreSlipSelectionKey(entry.product.rowKey, entry.storeKey))
+      );
+    },
+
+    areAllStoreIndividualRowsSelected() {
+      const entries = this.getStoreIndividualRows();
+      if (entries.length === 0) return false;
+
+      const selected = new Set(this.selectedStoreSlipKeys.map(key => String(key)));
+      return entries.every(entry =>
+        selected.has(this.makeStoreSlipSelectionKey(entry.product.rowKey, entry.storeKey))
+      );
+    },
+
+    toggleAllStoreIndividualRows(checked) {
+      this.ensureStoreSlipSelectionState();
+      const selected = new Set(this.selectedStoreSlipKeys.map(key => String(key)));
+
+      this.getStoreIndividualRows().forEach(entry => {
+        const key = this.makeStoreSlipSelectionKey(entry.product.rowKey, entry.storeKey);
+        if (checked) {
+          selected.add(key);
+        } else {
+          selected.delete(key);
+        }
+      });
+
+      this.selectedStoreSlipKeys = Array.from(selected);
     },
 
     hasStoreSlipSelectableRows(storeKey) {
@@ -4499,6 +6225,19 @@ window.distributionApp = function distributionApp() {
       if (this.selectedStores.length === 0 || this.selectedStoreSlipKeys.length === 0) return [];
 
       const selected = new Set(this.selectedStoreSlipKeys.map(key => String(key)));
+
+      if (this.storeViewMode === 'individual') {
+        const rowsByKey = new Map(this.getStoreFilteredRows().map(row => [this.getStoreSlipRowKey(row), row]));
+
+        return this.getStoreIndividualRows()
+          .filter(entry => selected.has(this.makeStoreSlipSelectionKey(entry.product.rowKey, entry.storeKey)))
+          .map(entry => ({
+            row: entry.product.sourceRow || rowsByKey.get(String(entry.product.rowKey || '')),
+            storeKey: entry.storeKey,
+          }))
+          .filter(entry => !!entry.row);
+      }
+
       const entries = [];
 
       rows.forEach(row => {
@@ -4515,10 +6254,14 @@ window.distributionApp = function distributionApp() {
 
     getStoreSlipOutputButtonLabel() {
       if (this.storeViewMode === 'individual') {
-        return '伝票出力 (' + this.getSelectedStoreSlipEntries().length + '件)';
+        return '伝票出力 (' + this.getSelectedStoreSlipKeyCount() + '件)';
       }
 
       return '伝票出力 (' + this.selectedStores.length + '店舗)';
+    },
+
+    getSelectedStoreSlipKeyCount() {
+      return Array.isArray(this.selectedStoreSlipKeys) ? this.selectedStoreSlipKeys.length : 0;
     },
 
     buildRowsForSelectedStoreSlipEntries(entries = this.getSelectedStoreSlipEntries()) {
@@ -4625,10 +6368,10 @@ window.distributionApp = function distributionApp() {
 
     hasStoreSlipOutputTarget() {
       if (this.storeViewMode === 'individual') {
-        return this.getSelectedStoreSlipEntries().length > 0;
+        return this.getSelectedStoreSlipKeyCount() > 0;
       }
 
-      return this.buildSelectionRowsForSelectedStoreKeys().length > 0;
+      return this.selectedStores.length > 0 && this.getStoreFilteredRows().length > 0;
     },
 
     openStoreSlipOutput() {
@@ -4755,6 +6498,7 @@ window.distributionApp = function distributionApp() {
       const row = this.makeAllocationRow();
       this.rows.unshift(row);
       this.showNewAllocationRow(row);
+      this.queueBulkAllocationAutoApply();
 
       this.$nextTick(() => {
         const scroller = this.$refs.allocationMainScroll;
@@ -4816,6 +6560,440 @@ window.distributionApp = function distributionApp() {
         });
     },
 
+    getPersistableDirectRows() {
+      return this.directRows
+        .filter(row => row.productCode)
+        .map(row => {
+          const copy = { ...row };
+          delete copy.storeSourceType;
+          return copy;
+        });
+    },
+
+    stableHash40(value) {
+      const input = String(value ?? '');
+      const seeds = [0x811c9dc5, 0x01000193, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35];
+
+      return seeds.map(seed => {
+        let hash = seed >>> 0;
+        for (let i = 0; i < input.length; i++) {
+          hash ^= input.charCodeAt(i);
+          hash = Math.imul(hash, 0x01000193) >>> 0;
+        }
+
+        return hash.toString(16).padStart(8, '0');
+      }).join('');
+    },
+
+    buildDistributionQuantitySignature(row) {
+      const visibleKeys = new Set(this.getRowVisibleDestinationKeys(row));
+      const keys = new Set([
+        ...this.getRowEnteredDestinationKeys(row),
+        ...visibleKeys,
+      ]);
+
+      Object.keys(row || {}).forEach(field => {
+        const match = /^(wish|alloc)_(.+)$/.exec(field);
+        if (!match) return;
+
+        if (toInt(row?.[field] || 0) > 0) {
+          keys.add(String(match[2]));
+        }
+      });
+
+      return Array.from(keys)
+        .sort((a, b) => String(a).localeCompare(String(b), 'ja'))
+        .map(key => {
+          const normalizedKey = String(key);
+          const wish = toInt(row?.['wish_' + normalizedKey] || 0);
+          const alloc = toInt(row?.['alloc_' + normalizedKey] || 0);
+          const visible = visibleKeys.has(normalizedKey) ? 1 : 0;
+
+          return `${normalizedKey}:${visible}:${wish}:${alloc}`;
+        })
+        .join('|');
+    },
+
+    getDistributionBusinessKey(row, mode = '') {
+      if (!row) return '';
+
+      const existing = String(row.distributionBusinessKey || '').trim();
+      if (/^[0-9a-f]{40}$/i.test(existing)) {
+        return existing.toLowerCase();
+      }
+
+      const source = String(row.source || '').trim();
+      const isCsv = source.includes('csv_import');
+      const sourceIdentity = isCsv
+        ? this.getCsvImportDuplicateKey(row)
+        : String(row.sourceKey || row.candidateKey || row.id || '');
+      const key = this.stableHash40(JSON.stringify({
+        mode: mode || (this.directRows.some(r => r === row) ? 'direct' : 'allocation'),
+        source: source || 'manual',
+        sourceIdentity,
+        productCode: row.productCode || '',
+        jan: row.jan || '',
+        itemId: row.itemId || null,
+        itemContractorId: row.itemContractorId || null,
+        contractorId: row.contractorId || null,
+        supplierId: row.supplierId || null,
+        orderToCode: row.orderToCode || '',
+        supplierCode: row.supplierCode || '',
+        postingDate: this.getCsvImportPostingDate(row) || row.orderDate || '',
+        quantities: this.buildDistributionQuantitySignature(row),
+      }));
+
+      row.distributionBusinessKey = key;
+
+      return key;
+    },
+
+    prepareRowsForServerPersistence(rows, mode) {
+      return (Array.isArray(rows) ? rows : []).map(row => {
+        const copy = { ...row };
+        delete copy.storeSourceType;
+        copy.distributionBusinessKey = this.getDistributionBusinessKey(copy, mode);
+
+        return copy;
+      });
+    },
+
+    loadPreloadedDistributionRowsForCurrentView() {
+      const data = SERVER_PRELOADED_DISTRIBUTION_ROWS || {};
+      if (this.activeSubTab !== 'direct' || !data.persisted || !Array.isArray(data.direct)) {
+        return false;
+      }
+
+      this.serverRowsReadOnly = !!data.read_only;
+      this.serverRowsPersisted = !this.serverRowsReadOnly;
+      this.serverRowsLoaded = true;
+      this.directRows = data.direct.map(row => this.normalizeDirectRow(row));
+      this.touchDirectRows();
+
+      return true;
+    },
+
+    async loadDistributionRowsFromServer(options = {}) {
+      this.distributionRowsLoading = true;
+      try {
+        const requestedServerRowsMode = options.mode || (this.activeSubTab === 'allocation'
+          ? 'allocation'
+          : (this.activeSubTab === 'direct'
+            ? 'direct'
+            : (this.storeDistributionType === 'allocation' || this.storeDistributionType === 'direct' ? this.storeDistributionType : 'all')));
+        const params = new URLSearchParams({
+          context: this.activeSubTab === 'store-view' ? 'store' : 'edit',
+          mode: requestedServerRowsMode,
+        });
+        if (requestedServerRowsMode === 'direct' && this.activeSubTab !== 'store-view') {
+          params.set('page', String(Math.max(1, toInt(options.page || 1))));
+          params.set('per_page', '200');
+          params.set('keyword_search', String(this.directKeywordSearch || '').trim());
+          params.set('order_date_from', String(this.directDateFrom || '').trim());
+          params.set('order_date_to', String(this.directDateTo || '').trim());
+          params.set('delivery_date_from', String(this.directDeliveryFrom || '').trim());
+          params.set('delivery_date_to', String(this.directDeliveryTo || '').trim());
+          params.set('order_to_search', String(this.directOrderToSearch || '').trim());
+          params.set('supplier_search', String(this.directSupplierSearch || '').trim());
+          params.set('status_filter', this.directCheckedOnly ? 'checked' : String(this.directPrintedFilter || 'all'));
+        }
+        if (this.activeSubTab === 'store-view') {
+          params.set('confirm_status', this.storeConfirmStatus || 'unconfirmed');
+          if (String(this.storeProductSearch || '').trim()) {
+            params.set('product_search', String(this.storeProductSearch || '').trim());
+          }
+        }
+        const response = await this.fetchWithTimeout('/api/distribution/rows?' + params.toString(), {
+          headers: { Accept: 'application/json' },
+        }, 20000);
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          const message = payload?.result?.error_message || payload?.message || ('HTTP ' + response.status);
+          if (payload?.code === 'DISTRIBUTION_ROWS_LIMIT_EXCEEDED') {
+            this.serverRowsLoaded = false;
+            this.serverRowsPersisted = false;
+            this.serverRowsReadOnly = false;
+            this.openModal('注意', message);
+            return;
+          }
+
+          throw new Error(message);
+        }
+
+        const data = payload?.result?.data || {};
+        this.serverRowsReadOnly = !!data.read_only;
+        this.serverRowsPersisted = !!data.persisted && !this.serverRowsReadOnly;
+        this.serverRowsLoaded = !!data.persisted;
+
+        if (!data.persisted) {
+          return;
+        }
+
+        const serverAllocationRows = Array.isArray(data.allocation) ? data.allocation : [];
+        const serverDirectRows = Array.isArray(data.direct) ? data.direct : [];
+        const revisions = data.revisions || {};
+        const pagination = data.pagination || {};
+        const shouldSyncAllocationRows = requestedServerRowsMode === 'all' || requestedServerRowsMode === 'allocation';
+        const shouldSyncDirectRows = requestedServerRowsMode === 'all' || requestedServerRowsMode === 'direct';
+        if (shouldSyncAllocationRows) {
+          const normalizedRows = serverAllocationRows
+            .map(row => this.normalizeAllocationRow(row))
+            .filter(row => !this.isDeletedAllocationRow(row));
+          if (!options.append) this.serverLoadedRowIds.allocation = [];
+          this.rows = options.append
+            ? this.mergeDistributionRows(this.rows, normalizedRows)
+            : normalizedRows;
+          if (!options.append) this.resetAllocationRenderWindow();
+          this.touchAllocationRows();
+          this.rememberServerLoadedRows('allocation', normalizedRows);
+          this.serverRowRevisions.allocation = toInt(revisions.allocation || 0);
+        }
+
+        if (shouldSyncDirectRows) {
+          const normalizedRows = serverDirectRows.map(row => this.normalizeDirectRow(row));
+          const incomingRevision = toInt(revisions.direct || 0);
+          if (options.append && incomingRevision !== toInt(this.serverRowRevisions.direct || 0)) {
+            throw new Error('別の画面で直送分配データが更新されました。再読み込みしてください。');
+          }
+          if (!options.append) this.serverLoadedRowIds.direct = [];
+          this.directRows = options.append
+            ? this.mergeDistributionRows(this.directRows, normalizedRows)
+            : normalizedRows;
+          this.rememberServerLoadedRows('direct', normalizedRows);
+          this.serverRowRevisions.direct = incomingRevision;
+          if (pagination.direct) {
+            this.serverRowPagination.direct = {
+              page: toInt(pagination.direct.page || 1),
+              lastPage: Math.max(1, toInt(pagination.direct.last_page || 1)),
+              total: toInt(pagination.direct.total || 0),
+              perPage: toInt(pagination.direct.per_page || 200),
+            };
+          }
+          this.touchDirectRows();
+
+          const remainingRows = this.getDirectServerRemainingRowCount();
+          if (!options.append && remainingRows > 0 && remainingRows <= DISTRIBUTION_DIRECT_AUTO_LOAD_REMAINDER) {
+            await this.loadDistributionRowsFromServer({
+              append: true,
+              mode: 'direct',
+              page: toInt(this.serverRowPagination.direct.page || 1) + 1,
+            });
+          }
+        }
+      } catch (error) {
+        if (!options.append) {
+          this.serverRowsLoaded = false;
+          this.serverRowsPersisted = false;
+          this.serverRowsReadOnly = false;
+        }
+        console.warn('Failed to load persisted distribution rows:', error);
+        if (options.append) {
+          this.openModal('注意', error.message || '追加データの読み込みに失敗しました。');
+        }
+      } finally {
+        this.distributionRowsLoading = false;
+      }
+    },
+
+    mergeDistributionRows(existingRows, incomingRows) {
+      const merged = new Map((Array.isArray(existingRows) ? existingRows : []).map(row => [String(row.id || ''), row]));
+      (Array.isArray(incomingRows) ? incomingRows : []).forEach(row => merged.set(String(row.id || ''), row));
+      return Array.from(merged.values());
+    },
+
+    rememberServerLoadedRows(mode, rows) {
+      const ids = new Set(this.serverLoadedRowIds[mode] || []);
+      (Array.isArray(rows) ? rows : []).forEach(row => {
+        const rowId = String(row?.id || '').trim();
+        if (rowId) ids.add(rowId);
+      });
+      this.serverLoadedRowIds[mode] = Array.from(ids);
+    },
+
+    queuePersistDistributionRows(mode, rows, options = {}) {
+      if (options.skipServer || this.serverRowsReadOnly || !this.serverRowsPersisted) return;
+
+      if (this.serverSaveTimers[mode]) {
+        clearTimeout(this.serverSaveTimers[mode]);
+      }
+
+      const payloadRows = this.prepareRowsForServerPersistence(rows, mode);
+      const replace = this.shouldReplaceAllServerRows(mode);
+      const attempt = toInt(this.serverSaveAttempts[mode] || 0) + 1;
+      this.serverSaveAttempts[mode] = attempt;
+      this.serverSaveErrors[mode] = null;
+      this.serverSaveTimers[mode] = setTimeout(() => {
+        this.serverSaveTimers[mode] = null;
+        this.enqueueDistributionRowsPersistence(mode, payloadRows, { replace })
+          .then(result => {
+            if (this.serverSaveAttempts[mode] === attempt) {
+              this.serverSaveErrors[mode] = null;
+            }
+            if (!result?.superseded && options.successMessage) {
+              this.showToast(options.successMessage);
+            }
+          })
+          .catch(error => {
+            if (this.serverSaveAttempts[mode] === attempt) {
+              this.serverSaveErrors[mode] = error;
+            }
+            console.warn('Failed to persist distribution rows:', error);
+            this.openModal('エラー', 'サーバーへの保存に失敗しました。画面を再読み込みして状態を確認してください: ' + error.message);
+          });
+      }, options.immediate ? 0 : 350);
+    },
+
+    enqueueDistributionRowsPersistence(mode, rows, options = {}) {
+      if (this.serverSaveBlocked[mode]) {
+        return Promise.reject(new Error('別の画面で更新されています。画面を再読み込みしてください。'));
+      }
+
+      return new Promise((resolve, reject) => {
+        const previousPending = this.serverSavePending[mode];
+        if (previousPending) {
+          previousPending.resolve({ superseded: true });
+        }
+
+        this.serverSavePending[mode] = { rows, options, resolve, reject };
+        this.drainDistributionRowsPersistence(mode);
+      });
+    },
+
+    async drainDistributionRowsPersistence(mode) {
+      if (this.serverSaveRunning[mode] || !this.serverSavePending[mode]) return;
+
+      const pending = this.serverSavePending[mode];
+      this.serverSavePending[mode] = null;
+      this.serverSaveRunning[mode] = true;
+
+      try {
+        const result = await this.persistDistributionRows(mode, pending.rows, pending.options);
+        pending.resolve(result);
+      } catch (error) {
+        pending.reject(error);
+      } finally {
+        this.serverSaveRunning[mode] = false;
+        if (this.serverSavePending[mode]) {
+          this.drainDistributionRowsPersistence(mode);
+        }
+      }
+    },
+
+    shouldReplaceAllServerRows(mode) {
+      if (this.activeSubTab === 'store-view') {
+        return false;
+      }
+
+      if (mode === 'direct') {
+        // Direct rows can be server-filtered. Replacing the whole scope from a filtered page
+        // would delete rows outside the current conditions, so direct saves are always partial.
+        return false;
+      }
+
+      return this.serverRowsLoaded !== false;
+    },
+
+    async persistDistributionRowsImmediately(mode, rows) {
+      if (this.serverSaveTimers[mode]) {
+        clearTimeout(this.serverSaveTimers[mode]);
+        this.serverSaveTimers[mode] = null;
+      }
+
+      if (this.serverRowsReadOnly) {
+        throw new Error('この画面は参照専用のため保存できません。');
+      }
+      if (!this.serverRowsPersisted) {
+        throw new Error('分配データの保存先を利用できません。');
+      }
+
+      return this.enqueueDistributionRowsPersistence(mode, rows, {
+        replace: this.shouldReplaceAllServerRows(mode),
+      });
+    },
+
+    async persistDistributionRows(mode, rows, options = {}) {
+      if (this.serverSaveBlocked[mode]) {
+        throw new Error('別の画面で更新されています。画面を再読み込みしてください。');
+      }
+
+      const preparedRows = this.prepareRowsForServerPersistence(rows, mode);
+      const persistedIds = new Set(preparedRows.map(row => String(row.id || '')).filter(Boolean));
+      const deletedRowIds = (this.serverLoadedRowIds[mode] || [])
+        .filter(rowId => !persistedIds.has(String(rowId)));
+      const response = await fetch('/api/distribution/rows', {
+        method: 'PUT',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          ...this.csrfHeaders(),
+        },
+        body: JSON.stringify({
+          mode,
+          replace: options.replace !== false,
+          expected_revision: toInt(this.serverRowRevisions[mode] || 0),
+          deleted_row_ids: deletedRowIds,
+          rows: preparedRows,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        if (response.status === 409 && payload?.code === 'DISTRIBUTION_REVISION_CONFLICT') {
+          this.serverSaveBlocked[mode] = true;
+        }
+        throw new Error(payload?.result?.error_message || payload?.message || ('HTTP ' + response.status));
+      }
+
+      const data = payload?.result?.data || {};
+      this.serverRowRevisions[mode] = toInt(data.revision || this.serverRowRevisions[mode] || 0);
+      const protectedIds = []
+        .concat(Array.isArray(data.protected_row_ids) ? data.protected_row_ids : [])
+        .concat(Array.isArray(data.delete_protected_row_ids) ? data.delete_protected_row_ids : []);
+      protectedIds.forEach(rowId => persistedIds.add(String(rowId)));
+      this.serverLoadedRowIds[mode] = Array.from(persistedIds);
+
+      if (Array.isArray(data.resync_required_row_ids) && data.resync_required_row_ids.length > 0) {
+        await this.reloadDistributionRowsAfterProtection(mode);
+        this.showToast('処理済みデータは変更できないため、最新状態を再読み込みしました');
+      }
+
+      return data;
+    },
+
+    async reloadDistributionRowsAfterProtection(mode) {
+      const targetPage = mode === 'direct'
+        ? Math.max(1, toInt(this.serverRowPagination.direct?.page || 1))
+        : 1;
+      await this.loadDistributionRowsFromServer({ mode, page: 1 });
+
+      if (mode !== 'direct') return;
+
+      while (
+        toInt(this.serverRowPagination.direct?.page || 1) < targetPage
+        && this.hasMoreDirectServerRows()
+      ) {
+        await this.loadDistributionRowsFromServer({
+          append: true,
+          mode: 'direct',
+          page: toInt(this.serverRowPagination.direct.page || 1) + 1,
+        });
+      }
+    },
+
+    async persistGeneratedState(mode) {
+      const isDirect = mode === 'direct';
+      const rows = isDirect ? this.directRows : this.rows;
+      this.normalizeRowsDateFields(rows, true);
+      const persistable = isDirect ? this.getPersistableDirectRows() : this.getPersistableAllocationRows();
+      localStorage.setItem(isDirect ? DIRECT_STORAGE_KEY : STORAGE_KEY, JSON.stringify(persistable));
+      await this.persistDistributionRowsImmediately(mode, persistable);
+      if (isDirect) {
+        this.touchDirectRows();
+      }
+      this.touchStoreRows();
+    },
+
     normalizeCsvText(value) {
       const text = String(value ?? '').replace(/^\uFEFF/, '').trim();
       return typeof text.normalize === 'function' ? text.normalize('NFKC') : text;
@@ -4846,6 +7024,26 @@ window.distributionApp = function distributionApp() {
 
       const match = normalized.match(/-?\d+/);
       return match ? Math.max(0, Number(match[0])) : 0;
+    },
+
+    parseCsvQuantityInput(value) {
+      const raw = this.normalizeCsvText(value);
+      if (raw === '') {
+        return { provided: false, valid: true, value: 0 };
+      }
+      const isPlainInteger = /^\d+(?:\.0+)?$/.test(raw);
+      const isGroupedInteger = /^\d{1,3}(?:,\d{3})+(?:\.0+)?$/.test(raw);
+      if (!isPlainInteger && !isGroupedInteger) {
+        return { provided: true, valid: false, value: 0 };
+      }
+
+      const normalized = raw.replace(/,/g, '');
+      const numeric = Number(normalized);
+      if (!Number.isSafeInteger(numeric) || numeric < 0 || numeric > 99999999) {
+        return { provided: true, valid: false, value: 0 };
+      }
+
+      return { provided: true, valid: true, value: numeric };
     },
 
     isCsvTruthy(value) {
@@ -4969,13 +7167,15 @@ window.distributionApp = function distributionApp() {
       if (mode === 'wish' && hasAllocWord) return false;
 
       const destCode = this.normalizeStoreCode(dest.code || dest.key || '');
-      const headerCode = this.normalizeStoreCode((key.match(/^\d+/) || [''])[0]);
+      const headerCodes = Array.from(key.matchAll(/\d+/g))
+        .map(match => this.normalizeStoreCode(match[0]))
+        .filter(Boolean);
       const name = this.normalizeCsvKey(dest.name || '');
       const destKey = this.normalizeCsvKey(dest.key || '');
       const rawCode = this.normalizeCsvKey(dest.code || dest.key || '');
 
       return !!(
-        (destCode && headerCode && destCode === headerCode) ||
+        (destCode && headerCodes.includes(destCode)) ||
         (name && key.includes(name)) ||
         (destKey && key === destKey) ||
         (rawCode && key === rawCode)
@@ -4994,7 +7194,7 @@ window.distributionApp = function distributionApp() {
     },
 
     getCsvVisibleDestinationKeys(headers) {
-      return DESTS
+      return this.getCsvDestinationPool()
         .filter(dest =>
           this.getCsvDestinationHeader(headers, dest, 'wish') ||
           this.getCsvDestinationHeader(headers, dest, 'alloc')
@@ -5014,7 +7214,7 @@ window.distributionApp = function distributionApp() {
       const visibleKeys = this.getRowVisibleDestinationKeys(row);
       const visibleKeySet = new Set(visibleKeys);
       const destinations = visibleKeys.length > 0
-        ? DESTS.filter(dest => visibleKeySet.has(String(dest.key)))
+        ? this.getKnownDestinationPool().filter(dest => visibleKeySet.has(String(dest.key)))
         : DESTS;
 
       return destinations
@@ -5137,13 +7337,30 @@ window.distributionApp = function distributionApp() {
       if (Object.prototype.hasOwnProperty.call(updates, 'progressPercent')) {
         nextProgress.progressPercent = this.normalizeCsvImportProgressPercent(updates.progressPercent);
       }
+      if (Object.prototype.hasOwnProperty.call(updates, 'failureDetails')) {
+        nextProgress.failureDetails = this.sortCsvImportFailureDetails(updates.failureDetails);
+      }
       this.csvImportProgress = nextProgress;
     },
 
+    getCsvImportFailureRowOrder(detail) {
+      const normalized = String(detail?.rowNumber ?? '').normalize('NFKC');
+      const match = normalized.match(/\d+/);
+      const rowNumber = match ? Number(match[0]) : Number.NaN;
+
+      return Number.isFinite(rowNumber) && rowNumber > 0 ? rowNumber : Number.MAX_SAFE_INTEGER;
+    },
+
+    sortCsvImportFailureDetails(details) {
+      const source = Array.isArray(details) ? details : [];
+
+      return [...source].sort((a, b) =>
+        this.getCsvImportFailureRowOrder(a) - this.getCsvImportFailureRowOrder(b)
+      );
+    },
+
     getCsvImportFailureDetails() {
-      return Array.isArray(this.csvImportProgress?.failureDetails)
-        ? this.csvImportProgress.failureDetails
-        : [];
+      return this.sortCsvImportFailureDetails(this.csvImportProgress?.failureDetails);
     },
 
     escapeCsvCell(value) {
@@ -5207,7 +7424,6 @@ window.distributionApp = function distributionApp() {
         index,
       }));
       const importBaseDate = this.getCsvImportBaseDate();
-      const csvVisibleDestinationKeys = this.getCsvVisibleDestinationKeys(headers);
       const dataRows = table
         .slice(1)
         .map((cells, index) => ({ cells, rowNumber: index + 2 }))
@@ -5241,9 +7457,16 @@ window.distributionApp = function distributionApp() {
         const supplierCode = this.normalizeCsvCode(this.getCsvValue(lookup, ['仕入先CD', '仕入先コード', '仕入先ＣＤ']));
         const poCaseRaw = this.getCsvValue(lookup, ['発注ケース', '発注CS', 'ケース']);
         const poEachRaw = this.getCsvValue(lookup, ['発注バラ', 'バラ']);
-        const csvPoCase = String(poCaseRaw ?? '').trim() === '' ? 0 : this.parseCsvInteger(poCaseRaw);
-        const csvPoEach = String(poEachRaw ?? '').trim() === '' ? 0 : this.parseCsvInteger(poEachRaw);
+        const poCaseInput = this.parseCsvQuantityInput(poCaseRaw);
+        const poEachInput = this.parseCsvQuantityInput(poEachRaw);
+        const csvPoCase = poCaseInput.value;
+        const csvPoEach = poEachInput.value;
         const csvPoPieces = csvPoCase + csvPoEach;
+        let hasCsvQuantityInput = poCaseInput.provided || poEachInput.provided;
+        let hasPositiveCsvQuantity = csvPoCase > 0 || csvPoEach > 0;
+        const invalidQuantityFields = [];
+        if (!poCaseInput.valid) invalidQuantityFields.push('発注ケース');
+        if (!poEachInput.valid) invalidQuantityFields.push('発注バラ');
         const row = this.makeAllocationRow({
           source: 'csv_import',
           sourceKey: ['csv_import', fileName || 'upload', rowNumber, searchCode, uuid()].join(':'),
@@ -5259,7 +7482,7 @@ window.distributionApp = function distributionApp() {
           reserved: this.parseCsvInteger(this.getCsvValue(lookup, ['理論', '引当可能数', '理論在庫'])),
           csvPostingDate,
           orderDate: this.normalizeFlexibleDate(this.getCsvValue(lookup, ['発注日', '注文日'])) || csvPostingDate,
-          deliveryDate: this.normalizeFlexibleDate(this.getCsvValue(lookup, ['納品希望日', '納品日', '希望納品日'])) || '',
+          deliveryDate: this.normalizeFlexibleDate(this.getCsvValue(lookup, ['入荷予定日', '納品希望日', '納品日', '希望納品日'])) || '',
           orderTo,
           orderToCode,
           supplier,
@@ -5268,20 +7491,67 @@ window.distributionApp = function distributionApp() {
           poEach: csvPoPieces > 0 ? csvPoPieces : '',
           checked: this.isCsvTruthy(this.getCsvValue(lookup, ['確定', 'チェック'])),
           memo: this.normalizeCsvText(this.getCsvValue(lookup, ['明細備考', '備考', 'メモ'])),
-          visibleDestinationKeys: csvVisibleDestinationKeys,
+          visibleDestinationKeys: [],
+          enteredDestinationKeys: [],
         });
 
-        DESTS.forEach(dest => {
+        const enteredDestinationKeys = [];
+        this.getCsvDestinationPool().forEach(dest => {
           const wishHeader = this.getCsvDestinationHeader(headers, dest, 'wish');
-          const wishQuantity = wishHeader ? this.parseCsvInteger(cells[wishHeader.index] ?? '') : 0;
+          const allocHeader = this.getCsvDestinationHeader(headers, dest, 'alloc');
+          const wishRaw = wishHeader ? String(cells[wishHeader.index] ?? '').trim() : '';
+          const allocRaw = allocHeader ? String(cells[allocHeader.index] ?? '').trim() : '';
+          const wishInput = this.parseCsvQuantityInput(wishRaw);
+          const allocInput = this.parseCsvQuantityInput(allocRaw);
+          const wishQuantity = wishInput.value;
+          const allocQuantity = allocInput.provided ? allocInput.value : (wishInput.provided ? wishQuantity : 0);
+
+          if (!wishInput.valid) invalidQuantityFields.push((dest.code || dest.key) + ' 希望数');
+          if (!allocInput.valid) invalidQuantityFields.push((dest.code || dest.key) + ' 分配数');
 
           row['wish_' + dest.key] = wishQuantity;
-          row['alloc_' + dest.key] = wishHeader
-            ? wishQuantity
-            : this.getCsvDestinationQuantity(headers, cells, dest, 'alloc');
-        });
+          row['alloc_' + dest.key] = allocQuantity;
 
-        if (!this.isBlankAllocationRow(row)) {
+          if (wishInput.provided || allocInput.provided) {
+            hasCsvQuantityInput = true;
+            enteredDestinationKeys.push(String(dest.key));
+          }
+          if (wishQuantity > 0 || allocQuantity > 0) {
+            hasPositiveCsvQuantity = true;
+          }
+        });
+        row.visibleDestinationKeys = this.normalizeDestinationKeyList(enteredDestinationKeys);
+        row.enteredDestinationKeys = row.visibleDestinationKeys;
+        const csvStableKey = this.stableHash40(this.getCsvImportDuplicateKey(row) || [fileName || 'upload', rowNumber, searchCode].join(':'));
+        row.sourceKey = ['csv_import', csvStableKey].join(':');
+        row.id = row.sourceKey;
+        row.distributionBusinessKey = this.getDistributionBusinessKey(row, 'allocation');
+
+        if (invalidQuantityFields.length > 0) {
+          skippedRows++;
+          failureDetails.push({
+            rowNumber,
+            code: searchCode,
+            name: row.name || '',
+            reason: '数量が0以上99,999,999以下の整数ではありません: ' + invalidQuantityFields.join('、'),
+          });
+        } else if (!hasCsvQuantityInput) {
+          skippedRows++;
+          failureDetails.push({
+            rowNumber,
+            code: searchCode,
+            name: row.name || '',
+            reason: '発注数・店舗別希望数・分配数がすべて空欄のためスキップ',
+          });
+        } else if (!hasPositiveCsvQuantity) {
+          skippedRows++;
+          failureDetails.push({
+            rowNumber,
+            code: searchCode,
+            name: row.name || '',
+            reason: '発注数・店舗別希望数・分配数がすべて0のためスキップ',
+          });
+        } else if (!this.isBlankAllocationRow(row)) {
           rows.push(row);
         } else {
           skippedRows++;
@@ -5327,6 +7597,10 @@ window.distributionApp = function distributionApp() {
             uuid(),
           ].join(':'),
         });
+        const directStableKey = this.stableHash40(this.getCsvImportDuplicateKey(directRow) || [fileName || 'upload', directRow.csvRowNumber || '', directRow.csvSearchCode || directRow.productCode || directRow.jan || ''].join(':'));
+        directRow.sourceKey = ['direct_csv_import', directStableKey].join(':');
+        directRow.id = directRow.sourceKey;
+        directRow.distributionBusinessKey = this.getDistributionBusinessKey(directRow, 'direct');
 
         if (this.isDirectCsvBlockedHqPartnerRow(directRow)) {
           blockedFailureDetails.push({
@@ -5384,6 +7658,10 @@ window.distributionApp = function distributionApp() {
         if (supplierSearch && !this.isHqOrderOrWarehouse(row.supplierCode, row.supplier)) {
           supplierSearch = '';
         }
+
+        if (!orderToSearch && !supplierSearch) {
+          orderToSearch = HQ_ORDER_CONTRACTOR_CODE;
+        }
       }
 
       if (options.direct) {
@@ -5407,10 +7685,11 @@ window.distributionApp = function distributionApp() {
       normalizedProducts.forEach(product => this.rememberProduct(product));
       const exactProducts = normalizedProducts.filter(product => this.isExactProductCandidate(product, query));
       const candidates = exactProducts.length > 0 ? exactProducts : normalizedProducts;
+      const selectedCandidate = this.pickImportedAllocationProductCandidate(row, candidates, options);
 
-      if (candidates.length === 1) {
+      if (selectedCandidate) {
         const importedDeliveryDate = row.deliveryDate || '';
-        this.applyProductToRow(row, candidates[0]);
+        this.applyProductToRow(row, selectedCandidate);
         row.orderDate = orderDate;
         if (importedDeliveryDate) {
           row.deliveryDate = importedDeliveryDate;
@@ -5439,6 +7718,91 @@ window.distributionApp = function distributionApp() {
             : '商品マスタが見つかりません',
         });
       }
+    },
+
+    pickImportedAllocationProductCandidate(row, candidates, options = {}) {
+      if (candidates.length <= 1) {
+        return candidates[0] || null;
+      }
+
+      if (!options.allocationHqOnly && !options.allocationCsvImport && !options.directCsvImport) {
+        return null;
+      }
+
+      const grouped = new Map();
+      candidates.forEach(product => {
+        const key = [
+          product.id || product.code || '',
+          product.orderToCode || '',
+          product.supplierCode || '',
+        ].join(':');
+        if (!grouped.has(key)) grouped.set(key, []);
+        grouped.get(key).push(product);
+      });
+
+      if (grouped.size !== 1) {
+        if (!options.allocationCsvImport && !options.directCsvImport) {
+          return null;
+        }
+
+        const itemIdentities = new Set(candidates.map(product => String(product?.id || product?.code || '')));
+        if (itemIdentities.size !== 1) {
+          return null;
+        }
+
+        const sortedCandidates = candidates
+          .slice()
+          .sort((a, b) => this.compareImportedAllocationCandidates(row, a, b));
+
+        if (options.directCsvImport) {
+          const partnerIdentities = new Set(candidates.map(product => [
+            product?.orderToCode || '',
+            product?.supplierCode || '',
+          ].join(':')));
+          const firstPriority = this.getImportedAllocationCandidatePriority(row, sortedCandidates[0]);
+          const secondPriority = sortedCandidates[1]
+            ? this.getImportedAllocationCandidatePriority(row, sortedCandidates[1])
+            : Number.POSITIVE_INFINITY;
+
+          if (partnerIdentities.size > 1 && firstPriority >= secondPriority) {
+            return null;
+          }
+        }
+
+        return sortedCandidates[0] || null;
+      }
+
+      return Array.from(grouped.values())[0]
+        .slice()
+        .sort((a, b) => this.compareImportedAllocationCandidates(row, a, b))[0] || null;
+    },
+
+    compareImportedAllocationCandidates(row, a, b) {
+      const priority = this.getImportedAllocationCandidatePriority(row, a) - this.getImportedAllocationCandidatePriority(row, b);
+      if (priority !== 0) return priority;
+
+      const hqPriority = (this.isHqOrderProduct(b) ? 1 : 0) - (this.isHqOrderProduct(a) ? 1 : 0);
+      if (hqPriority !== 0) return hqPriority;
+
+      return String(a?.candidateKey || a?.itemContractorId || a?.contractorWarehouseId || '').localeCompare(
+        String(b?.candidateKey || b?.itemContractorId || b?.contractorWarehouseId || ''),
+        'ja',
+        { numeric: true }
+      );
+    },
+
+    getImportedAllocationCandidatePriority(row, product) {
+      const warehouseId = toInt(product?.contractorWarehouseId || 0);
+      if (warehouseId <= 0) return 9999;
+
+      const destinationPool = this.getKnownDestinationPool();
+      const matchIndex = destinationPool.findIndex(dest => toInt(dest.id || 0) === warehouseId);
+      if (matchIndex < 0) return 9000 + warehouseId;
+
+      const dest = destinationPool[matchIndex];
+      const hasQuantity = toInt(row?.['wish_' + dest.key] || 0) > 0 || toInt(row?.['alloc_' + dest.key] || 0) > 0;
+
+      return hasQuantity ? matchIndex : 5000 + matchIndex;
     },
 
     async fetchImportedProductCandidatesBatch(targets) {
@@ -5676,6 +8040,7 @@ window.distributionApp = function distributionApp() {
 
       try {
         this.updateCsvImportProgress({ status: 'CSVを読み込んでいます', progressLabel: 'CSV読込中', progressPercent: 8 });
+        await this.loadCsvDestinations();
         const buffer = await file.arrayBuffer();
         const text = this.decodeCsvBuffer(buffer);
         this.updateCsvImportProgress({ status: 'CSVレイアウトを確認しています', progressLabel: 'レイアウト確認中', progressPercent: 18 });
@@ -5704,10 +8069,10 @@ window.distributionApp = function distributionApp() {
           return;
         }
 
-        const hydrateResult = await this.hydrateImportedAllocationRows(importedRows, { allocationHqOnly: true });
+        const hydrateResult = await this.hydrateImportedAllocationRows(importedRows, { allocationCsvImport: true });
         const unresolvedCount = hydrateResult.unresolved + hydrateResult.ambiguous;
         const hydrateFailureDetails = Array.isArray(hydrateResult.failureDetails) ? hydrateResult.failureDetails : [];
-        importedRows = importedRows.filter(row => row.itemId && this.isHqOrderProduct(row));
+        importedRows = importedRows.filter(row => row.itemId);
         const duplicateResult = this.filterDuplicateCsvImportRows(importedRows, this.rows, 'csv_import');
         importedRows = duplicateResult.rows;
         const duplicateFailureDetails = Array.isArray(duplicateResult.failureDetails) ? duplicateResult.failureDetails : [];
@@ -5740,7 +8105,7 @@ window.distributionApp = function distributionApp() {
             failedRows: parseSummary.skippedRows + unresolvedCount + duplicateCount,
             failureDetails,
             error: unresolvedCount > 0
-              ? '本部発注先の商品候補が見つからない行は取り込めません。'
+              ? '商品マスタの商品候補が見つからない行は取り込めません。'
               : duplicateCount > 0
               ? '同じ取込基準日・商品CD・CSV店舗別希望数のCSV取込済みデータが既に存在します。'
               : '取り込める新規データがありません。',
@@ -5750,12 +8115,17 @@ window.distributionApp = function distributionApp() {
 
         this.rememberFilterRetainedRows(importedRows, false);
         this.rows = [
-          ...this.rows.filter(row => !this.isBlankAllocationRow(row)),
           ...importedRows,
+          ...this.rows.filter(row => !this.isBlankAllocationRow(row)),
         ];
+        this.resetAllocationRenderWindow();
         this.normalizeRowsDateFields(this.rows, true);
         this.hydrateProductMetaFromRows();
-        this.saveData();
+        this.saveData({ silent: true, skipServer: true });
+        await this.applyBulkAllocationDates({ silent: true });
+        const persistableRows = this.getPersistableAllocationRows();
+        this.saveData({ silent: true, skipServer: true });
+        await this.persistDistributionRowsImmediately('allocation', persistableRows);
 
         this.updateCsvImportProgress({
           running: false,
@@ -5804,6 +8174,7 @@ window.distributionApp = function distributionApp() {
 
       try {
         this.updateCsvImportProgress({ status: 'CSVを読み込んでいます', progressLabel: 'CSV読込中', progressPercent: 8 });
+        await this.loadCsvDestinations({ includeHqDestination: true });
         const buffer = await file.arrayBuffer();
         const text = this.decodeCsvBuffer(buffer);
         this.updateCsvImportProgress({ status: 'CSVレイアウトを確認しています', progressLabel: 'レイアウト確認中', progressPercent: 18 });
@@ -5832,9 +8203,10 @@ window.distributionApp = function distributionApp() {
           return;
         }
 
-        const hydrateResult = await this.hydrateImportedAllocationRows(importedRows, { direct: true });
+        const hydrateResult = await this.hydrateImportedAllocationRows(importedRows, { direct: true, directCsvImport: true });
         const unresolvedCount = hydrateResult.unresolved + hydrateResult.ambiguous;
         const hydrateFailureDetails = Array.isArray(hydrateResult.failureDetails) ? hydrateResult.failureDetails : [];
+        importedRows = importedRows.filter(row => row.itemId);
         const duplicateResult = this.filterDuplicateCsvImportRows(importedRows, this.directRows, 'direct_csv_import');
         importedRows = duplicateResult.rows;
         const duplicateFailureDetails = Array.isArray(duplicateResult.failureDetails) ? duplicateResult.failureDetails : [];
@@ -5866,7 +8238,9 @@ window.distributionApp = function distributionApp() {
             ambiguousRows: hydrateResult.ambiguous,
             failedRows: parseSummary.skippedRows + unresolvedCount + duplicateCount,
             failureDetails,
-            error: duplicateCount > 0
+            error: unresolvedCount > 0
+              ? '商品マスタの商品候補が見つからない行は取り込めません。'
+              : duplicateCount > 0
               ? '同じ取込基準日・商品CD・CSV店舗別希望数のCSV取込済みデータが既に存在します。'
               : '取り込める新規データがありません。',
           });
@@ -5875,12 +8249,15 @@ window.distributionApp = function distributionApp() {
 
         this.rememberFilterRetainedRows(importedRows, true);
         this.directRows = [
-          ...this.directRows.filter(row => !this.isBlankAllocationRow(row)),
           ...importedRows,
+          ...this.directRows.filter(row => !this.isBlankAllocationRow(row)),
         ];
+        this.resetDirectRenderWindow();
         this.normalizeRowsDateFields(this.directRows, true);
         this.hydrateProductMetaFromRows();
-        this.saveDirectData();
+        const persistableRows = this.getPersistableDirectRows();
+        this.saveDirectData({ silent: true, skipServer: true });
+        await this.persistDistributionRowsImmediately('direct', persistableRows);
 
         this.updateCsvImportProgress({
           running: false,
@@ -5926,11 +8303,7 @@ window.distributionApp = function distributionApp() {
         return;
       }
       this.openConfirm('この行を削除しますか？', () => {
-        const deleteKey = this.getAllocationRowDeleteKey(row);
-        this.rememberDeletedAllocationRows(row ? [row] : []);
-        this.rows = this.rows.filter(r => this.getAllocationRowDeleteKey(r) !== deleteKey);
-        this.deleteSelectedRowIds = this.deleteSelectedRowIds.filter(rowId => String(rowId) !== String(id));
-        this.saveData();
+        this.deleteRowsAndPersist(row ? [row] : [], false, 'データを削除しました');
       }, 'delete');
     },
 
@@ -5971,7 +8344,12 @@ window.distributionApp = function distributionApp() {
         supplierCode: String(product.supplierCode || product.supplier_code || ''),
         orderTo: String(product.orderTo || product.order_to || ''),
         orderToCode: String(product.orderToCode || product.order_to_code || ''),
+        orderToTel: String(product.orderToTel || product.order_to_tel || ''),
+        orderToFax: String(product.orderToFax || product.order_to_fax || ''),
+        orderToAddress: String(product.orderToAddress || product.order_to_address || ''),
+        transmissionType: String(product.transmissionType || product.transmission_type || ''),
         itemContractorNote: String(product.itemContractorNote || product.item_contractor_note || ''),
+        itemContractorNoteLoaded: true,
         suggestedDeliveryDate: String(product.suggestedDeliveryDate || product.suggested_delivery_date || ''),
         deliveryDateCalculation: product.deliveryDateCalculation || product.delivery_date_calculation || null,
         stock: {
@@ -6035,6 +8413,10 @@ window.distributionApp = function distributionApp() {
           supplierCode: row.supplierCode,
           orderTo: row.orderTo,
           orderToCode: row.orderToCode,
+          orderToTel: row.orderToTel,
+          orderToFax: row.orderToFax,
+          orderToAddress: row.orderToAddress,
+          transmissionType: row.transmissionType,
           itemContractorNote: row.itemContractorNote,
           suggestedDeliveryDate: row.suggestedDeliveryDate,
           deliveryDateCalculation: row.deliveryDateCalculation,
@@ -6090,6 +8472,85 @@ window.distributionApp = function distributionApp() {
         row?.supplierCode || meta.supplierCode,
         row?.supplier || meta.supplier
       ) || '-';
+    },
+
+    async toggleItemContractorNote(row, isDirect, event) {
+      const rowId = String(row?.id || '');
+      const activeRowId = String(isDirect ? this.directLotPopoverRowId ?? '' : this.lotPopoverRowId ?? '');
+      if (activeRowId === rowId) {
+        if (isDirect) {
+          this.directLotPopoverRowId = null;
+        } else {
+          this.lotPopoverRowId = null;
+        }
+        return;
+      }
+
+      const rect = event.currentTarget.getBoundingClientRect();
+      const popoverHeight = 360;
+      const below = rect.bottom + 4;
+      const above = rect.top - 4;
+      const position = below + popoverHeight > window.innerHeight
+        ? { top: above, left: rect.left + (rect.width / 2), anchor: 'above' }
+        : { top: below, left: rect.left + (rect.width / 2), anchor: 'below' };
+
+      if (isDirect) {
+        this.directLotPopoverPos = position;
+        this.directLotPopoverRowId = row.id;
+      } else {
+        this.lotPopoverPos = position;
+        this.lotPopoverRowId = row.id;
+      }
+
+      if (row?.itemContractorNoteLoaded || String(row?.itemContractorNote || '').trim() !== '') return;
+
+      const query = String(row?.productCode || row?.jan || '').trim();
+      if (!query) return;
+
+      this.itemContractorNoteLoadingRowId = rowId;
+      try {
+        if (toInt(row?.itemContractorId || 0) > 0) {
+          const params = new URLSearchParams({
+            item_contractor_id: String(row.itemContractorId),
+          });
+          if (toInt(row?.itemId || 0) > 0) {
+            params.set('item_id', String(row.itemId));
+          }
+          const response = await fetch('/api/distribution/item-contractor-note?' + params.toString(), {
+            headers: { Accept: 'application/json' },
+          });
+          if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+          }
+          const payload = await response.json();
+          row.itemContractorNote = String(payload?.result?.data?.note || '');
+          row.itemContractorNoteLoaded = true;
+          return;
+        }
+
+        const products = await this.fetchProductCandidates(
+          query,
+          this.normalizeFlexibleDate(row?.orderDate || '') || getTodayString(),
+          50,
+          {
+            orderToSearch: row?.orderToCode || row?.orderTo || '',
+            supplierSearch: row?.supplierCode || row?.supplier || '',
+          }
+        );
+        const product = this.pickProductForExistingRow(row, products);
+        if (product) {
+          row.itemContractorNote = String(product.itemContractorNote || product.item_contractor_note || '');
+          row.itemContractorNoteLoaded = true;
+          this.rememberProduct(product);
+        }
+      } catch (error) {
+        console.error('Failed to load item contractor note:', error);
+        this.openModal('エラー', '商品発注管理の備考を取得できませんでした。');
+      } finally {
+        if (this.itemContractorNoteLoadingRowId === rowId) {
+          this.itemContractorNoteLoadingRowId = null;
+        }
+      }
     },
 
     getItemContractorNote(row) {
@@ -6230,11 +8691,11 @@ window.distributionApp = function distributionApp() {
       return !!row && this.directRows.some(r => r.id === row.id);
     },
 
-    saveRowsForMode(isDirect) {
+    saveRowsForMode(isDirect, options = {}) {
       if (isDirect) {
-        this.saveDirectData();
+        this.saveDirectData(options);
       } else {
-        this.saveData();
+        this.saveData(options);
       }
     },
 
@@ -6244,6 +8705,9 @@ window.distributionApp = function distributionApp() {
       const normalizedOrderDate = this.normalizeFlexibleDate(row.orderDate || '');
       row.orderDate = normalizedOrderDate || '';
       this.rememberFilterRetainedRow(row, isDirect);
+      if (isDirect) {
+        this.touchDirectRows();
+      }
 
       if (!row.orderDate || !this.hasRowProductInfo(row)) {
         this.saveRowsForMode(isDirect);
@@ -6279,6 +8743,13 @@ window.distributionApp = function distributionApp() {
       return (code ? '[' + code + ']' : '') + name;
     },
 
+    hasSelectedBulkDeliveryCourse() {
+      if (toInt(this.bulkDeliveryCourseSelected?.id || 0) <= 0) return false;
+
+      return String(this.bulkDeliveryCourseSearch || '').trim()
+        === this.formatDeliveryCourseLabel(this.bulkDeliveryCourseSelected).trim();
+    },
+
     async openBulkDeliveryCourseOptions() {
       if (this.bulkDeliveryCourseOptions.length === 0 && !this.bulkDeliveryCourseLoading) {
         await this.searchBulkDeliveryCourses(true);
@@ -6305,7 +8776,7 @@ window.distributionApp = function distributionApp() {
       this.bulkDeliveryCourseError = '';
 
       try {
-        const params = new URLSearchParams({ limit: '20' });
+        const params = new URLSearchParams();
         if (search !== '') params.set('search', search);
 
         const response = await fetch('/api/distribution/delivery-courses?' + params.toString(), {
@@ -6344,6 +8815,7 @@ window.distributionApp = function distributionApp() {
       this.bulkDeliveryCourseSearch = this.formatDeliveryCourseLabel(this.bulkDeliveryCourseSelected);
       this.bulkDeliveryCourseOptions = [];
       this.bulkDeliveryCourseError = '';
+      this.queueBulkAllocationAutoApply();
     },
 
     selectExactBulkDeliveryCourse() {
@@ -6367,19 +8839,33 @@ window.distributionApp = function distributionApp() {
       this.bulkDeliveryCourseSelected = null;
       this.bulkDeliveryCourseOptions = [];
       this.bulkDeliveryCourseError = '';
+      this.queueBulkAllocationAutoApply();
     },
 
-    async applyBulkAllocationDates() {
+    queueBulkAllocationAutoApply(delay = 120) {
+      if (this.bulkAutoApplyTimer) {
+        window.clearTimeout(this.bulkAutoApplyTimer);
+      }
+
+      this.bulkAutoApplyTimer = window.setTimeout(() => {
+        this.bulkAutoApplyTimer = null;
+        this.applyBulkAllocationDates({ silent: true });
+      }, delay);
+    },
+
+    async applyBulkAllocationDates(options = {}) {
       if (this.bulkDateApplying) return;
+      const silent = !!options.silent;
 
       const rawInputDate = String(this.bulkInputDate || '').trim();
       const inputDate = this.normalizeFlexibleDate(rawInputDate);
       const hasDeliveryCourseInput = String(this.bulkDeliveryCourseSearch || '').trim() !== '';
-      const selectedCourse = this.bulkDeliveryCourseSelected && toInt(this.bulkDeliveryCourseSelected.id || 0) > 0
+      const selectedCourse = this.hasSelectedBulkDeliveryCourse()
         ? this.bulkDeliveryCourseSelected
         : null;
 
       if (rawInputDate && !inputDate) {
+        if (silent) return;
         this.openModal('エラー', '入力日の日付形式を確認してください。');
         return;
       }
@@ -6387,17 +8873,25 @@ window.distributionApp = function distributionApp() {
       this.bulkInputDate = inputDate;
 
       if (hasDeliveryCourseInput && !selectedCourse) {
-        this.openModal('注意', '配送コースは検索候補から選択してください。');
-        return;
+        if (silent && inputDate) {
+          // 自動反映では、配送コースが未選択でも入力日だけは反映する。
+        } else if (silent) {
+          return;
+        } else {
+          this.openModal('注意', '配送コースは検索候補から選択してください。');
+          return;
+        }
       }
 
       if (!inputDate && !selectedCourse) {
+        if (silent) return;
         this.openModal('注意', '入力日、または配送コースを指定してください。');
         return;
       }
 
       const targets = this.getBulkAllocationDateTargets();
       if (targets.length === 0) {
+        if (silent) return;
         this.openModal('注意', '一括設定を反映できる表示中のデータがありません。');
         return;
       }
@@ -6410,19 +8904,35 @@ window.distributionApp = function distributionApp() {
           let changed = false;
 
           if (inputDate) {
-            row.orderDate = inputDate;
-            row.deliveryDate = inputDate;
-            row.suggestedDeliveryDate = inputDate;
-            row.deliveryDateCalculation = null;
-            this.rememberFilterRetainedRow(row, false);
-            changed = true;
+            const needsDateUpdate = row.orderDate !== inputDate
+              || row.deliveryDate !== inputDate
+              || row.suggestedDeliveryDate !== inputDate
+              || row.deliveryDateCalculation !== null;
+
+            if (needsDateUpdate) {
+              row.orderDate = inputDate;
+              row.deliveryDate = inputDate;
+              row.suggestedDeliveryDate = inputDate;
+              row.deliveryDateCalculation = null;
+              this.rememberFilterRetainedRow(row, false);
+              changed = true;
+            }
           }
 
           if (selectedCourse) {
-            row.deliveryCourseId = toInt(selectedCourse.id || 0);
-            row.deliveryCourseCode = String(selectedCourse.code || '');
-            row.deliveryCourseName = String(selectedCourse.name || '');
-            changed = true;
+            const courseId = toInt(selectedCourse.id || 0);
+            const courseCode = String(selectedCourse.code || '');
+            const courseName = String(selectedCourse.name || '');
+            const needsCourseUpdate = toInt(row.deliveryCourseId || 0) !== courseId
+              || String(row.deliveryCourseCode || '') !== courseCode
+              || String(row.deliveryCourseName || '') !== courseName;
+
+            if (needsCourseUpdate) {
+              row.deliveryCourseId = courseId;
+              row.deliveryCourseCode = courseCode;
+              row.deliveryCourseName = courseName;
+              changed = true;
+            }
           }
 
           if (changed) {
@@ -6430,17 +8940,21 @@ window.distributionApp = function distributionApp() {
           }
         }
 
-        this.saveData();
+        if (updatedCount > 0) {
+          this.saveData({ silent });
+        }
 
         const details = [];
         if (inputDate) details.push('入力日: ' + inputDate);
         if (selectedCourse) details.push('配送コース: ' + this.formatDeliveryCourseLabel(selectedCourse));
 
-        this.openResultModal(
-          '一括設定',
-          '表示中の修正可能なデータ ' + updatedCount + '件に一括設定を反映しました。' + (details.length > 0 ? '\n' + details.join('\n') : ''),
-          'success'
-        );
+        if (!silent) {
+          this.openResultModal(
+            '一括設定',
+            '表示中の修正可能なデータ ' + updatedCount + '件に一括設定を反映しました。' + (details.length > 0 ? '\n' + details.join('\n') : ''),
+            'success'
+          );
+        }
       } finally {
         this.bulkDateApplying = false;
       }
@@ -6741,10 +9255,11 @@ window.distributionApp = function distributionApp() {
     },
 
     async resolveManualProductCodeFast(row) {
-      if (!row || this.isProductEditLocked(row)) return;
+      if (!row) return;
+      const isDirect = this.isDirectRow(row);
+      if (isDirect ? this.isDirectRowEditLocked(row) : this.isProductEditLocked(row)) return;
 
       const query = String(row.productCode || '').trim();
-      const isDirect = this.isDirectRow(row);
       row.productCode = query;
 
       if (!query) {
@@ -6792,13 +9307,14 @@ window.distributionApp = function distributionApp() {
     },
 
     async resolveManualProductCode(row) {
-      if (!row || this.isProductEditLocked(row)) return;
+      if (!row) return;
+      const isDirect = this.isDirectRow(row);
+      if (isDirect ? this.isDirectRowEditLocked(row) : this.isProductEditLocked(row)) return;
 
       this.invalidateProductCodeFastResolve(row);
 
       const query = String(row.productCode || '').trim();
       const previousQuery = String(this.productCodeEditBefore[row.id] ?? '').trim();
-      const isDirect = this.isDirectRow(row);
       row.productCode = query;
 
       if (row.itemId && query !== '' && query === previousQuery) {
@@ -6994,7 +9510,12 @@ window.distributionApp = function distributionApp() {
       row.supplierCode = product.supplierCode;
       row.orderTo = product.orderTo;
       row.orderToCode = product.orderToCode;
+      row.orderToTel = product.orderToTel || '';
+      row.orderToFax = product.orderToFax || '';
+      row.orderToAddress = product.orderToAddress || '';
+      row.transmissionType = product.transmissionType || '';
       row.itemContractorNote = product.itemContractorNote || '';
+      row.itemContractorNoteLoaded = true;
       row.suggestedDeliveryDate = product.suggestedDeliveryDate || '';
       row.deliveryDateCalculation = product.deliveryDateCalculation || null;
       if (product.suggestedDeliveryDate) {
@@ -7095,6 +9616,12 @@ window.distributionApp = function distributionApp() {
       }
 
       this.showToast(products.length + '件の商品を追加しました');
+      if (this._searchIsDirectTab) {
+        this.touchDirectRows();
+      } else {
+        this.touchStoreRows();
+      }
+      this.saveRowsForMode(this._searchIsDirectTab);
       this.closeProductSearch();
     },
 
@@ -7104,11 +9631,10 @@ window.distributionApp = function distributionApp() {
         this.openModal('注意', this.getDirectHqOrderBlockedMessage());
         return;
       }
-
       const targetRows = this._searchIsDirectTab ? this.directRows : this.rows;
       const row = targetRows.find(r => r.id === this.searchOpenForRow);
       if (row) {
-        if (this.isProductEditLocked(row)) {
+        if (this._searchIsDirectTab ? this.isDirectRowEditLocked(row) : this.isProductEditLocked(row)) {
           this.openModal('エラー', '発注候補生成済み、または修正不可の行は商品を変更できません。');
           this.closeProductSearch();
           return;
@@ -7120,6 +9646,12 @@ window.distributionApp = function distributionApp() {
           this.showToast('JANを商品コード ' + product.code + ' に変換しました');
         }
       }
+      if (this._searchIsDirectTab) {
+        this.touchDirectRows();
+      } else {
+        this.touchStoreRows();
+      }
+      this.saveRowsForMode(this._searchIsDirectTab);
       this.closeProductSearch();
     },
 
@@ -7172,6 +9704,16 @@ window.distributionApp = function distributionApp() {
       await this.loadArrivalSchedules(productCode, itemId);
     },
 
+    closeArrivalSchedule() {
+      this.arrivalScheduleRequestId += 1;
+      if (this.arrivalScheduleAbortController) {
+        this.arrivalScheduleAbortController.abort();
+        this.arrivalScheduleAbortController = null;
+      }
+      this.arrivalScheduleLoading = false;
+      this.arrivalScheduleProduct = null;
+    },
+
     async loadArrivalSchedules(productCode, itemId = null) {
       if (!productCode && !itemId) {
         this.arrivalScheduleItems = [];
@@ -7179,9 +9721,27 @@ window.distributionApp = function distributionApp() {
         return;
       }
 
+      const cacheKey = itemId ? `item:${itemId}` : `code:${String(productCode)}`;
+      const requestId = ++this.arrivalScheduleRequestId;
+      if (this.arrivalScheduleAbortController) {
+        this.arrivalScheduleAbortController.abort();
+      }
+      this.arrivalScheduleAbortController = null;
+
+      const cached = this.arrivalScheduleCache[cacheKey];
+      if (cached && Date.now() - cached.cachedAt < this.arrivalScheduleCacheTtlMs) {
+        this.arrivalScheduleItems = cached.items;
+        this.arrivalScheduleLoaded = true;
+        this.arrivalScheduleLoading = false;
+        return;
+      }
+      delete this.arrivalScheduleCache[cacheKey];
+
       this.arrivalScheduleLoading = true;
       this.arrivalScheduleLoaded = true;
       this.arrivalScheduleError = '';
+      const controller = new AbortController();
+      this.arrivalScheduleAbortController = controller;
 
       try {
         const params = new URLSearchParams({ limit: '20' });
@@ -7190,6 +9750,7 @@ window.distributionApp = function distributionApp() {
 
         const response = await fetch('/api/distribution/arrival-schedules?' + params.toString(), {
           headers: { Accept: 'application/json' },
+          signal: controller.signal,
         });
 
         if (!response.ok) {
@@ -7197,15 +9758,24 @@ window.distributionApp = function distributionApp() {
         }
 
         const payload = await response.json();
+        if (requestId !== this.arrivalScheduleRequestId) return;
         this.arrivalScheduleItems = Array.isArray(payload?.result?.data)
           ? payload.result.data
           : (Array.isArray(payload) ? payload : []);
+        this.arrivalScheduleCache[cacheKey] = {
+          items: this.arrivalScheduleItems,
+          cachedAt: Date.now(),
+        };
       } catch (e) {
+        if (e?.name === 'AbortError' || requestId !== this.arrivalScheduleRequestId) return;
         console.error('Failed to load arrival schedules:', e);
         this.arrivalScheduleItems = [];
         this.arrivalScheduleError = '入荷予定の取得に失敗しました';
       } finally {
-        this.arrivalScheduleLoading = false;
+        if (requestId === this.arrivalScheduleRequestId) {
+          this.arrivalScheduleLoading = false;
+          this.arrivalScheduleAbortController = null;
+        }
       }
     },
 
@@ -7217,6 +9787,17 @@ window.distributionApp = function distributionApp() {
     formatArrivalQuantity(item) {
       const label = item.quantityTypeLabel ? ' ' + item.quantityTypeLabel : '';
       return `${item.quantity ?? 0}${label}`;
+    },
+
+    formatArrivalTotalPieces(item) {
+      return toInt(item?.totalPieces ?? item?.quantity ?? 0).toLocaleString('ja-JP');
+    },
+
+    getArrivalScheduleTotalPieces() {
+      return this.getArrivalSchedule(this.arrivalScheduleProduct).reduce(
+        (total, item) => total + toInt(item?.totalPieces ?? item?.quantity ?? 0),
+        0
+      );
     },
 
     formatArrivalOrderTo(item) {
@@ -7271,13 +9852,18 @@ window.distributionApp = function distributionApp() {
     },
 
     // ---------- Save / Clear ----------
-    saveData() {
+    saveData(options = {}) {
       try {
+        if (this.quantitySaveTimers.allocation) {
+          window.clearTimeout(this.quantitySaveTimers.allocation);
+          this.quantitySaveTimers.allocation = null;
+        }
         this.normalizeRowsDateFields(this.rows, true);
         const persistable = this.getPersistableAllocationRows();
         localStorage.setItem(STORAGE_KEY, JSON.stringify(persistable));
+        this.queuePersistDistributionRows('allocation', persistable, options);
+        this.touchAllocationRows();
         this.touchStoreRows();
-        this.showToast('保存しました（' + persistable.length + '行）');
       } catch (e) {
         console.error(e);
         this.openModal('エラー', '保存に失敗しました');
@@ -7290,22 +9876,25 @@ window.distributionApp = function distributionApp() {
         localStorage.removeItem(DELETED_ALLOCATION_SOURCE_KEY);
         this.deletedAllocationSourceKeys = [];
         this.rows = makeInitialRows();
+        this.queuePersistDistributionRows('allocation', [], { immediate: true });
+        this.resetAllocationRenderWindow();
+        this.touchAllocationRows();
         this.touchStoreRows();
       });
     },
 
     // ========== 直送分配 Methods ==========
-    saveDirectData() {
+    saveDirectData(options = {}) {
       try {
+        if (this.quantitySaveTimers.direct) {
+          window.clearTimeout(this.quantitySaveTimers.direct);
+          this.quantitySaveTimers.direct = null;
+        }
         this.normalizeRowsDateFields(this.directRows, true);
-        const active = this.directRows
-          .filter(r => r.productCode)
-          .map(row => {
-            const copy = { ...row };
-            delete copy.storeSourceType;
-            return copy;
-          });
+        const active = this.getPersistableDirectRows();
         localStorage.setItem(DIRECT_STORAGE_KEY, JSON.stringify(active));
+        this.queuePersistDistributionRows('direct', active, options);
+        this.touchDirectRows();
         this.touchStoreRows();
       } catch (e) {
         this.openModal('エラー', '保存に失敗しました');
@@ -7364,18 +9953,19 @@ window.distributionApp = function distributionApp() {
 
     addDirectRow() {
       this.directRows.push(this.makeDirectRow());
+      this.touchDirectRows();
     },
 
     removeDirectRow(id) {
       const row = this.directRows.find(r => r.id === id);
-      if (row && this.isRowDeleteLocked(row)) {
-        this.openModal('エラー', '確定済み、または発注候補生成済みの行は削除できません');
+      if (row && this.isDirectRowDeleteLocked(row)) {
+        this.openModal('エラー', '発注候補生成済みの行は削除できません');
         return;
       }
       this.openConfirm('この行を削除しますか？', () => {
         this.directRows = this.directRows.filter(r => r.id !== id);
         this.directDeleteSelectedRowIds = this.directDeleteSelectedRowIds.filter(rowId => String(rowId) !== String(id));
-        this.saveDirectData();
+        this.saveDirectData({ successMessage: 'データを削除しました' });
       }, 'delete');
     },
 
@@ -7385,20 +9975,20 @@ window.distributionApp = function distributionApp() {
 
     calcDirectWishTotal(row) {
       let total = 0;
-      DESTS.forEach(d => { total += toInt(row['wish_' + d.key] || 0); });
+      this.getRowDestinationPool(row).forEach(d => { total += toInt(row['wish_' + d.key] || 0); });
       return total;
     },
 
     calcDirectAllocTotal(row) {
       let total = 0;
-      DESTS.forEach(d => { total += toInt(row['alloc_' + d.key] || 0); });
+      this.getRowDestinationPool(row).forEach(d => { total += toInt(row['alloc_' + d.key] || 0); });
       return total;
     },
 
     allVisibleDirectChecked() {
-      const visible = this.getVisibleDirectRows().filter(r => !this.isRowLocked(r));
+      const visible = this.getVisibleDirectRows().filter(r => !this.isRowLocked(r) && this.hasRowProductInfo(r));
       if (visible.length === 0) {
-        const allVisible = this.getVisibleDirectRows();
+        const allVisible = this.getVisibleDirectRows().filter(r => this.hasRowProductInfo(r));
         return allVisible.length > 0 && allVisible.every(r => r.checked);
       }
 
@@ -7406,21 +9996,25 @@ window.distributionApp = function distributionApp() {
     },
 
     toggleAllDirectChecked() {
-      const visible = this.getVisibleDirectRows().filter(r => !this.isRowLocked(r));
+      const visible = this.getVisibleDirectRows().filter(r => !this.isRowLocked(r) && this.hasRowProductInfo(r));
       const allChecked = visible.length > 0 && visible.every(r => r.checked);
-      visible.forEach(r => { r.checked = !allChecked; });
+      const visibleIds = new Set(visible.map(row => row.id));
+      this.directRows = this.directRows.map(row => visibleIds.has(row.id)
+        ? { ...row, checked: !allChecked }
+        : row);
+      this.touchDirectRows();
     },
 
     downloadDirectCSV() {
       try {
         this.normalizeDateFilters();
         this.normalizeRowsDateFields(this.directRows, true);
-        let dataRows = this.getVisibleDirectRows().filter(r => r.checked);
+        let dataRows = this.getSelectedDirectRows();
         if (dataRows.length === 0) {
           dataRows = this.getVisibleDirectRows();
         }
         if (dataRows.length === 0) { this.openModal('エラー', '出力するデータがありません。'); return; }
-        const headers = ['計上日','発注日','商品コード','商品名','仕入先','納品希望日','ロット','入数','理論','希計','分計','発注ケース','発注バラ','明細備考',
+        const headers = ['計上日','発注日','商品コード','商品名','仕入先','入荷予定日','ロット','入数','理論','希計','分計','ケース','バラ','明細備考',
           ...DESTS.flatMap(d => [d.name + '_希望', d.name + '_分配'])];
         const body = dataRows.map(r => {
           const vals = [this.getCsvImportPostingDate(r) || r.orderDate || '',r.orderDate||'',r.productCode,r.name,this.getSupplier(r.productCode),r.deliveryDate||'',
@@ -7439,19 +10033,31 @@ window.distributionApp = function distributionApp() {
 
     printDirectRequestForm(opts) {
       try {
+        if (this.directRequestPrintInProgress) {
+          this.openModal('注意', '直送発注書の出力処理中です。プレビューを閉じるか、処理完了までお待ちください。');
+          return;
+        }
         const remark = opts?.remark || '';
         const tantou = opts?.tantou || '';
         const mgmtComment = opts?.mgmtComment || '';
         this.normalizeRowsDateFields(this.directRows, true);
         const dataset = this.getDirectRequestPrintableRows();
-        if (dataset.length === 0) { this.openModal('エラー','出力するデータがありません。確定を入れてください。'); return; }
+        if (dataset.length === 0) { this.openModal('エラー','出力するデータがありません。対象を選択してください。'); return; }
 
         // 仕入先ごとにグループ化
         const supplierGroups = {};
         dataset.forEach(r => {
-          const sup = this.getSupplier(r.productCode) || '不明';
-          if (!supplierGroups[sup]) supplierGroups[sup] = [];
-          supplierGroups[sup].push(r);
+          const groupKey = [
+            String(r.contractorId || r.orderToCode || r.orderTo || ''),
+            String(r.supplierId || r.supplierCode || r.supplier || ''),
+          ].join('|');
+          if (!supplierGroups[groupKey]) {
+            supplierGroups[groupKey] = {
+              supplier: r.supplier || this.getSupplier(r.productCode) || '不明',
+              rows: [],
+            };
+          }
+          supplierGroups[groupKey].rows.push(r);
         });
 
         const now = new Date();
@@ -7469,118 +10075,185 @@ window.distributionApp = function distributionApp() {
           pad2(now.getMinutes()),
           pad2(now.getSeconds()),
         ].join('');
-        const dests = DESTS;
+        const generatedDateTime = now.getFullYear() + '年'
+          + pad2(now.getMonth() + 1) + '月'
+          + pad2(now.getDate()) + '日 '
+          + pad2(now.getHours()) + '時'
+          + pad2(now.getMinutes()) + '分'
+          + pad2(now.getSeconds()) + '秒';
+        const dests = this.mergeDestinationLists(
+          DESTS,
+          ...dataset.map(row => this.getDirectRequestDestinationPool(row))
+        ).filter(destination => !this.isWholesaleDestination(destination));
         const companyLogoUrl = new URL('/images/hana-logo.png', window.location.origin).href;
-        const supplierEntries = Object.entries(supplierGroups);
+        const companyStampUrl = new URL('/images/client_stamp.png', window.location.origin).href;
+        const escapeRequestHtml = value => String(value ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+        const companyInfo = DIRECT_REQUEST_COMPANY_INFO || {};
+        const registrationNumberHtml = companyInfo.registrationNumber
+          ? `<div class="company-registration">登録番号：${escapeRequestHtml(companyInfo.registrationNumber)}</div>`
+          : '';
+        const companyContactHtml = [
+          companyInfo.tel ? `<span>TEL：${escapeRequestHtml(companyInfo.tel)}</span>` : '',
+          companyInfo.fax ? `<span>FAX：${escapeRequestHtml(companyInfo.fax)}</span>` : '',
+        ].filter(Boolean).join('<span class="company-contact-spacer"></span>');
+        const companyInfoHtml = [
+          companyInfo.address ? `<div class="company-line company-address">${escapeRequestHtml(companyInfo.address)}</div>` : '',
+          companyContactHtml ? `<div class="company-contact-row">${companyContactHtml}</div>` : '',
+        ].filter(Boolean).join('');
+        const mgmtCommentHtml = String(mgmtComment || '').trim() !== ''
+          ? escapeRequestHtml(mgmtComment).replace(/\n/g, '<br>')
+          : '';
+        const orderStaffName = String(tantou || DIRECT_REQUEST_ORDER_STAFF_NAME || '').trim();
+        const supplierEntries = Object.values(supplierGroups);
+        const hasPageComment = String(remark || '').trim() !== '' || mgmtCommentHtml !== '';
+        const requestRowsPerPage = hasPageComment ? 16 : 19;
 
-        const pagesHtml = supplierEntries.map(([supplier, rows], pageIndex) => {
-          const activeDests = dests;
-          const requestNumber = requestNumberBase + (supplierEntries.length > 1 ? '-' + String(pageIndex + 1).padStart(2, '0') : '');
+        const pagesHtml = supplierEntries.map(({ supplier, rows }, supplierIndex) => {
+          const activeDests = dests.filter(dest =>
+            rows.some(row => toInt(row?.['alloc_' + dest.key] || 0) > 0)
+          );
+          const requestNumber = requestNumberBase + (supplierEntries.length > 1 ? '-' + String(supplierIndex + 1).padStart(2, '0') : '');
+          const supplierCode = rows.find(row => String(row.supplierCode || '').trim())?.supplierCode || '';
+          const isEosOrder = rows.some(row => String(row.transmissionType || '').toUpperCase() === 'JX_FINET');
+          const eosOrderBadgeHtml = isEosOrder ? '<div class="eos-order-badge">EOS発注控え</div>' : '';
+          const orderToTel = rows.find(row => String(row.orderToTel || '').trim())?.orderToTel || '';
+          const orderToFax = rows.find(row => String(row.orderToFax || '').trim())?.orderToFax || '';
+          const orderToAddress = rows.find(row => String(row.orderToAddress || '').trim())?.orderToAddress || '';
+          const supplierContactHtml = [
+            orderToTel ? `<span>TEL：${escapeRequestHtml(orderToTel)}</span>` : '',
+            orderToFax ? `<span>FAX：${escapeRequestHtml(orderToFax)}</span>` : '',
+          ].filter(Boolean).join('');
 
           const destHeaders = activeDests.map(d => {
             let nm = d.name === '本店' ? d.name : d.name.replace(/店$/, '');
             nm = nm.replace(/サンドーム前/, 'SD前');
-            return `<th style="padding:2px 2px;border:1px solid #d1d5db;background:#f3f4f6;font-size:10px;text-align:center;white-space:nowrap;">${nm}</th>`;
+            return `<th style="padding:3px 2px;border:1px solid #d1d5db;background:#f3f4f6;font-size:12px;text-align:center;white-space:nowrap;">${nm}</th>`;
           }).join('');
 
           // 納品希望日を収集（重複排除）
           const deliveryDates = [...new Set(rows.map(r => r.deliveryDate).filter(Boolean))];
+          const rowPages = [];
+          for (let rowIndex = 0; rowIndex < rows.length; rowIndex += requestRowsPerPage) {
+            rowPages.push(rows.slice(rowIndex, rowIndex + requestRowsPerPage));
+          }
 
-          const bodyRows = rows.map(r => {
-            const destCells = activeDests.map(d => {
-              const v = r['alloc_' + d.key] || 0;
-              return `<td class="qty-cell">${v > 0 ? v : ''}</td>`;
+          return rowPages.map((pageRows, pageIndex) => {
+            const bodyRows = pageRows.map(r => {
+              const destCells = activeDests.map(d => {
+                const v = r['alloc_' + d.key] || 0;
+                return `<td class="qty-cell">${v > 0 ? v : ''}</td>`;
+              }).join('');
+              const allocTotal = activeDests.reduce((s, d) => s + (r['alloc_' + d.key] || 0), 0);
+              return `<tr>
+                <td class="jan-cell">${r.jan || (this.getProductMeta(r.productCode) || {}).jan || ''}</td>
+                <td class="product-cell">${r.name || ''}</td>
+                <td class="center-cell">${r.unitsPerCase || ''}</td>
+                ${destCells}
+                <td class="total-cell">${allocTotal}</td>
+              </tr>`;
             }).join('');
-            const allocTotal = activeDests.reduce((s, d) => s + (r['alloc_' + d.key] || 0), 0);
-            return `<tr>
-              <td class="jan-cell">${r.jan || (this.getProductMeta(r.productCode) || {}).jan || ''}</td>
-              <td class="product-cell">${r.name || ''}</td>
-              <td class="center-cell">${r.unitsPerCase || ''}</td>
-              ${destCells}
-              <td class="total-cell">${allocTotal}</td>
-            </tr>`;
-          }).join('');
 
-          return `<div class="page-break">
+            return `<div class="page-break">
             <div class="document-topline"></div>
             <div class="document-header">
               <div class="document-left">
-                <div class="document-label">DIRECT DISTRIBUTION REQUEST</div>
-                <div class="document-title">直送分配 依頼書</div>
+                <div class="document-generated-at">生成日時: ${generatedDateTime}</div>
+                <div class="document-title">直送発注書</div>
+                ${eosOrderBadgeHtml}
+                <div class="request-meta-line">
+                  <div class="request-number-line">発注番号：${requestNumber}</div>
+                  <div class="request-page-number">${pageIndex + 1} / ${rowPages.length}頁</div>
+                </div>
                 <div class="supplier-box">
                   <div class="supplier-name">${supplier} 御中</div>
-                  <div class="supplier-caption">下記内容にて、各店舗への振分対応をお願いいたします。</div>
+                  ${supplierContactHtml ? `<div class="supplier-contact">${supplierContactHtml}</div>` : ''}
                 </div>
               </div>
               <div class="company-box">
-                <img src="${companyLogoUrl}" alt="リカーワールド華" class="company-logo">
-                <div class="company-name">リカーワールド華</div>
-                <div>本部／商品企画課</div>
-                <div>依頼番号：${requestNumber}</div>
-                ${tantou ? `<div>担当：${tantou}</div>` : ''}
-              </div>
-            </div>
-            <div class="summary-bar">
-              <div class="summary-stamp-cell">
-                <div class="stamp-grid">
-                  <div><span>確認</span></div>
-                  <div><span>処理</span></div>
-                  <div><span>承認</span></div>
-                </div>
+                <img src="${companyLogoUrl}" alt="会社ロゴ" class="company-logo">
+                ${companyInfoHtml ? `<div class="company-info">${companyInfoHtml}<img src="${companyStampUrl}" alt="会社印" class="company-stamp"></div>` : ''}
+                ${registrationNumberHtml}
+                ${SHOW_DIRECT_REQUEST_DEPARTMENT ? '<div>本部／商品企画課</div>' : ''}
               </div>
             </div>
             <div class="detail-date-lines">
-              <div class="issue-date-line"><span>発行日：</span><strong>${issueDate}</strong></div>
-              <div class="delivery-date-line"><span>納品希望日：</span><strong>${deliveryDates.length > 0 ? deliveryDates.join('、') : '-'}</strong></div>
+              <div class="supplier-code-line"><span>仕入先コード：</span><strong>${escapeRequestHtml(supplierCode)}</strong></div>
+              <div class="order-date-row">
+                <div class="order-issue-column">
+                  <div class="issue-date-line"><span>発注日：</span><strong>${issueDate}</strong></div>
+                  <div class="company-staff"><span>発注担当：</span><strong>${escapeRequestHtml(orderStaffName)}</strong></div>
+                </div>
+                <div class="delivery-date-line"><span>納品予定日：</span><strong>${deliveryDates.length > 0 ? deliveryDates.join('、') : '-'}</strong></div>
+              </div>
             </div>
+            ${mgmtCommentHtml ? `<div class="footer-area">
+              <div class="comment-box"><span>【通信欄】</span> ${mgmtCommentHtml}</div>
+            </div>` : ''}
             <div class="unit-label">単位：バラ</div>
             <table class="request-list-table" style="border-collapse:collapse;width:100%;margin-bottom:12px;">
               <thead>
                 <tr style="background:#f3f4f6;">
-                  <th style="padding:2px 3px;border:1px solid #d1d5db;background:#f3f4f6;font-size:11px;white-space:nowrap;">JAN</th>
-                  <th style="padding:2px 4px;border:1px solid #d1d5db;background:#f3f4f6;font-size:11px;">商品名</th>
-                  <th style="padding:2px 3px;border:1px solid #d1d5db;background:#f3f4f6;font-size:11px;white-space:nowrap;">入数</th>
+                  <th style="padding:3px 3px;border:1px solid #d1d5db;background:#f3f4f6;font-size:13px;white-space:nowrap;">JAN</th>
+                  <th style="padding:3px 4px;border:1px solid #d1d5db;background:#f3f4f6;font-size:13px;">商品名</th>
+                  <th style="padding:3px 3px;border:1px solid #d1d5db;background:#f3f4f6;font-size:13px;white-space:nowrap;">入数</th>
                   ${destHeaders}
-                  <th style="padding:1px 3px;border:1px solid #d1d5db;background:#f3f4f6;font-size:11px;white-space:nowrap;">合計</th>
+                  <th style="padding:3px 3px;border:1px solid #d1d5db;background:#f3f4f6;font-size:13px;white-space:nowrap;">合計</th>
                 </tr>
               </thead>
               <tbody>${bodyRows}</tbody>
             </table>
             ${remark ? `<div class="note-box"><span>伝票備考：</span>${remark.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')}</div>` : ''}
-            <div class="footer-area">
-              <div class="comment-box">
-                <div class="box-label">備考</div>
-                <div class="box-body">${mgmtComment ? mgmtComment.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>') : ''}</div>
-              </div>
-            </div>
           </div>`;
+          }).join('');
         }).join('');
 
         const w = window.open('', '_blank');
         if (!w) { this.openModal('エラー', 'ポップアップがブロックされています。'); return; }
+        this.beginDirectRequestPrint(dataset, w);
         w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>依頼書</title>
           <style>
             @page { size: A4 landscape; margin: 5mm; }
             * { margin:0; padding:0; box-sizing:border-box; }
             body { font-family:"BIZ UDPGothic", "Yu Gothic", "YuGothic", "Meiryo", sans-serif; font-size:12px; padding:8px; color:#111827; background:#f3f4f6; overflow-x:auto; }
-            .page-break { page-break-after:always; width:297mm; min-height:210mm; margin:0 auto 20px; padding:12px 14px 14px; border:1px solid #cbd5e1; background:#fff; box-shadow:0 8px 22px rgba(15,23,42,.12); }
+            .page-break { position:relative; page-break-after:always; page-break-inside:avoid; width:297mm; min-height:210mm; margin:0 auto 20px; padding:12px 14px 14px; border:1px solid #cbd5e1; background:#fff; box-shadow:0 8px 22px rgba(15,23,42,.12); }
             .page-break:last-child { page-break-after:auto; }
             .document-topline { height:1px; background:#d1d5db; margin:-12px -14px 12px; }
             .document-header { display:flex; justify-content:space-between; gap:20px; align-items:flex-start; margin-bottom:12px; }
             .document-left { min-width:0; flex:1; }
-            .document-label { font-size:10px; letter-spacing:.08em; color:#6b7280; font-weight:700; margin-bottom:2px; }
-            .document-title { font-size:23px; font-weight:800; line-height:1.15; color:#111827; margin-bottom:10px; }
+            .document-generated-at { margin-bottom:2px; color:#4b5563; font-size:11px; font-weight:400; line-height:1.2; white-space:nowrap; }
+            .document-title { font-size:23px; font-weight:800; line-height:1.15; color:#111827; margin-bottom:4px; }
+            .eos-order-badge { position:absolute; top:74px; left:57%; z-index:2; display:inline-flex; align-items:center; justify-content:center; width:max-content; padding:5px 10px; border:2px solid #1d4ed8; color:#1d4ed8; font-size:15px; font-weight:900; line-height:1.2; white-space:nowrap; transform:translateX(-50%); -webkit-text-stroke:.2px #1d4ed8; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+            .request-meta-line { display:flex; align-items:center; justify-content:space-between; gap:16px; max-width:520px; margin:0 0 9px; }
+            .request-number-line { color:#374151; font-size:14px; font-weight:700; white-space:nowrap; }
+            .request-page-number { position:absolute; top:2px; right:14px; color:#374151; font-size:12px; font-weight:700; white-space:nowrap; z-index:2; }
             .supplier-box { border:1px solid #d1d5db; border-left:5px solid #374151; padding:9px 12px; background:#f9fafb; max-width:520px; }
             .supplier-name { font-size:18px; font-weight:800; border-bottom:1px solid #d1d5db; padding-bottom:4px; margin-bottom:5px; }
-            .supplier-caption { font-size:11px; color:#4b5563; }
-            .company-box { width:230px; border:1px solid #d1d5db; background:#fff; padding:8px 10px; text-align:right; font-size:11px; line-height:1.55; }
-            .company-logo { display:block; width:100%; height:auto; margin:0 0 5px; }
-            .company-name { font-size:13px; font-weight:800; color:#111827; }
+            .supplier-contact { display:flex; gap:20px; margin-bottom:4px; font-size:13px; color:#111827; white-space:nowrap; }
+            .supplier-caption { margin-top:2px; font-size:14px; color:#4b5563; line-height:1.4; }
+            .company-box { display:flex; flex-direction:column; gap:1px; width:350px; border:1px solid #d1d5db; background:#fff; padding:1px 8px 6px; text-align:right; font-size:14px; line-height:1.2; }
+            .company-logo { display:block; width:100%; height:auto; margin:0; }
+            .company-info { position:relative; width:100%; margin:0; color:#111827; font-size:13px; line-height:1.2; text-align:right; }
+            .company-stamp { position:absolute; top:50%; right:3px; width:64px; height:64px; object-fit:contain; opacity:.45; transform:translateY(-50%); z-index:1; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+            .company-line { white-space:nowrap; }
+            .company-address { display:block; width:100%; overflow:visible; text-align:right; font-size:13px; }
+            .company-contact-row { display:block; width:100%; font-size:13px; text-align:right; white-space:nowrap; }
+            .company-contact-spacer { display:inline-block; width:12px; }
+            .company-registration, .company-staff { width:100%; font-size:13px; line-height:1.2; text-align:right; white-space:nowrap; }
             .summary-bar { display:flex; justify-content:flex-end; gap:12px; border:0; margin:2px 0 0; background:transparent; align-items:flex-start; }
             .detail-date-lines { display:flex; flex-direction:column; gap:0; padding:0; margin:0; }
-            .issue-date-line, .delivery-date-line { display:flex; align-items:center; gap:.75em; padding:0; font-size:12px; color:#111827; line-height:1.4; white-space:nowrap; }
-            .issue-date-line span, .delivery-date-line span { font-weight:700; }
-            .issue-date-line strong, .delivery-date-line strong { font-size:12px; font-weight:400; color:#111827; }
+            .order-date-row { display:flex; align-items:flex-start; gap:28px; }
+            .order-issue-column { display:flex; flex-direction:column; gap:0; }
+            .order-issue-column .company-staff { display:flex; align-items:center; gap:.75em; width:auto; text-align:left; font-size:14px; line-height:1.4; }
+            .order-issue-column .company-staff span { font-weight:700; }
+            .order-issue-column .company-staff strong { font-size:14px; font-weight:400; }
+            .supplier-code-line, .issue-date-line, .delivery-date-line { display:flex; align-items:center; gap:.75em; padding:0; font-size:14px; color:#111827; line-height:1.4; white-space:nowrap; }
+            .supplier-code-line span, .issue-date-line span, .delivery-date-line span { font-weight:700; }
+            .supplier-code-line strong, .issue-date-line strong, .delivery-date-line strong { font-size:14px; font-weight:400; color:#111827; }
             .summary-stamp-cell { width:250px; padding:0 !important; background:#fff; }
             .summary-stamp-cell .stamp-grid { height:auto; min-height:62px; border:1px solid #d1d5db; font-family:"BIZ UDPGothic", "Yu Gothic", "YuGothic", "Meiryo", sans-serif; }
             .summary-stamp-cell .stamp-grid span { padding:3px 0; color:#111827; font-size:12px; font-weight:800; }
@@ -7589,18 +10262,17 @@ window.distributionApp = function distributionApp() {
             th { font-weight:bold; text-align:center; }
             .request-list-table thead th { background:#f3f4f6; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
             .request-list-table th { border:1px solid #d1d5db !important; color:#111827; }
-            .request-list-table td { border:1px solid #d1d5db; padding:2px 4px; font-size:11px; line-height:1.25; }
-            .jan-cell { white-space:nowrap; font-family:Consolas, "Courier New", monospace; }
+            .request-list-table td { border:1px solid #d1d5db; padding:3px 4px; font-size:13px; line-height:1.15; }
+            .jan-cell { min-width:116px; padding:3px 2px !important; white-space:nowrap; text-align:center; font-family:Consolas, "Courier New", monospace; font-size:15px !important; font-weight:700; line-height:1.1; letter-spacing:0; }
             .product-cell { min-width:210px; }
             .center-cell { text-align:center; white-space:nowrap; }
             .qty-cell { text-align:right; white-space:nowrap; min-width:28px; }
             .total-cell { text-align:right; white-space:nowrap; font-weight:800; background:#f9fafb; }
             .note-box { margin-top:10px; padding:8px 10px; border:1px solid #d6b35a; border-radius:3px; font-size:12px; background:#fff8dc; }
             .note-box span { font-weight:800; }
-            .footer-area { margin-top:12px; }
-            .comment-box { border:1px solid #cbd5e1; background:#fff; min-height:50px; }
-            .box-label { background:#f3f4f6; border-bottom:1px solid #cbd5e1; padding:4px 7px; font-size:11px; font-weight:800; }
-            .box-body { padding:7px; min-height:34px; font-size:12px; }
+            .footer-area { margin:12px 0 6px; }
+            .comment-box { border:1px solid #cbd5e1; background:#fff; padding:7px; min-height:30px; font-size:12px; line-height:1.4; }
+            .comment-box span { font-weight:800; }
             .stamp-grid { display:grid; grid-template-columns:repeat(3,1fr); border:1px solid #d1d5db; min-height:56px; text-align:center; font-size:11px; color:#374151; }
             .stamp-grid div { border-left:1px solid #d1d5db; }
             .stamp-grid div:first-child { border-left:0; }
@@ -7609,26 +10281,95 @@ window.distributionApp = function distributionApp() {
             .print-button, .download-button { color:white; border:none; padding:12px 24px; font-size:16px; font-weight:bold; border-radius:8px; cursor:pointer; }
             .print-button { background:#2563eb; }
             .download-button { background:#059669; }
-            @media print { body { background:white; padding:0; overflow:visible; } .btn-container { display:none !important; } .page-break { width:auto; min-height:auto; border:none; box-shadow:none; margin:0; padding:0; } .document-topline { margin:0 0 10px; } }
+            @media print { body { background:white; padding:0; overflow:visible; } .btn-container { display:none !important; } .page-break { width:auto; min-height:auto; border:none; box-shadow:none; margin:0; padding:0; } .request-page-number { top:0; right:0; } .document-topline { margin:0 0 10px; } }
           </style></he${''}ad><bo${''}dy>
-          <div class="btn-container"><button class="print-button" onclick="window.print()">印刷</button></div>
+          <div class="btn-container"><button class="print-button" onclick='if(window.opener&&!window.opener.closed){window.opener.postMessage(${JSON.stringify({ type: 'distribution-direct-request-printing' })},${JSON.stringify(window.location.origin)});}window.print();if(window.confirm("印刷は完了しましたか？ 完了した場合のみ出力済みに更新します。")){window.__distributionPrintResolved=true;if(window.opener&&!window.opener.closed){window.opener.postMessage(${JSON.stringify({ type: 'distribution-direct-request-printed', rowIds: dataset.map(row => String(row.id || '')) })},${JSON.stringify(window.location.origin)});}}else{window.__distributionPrintResolved=true;if(window.opener&&!window.opener.closed){window.opener.postMessage(${JSON.stringify({ type: 'distribution-direct-request-cancelled' })},${JSON.stringify(window.location.origin)});}}'>印刷</button></div>
           ${pagesHtml}
+          <script>window.__distributionPrintResolved=false;window.addEventListener('beforeunload',function(){if(!window.__distributionPrintResolved&&window.opener&&!window.opener.closed){window.opener.postMessage(${JSON.stringify({ type: 'distribution-direct-request-cancelled' })},${JSON.stringify(window.location.origin)});}});<\/script>
         ${'</bo' + 'dy></ht' + 'ml>'}`);
         w.document.close();
+      } catch(e) {
+        this.finishDirectRequestPrint();
+        this.openModal('エラー','依頼書出力でエラーが発生しました: ' + e.message);
+      }
+    },
 
-        dataset.forEach(r => { r.printed = true; });
-        this.saveDirectData();
-        this.showToast('依頼書を出力しました');
-      } catch(e) { this.openModal('エラー','依頼書出力でエラーが発生しました: ' + e.message); }
+    beginDirectRequestPrint(dataset, printWindow) {
+      activeDirectRequestPrintWindow = printWindow;
+      this.directRequestPrintInProgress = true;
+      this.directRequestPrintStatusSaving = false;
+      this.directRequestPrintLockedRowIds = Array.from(new Set(
+        (Array.isArray(dataset) ? dataset : []).map(row => String(row?.id || '')).filter(Boolean)
+      ));
+      if (this.directRequestPrintWindowTimer) window.clearInterval(this.directRequestPrintWindowTimer);
+      this.directRequestPrintWindowTimer = window.setInterval(() => {
+        if (!printWindow || printWindow.closed) this.finishDirectRequestPrint();
+      }, 500);
+    },
+
+    finishDirectRequestPrint(force = false) {
+      if (this.directRequestPrintStatusSaving && !force) return;
+      if (this.directRequestPrintWindowTimer) {
+        window.clearInterval(this.directRequestPrintWindowTimer);
+        this.directRequestPrintWindowTimer = null;
+      }
+      activeDirectRequestPrintWindow = null;
+      this.directRequestPrintInProgress = false;
+      this.directRequestPrintLockedRowIds = [];
+    },
+
+    async markDirectRequestRowsPrinted(rowIds = []) {
+      const targets = new Set((Array.isArray(rowIds) ? rowIds : []).map(String).filter(Boolean));
+      if (targets.size === 0) return;
+
+      const targetRows = this.directRows.filter(row => targets.has(String(row.id || '')));
+      if (targetRows.length === 0) return;
+
+      try {
+        const persistable = this.getPersistableDirectRows();
+        await this.persistDistributionRowsImmediately('direct', persistable);
+        const response = await fetch('/api/distribution/rows/direct-request-printed', {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            ...this.csrfHeaders(),
+          },
+          body: JSON.stringify({ row_ids: Array.from(targets) }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload?.result?.error_message || payload?.message || ('HTTP ' + response.status));
+        }
+
+        const result = payload?.result?.data || {};
+        this.serverRowRevisions.direct = toInt(result.revision || this.serverRowRevisions.direct || 0);
+        const updatedIds = new Set(
+          (Array.isArray(result.row_ids) ? result.row_ids : Array.from(targets)).map(String)
+        );
+        this.directRows.forEach(row => {
+          if (updatedIds.has(String(row.id || ''))) row.printed = true;
+        });
+        this.directDeleteSelectedRowIds = this.directDeleteSelectedRowIds.filter(rowId => !updatedIds.has(String(rowId)));
+        const updatedPersistable = this.getPersistableDirectRows();
+        localStorage.setItem(DIRECT_STORAGE_KEY, JSON.stringify(updatedPersistable));
+        this.touchDirectRows();
+        this.touchStoreRows();
+        this.showToast('直送発注書を出力済みにしました');
+      } catch (error) {
+        console.warn('Failed to persist direct request print status:', error);
+        this.openModal('エラー', '印刷は完了しましたが、出力済み状態を保存できませんでした。画面を再読み込みして状態を確認してください: ' + error.message);
+      }
     },
 
     // ---------- 発注候補生成 ----------
     buildOrderCandidatePayload(dataset, allocTotalResolver, options = {}) {
+      const mode = options.mode || 'allocation';
       this.normalizeRowsDateFields(dataset, true);
       const rows = dataset.map(row => {
         const meta = this.getProductMeta(row.productCode || '');
         const allocTotal = toInt(allocTotalResolver(row));
-        const allocations = DESTS.map(dest => {
+        const allocations = this.getRowDestinationPool(row).map(dest => {
           const quantity = toInt(row['alloc_' + dest.key] || 0);
           if (quantity <= 0) return null;
 
@@ -7642,6 +10383,7 @@ window.distributionApp = function distributionApp() {
 
         return {
           row_id: String(row.id || ''),
+          distribution_business_key: this.getDistributionBusinessKey(row, mode),
           item_id: row.itemId || meta.id || null,
           product_code: row.productCode || '',
           item_contractor_id: row.itemContractorId || meta.itemContractorId || null,
@@ -7663,65 +10405,43 @@ window.distributionApp = function distributionApp() {
         };
       }).filter(row => row.alloc_total > 0 || row.po_case > 0 || row.po_each > 0);
 
-      return { mode: options.mode || 'allocation', rows: rows };
+      return { mode, rows: rows };
     },
 
     async createOrderCandidates(dataset, allocTotalResolver, options = {}) {
-      const targetRows = this.getOrderCandidateGeneratableRows(dataset, allocTotalResolver);
+      const targetRows = options.mode === 'direct'
+        ? dataset.filter(row => this.hasRowProductInfo(row) && !this.isOrderCandidateCreated(row) && this.hasOrderCandidateQuantity(row, allocTotalResolver))
+        : this.getOrderCandidateGeneratableRows(dataset, allocTotalResolver);
       const payload = this.buildOrderCandidatePayload(targetRows, allocTotalResolver, options);
 
       if (payload.rows.length === 0) {
-        throw new Error('分配数、または発注ケース・発注バラが入力されている確定行がありません。');
+        throw new Error('分配数、またはケース・バラが入力されている選択行がありません。');
       }
 
-      const response = await fetch('/api/distribution/order-candidates', {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          ...this.csrfHeaders(),
-        },
-        body: JSON.stringify(payload),
+      return this.postDistributionJsonInChunks('/api/distribution/order-candidates', payload, {
+        onChunkSuccess: typeof options.onChunkSuccess === 'function'
+          ? (chunkResult, chunkPayloadRows) => {
+              return options.onChunkSuccess(
+                chunkResult,
+                this.getSourceRowsForPayloadRows(targetRows, chunkPayloadRows),
+                chunkPayloadRows
+              );
+            }
+          : null,
       });
-      const responsePayload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        const message = responsePayload?.result?.error_message
-          || responsePayload?.message
-          || ('HTTP ' + response.status);
-        throw new Error(message);
-      }
-
-      return responsePayload?.result?.data || {};
     },
 
     async checkExistingOrderCandidates(dataset, allocTotalResolver, options = {}) {
-      const targetRows = this.getOrderCandidateGeneratableRows(dataset, allocTotalResolver);
+      const targetRows = options.mode === 'direct'
+        ? dataset.filter(row => this.hasRowProductInfo(row) && !this.isOrderCandidateCreated(row) && this.hasOrderCandidateQuantity(row, allocTotalResolver))
+        : this.getOrderCandidateGeneratableRows(dataset, allocTotalResolver);
       const payload = this.buildOrderCandidatePayload(targetRows, allocTotalResolver, options);
 
       if (payload.rows.length === 0) {
         return { already_generated_count: 0, already_generated_row_ids: [], candidate_ids: [] };
       }
 
-      const response = await fetch('/api/distribution/order-candidates', {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          ...this.csrfHeaders(),
-        },
-        body: JSON.stringify({ ...payload, check_only: true }),
-      });
-      const responsePayload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        const message = responsePayload?.result?.error_message
-          || responsePayload?.message
-          || ('HTTP ' + response.status);
-        throw new Error(message);
-      }
-
-      return responsePayload?.result?.data || {};
+      return this.postDistributionJsonInChunks('/api/distribution/order-candidates', { ...payload, check_only: true });
     },
 
     getAlreadyGeneratedRowIdSet(result) {
@@ -7823,11 +10543,15 @@ window.distributionApp = function distributionApp() {
           ? row.orderCandidateIds
           : [];
         row.checked = true;
+        row.confirmedAt = row.confirmedAt || createdAt;
         row.orderCandidateGenerated = true;
         row.locked = this.isRowLocked(row);
         row.orderCandidateCreatedAt = createdAt;
         row.orderCandidateIds = Array.from(new Set([...existingCandidateIds, ...candidateIds]));
       });
+      if (rowCollection === this.directRows) {
+        this.directDeleteSelectedRowIds = this.directDeleteSelectedRowIds.filter(rowId => !rowIds.has(String(rowId)));
+      }
     },
 
         getOrderCandidateLockConfirmMessage() {
@@ -7839,14 +10563,14 @@ window.distributionApp = function distributionApp() {
 
       this.normalizeRowsDateFields(this.rows, true);
       const visibleRows = this.getVisibleRows();
-      const ignoredGeneratedCount = this.getCheckedAlreadyGeneratedOrderCandidateRows(visibleRows).length;
+      const ignoredGeneratedCount = this.getSelectedDirectRows(visibleRows).filter(row => this.isOrderCandidateCreated(row)).length;
       const rows = this.getOrderCandidateGeneratableRows(visibleRows, row => this.calcAllocTotal(row));
       if (rows.length === 0) {
         this.openModal(
           'エラー',
           ignoredGeneratedCount > 0
             ? '選択中のデータはすでに発注候補生成済みです。未生成のデータを選択してください。'
-            : '確定済みの行がありません。チェックを入れてください。'
+            : '処理対象の行がありません。選択にチェックを入れてください。'
         );
         return;
       }
@@ -7854,7 +10578,7 @@ window.distributionApp = function distributionApp() {
       const targetCount = this.countOrderCandidateTargetRows(rows, row => this.calcAllocTotal(row));
 
       if (targetCount === 0) {
-        this.openModal('注意', '分配数、または発注ケース・発注バラが入力されている確定行がありません。');
+        this.openModal('注意', '分配数、またはケース・バラが入力されている選択行がありません。');
         return;
       }
 
@@ -7887,15 +10611,23 @@ window.distributionApp = function distributionApp() {
       }
 
       this.orderCandidateCreating = true;
+      let hasPersistedChunkSuccess = false;
+      let hasUnpersistedChunkSuccess = false;
       try {
         const dateRefreshRows = rows.filter(row => !existingGeneratedRowIdSet.has(String(row.id)));
         const refreshedDateCount = await this.refreshOrderCandidateRowsDatesForToday(dateRefreshRows);
-        if (refreshedDateCount > 0) {
-          this.saveData();
-        }
-        const result = await this.createOrderCandidates(rows, row => this.calcAllocTotal(row));
+        await this.persistGeneratedState('allocation');
+        const result = await this.createOrderCandidates(rows, row => this.calcAllocTotal(row), {
+          onChunkSuccess: async (chunkResult, chunkRows) => {
+            hasUnpersistedChunkSuccess = true;
+            this.markRowsAsOrderCandidateGenerated(chunkRows, chunkResult, this.rows);
+            await this.persistGeneratedState('allocation');
+            hasUnpersistedChunkSuccess = false;
+            hasPersistedChunkSuccess = true;
+          },
+        });
         this.markRowsAsOrderCandidateGenerated(rows, result, this.rows);
-        this.saveData();
+        await this.persistGeneratedState('allocation');
         this.openResultModal(
           '発注候補生成',
           this.getOrderCandidateToastMessage(result, targetCount, ignoredGeneratedCount),
@@ -7903,7 +10635,14 @@ window.distributionApp = function distributionApp() {
         );
       } catch (e) {
         console.error(e);
-        this.openModal('エラー', '発注候補生成に失敗しました: ' + e.message);
+        this.openModal(
+          'エラー',
+          hasUnpersistedChunkSuccess
+            ? '発注候補は生成されましたが、生成済み状態の保存に失敗しました。画面を再読み込みして状態を確認してください: ' + e.message
+            : hasPersistedChunkSuccess
+            ? '発注候補生成中にエラーが発生しました。成功済みの分は生成済みとして画面に反映しました。未生成分だけ再実行してください: ' + e.message
+            : '発注候補生成に失敗しました: ' + e.message
+        );
       } finally {
         this.orderCandidateCreating = false;
       }
@@ -7914,14 +10653,22 @@ window.distributionApp = function distributionApp() {
 
       this.normalizeRowsDateFields(this.directRows, true);
       const visibleRows = this.getVisibleDirectRows();
-      const ignoredGeneratedCount = this.getCheckedAlreadyGeneratedOrderCandidateRows(visibleRows).length;
+      const ignoredGeneratedCount = this.getSelectedDirectRows(visibleRows).filter(row => this.isOrderCandidateCreated(row)).length;
       const rows = this.getDirectOrderCandidateGeneratableRows(visibleRows);
+      const rowsWithoutAllocation = rows.filter(row => this.calcDirectAllocTotal(row) <= 0);
+      if (rowsWithoutAllocation.length > 0) {
+        this.openModal(
+          'エラー',
+          '直送分配では発注元店舗を特定するため、店舗別の分配数を入力してください。ケース・バラだけでは発注候補を生成できません。'
+        );
+        return;
+      }
       if (rows.length === 0) {
         this.openModal(
           'エラー',
           ignoredGeneratedCount > 0
             ? '選択中のデータはすでに発注候補生成済みです。未生成のデータを選択してください。'
-            : '確定済みの行がありません。チェックを入れてください。'
+            : '処理対象の行がありません。選択にチェックを入れてください。'
         );
         return;
       }
@@ -7929,7 +10676,7 @@ window.distributionApp = function distributionApp() {
       const targetCount = this.countDirectOrderCandidateTargetRows(rows);
 
       if (targetCount === 0) {
-        this.openModal('注意', '分配数、または発注ケース・発注バラが入力されている確定行がありません。');
+        this.openModal('注意', '分配数、またはケース・バラが入力されている選択行がありません。');
         return;
       }
 
@@ -7962,15 +10709,24 @@ window.distributionApp = function distributionApp() {
       }
 
       this.orderCandidateCreating = true;
+      let hasPersistedChunkSuccess = false;
+      let hasUnpersistedChunkSuccess = false;
       try {
         const dateRefreshRows = rows.filter(row => !existingGeneratedRowIdSet.has(String(row.id)));
         const refreshedDateCount = await this.refreshOrderCandidateRowsDatesForToday(dateRefreshRows);
-        if (refreshedDateCount > 0) {
-          this.saveDirectData();
-        }
-        const result = await this.createOrderCandidates(rows, row => this.calcDirectAllocTotal(row), { mode: 'direct' });
+        await this.persistGeneratedState('direct');
+        const result = await this.createOrderCandidates(rows, row => this.calcDirectAllocTotal(row), {
+          mode: 'direct',
+          onChunkSuccess: async (chunkResult, chunkRows) => {
+            hasUnpersistedChunkSuccess = true;
+            this.markRowsAsOrderCandidateGenerated(chunkRows, chunkResult, this.directRows);
+            await this.persistGeneratedState('direct');
+            hasUnpersistedChunkSuccess = false;
+            hasPersistedChunkSuccess = true;
+          },
+        });
         this.markRowsAsOrderCandidateGenerated(rows, result, this.directRows);
-        this.saveDirectData();
+        await this.persistGeneratedState('direct');
         this.openResultModal(
           '発注候補生成',
           this.getOrderCandidateToastMessage(result, targetCount, ignoredGeneratedCount),
@@ -7978,7 +10734,14 @@ window.distributionApp = function distributionApp() {
         );
       } catch (e) {
         console.error(e);
-        this.openModal('エラー', '発注候補生成に失敗しました: ' + e.message);
+        this.openModal(
+          'エラー',
+          hasUnpersistedChunkSuccess
+            ? '発注候補は生成されましたが、生成済み状態の保存に失敗しました。画面を再読み込みして状態を確認してください: ' + e.message
+            : hasPersistedChunkSuccess
+            ? '発注候補生成中にエラーが発生しました。成功済みの分は生成済みとして画面に反映しました。未生成分だけ再実行してください: ' + e.message
+            : '発注候補生成に失敗しました: ' + e.message
+        );
       } finally {
         this.orderCandidateCreating = false;
       }
@@ -8010,7 +10773,7 @@ window.distributionApp = function distributionApp() {
     _exportCSVRows(dataRows) {
       const headers = [
         '計上日', '発注日', '商品コード', '商品名', '仕入先', '納品希望日', 'ロット', '入数', '理論', '希計', '分計',
-        '発注ケース', '発注バラ', '明細備考',
+        'ケース', 'バラ', '明細備考',
         ...DESTS.flatMap(d => [d.name + '_希望', d.name + '_分配']),
       ];
 
@@ -8046,9 +10809,13 @@ window.distributionApp = function distributionApp() {
       this.normalizeRowsDateFields(dataset, true);
       const includeZeroWishAllocations = !!options.includeZeroWishAllocations;
       const includeZeroAllocations = !!options.includeZeroAllocations;
+      const useRowDestinationPool = !!options.useRowDestinationPool;
       const processDate = this.normalizeFlexibleDate(options.processDate || '') || '';
       const rows = dataset.map(row => {
-        const allocations = destsList.map(dest => {
+        const destinationPool = useRowDestinationPool
+          ? this.getWarehouseTransferDestinationPool(row)
+          : destsList;
+        const allocations = destinationPool.map(dest => {
           const quantity = toInt(row['alloc_' + dest.key] || 0);
           const wishQuantity = toInt(row['wish_' + dest.key] || 0);
           if (
@@ -8069,6 +10836,7 @@ window.distributionApp = function distributionApp() {
 
         return {
           row_id: String(row.id || ''),
+          distribution_business_key: this.getDistributionBusinessKey(row, 'allocation'),
           item_id: row.itemId || null,
           product_code: row.productCode || '',
           order_date: processDate || row.orderDate || '',
@@ -8091,14 +10859,68 @@ window.distributionApp = function distributionApp() {
       return token ? { 'X-XSRF-TOKEN': token } : {};
     },
 
-    async createStockTransferSlips(dataset, remark, destsList = DESTS) {
-      const payload = this.buildStockTransferSlipPayload(dataset, remark, destsList);
-
-      if (payload.rows.length === 0) {
-        throw new Error('伝票出力できる確定行がありません。');
+    chunkRows(rows, size = 100) {
+      const source = Array.isArray(rows) ? rows : [];
+      const chunks = [];
+      for (let i = 0; i < source.length; i += size) {
+        chunks.push(source.slice(i, i + size));
       }
 
-      const response = await fetch('/api/distribution/stock-transfer-slips', {
+      return chunks;
+    },
+
+    mergeDistributionApiResults(results = []) {
+      const merged = {};
+      const sumKeys = [
+        'created_count',
+        'updated_count',
+        'already_generated_count',
+        'candidate_count',
+        'skipped_count',
+        'queue_count',
+        'created_queue_count',
+        'skipped_queue_count',
+        'line_count',
+      ];
+      const uniqueArrayKeys = [
+        'row_ids',
+        'generated_row_ids',
+        'already_generated_row_ids',
+        'candidate_ids',
+        'skipped_row_ids',
+      ];
+
+      sumKeys.forEach(key => {
+        merged[key] = results.reduce((sum, result) => sum + toInt(result?.[key] || 0), 0);
+      });
+
+      uniqueArrayKeys.forEach(key => {
+        merged[key] = Array.from(new Set(
+          results.flatMap(result => Array.isArray(result?.[key]) ? result[key] : [])
+            .map(value => String(value))
+        ));
+      });
+
+      merged.queues = Array.from(new Map(
+        results.flatMap(result => Array.isArray(result?.queues) ? result.queues : [])
+          .map(queue => [String(queue.queue_id || queue.request_id || JSON.stringify(queue)), queue])
+      ).values());
+      merged.skipped = results.flatMap(result => Array.isArray(result?.skipped) ? result.skipped : []);
+      merged.row_statuses = {};
+      results.forEach(result => {
+        Object.entries(result?.row_statuses || {}).forEach(([rowId, status]) => {
+          merged.row_statuses[rowId] ??= { expected: 0, existing: 0 };
+          merged.row_statuses[rowId].expected += toInt(status?.expected || 0);
+          merged.row_statuses[rowId].existing += toInt(status?.existing || 0);
+        });
+      });
+      merged.redirect_url = results.find(result => result?.redirect_url)?.redirect_url || '';
+
+      return merged;
+    },
+
+    async postDistributionJson(url, payload) {
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           Accept: 'application/json',
@@ -8110,7 +10932,25 @@ window.distributionApp = function distributionApp() {
       const responsePayload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        const message = responsePayload?.result?.error_message
+        const validationErrors = responsePayload?.result?.errors;
+        const validationMessage = validationErrors && typeof validationErrors === 'object'
+          ? Object.entries(validationErrors)
+              .flatMap(([field, messages]) => {
+                const label = field
+                  .replace(/^rows\.(\d+)\./, (_, index) => (toInt(index) + 1) + '行目: ')
+                  .replace(/delivery_course_id$/, '配送コース')
+                  .replace(/allocations\.(\d+)\.destination_id$/, (_, index) => '移動先（' + (toInt(index) + 1) + '件目）')
+                  .replace(/allocations$/, '分配先')
+                  .replace(/row_id$/, '行ID')
+                  .replace(/process_date$/, '入力日');
+                const details = Array.isArray(messages) ? messages : [messages];
+                return details.map(detail => label + ' - ' + String(detail || '入力内容を確認してください。'));
+              })
+              .slice(0, 5)
+              .join('\n')
+          : '';
+        const message = validationMessage
+          || responsePayload?.result?.error_message
           || responsePayload?.message
           || ('HTTP ' + response.status);
         throw new Error(message);
@@ -8119,34 +10959,93 @@ window.distributionApp = function distributionApp() {
       return responsePayload?.result?.data || {};
     },
 
-    async createWarehouseTransfers(dataset, destsList = DESTS) {
+    getSourceRowsForPayloadRows(sourceRows, payloadRows) {
+      const rowIds = new Set(
+        (Array.isArray(payloadRows) ? payloadRows : [])
+          .map(row => String(row?.row_id || row?.source_row_id || ''))
+          .filter(rowId => rowId !== '')
+      );
+
+      if (rowIds.size === 0) {
+        return [];
+      }
+
+      return (Array.isArray(sourceRows) ? sourceRows : [])
+        .filter(row => rowIds.has(String(row?.id || row?.sourceRowId || '')));
+    },
+
+    async postDistributionJsonInChunks(url, payload, chunkSizeOrOptions = 100, maybeOptions = {}) {
+      const options = typeof chunkSizeOrOptions === 'object'
+        ? (chunkSizeOrOptions || {})
+        : (maybeOptions || {});
+      const chunkSize = typeof chunkSizeOrOptions === 'number'
+        ? chunkSizeOrOptions
+        : toInt(options.chunkSize || 100);
+      const normalizedChunkSize = Math.max(1, chunkSize || 100);
+      const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+      const onChunkSuccess = typeof options.onChunkSuccess === 'function'
+        ? options.onChunkSuccess
+        : null;
+
+      if (rows.length <= normalizedChunkSize) {
+        const result = await this.postDistributionJson(url, payload);
+        if (onChunkSuccess) {
+          await onChunkSuccess(result, rows, 0);
+        }
+
+        return result;
+      }
+
+      const results = [];
+      let chunkIndex = 0;
+      for (const chunk of this.chunkRows(rows, normalizedChunkSize)) {
+        const result = await this.postDistributionJson(url, { ...payload, rows: chunk });
+        results.push(result);
+        if (onChunkSuccess) {
+          await onChunkSuccess(result, chunk, chunkIndex);
+        }
+        chunkIndex++;
+      }
+
+      return this.mergeDistributionApiResults(results);
+    },
+
+    async createStockTransferSlips(dataset, remark, destsList = DESTS) {
+      const payload = this.buildStockTransferSlipPayload(dataset, remark, destsList);
+
+      if (payload.rows.length === 0) {
+        throw new Error('伝票出力できる確定行がありません。');
+      }
+
+      return this.postDistributionJsonInChunks('/api/distribution/stock-transfer-slips', payload);
+    },
+
+    async createWarehouseTransfers(dataset, destsList = DESTS, options = {}) {
       const processDate = this.normalizeFlexibleDate(this.bulkInputDate || '') || getTodayString();
       this.bulkInputDate = processDate;
-      const payload = this.buildStockTransferSlipPayload(dataset, '倉庫移動生成', destsList, { processDate });
+      const payload = this.buildStockTransferSlipPayload(dataset, '倉庫移動生成', destsList, {
+        processDate,
+        useRowDestinationPool: true,
+      });
 
       if (payload.rows.length === 0) {
         throw new Error('倉庫移動生成できる分配数が入力された確定行がありません。');
       }
-
-      const response = await fetch('/api/distribution/warehouse-transfers', {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          ...this.csrfHeaders(),
-        },
-        body: JSON.stringify(payload),
-      });
-      const responsePayload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        const message = responsePayload?.result?.error_message
-          || responsePayload?.message
-          || ('HTTP ' + response.status);
-        throw new Error(message);
+      if (payload.rows.some(row => toInt(row?.delivery_course_id || 0) <= 0)) {
+        throw new Error(this.getMissingDeliveryCourseMessage());
       }
 
-      return responsePayload?.result?.data || {};
+      return this.postDistributionJsonInChunks('/api/distribution/warehouse-transfers', payload, {
+        onChunkSuccess: typeof options.onChunkSuccess === 'function'
+          ? (chunkResult, chunkPayloadRows) => {
+              return options.onChunkSuccess(
+                chunkResult,
+                this.getSourceRowsForPayloadRows(dataset, chunkPayloadRows),
+                chunkPayloadRows
+              );
+            }
+          : null,
+      });
     },
 
     markRowsAsTransferSlipCreated(dataset, result) {
@@ -8167,6 +11066,7 @@ window.distributionApp = function distributionApp() {
           ? row.transferSlipQueueIds
           : [];
         row.checked = true;
+        row.confirmedAt = row.confirmedAt || createdAt;
         row.printed = true;
         row.locked = this.isRowLocked(row);
         row.transferSlipCreatedAt = createdAt;
@@ -8175,14 +11075,20 @@ window.distributionApp = function distributionApp() {
     },
 
     markRowsAsWarehouseTransferCreated(dataset, result) {
-      const rowIds = new Set(
-        Array.isArray(result?.row_ids) && result.row_ids.length > 0
-          ? result.row_ids.map(id => String(id))
-          : dataset.map(row => String(row.id))
-      );
+      const resultRowIds = Array.isArray(result?.row_ids)
+        ? result.row_ids.map(id => String(id)).filter(id => id !== '')
+        : [];
+      if (resultRowIds.length === 0) return;
+
+      const rowIds = new Set(resultRowIds);
       const queueIds = Array.isArray(result?.queues)
         ? result.queues.map(queue => queue.queue_id).filter(id => id !== undefined && id !== null)
         : [];
+      const shipmentDate = this.normalizeFlexibleDate(
+        (Array.isArray(result?.queues) ? result.queues.find(queue => queue?.process_date)?.process_date : '')
+        || this.bulkInputDate
+        || ''
+      ) || '';
       const createdAt = new Date().toISOString();
 
       this.rows.forEach(row => {
@@ -8192,11 +11098,14 @@ window.distributionApp = function distributionApp() {
           ? row.warehouseTransferQueueIds
           : [];
         row.checked = true;
+        row.confirmedAt = row.confirmedAt || createdAt;
         row.warehouseTransferGenerated = true;
         row.warehouseTransferCreatedAt = createdAt;
+        row.warehouseTransferShipmentDate = shipmentDate;
         row.warehouseTransferQueueIds = Array.from(new Set([...existingQueueIds, ...queueIds]));
         row.locked = true;
       });
+      this.deleteSelectedRowIds = this.deleteSelectedRowIds.filter(rowId => !rowIds.has(String(rowId)));
     },
 
     async printSlips(opts, rows = null, destsList = DESTS, options = {}) {
@@ -8228,14 +11137,38 @@ window.distributionApp = function distributionApp() {
     async generateWarehouseTransfers() {
       if (this.warehouseTransferCreating || this.transferSlipCreating) return;
 
+      let hasPersistedChunkSuccess = false;
+      let hasUnpersistedChunkSuccess = false;
+
       try {
+        if (!this.hasSelectedBulkDeliveryCourse()) {
+          this.openModal('エラー', this.getMissingDeliveryCourseMessage());
+          return;
+        }
+
+        if (this.bulkAutoApplyTimer) {
+          window.clearTimeout(this.bulkAutoApplyTimer);
+          this.bulkAutoApplyTimer = null;
+        }
+        await this.applyBulkAllocationDates({ silent: true });
         this.normalizeRowsDateFields(this.rows, true);
+        await this.persistGeneratedState('allocation');
         const sourceRows = this.getWarehouseTransferSourceRows();
+        const missingDeliveryCourseRows = sourceRows.filter(row =>
+          row?.checked &&
+          this.hasRowProductInfo(row) &&
+          !this.isWarehouseTransferCreated(row) &&
+          !this.hasAllocationDeliveryCourse(row)
+        );
+        if (missingDeliveryCourseRows.length > 0) {
+          this.openModal('エラー', this.getMissingDeliveryCourseMessage() + ' 対象: ' + missingDeliveryCourseRows.length + '件');
+          return;
+        }
         const transferRows = this.getWarehouseTransferCreatableRows(this.getWarehouseTransferPendingRows(sourceRows));
         const slipOnlyRows = this.getWarehouseTransferSlipPendingRows(sourceRows);
         const dataset = [...transferRows, ...slipOnlyRows];
         if (dataset.length === 0) {
-          this.openModal('エラー', '倉庫移動・伝票待ちのデータがありません。確定済み、または発注候補生成済みの行を確認してください。');
+          this.openModal('エラー', '倉庫移動生成できる選択データがありません。対象行を選択し、商品情報・配送コース・分配数を確認してください。');
           return;
         }
 
@@ -8243,9 +11176,23 @@ window.distributionApp = function distributionApp() {
         let result = {};
 
         if (transferRows.length > 0) {
-          result = await this.createWarehouseTransfers(transferRows);
+          result = await this.createWarehouseTransfers(transferRows, DESTS, {
+            onChunkSuccess: async (chunkResult, chunkRows) => {
+              const processedQueueCount = toInt(chunkResult?.created_queue_count ?? chunkResult?.queue_count ?? 0)
+                + toInt(chunkResult?.skipped_queue_count || 0);
+              if (processedQueueCount <= 0 || !Array.isArray(chunkResult?.row_ids) || chunkResult.row_ids.length === 0) {
+                throw new Error('倉庫移動は生成されませんでした。配送コースと対象データを確認してください。');
+              }
+
+              hasUnpersistedChunkSuccess = true;
+              this.markRowsAsWarehouseTransferCreated(chunkRows, chunkResult);
+              await this.persistGeneratedState('allocation');
+              hasUnpersistedChunkSuccess = false;
+              hasPersistedChunkSuccess = true;
+            },
+          });
           this.markRowsAsWarehouseTransferCreated(transferRows, result);
-          this.saveData();
+          await this.persistGeneratedState('allocation');
         }
 
         const createdQueueCount = toInt(result?.created_queue_count ?? result?.queue_count ?? 0);
@@ -8278,7 +11225,14 @@ window.distributionApp = function distributionApp() {
         }
       } catch (e) {
         console.error('倉庫移動生成エラー:', e);
-        this.openModal('エラー', '倉庫移動生成でエラーが発生しました: ' + e.message);
+        this.openModal(
+          'エラー',
+          hasUnpersistedChunkSuccess
+            ? '倉庫移動は生成されましたが、生成済み状態の保存に失敗しました。画面を再読み込みして状態を確認してください: ' + e.message
+            : hasPersistedChunkSuccess
+            ? '倉庫移動生成中にエラーが発生しました。成功済みの分は生成済みとして画面に反映しました。未生成分だけ再実行してください: ' + e.message
+            : '倉庫移動生成でエラーが発生しました: ' + e.message
+        );
       } finally {
         this.warehouseTransferCreating = false;
       }
@@ -8331,7 +11285,8 @@ window.distributionApp = function distributionApp() {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
 
-      const barcodeIds = [];
+      const barcodeElements = [];
+      const legacyRowsPerPage = remark ? 21 : 22;
       const slipsHtml = destsList.map(dest => {
         const destData = dataset.filter(r => {
           const allocQty = toInt(r['alloc_' + dest.key] || 0);
@@ -8346,10 +11301,17 @@ window.distributionApp = function distributionApp() {
         const slipDisplayNumber = slipBaseNumber + '-' + dest.key;
         const sourceWarehouseLabel = HQ_WAREHOUSE_CODE + ' ' + HQ_WAREHOUSE_NAME;
         const destWarehouseLabel = (dest.code || dest.key || '') + ' ' + (dest.name || '');
-        barcodeIds.push(slipNumber);
+        const destPages = [];
+        for (let i = 0; i < destData.length; i += legacyRowsPerPage) {
+          destPages.push(destData.slice(i, i + legacyRowsPerPage));
+        }
 
         let rowNumber = 1;
-        const rowsHtml = destData.map(r => {
+        return destPages.map((pageRows, pageIndex) => {
+          const barcodeElementId = 'barcode-' + slipNumber + '-' + (pageIndex + 1);
+          barcodeElements.push({ id: barcodeElementId, value: slipNumber });
+          const pageNumberText = (pageIndex + 1) + ' / ' + destPages.length + '頁';
+          const rowsHtml = pageRows.map(r => {
             const alloc = toInt(r['alloc_' + dest.key] || 0);
             const unitsPerCase = Math.max(1, toInt(r.unitsPerCase || 1));
             const allocCase = Math.floor(alloc / unitsPerCase);
@@ -8365,9 +11327,9 @@ window.distributionApp = function distributionApp() {
               '<td class="right">' + alloc.toLocaleString('ja-JP') + '</td>' +
               '<td>' + escapeHtml(r.memo || '') + '</td>' +
             '</tr>';
-        }).join('');
+          }).join('');
 
-        return '<section class="legacy-slip page-break">' +
+          return '<section class="legacy-slip page-break">' +
           '<header class="legacy-header">' +
             '<div class="legacy-title">【移動伝票】</div>' +
             '<div class="legacy-header-content">' +
@@ -8378,14 +11340,14 @@ window.distributionApp = function distributionApp() {
                   '<div class="warehouse-box">' +
                     '<div class="warehouse-label">出庫倉庫 (' + escapeHtml(sourceWarehouseLabel) + ')</div>' +
                     '<div class="warehouse-content">' +
-                      '<div class="stamp-box"><div class="stamp-title">配送者印</div><div class="stamp-area"></div></div>' +
+                      '<div class="stamp-box"><div class="stamp-title">担当者印</div><div class="stamp-area"></div></div>' +
                       '<div class="stamp-box"><div class="stamp-title">入力者印</div><div class="stamp-area"></div></div>' +
                     '</div>' +
                   '</div>' +
                   '<div class="warehouse-box">' +
                     '<div class="warehouse-label">入庫倉庫 (' + escapeHtml(destWarehouseLabel) + ')</div>' +
                     '<div class="warehouse-content">' +
-                      '<div class="stamp-box"><div class="stamp-title">配送者印</div><div class="stamp-area"></div></div>' +
+                      '<div class="stamp-box"><div class="stamp-title">担当者印</div><div class="stamp-area"></div></div>' +
                       '<div class="stamp-box"><div class="stamp-title">入力者印</div><div class="stamp-area"></div></div>' +
                     '</div>' +
                   '</div>' +
@@ -8393,7 +11355,8 @@ window.distributionApp = function distributionApp() {
               '</div>' +
               '<div class="legacy-header-right">' +
                 '<div class="legacy-issue-time">発行日時: ' + escapeHtml(issueDateTime) + '</div>' +
-                '<div class="legacy-barcode-box"><svg id="barcode-' + escapeHtml(slipNumber) + '" class="legacy-barcode"></svg></div>' +
+                '<div class="legacy-page-number">' + escapeHtml(pageNumberText) + '</div>' +
+                '<div class="legacy-barcode-box"><svg id="' + escapeHtml(barcodeElementId) + '" class="legacy-barcode"></svg></div>' +
               '</div>' +
             '</div>' +
           '</header>' +
@@ -8410,8 +11373,9 @@ window.distributionApp = function distributionApp() {
             '</tr></thead>' +
             '<tbody>' + rowsHtml + '</tbody>' +
           '</table>' +
-          (remark ? '<div class="legacy-note"><span>伝票備考：</span>' + escapeHtml(remark).replace(/\n/g, '<br>') + '</div>' : '') +
+          (remark && pageIndex === destPages.length - 1 ? '<div class="legacy-note"><span>伝票備考：</span>' + escapeHtml(remark).replace(/\n/g, '<br>') + '</div>' : '') +
         '</section>';
+        }).join('');
       }).filter(html => html !== '').join('');
 
       if (!slipsHtml || slipsHtml.trim() === '') {
@@ -8432,11 +11396,12 @@ window.distributionApp = function distributionApp() {
           '.legacy-header-left { flex: 1; min-width: 0; }' +
           '.legacy-header-right { width: 280px; text-align: right; flex-shrink: 0; }' +
           '.legacy-issue-time { font-size: 11px; color: #666; margin-bottom: 4px; }' +
+          '.legacy-page-number { font-size: 12px; font-weight: bold; color: #111827; margin-bottom: 4px; }' +
           '.legacy-barcode-box { padding: 8px; background: white; display: inline-block; border: 1px solid #ddd; }' +
           '.legacy-barcode { width: 250px; height: 80px; }' +
-          '.warehouse-section { display: flex; gap: 12px; margin-top: 12px; margin-bottom: 12px; max-width: 58%; }' +
-          '.warehouse-box { flex: 1; border: 2px solid #444; padding: 8px; background: #fafafa; border-radius: 3px; min-width: 0; }' +
-          '.warehouse-label { font-size: 12px; font-weight: bold; margin-bottom: 5px; padding-bottom: 4px; border-bottom: 2px solid #888; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
+          '.warehouse-section { display: flex; gap: 10px; margin-top: 12px; margin-bottom: 12px; width: min(100%, 474px); }' +
+          '.warehouse-box { flex: 0 1 232px; border: 2px solid #444; padding: 8px; background: #fafafa; border-radius: 3px; min-width: 0; }' +
+          '.warehouse-label { font-size: 12px; font-weight: bold; margin-bottom: 5px; padding-bottom: 4px; border-bottom: 2px solid #888; color: #333; white-space: normal; overflow: visible; overflow-wrap: anywhere; line-height: 1.25; }' +
           '.warehouse-content { padding-top: 4px; display: flex; gap: 6px; }' +
           '.stamp-box { flex: 1; border: 1px solid #888; padding: 0; font-size: 11px; background: #fff; border-radius: 2px; display: flex; flex-direction: column; }' +
           '.stamp-title { padding: 4px 6px; background: #e8e8e8; border-bottom: 1px solid #888; font-weight: bold; text-align: center; font-size: 10px; }' +
@@ -8444,9 +11409,10 @@ window.distributionApp = function distributionApp() {
           '.legacy-slip-table { border-collapse: collapse; width: 100%; margin-top: 8px; background: white; table-layout: fixed; }' +
           '.legacy-slip-table th { background: linear-gradient(to bottom, #e8e8e8, #d8d8d8); padding: 6px 8px; border: 1px solid #999; font-size: 13px; font-weight: bold; text-align: center; color: #222; -webkit-print-color-adjust: exact; print-color-adjust: exact; }' +
           '.legacy-slip-table td { border: 1px solid #ccc; padding: 3px 5px; height: 20px; font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }' +
+          '.legacy-slip-table td:first-child { overflow: visible; text-overflow: clip; }' +
           '.legacy-slip-table .center { text-align: center; } .legacy-slip-table .right { text-align: right; }' +
           '.legacy-slip-table tbody tr:nth-child(even) { background: #f9f9f9; }' +
-          '.no-col { width: 30px; } .code-col { width: 100px; } .name-col { width: 300px; } .unit-col { width: 50px; } .qty-col { width: 60px; } .memo-col { width: 200px; }' +
+          '.no-col { width: 44px; } .code-col { width: 100px; } .name-col { width: 300px; } .unit-col { width: 50px; } .qty-col { width: 60px; } .memo-col { width: 200px; }' +
           '.legacy-note { margin-top: 10px; padding: 8px; border: 1px solid #999; border-radius: 4px; font-size: 12px; background: #fffbe6; } .legacy-note span { font-weight: bold; }' +
           '.print-button-container { position: fixed; top: 20px; right: 20px; z-index: 1000; display: flex; gap: 8px; } .print-button { color: white; border: none; padding: 12px 24px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 8px rgba(0,0,0,0.2); background: linear-gradient(to bottom, #2563eb, #1d4ed8); }' +
           '@media print { body { background: white; padding: 0; margin: 0; } .legacy-slip { margin: 0; padding: 0; border: none; box-shadow: none; border-radius: 0; max-width: none; } .print-button-container { display: none !important; } .legacy-slip-table th { background: #e0e0e0 !important; } }' +
@@ -8457,11 +11423,11 @@ window.distributionApp = function distributionApp() {
         '<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"><\/script>' +
         '<script>' +
           'window.onload = function() {' +
-            'var barcodeIds = ' + JSON.stringify(barcodeIds) + ';' +
-            'barcodeIds.forEach(function(id) {' +
-              'var element = document.getElementById("barcode-" + id);' +
+            'var barcodeElements = ' + JSON.stringify(barcodeElements) + ';' +
+            'barcodeElements.forEach(function(item) {' +
+              'var element = document.getElementById(item.id);' +
               'if (element && typeof JsBarcode !== "undefined") {' +
-                'try { JsBarcode(element, id, { format: "CODE128", width: 2, height: 50, displayValue: true, fontSize: 12, margin: 5 }); } catch(e) { console.error(e); }' +
+                'try { JsBarcode(element, item.value, { format: "CODE128", width: 2, height: 50, displayValue: true, fontSize: 12, margin: 5 }); } catch(e) { console.error(e); }' +
               '}' +
             '});' +
           '};' +
@@ -8508,7 +11474,7 @@ window.distributionApp = function distributionApp() {
         return Number.isFinite(n) ? n.toLocaleString('ja-JP') : '';
       };
 
-      const slipRowsPerPage = 8;
+      const slipRowsPerPage = 11;
       const includeZeroAllocRows = !!options.includeZeroAllocRows;
       let printedPageNumber = 0;
 
@@ -8638,6 +11604,7 @@ window.distributionApp = function distributionApp() {
           '.page-number { padding-top: 1mm; }' +
           '.info-row { display: grid; grid-template-columns: minmax(0, 62mm) 42mm minmax(0, 1fr); column-gap: 4mm; margin-top: 3mm; min-height: 22mm; font-size: 12px; line-height: 1.5; }' +
           '.info-left, .info-right { min-width: 0; }' +
+          '.info-right { text-align: right; }' +
           '.info-left div, .info-right div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
           '.info-center { min-width: 0; padding-top: 1mm; font-size: 13px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
           '.transfer-checklist-table { width: 100%; margin-top: 6mm; border-collapse: collapse; table-layout: fixed; border: 1px solid #000; border-bottom: 3px double #000; font-size: 10.5px; }' +
@@ -8685,14 +11652,15 @@ window.distributionApp = function distributionApp() {
     },
 
     getStoreLabel(storeKey) {
-      const store = DESTS.find(s => s.key === storeKey);
+      const normalizedKey = String(storeKey || '');
+      const store = this.getStoreDestinationPool().find(s => String(s.key) === normalizedKey);
       if (!store) return storeKey;
 
       return '[' + store.key + '] ' + store.name;
     },
 
     toggleStore(storeKey) {
-      const displayKeys = this.getStoreDisplayDestinationKeys();
+      const displayKeys = this.getStoreControlDestinationKeys();
       if (!this.isHqStoreViewWarehouse()) {
         this.selectedStores = displayKeys;
         return;
@@ -8702,16 +11670,19 @@ window.distributionApp = function distributionApp() {
         return;
       }
 
-      const idx = this.selectedStores.indexOf(storeKey);
+      const idx = this.selectedStores.map(String).indexOf(String(storeKey));
       if (idx >= 0) {
-        this.selectedStores.splice(idx, 1);
+        this.removeStoreSlipSelectionsForStore(storeKey);
+        this.selectedStores = this.orderStoreSelectionKeys(
+          this.selectedStores.filter(key => String(key) !== String(storeKey))
+        );
       } else {
-        this.selectedStores.push(storeKey);
+        this.selectedStores = this.orderStoreSelectionKeys([...this.selectedStores, String(storeKey)]);
       }
     },
 
     toggleAllStores() {
-      const displayKeys = this.getStoreDisplayDestinationKeys();
+      const displayKeys = this.getStoreControlDestinationKeys();
       if (!this.isHqStoreViewWarehouse()) {
         this.selectedStores = displayKeys;
         return;
@@ -8719,35 +11690,106 @@ window.distributionApp = function distributionApp() {
 
       if (this.selectedStores.length === displayKeys.length) {
         this.selectedStores = [];
+        this.selectedStoreSlipKeys = [];
       } else {
         this.selectedStores = displayKeys;
       }
     },
 
     getStoreProductCount(storeKey) {
-      return this.getStoreFilteredProducts(storeKey).length;
+      return this.getStoreProductSummary(storeKey).count;
+    },
+
+    getStoreProductAllocTotal(storeKey) {
+      return this.getStoreProductSummary(storeKey).allocTotal;
+    },
+
+    getStoreGroupPage() {
+      return 1;
+    },
+
+    getStoreGroupPageCount() {
+      return 1;
+    },
+
+    setStoreGroupPage(page) {
+      return;
+    },
+
+    moveStoreGroupPage(delta) {
+      return;
+    },
+
+    getStoreGroupPageRangeLabel() {
+      return '';
+    },
+
+    getStoreProductSummary(storeKey) {
+      const products = this.storeViewMode === 'individual'
+        ? this.getStoreFilteredProductsBySource(storeKey, this.storeIndividualSourceView)
+        : this.getStoreFilteredProducts(storeKey);
+
+      return {
+        count: products.length,
+        allocTotal: products.reduce((sum, product) => sum + toInt(product.alloc || 0), 0),
+      };
+    },
+
+    getRenderableStoreFilteredProducts(storeKey) {
+      return this.getStoreFilteredProducts(storeKey);
+    },
+
+    getStoreFilteredProductsBySource(storeKey, sourceType) {
+      const normalizedSourceType = sourceType === 'direct' ? 'direct' : 'allocation';
+
+      return this.getStoreFilteredProducts(storeKey)
+        .filter(product => product.sourceType === normalizedSourceType);
+    },
+
+    hasStoreDistributionQuantity(row, storeKey) {
+      return toInt(row?.['wish_' + storeKey] || 0) !== 0
+        || toInt(row?.['alloc_' + storeKey] || 0) !== 0;
     },
 
     getStoreFilteredProducts(storeKey) {
       this.getStoreFilteredRows();
       const cacheKey = this.storeFilteredRowsCacheKey + '::' + String(storeKey || '');
-      if (Array.isArray(this.storeProductsCache?.[cacheKey])) {
-        return this.storeProductsCache[cacheKey];
+      const productsCache = this.getStoreProductsCache();
+      if (Array.isArray(productsCache[cacheKey])) {
+        return productsCache[cacheKey];
       }
 
       const products = [];
       const visibleRows = this.storeFilteredRowsCache;
+      const destination = this.getStoreDestinationPool().find(item => String(item.key) === String(storeKey));
+      const isDepartment = destination ? this.isWholesaleDestination(destination) : false;
       visibleRows.forEach(row => {
+        if (!this.hasStoreDistributionQuantity(row, storeKey)) {
+          return;
+        }
+
+        const activeDestinationKeys = this.getRowActiveDestinationKeys(row);
+        if ((this.storeDestinationScope === 'wholesale' || isDepartment) && !activeDestinationKeys.includes(String(storeKey))) {
+          return;
+        }
+
+        if (this.storeViewMode === 'comparison' && activeDestinationKeys.length > 0 && !activeDestinationKeys.includes(String(storeKey))) {
+          return;
+        }
+
         const allocQty = toInt(row['alloc_' + storeKey] || 0);
         const wishQty = toInt(row['wish_' + storeKey] || 0);
         const rowKey = this.getStoreSlipRowKey(row);
         const sourceType = row.storeSourceType || 'allocation';
         const sourceLabel = this.getStoreDistributionTypeLabel(sourceType);
         products.push({
+          sourceRow: row,
           rowId: rowKey,
           rowKey: rowKey,
           sourceType: sourceType,
           sourceLabel: sourceLabel,
+          orderToCode: row.orderToCode || row.order_to_code || '',
+          orderTo: row.orderTo || row.order_to || '',
           comparisonKey: '[' + sourceLabel + '] ' + (row.productCode || ''),
           orderDate: row.orderDate,
           deliveryDate: row.deliveryDate,
@@ -8759,42 +11801,153 @@ window.distributionApp = function distributionApp() {
           checked: row.checked,
         });
       });
-      this.storeProductsCache = {
-        ...this.storeProductsCache,
-        [cacheKey]: products,
-      };
+      productsCache[cacheKey] = products;
 
       return products;
     },
 
     // ---------- Comparison View ----------
-    getComparisonProductCodes() {
-      const codes = new Set();
-      this.selectedStores.forEach(storeKey => {
-        this.getStoreFilteredProducts(storeKey).forEach(p => {
-          codes.add(p.comparisonKey || p.productCode);
+    getComparisonCellKey(productCode, storeKey) {
+      return String(productCode || '') + '\u0001' + String(storeKey || '');
+    },
+
+    getComparisonCache() {
+      this.getStoreFilteredRows();
+      const cacheKey = [
+        this.storeFilteredRowsCacheKey,
+        this.selectedStores.join(','),
+        this.storeViewMode || 'individual',
+        this.storeDestinationScope || 'all',
+      ].join('::');
+      const cache = this.getStoreComparisonCache();
+
+      if (cache.key === cacheKey && cache.value) {
+        return cache.value;
+      }
+
+      const codes = [];
+      const seenCodes = new Set();
+      const productsByCode = Object.create(null);
+      const cells = Object.create(null);
+      const confirmedByCode = Object.create(null);
+      const selectedStoreKeys = this.selectedStores
+        .map(storeKey => String(storeKey || ''))
+        .filter(Boolean);
+      const selectedStoreKeySet = new Set(selectedStoreKeys);
+      const visibleRows = Array.isArray(this.storeFilteredRowsCache)
+        ? this.storeFilteredRowsCache
+        : [];
+
+      visibleRows.forEach(row => {
+        const activeDestinationKeys = this.getRowActiveDestinationKeys(row).map(storeKey => String(storeKey || ''));
+        const targetStoreKeys = (activeDestinationKeys.length > 0 || this.storeDestinationScope === 'wholesale')
+          ? activeDestinationKeys.filter(storeKey => selectedStoreKeySet.has(storeKey))
+          : selectedStoreKeys;
+        const rowKey = this.getStoreSlipRowKey(row);
+        const sourceType = row.storeSourceType || 'allocation';
+        const sourceLabel = this.getStoreDistributionTypeLabel(sourceType);
+
+        targetStoreKeys.forEach(storeKey => {
+          if (!this.hasStoreDistributionQuantity(row, storeKey)) return;
+
+          const product = {
+            rowId: rowKey,
+            rowKey: rowKey,
+            sourceType: sourceType,
+            sourceLabel: sourceLabel,
+            comparisonKey: '[' + sourceLabel + '] ' + (row.productCode || ''),
+            orderDate: row.orderDate,
+            deliveryDate: row.deliveryDate,
+            productCode: row.productCode,
+            name: row.name,
+            unitsPerCase: toInt(row.unitsPerCase),
+            wish: toInt(row['wish_' + storeKey] || 0),
+            alloc: toInt(row['alloc_' + storeKey] || 0),
+            checked: row.checked,
+          };
+          const code = String(product.comparisonKey || product.productCode || '');
+          if (!code) return;
+
+          if (!seenCodes.has(code)) {
+            seenCodes.add(code);
+            codes.push(code);
+            productsByCode[code] = product;
+          }
+
+          cells[this.getComparisonCellKey(code, storeKey)] = product;
+          if (product.checked) {
+            confirmedByCode[code] = true;
+          }
         });
       });
-      return Array.from(codes);
+
+      cache.key = cacheKey;
+      cache.value = {
+        codes,
+        productsByCode,
+        cells,
+        confirmedByCode,
+      };
+
+      return cache.value;
+    },
+
+    getComparisonProductCodes() {
+      return this.getComparisonCache().codes;
+    },
+
+    getComparisonProductPage() {
+      return Math.min(Math.max(1, toInt(this.storeComparisonPage || 1) || 1), this.getComparisonProductPageCount());
+    },
+
+    getComparisonProductPageCount() {
+      const total = this.getComparisonProductCodes().length;
+
+      return Math.max(1, Math.ceil(total / this.getComparisonProductPageSize()));
+    },
+
+    setComparisonProductPage(page) {
+      this.storeComparisonPage = Math.min(Math.max(1, toInt(page) || 1), this.getComparisonProductPageCount());
+    },
+
+    moveComparisonProductPage(delta) {
+      this.setComparisonProductPage(this.getComparisonProductPage() + toInt(delta));
+    },
+
+    getComparisonProductPageRangeLabel() {
+      const total = this.getComparisonProductCodes().length;
+      if (total === 0) return '0 / 0';
+
+      const pageSize = this.getComparisonProductPageSize();
+      const page = this.getComparisonProductPage();
+      const start = ((page - 1) * pageSize) + 1;
+      const end = Math.min(total, start + pageSize - 1);
+
+      return start + '-' + end + ' / ' + total;
+    },
+
+    getRenderableComparisonProductCodes() {
+      const pageSize = this.getComparisonProductPageSize();
+      const page = this.getComparisonProductPage();
+      const start = (page - 1) * pageSize;
+
+      return this.getComparisonProductCodes().slice(start, start + pageSize);
+    },
+
+    getComparisonProductPageSize() {
+      return Math.max(1, toInt(DISTRIBUTION_COMPARISON_PRODUCT_RENDER_LIMIT || 60));
+    },
+
+    isComparisonRenderLimited() {
+      return this.getComparisonProductCodes().length > this.getComparisonProductPageSize();
     },
 
     getComparisonProductName(productCode) {
-      for (const storeKey of this.selectedStores) {
-        const products = this.getStoreFilteredProducts(storeKey);
-        const p = products.find(x => (x.comparisonKey || x.productCode) === productCode);
-        if (p) return p.name;
-      }
-      return '-';
+      return this.getComparisonProduct(productCode)?.name || '-';
     },
 
     getComparisonProduct(productCode) {
-      for (const storeKey of this.selectedStores) {
-        const products = this.getStoreFilteredProducts(storeKey);
-        const p = products.find(x => (x.comparisonKey || x.productCode) === productCode);
-        if (p) return p;
-      }
-
-      return null;
+      return this.getComparisonCache().productsByCode[String(productCode || '')] || null;
     },
 
     getComparisonProductSourceType(productCode) {
@@ -8810,8 +11963,7 @@ window.distributionApp = function distributionApp() {
     },
 
     getComparisonCell(productCode, storeKey) {
-      const products = this.getStoreFilteredProducts(storeKey);
-      return products.find(p => (p.comparisonKey || p.productCode) === productCode) || null;
+      return this.getComparisonCache().cells[this.getComparisonCellKey(productCode, storeKey)] || null;
     },
 
     getComparisonCellStateClass(productCode, storeKey) {
@@ -8828,7 +11980,7 @@ window.distributionApp = function distributionApp() {
     },
 
     isComparisonProductConfirmed(productCode) {
-      return this.selectedStores.some(storeKey => this.isComparisonCellConfirmed(productCode, storeKey));
+      return !!this.getComparisonCache().confirmedByCode[String(productCode || '')];
     },
   };
 };

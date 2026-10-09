@@ -7,16 +7,16 @@ use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\EItemSearchCodeType;
 use App\Enums\EVolumeUnit;
 use App\Enums\QuantityType;
+use App\Models\WmsDistributionRow;
 use App\Services\Distribution\DistributionDeliveryDateService;
 use App\Services\Distribution\DistributionOrderCandidateService;
 use App\Services\Distribution\DistributionStockTransferSlipService;
 use App\Services\WarehouseResolver;
+use App\Support\DbMutex;
 use Carbon\Carbon;
-use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
@@ -67,6 +67,14 @@ class DistributionProductController extends ApiController
     private const HQ_TRANSFER_CONTRACTOR_CODE = '9012';
 
     private const HQ_TRANSFER_WAREHOUSE_CODE = '91';
+
+    private const DISTRIBUTION_DEPARTMENT_CODES = ['90', '92', '93', '94', '95', '96', '97', '98'];
+
+    private const DISTRIBUTION_ROW_MODES = ['allocation', 'direct'];
+
+    private const DISTRIBUTION_ROW_FETCH_LIMIT = 3000;
+
+    private const DISTRIBUTION_STORE_ROW_FETCH_LIMIT = 1000;
 
     public function __invoke(
         Request $request,
@@ -270,6 +278,10 @@ class DistributionProductController extends ApiController
                         'supplierCode' => (string) ($contractor->supplier_code ?? ''),
                         'orderTo' => (string) ($contractor->contractor_name ?? ''),
                         'orderToCode' => (string) ($contractor->contractor_code ?? ''),
+                        'orderToTel' => (string) ($contractor->contractor_tel ?? ''),
+                        'orderToFax' => (string) ($contractor->contractor_fax ?? ''),
+                        'orderToAddress' => $this->formatContractorAddress($contractor),
+                        'transmissionType' => (string) ($contractor->transmission_type ?? ''),
                         'itemContractorNote' => (string) ($contractor->item_contractor_note ?? ''),
                         'suggestedDeliveryDate' => (string) ($suggestedDeliveryDate['suggested_delivery_date'] ?? ''),
                         'deliveryDateCalculation' => [
@@ -385,6 +397,7 @@ class DistributionProductController extends ApiController
 
                     if ($products === []) {
                         $fallbackEntries->push($entry);
+
                         continue;
                     }
 
@@ -578,7 +591,7 @@ class DistributionProductController extends ApiController
 
         $validator = Validator::make($request->all(), [
             'search' => 'nullable|string|max:100',
-            'limit' => 'nullable|integer|min:1|max:50',
+            'limit' => 'nullable|integer|min:1|max:200',
         ]);
 
         if ($validator->fails()) {
@@ -586,7 +599,7 @@ class DistributionProductController extends ApiController
         }
 
         $search = $this->normalizeSearchText((string) $request->input('search', ''));
-        $limit = max(1, min(50, (int) $request->input('limit', 20)));
+        $limit = max(1, min(200, (int) $request->input('limit', 200)));
         $digits = preg_replace('/\D/', '', $search);
         $like = "%{$search}%";
 
@@ -608,6 +621,7 @@ class DistributionProductController extends ApiController
         }
 
         $courses = $query
+            ->orderByRaw('CASE WHEN dc.code LIKE ? THEN 0 ELSE 1 END', ['91%'])
             ->orderBy('dc.code')
             ->limit($limit)
             ->get([
@@ -790,6 +804,9 @@ class DistributionProductController extends ApiController
                             'orderToCode' => (string) ($contractor->contractor_code ?? ''),
                             'supplier' => (string) ($contractor->supplier_name ?? ''),
                             'supplierCode' => (string) ($contractor->supplier_code ?? ''),
+                            'orderToTel' => (string) ($contractor->contractor_tel ?? ''),
+                            'orderToFax' => (string) ($contractor->contractor_fax ?? ''),
+                            'orderToAddress' => $this->formatContractorAddress($contractor),
                             'wishes' => $wishes,
                         ];
                     })
@@ -960,6 +977,9 @@ class DistributionProductController extends ApiController
                     'orderToCode' => (string) ($contractor->contractor_code ?? ''),
                     'supplier' => (string) ($contractor->supplier_name ?? ''),
                     'supplierCode' => (string) ($contractor->supplier_code ?? ''),
+                    'orderToTel' => (string) ($contractor->contractor_tel ?? ''),
+                    'orderToFax' => (string) ($contractor->contractor_fax ?? ''),
+                    'orderToAddress' => $this->formatContractorAddress($contractor),
                     'memo' => implode("\n", $memoParts),
                     'wishes' => $wishes,
                 ];
@@ -982,6 +1002,7 @@ class DistributionProductController extends ApiController
             'remark' => 'nullable|string|max:500',
             'rows' => 'required|array|min:1|max:100',
             'rows.*.row_id' => 'required|string|max:120',
+            'rows.*.distribution_business_key' => 'nullable|string|size:40',
             'rows.*.item_id' => 'nullable|integer|min:1',
             'rows.*.product_code' => 'nullable|string|max:100',
             'rows.*.item_contractor_id' => 'nullable|integer|min:1',
@@ -993,7 +1014,7 @@ class DistributionProductController extends ApiController
             'rows.*.supplier' => 'nullable|string|max:255',
             'rows.*.order_date' => 'nullable|date',
             'rows.*.delivery_date' => 'nullable|date',
-            'rows.*.delivery_course_id' => 'nullable|integer|min:1',
+            'rows.*.delivery_course_id' => 'required|integer|min:1',
             'rows.*.memo' => 'nullable|string|max:500',
             'rows.*.allocations' => 'required|array|min:1|max:200',
             'rows.*.allocations.*.destination_id' => 'required|integer|min:1',
@@ -1026,6 +1047,826 @@ class DistributionProductController extends ApiController
         }
     }
 
+    public function itemContractorNote(Request $request, PermissionService $permissionService): JsonResponse
+    {
+        $user = $request->user();
+
+        if (! $user || ! $this->canSearch($permissionService, $user)) {
+            abort(403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'item_contractor_id' => 'required|integer|min:1',
+            'item_id' => 'nullable|integer|min:1',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationError($validator->errors()->toArray());
+        }
+
+        $query = DB::connection('sakemaru')
+            ->table('item_contractors')
+            ->where('client_id', (int) config('app.client_id'))
+            ->where('id', (int) $request->integer('item_contractor_id'));
+
+        if ($request->filled('item_id')) {
+            $query->where('item_id', (int) $request->integer('item_id'));
+        }
+
+        $note = Schema::connection('sakemaru')->hasColumn('item_contractors', 'note')
+            ? $query->value('note')
+            : null;
+
+        return $this->success([
+            'note' => trim((string) ($note ?? '')),
+        ]);
+    }
+
+    public function distributionRows(Request $request, PermissionService $permissionService): JsonResponse
+    {
+        $user = $request->user();
+
+        if (! $user || ! $this->canSearch($permissionService, $user)) {
+            abort(403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'mode' => 'nullable|string|in:all,allocation,direct',
+            'context' => 'nullable|string|in:edit,store',
+            'confirm_status' => 'nullable|string|in:all,confirmed,unconfirmed',
+            'product_search' => 'nullable|string|max:100',
+            'keyword_search' => 'nullable|string|max:200',
+            'order_date_from' => 'nullable|date_format:Y-m-d',
+            'order_date_to' => 'nullable|date_format:Y-m-d',
+            'delivery_date_from' => 'nullable|date_format:Y-m-d',
+            'delivery_date_to' => 'nullable|date_format:Y-m-d',
+            'order_to_search' => 'nullable|string|max:200',
+            'supplier_search' => 'nullable|string|max:200',
+            'status_filter' => 'nullable|string|in:all,checked,unchecked,order_created,order_pending,printed,unprinted,unprocessed,request_printed',
+            'page' => 'nullable|integer|min:1',
+            'per_page' => 'nullable|integer|min:1|max:200',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationError($validator->errors()->toArray());
+        }
+
+        $requestedMode = (string) $request->input('mode', 'all');
+        $modes = $requestedMode === 'all' ? self::DISTRIBUTION_ROW_MODES : [$requestedMode];
+        $context = (string) $request->input('context', 'edit');
+        $page = max(1, (int) $request->input('page', 1));
+        $perPage = max(1, min(200, (int) $request->input('per_page', 100)));
+        $rowFetchLimit = $context === 'store'
+            ? self::DISTRIBUTION_STORE_ROW_FETCH_LIMIT
+            : self::DISTRIBUTION_ROW_FETCH_LIMIT;
+        $selectedKuraWarehouseId = $this->selectedKuraWarehouseId($user);
+        $storeDestinationKey = null;
+        $readOnly = false;
+
+        if ($context === 'store') {
+            if (! $this->canView($permissionService, $user, self::PERMISSION_STORE_DISTRIBUTION_MANAGEMENT)) {
+                abort(403);
+            }
+
+            $rowWarehouseId = $this->kuraWarehouseId();
+            if (! $rowWarehouseId) {
+                return $this->success([
+                    'allocation' => [],
+                    'direct' => [],
+                    'persisted' => true,
+                    'read_only' => true,
+                    'context' => $context,
+                ]);
+            }
+
+            if (! $selectedKuraWarehouseId) {
+                $storeDestinationKey = $this->selectedWarehouseDestinationKey($user);
+                if (! $storeDestinationKey) {
+                    abort(403);
+                }
+
+                $readOnly = true;
+            }
+        } else {
+            if (! $selectedKuraWarehouseId) {
+                abort(403);
+            }
+
+            foreach ($modes as $modeName) {
+                if (! $this->canView($permissionService, $user, $this->distributionRowModePermission($modeName))) {
+                    abort(403);
+                }
+            }
+
+            $rowWarehouseId = $selectedKuraWarehouseId;
+        }
+
+        if (! Schema::connection('sakemaru')->hasTable('wms_distribution_rows')) {
+            return $this->success([
+                'allocation' => [],
+                'direct' => [],
+                'persisted' => false,
+                'read_only' => $readOnly,
+                'context' => $context,
+            ]);
+        }
+
+        $clientId = (int) config('app.client_id');
+
+        $grouped = [
+            'allocation' => [],
+            'direct' => [],
+        ];
+        $modeCounts = [
+            'allocation' => 0,
+            'direct' => 0,
+        ];
+        $pagination = [];
+        $revisions = [];
+
+        foreach ($modes as $modeName) {
+            $query = WmsDistributionRow::query()
+                ->forClient($clientId)
+                ->forMode($modeName)
+                ->where('warehouse_id', (int) $rowWarehouseId);
+
+            if ($context === 'store') {
+                $this->applyStoreDistributionRowsFilters($query, $request);
+                if ($storeDestinationKey !== null) {
+                    $this->applyStoreDistributionDestinationFilter($query, $storeDestinationKey);
+                }
+            } elseif ($modeName === 'direct') {
+                $this->applyDirectDistributionRowsFilters($query, $request);
+            }
+
+            $modeCounts[$modeName] = (clone $query)->count();
+            $usesPaging = $context === 'edit' && $requestedMode === 'direct' && $modeName === 'direct';
+
+            if (! $usesPaging && $modeCounts[$modeName] > $rowFetchLimit) {
+                $modeLabel = $modeName === 'direct' ? '直送分配' : '本部分配';
+
+                return $this->error(
+                    $modeLabel.'の分配データが'.$rowFetchLimit.'件を超えているため、安全のため一覧を読み込めません。条件を絞るか、不要なデータを整理してから再読み込みしてください。',
+                    409,
+                    'DISTRIBUTION_ROWS_LIMIT_EXCEEDED',
+                    null,
+                    [
+                        'limit' => $rowFetchLimit,
+                        'mode' => $requestedMode,
+                        'exceeded_mode' => $modeName,
+                        'mode_counts' => $modeCounts,
+                    ]
+                );
+            }
+
+            $orderedQuery = $query
+                ->orderBy('sort_order')
+                ->orderBy('id');
+            $rows = $usesPaging
+                ? $orderedQuery->forPage($page, $perPage)->get()
+                : $orderedQuery->limit($rowFetchLimit)->get();
+
+            if ($usesPaging) {
+                $pagination[$modeName] = [
+                    'page' => $page,
+                    'per_page' => $perPage,
+                    'total' => $modeCounts[$modeName],
+                    'last_page' => max(1, (int) ceil($modeCounts[$modeName] / $perPage)),
+                ];
+            }
+
+            $revisions[$modeName] = $this->distributionRevision(
+                $clientId,
+                $modeName,
+                (int) $rowWarehouseId
+            );
+
+            $orderToContacts = collect();
+            $itemContractorNotes = collect();
+            if (Schema::connection('sakemaru')->hasColumn('item_contractors', 'note')) {
+                $itemContractorIds = $rows
+                    ->map(fn (WmsDistributionRow $row): int => (int) data_get($row->row_data, 'itemContractorId', data_get($row->row_data, 'item_contractor_id', 0)))
+                    ->filter()
+                    ->unique()
+                    ->values();
+
+                if ($itemContractorIds->isNotEmpty()) {
+                    $itemContractorNotes = DB::connection('sakemaru')
+                        ->table('item_contractors')
+                        ->where('client_id', $clientId)
+                        ->whereIn('id', $itemContractorIds->all())
+                        ->pluck('note', 'id');
+                }
+            }
+
+            if ($modeName === 'direct') {
+                $orderToCodes = $rows
+                    ->map(fn (WmsDistributionRow $row): string => trim((string) data_get($row->row_data, 'orderToCode', data_get($row->row_data, 'order_to_code', ''))))
+                    ->filter()
+                    ->unique()
+                    ->values();
+
+                if ($orderToCodes->isNotEmpty()) {
+                    $orderToContacts = DB::connection('sakemaru')
+                        ->table('contractors as c')
+                        ->leftJoin('wms_contractor_settings as wcs', 'wcs.contractor_id', '=', 'c.id')
+                        ->where('c.client_id', $clientId)
+                        ->whereIn('c.code', $orderToCodes->all())
+                        ->get(['c.code', 'c.postal_code', 'c.address1', 'c.address2', 'c.tel', 'c.fax', 'wcs.transmission_type'])
+                        ->keyBy(fn ($contractor): string => trim((string) $contractor->code));
+                }
+            }
+
+            $rows->each(function (WmsDistributionRow $row) use (&$grouped, $storeDestinationKey, $orderToContacts, $itemContractorNotes): void {
+                $data = is_array($row->row_data) ? $row->row_data : [];
+                if ($data === []) {
+                    return;
+                }
+
+                $itemContractorId = (int) ($data['itemContractorId'] ?? $data['item_contractor_id'] ?? 0);
+                if ($itemContractorId > 0 && $itemContractorNotes->has($itemContractorId)) {
+                    $data['itemContractorNote'] = trim((string) ($itemContractorNotes->get($itemContractorId) ?? ''));
+                    $data['itemContractorNoteLoaded'] = true;
+                }
+
+                if ($row->mode === 'direct' && $orderToContacts->isNotEmpty()) {
+                    $orderToCode = trim((string) ($data['orderToCode'] ?? $data['order_to_code'] ?? ''));
+                    $contact = $orderToContacts->get($orderToCode);
+                    if ($contact) {
+                        $data['orderToTel'] = trim((string) ($contact->tel ?? ''));
+                        $data['orderToFax'] = trim((string) ($contact->fax ?? ''));
+                        $data['orderToAddress'] = $this->formatContractorAddress($contact);
+                        $data['transmissionType'] = trim((string) ($contact->transmission_type ?? ''));
+                    }
+                }
+
+                if ($storeDestinationKey !== null) {
+                    $data = $this->scopeDistributionRowDataForDestination($data, $storeDestinationKey);
+                    if ($data === null) {
+                        return;
+                    }
+                }
+
+                $grouped[$row->mode][] = $data;
+            });
+        }
+
+        return $this->success([
+            'allocation' => $grouped['allocation'],
+            'direct' => $grouped['direct'],
+            'persisted' => true,
+            'read_only' => $readOnly,
+            'context' => $context,
+            'total_count' => array_sum($modeCounts),
+            'mode_counts' => $modeCounts,
+            'limit' => $rowFetchLimit,
+            'pagination' => $pagination,
+            'revisions' => $revisions,
+        ]);
+    }
+
+    public function saveDistributionRows(Request $request, PermissionService $permissionService): JsonResponse
+    {
+        $user = $request->user();
+
+        if (! $user) {
+            abort(403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'mode' => 'required|string|in:allocation,direct',
+            'replace' => 'nullable|boolean',
+            'expected_revision' => 'required|integer|min:0',
+            'deleted_row_ids' => 'nullable|array|max:3000',
+            'deleted_row_ids.*' => 'string|max:120',
+            'rows' => 'present|array|max:3000',
+            'rows.*' => 'array',
+            'rows.*.id' => 'required|string|max:120',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationError($validator->errors()->toArray());
+        }
+
+        $mode = (string) $request->input('mode');
+        $requiredPermission = $this->distributionRowModePermission($mode);
+
+        if (! $this->canView($permissionService, $user, $requiredPermission)) {
+            abort(403);
+        }
+
+        $warehouseId = $this->selectedKuraWarehouseId($user);
+        if (! $warehouseId) {
+            abort(403);
+        }
+
+        if (
+            ! Schema::connection('sakemaru')->hasTable('wms_distribution_rows')
+            || ! Schema::connection('sakemaru')->hasTable('wms_distribution_revisions')
+        ) {
+            return $this->error('分配データ保存テーブルが未作成です。マイグレーションを実行してください。', 503, 'DISTRIBUTION_ROWS_TABLE_MISSING');
+        }
+
+        $clientId = (int) config('app.client_id');
+        $rows = $request->input('rows', []);
+        $quantityErrors = $this->distributionRowQuantityErrors($rows);
+        if ($quantityErrors !== []) {
+            $invalidRowIds = collect(array_keys($quantityErrors))
+                ->map(function (string $path) use ($rows): string {
+                    if (preg_match('/^rows\.(\d+)\./', $path, $matches) !== 1) {
+                        return '';
+                    }
+
+                    $row = $rows[(int) $matches[1]] ?? null;
+
+                    return is_array($row) ? trim((string) ($row['id'] ?? '')) : '';
+                })
+                ->filter()
+                ->unique()
+                ->values();
+            $existingRowData = $invalidRowIds->isEmpty()
+                ? []
+                : WmsDistributionRow::query()
+                    ->forClient($clientId)
+                    ->forMode($mode)
+                    ->where('warehouse_id', $warehouseId)
+                    ->whereIn('row_id', $invalidRowIds->all())
+                    ->get(['row_id', 'row_data'])
+                    ->mapWithKeys(fn (WmsDistributionRow $row): array => [
+                        (string) $row->row_id => is_array($row->row_data) ? $row->row_data : [],
+                    ])
+                    ->all();
+            $quantityErrors = $this->distributionRowQuantityErrors($rows, $existingRowData);
+        }
+        if ($quantityErrors !== []) {
+            return $this->error(
+                '希望数・分配数には0以上の整数を入力してください。',
+                422,
+                'DISTRIBUTION_ROW_QUANTITY_INVALID',
+                null,
+                $quantityErrors
+            );
+        }
+        $replaceAll = $request->boolean('replace');
+        $deletedRowIds = collect($request->input('deleted_row_ids', []))
+            ->map(fn ($rowId): string => trim((string) $rowId))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+        $incomingRowIds = [];
+        $upsertRows = [];
+        $newRevision = 0;
+        $protectedRowIds = [];
+        $deleteProtectedRowIds = [];
+        $fieldProtectedRowIds = [];
+        $confirmationProtectedRowIds = [];
+        $resyncRequiredRowIds = [];
+        $savedRowCount = 0;
+        $deletedRowCount = 0;
+
+        foreach (array_values($rows) as $index => $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+
+            $rowId = trim((string) ($row['id'] ?? ''));
+            if ($rowId === '') {
+                continue;
+            }
+
+            $businessKey = trim((string) ($row['distributionBusinessKey'] ?? ''));
+            if (preg_match('/^[0-9a-f]{40}$/i', $businessKey) !== 1) {
+                $businessKey = sha1(json_encode([
+                    'mode' => $mode,
+                    'product_code' => $row['productCode'] ?? '',
+                    'item_id' => $row['itemId'] ?? null,
+                    'source' => $row['source'] ?? '',
+                    'source_key' => $row['sourceKey'] ?? '',
+                    'row_id' => $rowId,
+                ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+                $row['distributionBusinessKey'] = $businessKey;
+            }
+
+            $incomingRowIds[$rowId] = $rowId;
+            $upsertRows[$rowId] = [
+                'client_id' => $clientId,
+                'mode' => $mode,
+                'warehouse_id' => $warehouseId,
+                'row_id' => $rowId,
+                'sort_order' => $index,
+                'business_key' => strtolower($businessKey),
+                'source' => mb_substr((string) ($row['source'] ?? ''), 0, 50),
+                'source_key' => mb_substr((string) ($row['sourceKey'] ?? ''), 0, 255),
+                'product_code' => mb_substr((string) ($row['productCode'] ?? ''), 0, 100),
+                'item_id' => filled($row['itemId'] ?? null) ? (int) $row['itemId'] : null,
+                'row_data' => json_encode($row, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+                'created_by' => (int) $user->id,
+                'updated_by' => (int) $user->id,
+                'created_at' => now(),
+                'updated_at' => now(),
+                'deleted_at' => null,
+            ];
+        }
+
+        $incomingRowIds = array_values($incomingRowIds);
+        $upsertRows = array_values($upsertRows);
+
+        try {
+            DB::connection('sakemaru')->transaction(function () use ($clientId, $warehouseId, $mode, $upsertRows, $deletedRowIds, $replaceAll, $request, $incomingRowIds, &$newRevision, &$protectedRowIds, &$deleteProtectedRowIds, &$fieldProtectedRowIds, &$confirmationProtectedRowIds, &$resyncRequiredRowIds, &$savedRowCount, &$deletedRowCount): void {
+                DB::connection('sakemaru')->table('wms_distribution_revisions')->insertOrIgnore([
+                    'client_id' => $clientId,
+                    'mode' => $mode,
+                    'warehouse_id' => $warehouseId,
+                    'revision' => 0,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                $revisionRow = DB::connection('sakemaru')
+                    ->table('wms_distribution_revisions')
+                    ->where('client_id', $clientId)
+                    ->where('mode', $mode)
+                    ->where('warehouse_id', $warehouseId)
+                    ->lockForUpdate()
+                    ->first(['revision']);
+                $currentRevision = (int) ($revisionRow->revision ?? 0);
+                $expectedRevision = (int) $request->input('expected_revision');
+
+                if ($currentRevision !== $expectedRevision) {
+                    throw new \RuntimeException('DISTRIBUTION_REVISION_CONFLICT:'.$currentRevision);
+                }
+
+                $candidateProtectedRowIds = $replaceAll
+                    ? null
+                    : array_values(array_unique(array_merge($incomingRowIds, $deletedRowIds)));
+                $protectedRowIds = $this->distributionProtectedRowIds(
+                    $clientId,
+                    $mode,
+                    $warehouseId,
+                    $candidateProtectedRowIds,
+                    false
+                );
+                $deleteProtectedRowIds = $this->distributionProtectedRowIds(
+                    $clientId,
+                    $mode,
+                    $warehouseId,
+                    $candidateProtectedRowIds,
+                    true
+                );
+                $protectedLookup = array_fill_keys($protectedRowIds, true);
+                $deleteProtectedLookup = array_fill_keys($deleteProtectedRowIds, true);
+                $saveRows = array_values(array_filter(
+                    $upsertRows,
+                    fn (array $row): bool => ! isset($protectedLookup[(string) $row['row_id']])
+                ));
+                $confirmationProtectedRowIds = [];
+                [$saveRows, $fieldProtectedRowIds] = $this->preserveOrderCandidateLockedFields(
+                    $clientId,
+                    $mode,
+                    $warehouseId,
+                    $saveRows
+                );
+                $deletableRowIds = array_values(array_filter(
+                    $deletedRowIds,
+                    fn (string $rowId): bool => ! isset($deleteProtectedLookup[$rowId])
+                ));
+                $savedRowCount = count($saveRows);
+                $incomingLookup = array_fill_keys($incomingRowIds, true);
+                $resyncRequiredRowIds = array_values(array_unique(array_merge(
+                    $confirmationProtectedRowIds,
+                    $fieldProtectedRowIds,
+                    array_values(array_filter(
+                        $deleteProtectedRowIds,
+                        fn (string $rowId): bool => ! isset($incomingLookup[$rowId]) || in_array($rowId, $deletedRowIds, true)
+                    ))
+                )));
+
+                if (! $replaceAll && $saveRows !== []) {
+                    $existingSortOrders = DB::connection('sakemaru')
+                        ->table('wms_distribution_rows')
+                        ->where('client_id', $clientId)
+                        ->where('mode', $mode)
+                        ->where('warehouse_id', $warehouseId)
+                        ->whereIn('row_id', $incomingRowIds)
+                        ->pluck('sort_order', 'row_id');
+                    $nextSortOrder = (int) (DB::connection('sakemaru')
+                        ->table('wms_distribution_rows')
+                        ->where('client_id', $clientId)
+                        ->where('mode', $mode)
+                        ->where('warehouse_id', $warehouseId)
+                        ->max('sort_order') ?? -1);
+
+                    foreach ($saveRows as &$upsertRow) {
+                        $rowId = (string) $upsertRow['row_id'];
+                        $upsertRow['sort_order'] = $existingSortOrders->has($rowId)
+                            ? (int) $existingSortOrders->get($rowId)
+                            : ++$nextSortOrder;
+                    }
+                    unset($upsertRow);
+                }
+
+                foreach (array_chunk($saveRows, 250) as $chunk) {
+                    DB::connection('sakemaru')->table('wms_distribution_rows')->upsert(
+                        $chunk,
+                        ['client_id', 'mode', 'warehouse_id', 'row_id'],
+                        [
+                            'sort_order',
+                            'business_key',
+                            'source',
+                            'source_key',
+                            'product_code',
+                            'item_id',
+                            'row_data',
+                            'updated_by',
+                            'updated_at',
+                            'deleted_at',
+                        ]
+                    );
+                }
+
+                if ($deletableRowIds !== []) {
+                    $deletedRowCount += WmsDistributionRow::query()
+                        ->forClient($clientId)
+                        ->forMode($mode)
+                        ->where('warehouse_id', $warehouseId)
+                        ->whereIn('row_id', $deletableRowIds)
+                        ->delete();
+                }
+
+                if ($replaceAll) {
+                    $deleteQuery = WmsDistributionRow::query()
+                        ->forClient($clientId)
+                        ->forMode($mode)
+                        ->where('warehouse_id', $warehouseId);
+
+                    if ($incomingRowIds !== []) {
+                        $deleteQuery->whereNotIn('row_id', $incomingRowIds);
+                    }
+                    if ($deleteProtectedRowIds !== []) {
+                        $deleteQuery->whereNotIn('row_id', $deleteProtectedRowIds);
+                    }
+
+                    $deletedRowCount += $deleteQuery->delete();
+                }
+
+                $newRevision = $currentRevision + 1;
+                DB::connection('sakemaru')
+                    ->table('wms_distribution_revisions')
+                    ->where('client_id', $clientId)
+                    ->where('mode', $mode)
+                    ->where('warehouse_id', $warehouseId)
+                    ->update([
+                        'revision' => $newRevision,
+                        'updated_at' => now(),
+                    ]);
+            }, 5);
+        } catch (\RuntimeException $exception) {
+            if (str_starts_with($exception->getMessage(), 'DISTRIBUTION_REVISION_CONFLICT:')) {
+                $currentRevision = (int) str($exception->getMessage())->after(':')->value();
+
+                return $this->error(
+                    '別の画面で分配データが更新されています。画面を再読み込みしてから操作してください。',
+                    409,
+                    'DISTRIBUTION_REVISION_CONFLICT',
+                    null,
+                    ['current_revision' => $currentRevision]
+                );
+            }
+
+            throw $exception;
+        }
+
+        return $this->success([
+            'saved_count' => $savedRowCount,
+            'deleted_count' => $deletedRowCount,
+            'protected_count' => count($protectedRowIds),
+            'protected_row_ids' => $protectedRowIds,
+            'delete_protected_count' => count($deleteProtectedRowIds),
+            'delete_protected_row_ids' => $deleteProtectedRowIds,
+            'field_protected_count' => count($fieldProtectedRowIds),
+            'field_protected_row_ids' => $fieldProtectedRowIds,
+            'confirmation_protected_count' => count($confirmationProtectedRowIds),
+            'confirmation_protected_row_ids' => $confirmationProtectedRowIds,
+            'resync_required_row_ids' => $resyncRequiredRowIds,
+            'mode' => $mode,
+            'revision' => $newRevision,
+        ]);
+    }
+
+    /**
+     * @param  array<int, mixed>  $rows
+     * @param  array<string, array<string, mixed>>  $existingRowData
+     * @return array<string, array<int, string>>
+     */
+    private function distributionRowQuantityErrors(array $rows, array $existingRowData = []): array
+    {
+        $errors = [];
+
+        foreach ($rows as $rowIndex => $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+
+            foreach ($row as $field => $value) {
+                $field = (string) $field;
+                if (! str_starts_with($field, 'wish_') && ! str_starts_with($field, 'alloc_')) {
+                    continue;
+                }
+                if ($value === null || $value === '') {
+                    continue;
+                }
+
+                $validated = filter_var($value, FILTER_VALIDATE_INT);
+                if ($validated === false || $validated < 0 || $validated > 99999999) {
+                    $rowId = trim((string) ($row['id'] ?? ''));
+                    $existingValue = $existingRowData[$rowId][$field] ?? null;
+                    $existingValidated = filter_var($existingValue, FILTER_VALIDATE_INT);
+                    if (
+                        $validated !== false
+                        && $validated < 0
+                        && $existingValidated !== false
+                        && $existingValidated === $validated
+                    ) {
+                        continue;
+                    }
+
+                    $errors["rows.{$rowIndex}.{$field}"] = ['0以上99,999,999以下の整数を入力してください。'];
+                }
+            }
+        }
+
+        return $errors;
+    }
+
+    public function markDirectRequestPrinted(Request $request, PermissionService $permissionService): JsonResponse
+    {
+        $user = $request->user();
+
+        if (! $user || ! $this->canView($permissionService, $user, self::PERMISSION_DIRECT_DISTRIBUTION)) {
+            abort(403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'row_ids' => 'required|array|min:1|max:3000',
+            'row_ids.*' => 'required|string|max:120|distinct',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationError($validator->errors()->toArray());
+        }
+
+        $warehouseId = $this->selectedKuraWarehouseId($user);
+        if (! $warehouseId) {
+            abort(403);
+        }
+
+        if (
+            ! Schema::connection('sakemaru')->hasTable('wms_distribution_rows')
+            || ! Schema::connection('sakemaru')->hasTable('wms_distribution_revisions')
+        ) {
+            return $this->error('分配データ保存テーブルが未作成です。マイグレーションを実行してください。', 503, 'DISTRIBUTION_ROWS_TABLE_MISSING');
+        }
+
+        $clientId = (int) config('app.client_id');
+        $rowIds = collect($request->input('row_ids', []))
+            ->map(fn ($rowId): string => trim((string) $rowId))
+            ->filter()
+            ->unique()
+            ->values();
+
+        try {
+            $result = DB::connection('sakemaru')->transaction(function () use ($clientId, $warehouseId, $rowIds, $user): array {
+                DB::connection('sakemaru')->table('wms_distribution_revisions')->insertOrIgnore([
+                    'client_id' => $clientId,
+                    'mode' => 'direct',
+                    'warehouse_id' => $warehouseId,
+                    'revision' => 0,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                $revisionRow = DB::connection('sakemaru')
+                    ->table('wms_distribution_revisions')
+                    ->where('client_id', $clientId)
+                    ->where('mode', 'direct')
+                    ->where('warehouse_id', $warehouseId)
+                    ->lockForUpdate()
+                    ->first(['revision']);
+
+                $rowsQuery = WmsDistributionRow::query()
+                    ->forClient($clientId)
+                    ->forMode('direct')
+                    ->where('warehouse_id', $warehouseId)
+                    ->whereIn('row_id', $rowIds->all());
+                $foundRowIds = (clone $rowsQuery)
+                    ->lockForUpdate()
+                    ->pluck('row_id')
+                    ->map(fn ($rowId): string => (string) $rowId)
+                    ->values();
+
+                if ($foundRowIds->count() !== $rowIds->count()) {
+                    throw new RuntimeException('DIRECT_REQUEST_PRINT_ROWS_NOT_FOUND');
+                }
+
+                $validDestinations = DB::connection('sakemaru')
+                    ->table('warehouses')
+                    ->where('client_id', $clientId)
+                    ->where('is_active', true)
+                    ->where('id', '<>', $warehouseId)
+                    ->get(['id', 'code']);
+                $validDestinationKeys = $validDestinations
+                    ->mapWithKeys(fn ($warehouse): array => [
+                        $this->formatDestinationKey($warehouse->code, (int) $warehouse->id) => true,
+                    ])
+                    ->all();
+                $validDestinationIds = $validDestinations
+                    ->mapWithKeys(fn ($warehouse): array => [(int) $warehouse->id => true])
+                    ->all();
+
+                $now = now();
+                $updatedCount = 0;
+                foreach ($foundRowIds->chunk(250) as $chunk) {
+                    $chunkRows = WmsDistributionRow::query()
+                        ->forClient($clientId)
+                        ->forMode('direct')
+                        ->where('warehouse_id', $warehouseId)
+                        ->whereIn('row_id', $chunk->all())
+                        ->get(['row_id', 'row_data']);
+                    $invalidAllocationRow = $chunkRows->first(function (WmsDistributionRow $row) use ($validDestinationKeys, $validDestinationIds): bool {
+                        $data = is_array($row->row_data) ? $row->row_data : [];
+
+                        foreach ($data as $field => $value) {
+                            $field = (string) $field;
+                            $destinationKey = str_starts_with($field, 'alloc_') ? substr($field, 6) : '';
+                            if ($destinationKey !== '' && isset($validDestinationKeys[$destinationKey]) && (int) $value > 0) {
+                                return false;
+                            }
+                        }
+                        foreach (($data['allocations'] ?? []) as $allocation) {
+                            if (! is_array($allocation) || (int) ($allocation['quantity'] ?? 0) <= 0) {
+                                continue;
+                            }
+
+                            $destinationKey = trim((string) ($allocation['destination_key'] ?? ''));
+                            $destinationId = (int) ($allocation['destination_id'] ?? 0);
+                            if (
+                                ($destinationKey !== '' && isset($validDestinationKeys[$destinationKey]))
+                                || ($destinationId > 0 && isset($validDestinationIds[$destinationId]))
+                            ) {
+                                return false;
+                            }
+                        }
+
+                        return true;
+                    });
+                    if ($invalidAllocationRow) {
+                        throw new RuntimeException('DIRECT_REQUEST_PRINT_ROW_HAS_NO_ALLOCATION');
+                    }
+
+                    $updatedCount += WmsDistributionRow::query()
+                        ->forClient($clientId)
+                        ->forMode('direct')
+                        ->where('warehouse_id', $warehouseId)
+                        ->whereIn('row_id', $chunk->all())
+                        ->update([
+                            'row_data' => DB::raw("JSON_SET(row_data, '$.printed', JSON_EXTRACT('true', '$'))"),
+                            'updated_by' => (int) $user->id,
+                            'updated_at' => $now,
+                        ]);
+                }
+
+                $revision = (int) ($revisionRow->revision ?? 0) + 1;
+                DB::connection('sakemaru')
+                    ->table('wms_distribution_revisions')
+                    ->where('client_id', $clientId)
+                    ->where('mode', 'direct')
+                    ->where('warehouse_id', $warehouseId)
+                    ->update([
+                        'revision' => $revision,
+                        'updated_at' => $now,
+                    ]);
+
+                return [
+                    'updated_count' => $updatedCount,
+                    'row_ids' => $foundRowIds->all(),
+                    'revision' => $revision,
+                ];
+            }, 5);
+        } catch (RuntimeException $exception) {
+            if ($exception->getMessage() === 'DIRECT_REQUEST_PRINT_ROWS_NOT_FOUND') {
+                return $this->error('出力対象の一部が削除または変更されています。画面を再読み込みしてください。', 409, 'DISTRIBUTION_ROWS_STALE');
+            }
+            if ($exception->getMessage() === 'DIRECT_REQUEST_PRINT_ROW_HAS_NO_ALLOCATION') {
+                return $this->error('店舗別分配数が入力されていないデータは出力済みに更新できません。画面を再読み込みしてください。', 409, 'DISTRIBUTION_ROWS_STALE');
+            }
+
+            throw $exception;
+        }
+
+        return $this->success($result);
+    }
+
     public function createWarehouseTransfers(
         Request $request,
         PermissionService $permissionService,
@@ -1042,6 +1883,7 @@ class DistributionProductController extends ApiController
             'process_date' => 'required|date_format:Y-m-d',
             'rows' => 'required|array|min:1|max:100',
             'rows.*.row_id' => 'required|string|max:120',
+            'rows.*.distribution_business_key' => 'nullable|string|size:40',
             'rows.*.item_id' => 'nullable|integer|min:1',
             'rows.*.product_code' => 'nullable|string|max:100',
             'rows.*.item_contractor_id' => 'nullable|integer|min:1',
@@ -1053,7 +1895,7 @@ class DistributionProductController extends ApiController
             'rows.*.supplier' => 'nullable|string|max:255',
             'rows.*.order_date' => 'nullable|date',
             'rows.*.delivery_date' => 'nullable|date',
-            'rows.*.delivery_course_id' => 'nullable|integer|min:1',
+            'rows.*.delivery_course_id' => 'required|integer|min:1',
             'rows.*.memo' => 'nullable|string|max:500',
             'rows.*.allocations' => 'required|array|min:1|max:200',
             'rows.*.allocations.*.destination_id' => 'required|integer|min:1',
@@ -1069,6 +1911,18 @@ class DistributionProductController extends ApiController
 
         if (! $selectedWarehouseId) {
             return $this->error('倉庫移動生成は華むすびの蔵センター選択時のみ実行できます。', 422, 'KURA_WAREHOUSE_REQUIRED');
+        }
+
+        try {
+            $this->assertDistributionGenerationRowsAreCurrent(
+                clientId: (int) config('app.client_id'),
+                warehouseId: (int) $selectedWarehouseId,
+                mode: 'allocation',
+                rows: $request->input('rows', []),
+                operation: 'warehouse-transfer'
+            );
+        } catch (RuntimeException $e) {
+            return $this->error($e->getMessage(), 409, 'DISTRIBUTION_ROWS_STALE');
         }
 
         $lockKey = $this->distributionGenerationLockKey('warehouse-transfer', $selectedWarehouseId);
@@ -1109,6 +1963,7 @@ class DistributionProductController extends ApiController
             'check_only' => 'nullable|boolean',
             'rows' => 'required|array|min:1|max:100',
             'rows.*.row_id' => 'required|string|max:120',
+            'rows.*.distribution_business_key' => 'nullable|string|size:40',
             'rows.*.item_id' => 'nullable|integer|min:1',
             'rows.*.product_code' => 'nullable|string|max:100',
             'rows.*.item_contractor_id' => 'nullable|integer|min:1',
@@ -1163,6 +2018,18 @@ class DistributionProductController extends ApiController
         }
 
         try {
+            $this->assertDistributionGenerationRowsAreCurrent(
+                clientId: (int) config('app.client_id'),
+                warehouseId: (int) $selectedWarehouseId,
+                mode: $mode,
+                rows: $request->input('rows', []),
+                operation: 'order-candidate'
+            );
+        } catch (RuntimeException $e) {
+            return $this->error($e->getMessage(), 409, 'DISTRIBUTION_ROWS_STALE');
+        }
+
+        try {
             $lockKey = $this->distributionGenerationLockKey("order-candidates-{$mode}", (int) $selectedWarehouseId);
 
             return $this->runWithDistributionGenerationLock(
@@ -1179,8 +2046,8 @@ class DistributionProductController extends ApiController
                             createdBy: (int) $user->id,
                             rows: $request->input('rows', [])
                         )
-                    )
-                );
+                )
+            );
         } catch (RuntimeException $e) {
             return $this->error($e->getMessage(), 422, 'DISTRIBUTION_ORDER_CANDIDATE_ERROR');
         }
@@ -1188,14 +2055,32 @@ class DistributionProductController extends ApiController
 
     private function runWithDistributionGenerationLock(string $lockKey, callable $callback): JsonResponse
     {
+        $databaseLockKey = 'wms-dist:'.sha1($lockKey);
+
         try {
-            return Cache::store('file')->lock($lockKey, 30)->block(1, $callback);
-        } catch (LockTimeoutException) {
+            $acquired = DbMutex::acquireOrFail($databaseLockKey, 1, 'sakemaru');
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            return $this->error(
+                '生成処理の排他制御に失敗しました。しばらくしてから再度実行してください。',
+                503,
+                'DISTRIBUTION_GENERATION_LOCK_ERROR'
+            );
+        }
+
+        if (! $acquired) {
             return $this->error(
                 '同じ生成処理が実行中です。完了してから再度実行してください。',
                 429,
                 'DISTRIBUTION_GENERATION_LOCKED'
             );
+        }
+
+        try {
+            return $callback();
+        } finally {
+            DbMutex::release($databaseLockKey, 'sakemaru');
         }
     }
 
@@ -1241,6 +2126,744 @@ class DistributionProductController extends ApiController
             ->exists();
 
         return $exists ? $warehouseId : null;
+    }
+
+    private function kuraWarehouseId(): ?int
+    {
+        $warehouseId = DB::connection('sakemaru')
+            ->table('warehouses')
+            ->where('client_id', (int) config('app.client_id'))
+            ->where('code', self::HQ_TRANSFER_WAREHOUSE_CODE)
+            ->where('is_active', true)
+            ->value('id');
+
+        return $warehouseId ? (int) $warehouseId : null;
+    }
+
+    private function selectedWarehouseDestinationKey($user): ?string
+    {
+        $warehouseId = (int) ($user->getSelectedWarehouseId() ?: 0);
+        if ($warehouseId <= 0) {
+            return null;
+        }
+
+        $warehouse = DB::connection('sakemaru')
+            ->table('warehouses')
+            ->where('client_id', (int) config('app.client_id'))
+            ->where('id', $warehouseId)
+            ->where('is_active', true)
+            ->first(['id', 'code']);
+
+        if (! $warehouse) {
+            return null;
+        }
+
+        return $this->formatDestinationKey($warehouse->code, (int) $warehouse->id);
+    }
+
+    private function distributionRowModePermission(string $mode): string
+    {
+        return $mode === 'direct'
+            ? self::PERMISSION_DIRECT_DISTRIBUTION
+            : self::PERMISSION_DISTRIBUTION_ADJUSTMENT;
+    }
+
+    private function distributionRevision(int $clientId, string $mode, int $warehouseId): int
+    {
+        if (! Schema::connection('sakemaru')->hasTable('wms_distribution_revisions')) {
+            return 0;
+        }
+
+        return (int) (DB::connection('sakemaru')
+            ->table('wms_distribution_revisions')
+            ->where('client_id', $clientId)
+            ->where('mode', $mode)
+            ->where('warehouse_id', $warehouseId)
+            ->value('revision') ?? 0);
+    }
+
+    /**
+     * @param  array<int, string>|null  $candidateRowIds  Null means the complete scope.
+     * @return array<int, string>
+     */
+    private function distributionProtectedRowIds(
+        int $clientId,
+        string $mode,
+        int $warehouseId,
+        ?array $candidateRowIds,
+        bool $includeDeleteOnlyLocks
+    ): array {
+        if ($candidateRowIds === []) {
+            return [];
+        }
+
+        $fullLockCondition = <<<'SQL'
+(
+    LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.warehouseTransferGenerated')), 'false')) IN ('true', '1')
+    OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.warehouse_transfer_generated')), 'false')) IN ('true', '1')
+    OR COALESCE(JSON_LENGTH(JSON_EXTRACT(row_data, '$.warehouseTransferQueueIds')), 0) > 0
+    OR COALESCE(JSON_LENGTH(JSON_EXTRACT(row_data, '$.warehouse_transfer_queue_ids')), 0) > 0
+    OR COALESCE(JSON_LENGTH(JSON_EXTRACT(row_data, '$.transferSlipQueueIds')), 0) > 0
+    OR COALESCE(JSON_LENGTH(JSON_EXTRACT(row_data, '$.transfer_slip_queue_ids')), 0) > 0
+)
+SQL;
+        $checkedDeleteCondition = 'FALSE';
+        $deleteOnlyCondition = <<<SQL
+(
+    {$checkedDeleteCondition}
+    OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.orderCandidateGenerated')), 'false')) IN ('true', '1')
+    OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.order_candidate_generated')), 'false')) IN ('true', '1')
+    OR COALESCE(JSON_LENGTH(JSON_EXTRACT(row_data, '$.orderCandidateIds')), 0) > 0
+    OR COALESCE(JSON_LENGTH(JSON_EXTRACT(row_data, '$.order_candidate_ids')), 0) > 0
+)
+SQL;
+
+        $query = WmsDistributionRow::query()
+            ->forClient($clientId)
+            ->forMode($mode)
+            ->where('warehouse_id', $warehouseId)
+            ->whereRaw($includeDeleteOnlyLocks
+                ? "({$fullLockCondition} OR {$deleteOnlyCondition})"
+                : $fullLockCondition);
+
+        if ($candidateRowIds !== null) {
+            $query->whereIn('row_id', $candidateRowIds);
+        }
+
+        return $query
+            ->pluck('row_id')
+            ->map(fn ($rowId): string => (string) $rowId)
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Preserve a confirmed row while still allowing the confirmation to be removed.
+     *
+     * @param  array<int, array<string, mixed>>  $saveRows
+     * @return array{0: array<int, array<string, mixed>>, 1: array<int, string>}
+     */
+    private function preserveConfirmedLockedFields(
+        int $clientId,
+        string $mode,
+        int $warehouseId,
+        array $saveRows
+    ): array {
+        if ($mode === 'direct') {
+            return [$saveRows, []];
+        }
+
+        if ($saveRows === []) {
+            return [$saveRows, []];
+        }
+
+        $existingRows = WmsDistributionRow::query()
+            ->forClient($clientId)
+            ->forMode($mode)
+            ->where('warehouse_id', $warehouseId)
+            ->whereIn('row_id', array_column($saveRows, 'row_id'))
+            ->whereRaw("LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.checked')), 'false')) IN ('true', '1')")
+            ->whereRaw("NOT (
+                LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.orderCandidateGenerated')), 'false')) IN ('true', '1')
+                OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.order_candidate_generated')), 'false')) IN ('true', '1')
+                OR COALESCE(JSON_LENGTH(JSON_EXTRACT(row_data, '$.orderCandidateIds')), 0) > 0
+                OR COALESCE(JSON_LENGTH(JSON_EXTRACT(row_data, '$.order_candidate_ids')), 0) > 0
+            )")
+            ->whereRaw("NOT (
+                LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.warehouseTransferGenerated')), 'false')) IN ('true', '1')
+                OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.warehouse_transfer_generated')), 'false')) IN ('true', '1')
+                OR COALESCE(JSON_LENGTH(JSON_EXTRACT(row_data, '$.warehouseTransferQueueIds')), 0) > 0
+                OR COALESCE(JSON_LENGTH(JSON_EXTRACT(row_data, '$.warehouse_transfer_queue_ids')), 0) > 0
+            )")
+            ->get(['row_id', 'business_key', 'source', 'source_key', 'product_code', 'item_id', 'row_data'])
+            ->keyBy(fn ($row): string => (string) $row->row_id);
+
+        if ($existingRows->isEmpty()) {
+            return [$saveRows, []];
+        }
+
+        $changedRowIds = [];
+        foreach ($saveRows as &$saveRow) {
+            $rowId = (string) $saveRow['row_id'];
+            $existing = $existingRows->get($rowId);
+            if (! $existing) {
+                continue;
+            }
+
+            $incomingData = json_decode((string) $saveRow['row_data'], true, flags: JSON_THROW_ON_ERROR);
+            $existingData = is_array($existing->row_data)
+                ? $existing->row_data
+                : json_decode((string) $existing->row_data, true, flags: JSON_THROW_ON_ERROR);
+            $incomingChecked = array_key_exists('checked', $incomingData)
+                ? filter_var($incomingData['checked'], FILTER_VALIDATE_BOOL)
+                : true;
+            $preservedData = $existingData;
+            $preservedData['checked'] = $incomingChecked;
+            $preservedData['confirmedAt'] = $incomingChecked
+                ? (string) ($existingData['confirmedAt'] ?? $existingData['confirmed_at'] ?? '')
+                : '';
+            if (array_key_exists('confirmed_at', $preservedData)) {
+                $preservedData['confirmed_at'] = $incomingChecked
+                    ? $preservedData['confirmedAt']
+                    : '';
+            }
+
+            if ($preservedData !== $incomingData) {
+                $changedRowIds[] = $rowId;
+            }
+
+            $saveRow['business_key'] = $existing->business_key;
+            $saveRow['source'] = $existing->source;
+            $saveRow['source_key'] = $existing->source_key;
+            $saveRow['product_code'] = $existing->product_code;
+            $saveRow['item_id'] = $existing->item_id;
+            $saveRow['row_data'] = json_encode($preservedData, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        }
+        unset($saveRow);
+
+        return [$saveRows, array_values(array_unique($changedRowIds))];
+    }
+
+    /**
+     * Keep fields that become immutable after an order candidate is generated.
+     * Other fields, including the confirmation checkbox, remain editable.
+     *
+     * @param  array<int, array<string, mixed>>  $saveRows
+     * @return array{0: array<int, array<string, mixed>>, 1: array<int, string>}
+     */
+    private function preserveOrderCandidateLockedFields(
+        int $clientId,
+        string $mode,
+        int $warehouseId,
+        array $saveRows
+    ): array {
+        if ($saveRows === []) {
+            return [$saveRows, []];
+        }
+
+        $rowIds = array_column($saveRows, 'row_id');
+        $existingRows = WmsDistributionRow::query()
+            ->forClient($clientId)
+            ->forMode($mode)
+            ->where('warehouse_id', $warehouseId)
+            ->whereIn('row_id', $rowIds)
+            ->where(function ($query): void {
+                $query
+                    ->whereRaw("LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.orderCandidateGenerated')), 'false')) IN ('true', '1')")
+                    ->orWhereRaw("LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.order_candidate_generated')), 'false')) IN ('true', '1')")
+                    ->orWhereRaw("COALESCE(JSON_LENGTH(JSON_EXTRACT(row_data, '$.orderCandidateIds')), 0) > 0")
+                    ->orWhereRaw("COALESCE(JSON_LENGTH(JSON_EXTRACT(row_data, '$.order_candidate_ids')), 0) > 0");
+            })
+            ->select(['row_id', 'business_key', 'source', 'source_key', 'product_code', 'item_id', 'row_data'])
+            ->get()
+            ->keyBy(fn ($row): string => (string) $row->row_id);
+
+        if ($existingRows->isEmpty()) {
+            return [$saveRows, []];
+        }
+
+        $fixedFields = [
+            'itemId', 'candidateKey', 'itemContractorId', 'contractorId', 'supplierId',
+            'contractorWarehouseId', 'productCode', 'jan', 'name', 'lot', 'unitsPerCase',
+            'purchaseUnit', 'orderPoint', 'orderToCode', 'orderTo', 'supplierCode', 'supplier',
+            'poCase', 'poEach', 'distributionBusinessKey', 'source', 'sourceKey',
+            'orderCandidateGenerated', 'orderCandidateIds',
+        ];
+        $changedRowIds = [];
+
+        foreach ($saveRows as &$saveRow) {
+            $rowId = (string) $saveRow['row_id'];
+            $existing = $existingRows->get($rowId);
+            if (! $existing) {
+                continue;
+            }
+
+            $incomingData = json_decode((string) $saveRow['row_data'], true, flags: JSON_THROW_ON_ERROR);
+            $existingData = is_array($existing->row_data)
+                ? $existing->row_data
+                : json_decode((string) $existing->row_data, true, flags: JSON_THROW_ON_ERROR);
+            $before = $incomingData;
+
+            if ($mode === 'direct') {
+                $incomingData = $existingData;
+            }
+
+            if ($mode !== 'direct') {
+                foreach ($fixedFields as $field) {
+                    if (array_key_exists($field, $existingData)) {
+                        $incomingData[$field] = $existingData[$field];
+                    } else {
+                        unset($incomingData[$field]);
+                    }
+                }
+
+                foreach (array_keys($incomingData) as $field) {
+                    if (str_starts_with((string) $field, 'alloc_')) {
+                        unset($incomingData[$field]);
+                    }
+                }
+                foreach ($existingData as $field => $value) {
+                    if (str_starts_with((string) $field, 'alloc_')) {
+                        $incomingData[$field] = $value;
+                    }
+                }
+            }
+
+            if ($incomingData !== $before) {
+                $changedRowIds[] = $rowId;
+            }
+
+            $saveRow['business_key'] = $existing->business_key;
+            $saveRow['source'] = $existing->source;
+            $saveRow['source_key'] = $existing->source_key;
+            $saveRow['product_code'] = $existing->product_code;
+            $saveRow['item_id'] = $existing->item_id;
+            $saveRow['row_data'] = json_encode($incomingData, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        }
+        unset($saveRow);
+
+        return [$saveRows, array_values(array_unique($changedRowIds))];
+    }
+
+    /**
+     * Reject generation requests created from a stale or modified browser row.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    private function assertDistributionGenerationRowsAreCurrent(
+        int $clientId,
+        int $warehouseId,
+        string $mode,
+        array $rows,
+        string $operation
+    ): void {
+        $rowIds = collect($rows)
+            ->map(fn ($row): string => trim((string) ($row['row_id'] ?? '')))
+            ->filter()
+            ->unique()
+            ->values();
+
+        $persistedRows = WmsDistributionRow::query()
+            ->forClient($clientId)
+            ->forMode($mode)
+            ->where('warehouse_id', $warehouseId)
+            ->whereIn('row_id', $rowIds->all())
+            ->get(['row_id', 'business_key', 'row_data'])
+            ->keyBy(fn (WmsDistributionRow $row): string => (string) $row->row_id);
+
+        $staleRowIds = [];
+        foreach ($rows as $row) {
+            $rowId = trim((string) ($row['row_id'] ?? ''));
+            $persisted = $persistedRows->get($rowId);
+            if (! $persisted) {
+                $staleRowIds[] = $rowId;
+                continue;
+            }
+
+            $data = is_array($persisted->row_data) ? $persisted->row_data : [];
+            $requestSnapshot = $this->distributionGenerationRequestSnapshot($row, $operation);
+            $persistedSnapshot = $this->distributionGenerationPersistedSnapshot(
+                $data,
+                (string) ($persisted->business_key ?? ''),
+                $operation
+            );
+
+            if ($requestSnapshot !== $persistedSnapshot) {
+                $staleRowIds[] = $rowId;
+            }
+        }
+
+        if ($staleRowIds !== []) {
+            throw new RuntimeException(
+                '対象データが別の画面で更新されています。画面を再読み込みしてから再実行してください。対象: '
+                .implode(', ', array_slice(array_values(array_unique($staleRowIds)), 0, 5))
+            );
+        }
+    }
+
+    /** @param array<string, mixed> $row */
+    private function distributionGenerationRequestSnapshot(array $row, string $operation): array
+    {
+        $snapshot = [
+            'business_key' => strtolower(trim((string) ($row['distribution_business_key'] ?? ''))),
+            'item_id' => (int) ($row['item_id'] ?? 0),
+            'product_code' => trim((string) ($row['product_code'] ?? '')),
+            'allocations' => $this->normalizeDistributionGenerationAllocations($row['allocations'] ?? [], $operation),
+        ];
+
+        if ($operation === 'warehouse-transfer') {
+            $snapshot['order_date'] = trim((string) ($row['order_date'] ?? ''));
+            $snapshot['delivery_date'] = trim((string) ($row['delivery_date'] ?? ''));
+            $snapshot['delivery_course_id'] = (int) ($row['delivery_course_id'] ?? 0);
+
+            return $snapshot;
+        }
+
+        return $snapshot + [
+            'item_contractor_id' => (int) ($row['item_contractor_id'] ?? 0),
+            'contractor_id' => (int) ($row['contractor_id'] ?? 0),
+            'supplier_id' => (int) ($row['supplier_id'] ?? 0),
+            'order_date' => trim((string) ($row['order_date'] ?? '')),
+            'delivery_date' => trim((string) ($row['delivery_date'] ?? '')),
+            'po_case' => (int) ($row['po_case'] ?? 0),
+            'po_each' => (int) ($row['po_each'] ?? 0),
+            'units_per_case' => (int) ($row['units_per_case'] ?? 1),
+        ];
+    }
+
+    /** @param array<string, mixed> $data */
+    private function distributionGenerationPersistedSnapshot(
+        array $data,
+        string $businessKey,
+        string $operation
+    ): array {
+        $snapshot = [
+            'business_key' => strtolower(trim($businessKey)),
+            'item_id' => (int) ($data['itemId'] ?? $data['item_id'] ?? 0),
+            'product_code' => trim((string) ($data['productCode'] ?? $data['product_code'] ?? '')),
+            'allocations' => $this->persistedDistributionGenerationAllocations($data, $operation),
+        ];
+
+        if ($operation === 'warehouse-transfer') {
+            $snapshot['order_date'] = trim((string) ($data['orderDate'] ?? $data['order_date'] ?? ''));
+            $snapshot['delivery_date'] = trim((string) ($data['deliveryDate'] ?? $data['delivery_date'] ?? ''));
+            $snapshot['delivery_course_id'] = (int) ($data['deliveryCourseId'] ?? $data['delivery_course_id'] ?? 0);
+
+            return $snapshot;
+        }
+
+        return $snapshot + [
+            'item_contractor_id' => (int) ($data['itemContractorId'] ?? $data['item_contractor_id'] ?? 0),
+            'contractor_id' => (int) ($data['contractorId'] ?? $data['contractor_id'] ?? 0),
+            'supplier_id' => (int) ($data['supplierId'] ?? $data['supplier_id'] ?? 0),
+            'order_date' => trim((string) ($data['orderDate'] ?? $data['order_date'] ?? '')),
+            'delivery_date' => trim((string) ($data['deliveryDate'] ?? $data['delivery_date'] ?? '')),
+            'po_case' => (int) ($data['poCase'] ?? $data['po_case'] ?? 0),
+            'po_each' => (int) ($data['poEach'] ?? $data['po_each'] ?? 0),
+            'units_per_case' => (int) ($data['unitsPerCase'] ?? $data['units_per_case'] ?? 1),
+        ];
+    }
+
+    /** @param mixed $allocations */
+    private function normalizeDistributionGenerationAllocations($allocations, string $operation): array
+    {
+        return collect(is_array($allocations) ? $allocations : [])
+            ->mapWithKeys(function ($allocation) use ($operation): array {
+                if (! is_array($allocation)) {
+                    return [];
+                }
+                $key = trim((string) ($allocation['destination_key'] ?? $allocation['destination_id'] ?? ''));
+                $quantity = (int) ($allocation['quantity'] ?? 0);
+
+                if ($operation === 'warehouse-transfer' && in_array($key, self::DISTRIBUTION_DEPARTMENT_CODES, true)) {
+                    return [];
+                }
+
+                return $key !== '' && $quantity > 0 ? [$key => $quantity] : [];
+            })
+            ->sortKeys()
+            ->all();
+    }
+
+    /** @param array<string, mixed> $data */
+    private function persistedDistributionGenerationAllocations(array $data, string $operation): array
+    {
+        return collect($data)
+            ->filter(fn ($value, $key): bool => str_starts_with((string) $key, 'alloc_') && (int) $value > 0)
+            ->mapWithKeys(function ($value, $key) use ($operation): array {
+                $destinationKey = substr((string) $key, 6);
+                if ($operation === 'warehouse-transfer' && in_array($destinationKey, self::DISTRIBUTION_DEPARTMENT_CODES, true)) {
+                    return [];
+                }
+
+                return [$destinationKey => (int) $value];
+            })
+            ->sortKeys()
+            ->all();
+    }
+
+    private function applyStoreDistributionRowsFilters($query, Request $request): void
+    {
+        $confirmedRetentionCutoff = Carbon::today()->subMonthNoOverflow()->toDateString();
+        $confirmedExpression = "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.checked')), 'false')";
+        $confirmedAtExpression = "COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.confirmedAt')), ''), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.confirmed_at')), ''), updated_at)";
+
+        $query->where(function ($query) use ($confirmedExpression, $confirmedAtExpression, $confirmedRetentionCutoff): void {
+            $query
+                ->whereRaw("{$confirmedExpression} NOT IN ('true', '1')")
+                ->orWhereRaw("{$confirmedAtExpression} >= ?", [$confirmedRetentionCutoff.' 00:00:00']);
+        });
+
+        $confirmStatus = (string) $request->input('confirm_status', 'unconfirmed');
+        if ($confirmStatus === 'confirmed') {
+            $query->whereRaw("COALESCE(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.checked')), 'false') IN ('true', '1')");
+        } elseif ($confirmStatus === 'unconfirmed') {
+            $query->whereRaw("COALESCE(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.checked')), 'false') NOT IN ('true', '1')");
+        }
+
+        $search = trim((string) $request->input('product_search', ''));
+        if ($search === '') {
+            return;
+        }
+
+        $like = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], $search).'%';
+        $query->where(function ($query) use ($like): void {
+            $query
+                ->where('product_code', 'like', $like)
+                ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.name')) LIKE ? ESCAPE '\\\\'", [$like])
+                ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.jan')) LIKE ? ESCAPE '\\\\'", [$like]);
+        });
+    }
+
+    private function applyDirectDistributionRowsFilters($query, Request $request): void
+    {
+        $orderDateExpression = "COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.orderDate')), ''), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.order_date')), ''), '')";
+        $deliveryDateExpression = "COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.deliveryDate')), ''), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.delivery_date')), ''), '')";
+
+        if ($request->filled('order_date_from')) {
+            $query->whereRaw("{$orderDateExpression} >= ?", [(string) $request->input('order_date_from')]);
+        }
+        if ($request->filled('order_date_to')) {
+            $query->whereRaw("{$orderDateExpression} <= ?", [(string) $request->input('order_date_to')]);
+        }
+        if ($request->filled('delivery_date_from')) {
+            $query->whereRaw("{$deliveryDateExpression} >= ?", [(string) $request->input('delivery_date_from')]);
+        }
+        if ($request->filled('delivery_date_to')) {
+            $query->whereRaw("{$deliveryDateExpression} <= ?", [(string) $request->input('delivery_date_to')]);
+        }
+
+        $this->applyDistributionRowKeywordFilter($query, (string) $request->input('keyword_search', ''), [
+            'product_code',
+            "JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.name'))",
+            "JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.jan'))",
+        ]);
+        $this->applyDistributionRowKeywordFilter($query, (string) $request->input('order_to_search', ''), [
+            "JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.orderTo'))",
+            "JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.order_to'))",
+            "JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.orderToCode'))",
+            "JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.order_to_code'))",
+        ]);
+        $this->applyDistributionRowKeywordFilter($query, (string) $request->input('supplier_search', ''), [
+            "JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.supplier'))",
+            "JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.supplier_name'))",
+            "JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.supplierCode'))",
+            "JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.supplier_code'))",
+        ]);
+
+        $checkedExpression = "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.checked')), 'false') IN ('true', '1')";
+        $orderCreatedExpression = "(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.orderCandidateGenerated')), 'false') IN ('true', '1') OR COALESCE(JSON_LENGTH(JSON_EXTRACT(row_data, '$.orderCandidateIds')), 0) > 0)";
+        $printedExpression = "(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.printed')), 'false') IN ('true', '1') OR COALESCE(NULLIF(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.transferSlipCreatedAt')), 'null'), ''), '') <> '' OR COALESCE(JSON_LENGTH(JSON_EXTRACT(row_data, '$.transferSlipQueueIds')), 0) > 0)";
+
+        match ((string) $request->input('status_filter', 'all')) {
+            'checked' => $query->whereRaw($checkedExpression),
+            'unchecked' => $query->whereRaw("NOT ({$checkedExpression})"),
+            'order_created' => $query->whereRaw($orderCreatedExpression),
+            'order_pending' => $query->whereRaw("NOT ({$orderCreatedExpression})"),
+            'printed' => $query->whereRaw($printedExpression),
+            'unprinted' => $query->whereRaw("NOT ({$printedExpression})"),
+            'unprocessed' => $query
+                ->whereRaw("NOT ({$orderCreatedExpression})")
+                ->whereRaw("NOT ({$printedExpression})"),
+            'request_printed' => $query
+                ->whereRaw($printedExpression)
+                ->whereRaw("NOT ({$orderCreatedExpression})"),
+            default => null,
+        };
+    }
+
+    /** @param array<int, string> $fieldExpressions */
+    private function applyDistributionRowKeywordFilter($query, string $search, array $fieldExpressions): void
+    {
+        $normalized = mb_strtolower(mb_convert_kana(trim($search), 'as'));
+        $keywords = preg_split('/[\s,、]+/u', $normalized, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $compactPattern = '[[:space:]\\[\\]（）(){}｛｝_./／:：-]+';
+
+        foreach ($keywords as $keyword) {
+            $like = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $keyword).'%';
+            $compactKeyword = preg_replace('/[\s　\[\]（）(){}｛｝\-_\/／.:：]/u', '', $keyword) ?? '';
+            $compactLike = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $compactKeyword).'%';
+            $numericKeyword = ctype_digit($compactKeyword)
+                ? (int) ltrim($compactKeyword, '0')
+                : null;
+
+            $query->where(function ($query) use ($fieldExpressions, $like, $compactPattern, $compactKeyword, $compactLike, $numericKeyword): void {
+                foreach ($fieldExpressions as $index => $expression) {
+                    $method = $index === 0 ? 'whereRaw' : 'orWhereRaw';
+                    $searchExpression = $this->distributionRowSearchExpression($expression);
+                    $query->{$method}("{$searchExpression} LIKE ? ESCAPE '\\\\'", [$like]);
+
+                    if ($compactKeyword !== '') {
+                        $query->orWhereRaw(
+                            "REGEXP_REPLACE({$searchExpression}, ?, '') LIKE ? ESCAPE '\\\\'",
+                            [$compactPattern, $compactLike]
+                        );
+                    }
+
+                    if ($numericKeyword !== null) {
+                        $query->orWhereRaw("CAST(COALESCE({$expression}, '') AS UNSIGNED) = ?", [$numericKeyword]);
+                    }
+                }
+            });
+        }
+    }
+
+    private function distributionRowSearchExpression(string $expression): string
+    {
+        return "LOWER(CONVERT(COALESCE({$expression}, '') USING utf8mb4)) COLLATE utf8mb4_0900_ai_ci";
+    }
+
+    private function applyStoreDistributionDestinationFilter($query, string $destinationKey): void
+    {
+        $destinationKey = trim($destinationKey);
+        if ($destinationKey === '') {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $listPaths = [
+            '$.visibleDestinationKeys',
+            '$.visible_destination_keys',
+            '$.enteredDestinationKeys',
+            '$.entered_destination_keys',
+            '$.csvEnteredDestinationKeys',
+            '$.csv_entered_destination_keys',
+        ];
+        $escapedKey = str_replace(['\\', '"'], ['\\\\', '\\"'], $destinationKey);
+        $wishPath = '$."wish_'.$escapedKey.'"';
+        $allocationPath = '$."alloc_'.$escapedKey.'"';
+
+        $query->where(function ($query) use ($listPaths, $destinationKey, $wishPath, $allocationPath): void {
+            foreach ($listPaths as $index => $path) {
+                $method = $index === 0 ? 'whereRaw' : 'orWhereRaw';
+                $query->{$method}(
+                    'JSON_CONTAINS(COALESCE(JSON_EXTRACT(row_data, ?), JSON_ARRAY()), JSON_QUOTE(?))',
+                    [$path, $destinationKey]
+                );
+            }
+
+            $query
+                ->orWhereRaw(
+                    "CAST(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(row_data, ?)), '0') AS SIGNED) <> 0",
+                    [$wishPath]
+                )
+                ->orWhereRaw(
+                    "CAST(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(row_data, ?)), '0') AS SIGNED) <> 0",
+                    [$allocationPath]
+                );
+        });
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>|null
+     */
+    private function scopeDistributionRowDataForDestination(array $data, string $destinationKey): ?array
+    {
+        if (! $this->distributionRowHasDestination($data, $destinationKey)) {
+            return null;
+        }
+
+        foreach (array_keys($data) as $key) {
+            $key = (string) $key;
+            if (! preg_match('/^(wish|alloc)_/', $key)) {
+                continue;
+            }
+
+            if ($key !== 'wish_'.$destinationKey && $key !== 'alloc_'.$destinationKey) {
+                unset($data[$key]);
+            }
+        }
+
+        $listKeys = [
+            'visibleDestinationKeys',
+            'visible_destination_keys',
+            'enteredDestinationKeys',
+            'entered_destination_keys',
+            'csvEnteredDestinationKeys',
+            'csv_entered_destination_keys',
+        ];
+        $hasDestinationList = false;
+
+        foreach ($listKeys as $listKey) {
+            if (! array_key_exists($listKey, $data) || ! is_array($data[$listKey])) {
+                continue;
+            }
+
+            $filtered = $this->filterDestinationKeyList($data[$listKey], $destinationKey);
+            $data[$listKey] = $filtered;
+            $hasDestinationList = $hasDestinationList || $filtered !== [];
+        }
+
+        if (! $hasDestinationList) {
+            $data['visibleDestinationKeys'] = [$destinationKey];
+            $data['enteredDestinationKeys'] = [$destinationKey];
+        }
+
+        return $data;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function distributionRowHasDestination(array $data, string $destinationKey): bool
+    {
+        foreach ([
+            'visibleDestinationKeys',
+            'visible_destination_keys',
+            'enteredDestinationKeys',
+            'entered_destination_keys',
+            'csvEnteredDestinationKeys',
+            'csv_entered_destination_keys',
+        ] as $listKey) {
+            if (
+                array_key_exists($listKey, $data)
+                && is_array($data[$listKey])
+                && $this->filterDestinationKeyList($data[$listKey], $destinationKey) !== []
+            ) {
+                return true;
+            }
+        }
+
+        return $this->distributionRowQuantity($data['wish_'.$destinationKey] ?? 0) > 0
+            || $this->distributionRowQuantity($data['alloc_'.$destinationKey] ?? 0) > 0;
+    }
+
+    /**
+     * @param  array<int, mixed>  $keys
+     * @return array<int, string>
+     */
+    private function filterDestinationKeyList(array $keys, string $destinationKey): array
+    {
+        $filtered = [];
+
+        foreach ($keys as $key) {
+            $key = (string) $key;
+            if ($key === $destinationKey && ! in_array($key, $filtered, true)) {
+                $filtered[] = $key;
+            }
+        }
+
+        return $filtered;
+    }
+
+    private function distributionRowQuantity($value): int
+    {
+        if (is_int($value)) {
+            return $value;
+        }
+
+        if (is_float($value)) {
+            return (int) $value;
+        }
+
+        $normalized = preg_replace('/[^\d\-]/', '', (string) $value);
+        if ($normalized === '' || $normalized === '-') {
+            return 0;
+        }
+
+        return (int) $normalized;
     }
 
     private function buildProductCandidateRows(
@@ -1370,6 +2993,10 @@ class DistributionProductController extends ApiController
                         'supplierCode' => (string) ($contractor->supplier_code ?? ''),
                         'orderTo' => (string) ($contractor->contractor_name ?? ''),
                         'orderToCode' => (string) ($contractor->contractor_code ?? ''),
+                        'orderToTel' => (string) ($contractor->contractor_tel ?? ''),
+                        'orderToFax' => (string) ($contractor->contractor_fax ?? ''),
+                        'orderToAddress' => $this->formatContractorAddress($contractor),
+                        'transmissionType' => (string) ($contractor->transmission_type ?? ''),
                         'itemContractorNote' => (string) ($contractor->item_contractor_note ?? ''),
                         'suggestedDeliveryDate' => (string) ($suggestedDeliveryDate['suggested_delivery_date'] ?? ''),
                         'deliveryDateCalculation' => [
@@ -1559,12 +3186,13 @@ class DistributionProductController extends ApiController
         if ($isNumericSearch && $numericSearchWithoutLeadingZeros !== '' && $numericSearchWithoutLeadingZeros !== $normalizedSearch) {
             $numericSearchValues[] = $numericSearchWithoutLeadingZeros;
         }
-        $paddedNumericSearch = null;
         if ($isNumericSearch) {
             $numericSearchBase = $numericSearchWithoutLeadingZeros !== '' ? $numericSearchWithoutLeadingZeros : '0';
-            if (strlen($numericSearchBase) <= 13) {
-                $paddedNumericSearch = str_pad($numericSearchBase, 13, '0', STR_PAD_LEFT);
-                $numericSearchValues[] = $paddedNumericSearch;
+            $baseLength = strlen($numericSearchBase);
+            if ($baseLength <= 13) {
+                for ($length = $baseLength; $length <= 13; $length++) {
+                    $numericSearchValues[] = str_pad($numericSearchBase, $length, '0', STR_PAD_LEFT);
+                }
             }
         }
         $numericSearchValues = array_values(array_unique($numericSearchValues));
@@ -1634,15 +3262,11 @@ class DistributionProductController extends ApiController
                 ->where('isi.client_id', $clientId)
                 ->whereIn('isi.code_type', $searchCodeTypes)
                 ->where('isi.is_active', true)
-                ->where(function ($query) use ($numericSearchValues, $paddedNumericSearch, $prefixLike) {
+                ->where(function ($query) use ($numericSearchValues, $prefixLike) {
                     $query->where('isi.search_string', 'like', $prefixLike);
 
                     if (count($numericSearchValues) > 1) {
                         $query->orWhereIn('isi.search_string', $numericSearchValues);
-                    }
-
-                    if ($paddedNumericSearch !== null) {
-                        $query->orWhereRaw('LPAD(isi.search_string, 13, "0") = ?', [$paddedNumericSearch]);
                     }
                 })
                 ->select('isi.item_id as id')
@@ -1663,18 +3287,13 @@ class DistributionProductController extends ApiController
             ->join('items as i', 'i.id', '=', 'iqi.item_id')
             ->where('i.client_id', $clientId)
             ->where('i.is_active', true)
-            ->where(function ($query) use ($numericSearchValues, $paddedNumericSearch, $prefixLike) {
+            ->where(function ($query) use ($numericSearchValues, $prefixLike) {
                 $query->where('iqi.product_code', 'like', $prefixLike)
                     ->orWhere('iqi.own_code', 'like', $prefixLike);
 
                 if (count($numericSearchValues) > 1) {
                     $query->orWhereIn('iqi.product_code', $numericSearchValues)
                         ->orWhereIn('iqi.own_code', $numericSearchValues);
-                }
-
-                if ($paddedNumericSearch !== null) {
-                    $query->orWhereRaw('LPAD(iqi.product_code, 13, "0") = ?', [$paddedNumericSearch])
-                        ->orWhereRaw('LPAD(iqi.own_code, 13, "0") = ?', [$paddedNumericSearch]);
                 }
             })
             ->select('iqi.item_id as id')
@@ -1985,6 +3604,12 @@ class DistributionProductController extends ApiController
             'ic.purchase_unit',
             'c.code as contractor_code',
             'c.name as contractor_name',
+            'c.tel as contractor_tel',
+            'c.fax as contractor_fax',
+            'c.postal_code as contractor_postal_code',
+            'c.address1 as contractor_address1',
+            'c.address2 as contractor_address2',
+            'wcs.transmission_type',
             'supplier_partners.code as supplier_code',
             'supplier_partners.name as supplier_name',
         ];
@@ -1996,6 +3621,7 @@ class DistributionProductController extends ApiController
         $query = DB::connection('sakemaru')
             ->table('item_contractors as ic')
             ->leftJoin('contractors as c', 'c.id', '=', 'ic.contractor_id')
+            ->leftJoin('wms_contractor_settings as wcs', 'wcs.contractor_id', '=', 'ic.contractor_id')
             ->leftJoin('suppliers as s', 's.id', '=', 'ic.supplier_id')
             ->leftJoin('partners as supplier_partners', 'supplier_partners.id', '=', 's.partner_id')
             ->where('ic.client_id', $clientId)
@@ -2296,6 +3922,7 @@ class DistributionProductController extends ApiController
             ->leftJoin('contractors as c', 'c.id', '=', 'ios.contractor_id')
             ->leftJoin('suppliers as s', 's.id', '=', 'ios.supplier_id')
             ->leftJoin('partners as supplier_partners', 'supplier_partners.id', '=', 's.partner_id')
+            ->leftJoin('items as i', 'i.id', '=', 'ios.item_id')
             ->whereIn('ios.status', [
                 IncomingScheduleStatus::PENDING->value,
                 IncomingScheduleStatus::PARTIAL->value,
@@ -2325,6 +3952,8 @@ class DistributionProductController extends ApiController
                 'ios.note',
                 'ios.slip_number',
                 'ios.purchase_slip_number',
+                'i.capacity_case',
+                'i.capacity_carton',
                 'w.code as warehouse_code',
                 'w.name as warehouse_name',
                 'c.code as contractor_code',
@@ -2342,6 +3971,11 @@ class DistributionProductController extends ApiController
                 $remainingQuantity = max(0, (int) $row->expected_quantity - (int) $row->received_quantity);
                 $quantityType = QuantityType::tryFrom((string) $row->quantity_type);
                 $status = IncomingScheduleStatus::tryFrom((string) $row->status);
+                $totalPieces = match ($quantityType) {
+                    QuantityType::CASE => $remainingQuantity * max(1, (int) ($row->capacity_case ?? 1)),
+                    QuantityType::CARTON => $remainingQuantity * max(1, (int) ($row->capacity_carton ?? 1)),
+                    default => $remainingQuantity,
+                };
 
                 return [
                     'id' => (int) $row->id,
@@ -2350,6 +3984,7 @@ class DistributionProductController extends ApiController
                     'orderDate' => (string) ($row->order_date ?? ''),
                     'arrivalDate' => (string) ($row->expected_arrival_date ?? ''),
                     'quantity' => $remainingQuantity,
+                    'totalPieces' => $totalPieces,
                     'quantityType' => (string) ($row->quantity_type ?? ''),
                     'quantityTypeLabel' => $quantityType?->name() ?? (string) ($row->quantity_type ?? ''),
                     'expectedQuantity' => (int) $row->expected_quantity,
@@ -2386,5 +4021,20 @@ class DistributionProductController extends ApiController
         }
 
         return "{$volume}{$unitName}";
+    }
+
+    private function formatContractorAddress(?object $contractor): string
+    {
+        if (! $contractor) {
+            return '';
+        }
+
+        $postalCode = trim((string) ($contractor->contractor_postal_code ?? $contractor->postal_code ?? ''));
+        $address = trim(
+            (string) ($contractor->contractor_address1 ?? $contractor->address1 ?? '')
+            .(string) ($contractor->contractor_address2 ?? $contractor->address2 ?? '')
+        );
+
+        return trim(($postalCode !== '' ? '〒'.$postalCode.' ' : '').$address);
     }
 }

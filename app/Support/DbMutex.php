@@ -24,18 +24,38 @@ final class DbMutex
     public static function acquire(string $key, int $timeoutSec = 1, ?string $connection = null): bool
     {
         try {
+            return self::acquireOrFail($key, $timeoutSec, $connection);
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Acquire a lock while allowing infrastructure errors to reach the caller.
+     *
+     * @throws \RuntimeException When MySQL cannot evaluate the lock request
+     * @throws \Throwable When the database connection or query fails
+     */
+    public static function acquireOrFail(string $key, int $timeoutSec = 1, ?string $connection = null): bool
+    {
+        try {
             $pdo = DB::connection($connection)->getPdo();
             $stmt = $pdo->prepare('SELECT GET_LOCK(?, ?)');
             $stmt->execute([$key, $timeoutSec]);
-            $result = (int) $stmt->fetchColumn();
+            $rawResult = $stmt->fetchColumn();
 
+            if ($rawResult === null || $rawResult === false) {
+                throw new \RuntimeException('MySQL returned no result for GET_LOCK.');
+            }
+
+            $result = (int) $rawResult;
             if ($result === 1) {
                 Log::debug('DbMutex acquired', ['key' => $key]);
 
                 return true;
             }
 
-            Log::warning('DbMutex acquire failed', [
+            Log::warning('DbMutex acquire timed out', [
                 'key' => $key,
                 'result' => $result,
                 'timeout' => $timeoutSec,
@@ -48,7 +68,7 @@ final class DbMutex
                 'error' => $e->getMessage(),
             ]);
 
-            return false;
+            throw $e;
         }
     }
 
@@ -122,6 +142,24 @@ final class DbMutex
     public static function withLock(string $key, callable $callback, int $timeoutSec = 1, ?string $connection = null): mixed
     {
         if (! self::acquire($key, $timeoutSec, $connection)) {
+            return null;
+        }
+
+        try {
+            return $callback();
+        } finally {
+            self::release($key, $connection);
+        }
+    }
+
+    /**
+     * Execute a callback with lock protection while exposing infrastructure errors.
+     *
+     * @throws \Throwable When lock acquisition or the callback fails
+     */
+    public static function withLockOrFail(string $key, callable $callback, int $timeoutSec = 1, ?string $connection = null): mixed
+    {
+        if (! self::acquireOrFail($key, $timeoutSec, $connection)) {
             return null;
         }
 
