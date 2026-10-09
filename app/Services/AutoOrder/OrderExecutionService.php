@@ -4,7 +4,9 @@ namespace App\Services\AutoOrder;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
+use App\Enums\AutoOrder\OrderEntrySource;
 use App\Enums\AutoOrder\OrderSource;
+use App\Enums\AutoOrder\OriginType;
 use App\Enums\QuantityType;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Item;
@@ -192,6 +194,9 @@ class OrderExecutionService
     private function createIncomingSchedulesFromCandidate(WmsOrderCandidate $candidate): Collection
     {
         $incomingSchedules = collect();
+        $distributionOrderDate = $candidate->origin_type === OriginType::DIST && $candidate->entry_source === OrderEntrySource::DISTRIBUTION
+            ? ($candidate->calculation_log?->calculation_details['order_date'] ?? null)
+            : null;
         $supplierId = $this->getSupplierIdFromCandidate($candidate);
         $supplierPartnerId = $this->getSupplierPartnerId($supplierId);
         $searchCode = $this->getSearchCodeForItem($candidate->item_id);
@@ -234,7 +239,7 @@ class OrderExecutionService
                     continue;
                 }
 
-                $orderDate = ClientSetting::freshSystemDateYMD('order_incoming_schedule:auto:demand_breakdown');
+                $orderDate = $distributionOrderDate ?? ClientSetting::freshSystemDateYMD('order_incoming_schedule:auto:demand_breakdown');
                 $slipNumber = $this->resolveIncomingSlipNumber($candidate, $orderDate);
                 $schedule = WmsOrderIncomingSchedule::create([
                     'warehouse_id' => $warehouseId,
@@ -263,7 +268,7 @@ class OrderExecutionService
             }
         } else {
             // demand_breakdownがない場合は従来通り発注元倉庫に入庫予定を作成
-            $orderDate = ClientSetting::freshSystemDateYMD('order_incoming_schedule:auto');
+            $orderDate = $distributionOrderDate ?? ClientSetting::freshSystemDateYMD('order_incoming_schedule:auto');
             $slipNumber = $this->resolveIncomingSlipNumber($candidate, $orderDate);
             $schedule = WmsOrderIncomingSchedule::create([
                 'warehouse_id' => $candidate->warehouse_id,

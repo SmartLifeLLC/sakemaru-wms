@@ -7,12 +7,17 @@ use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\LotStatus;
+use App\Enums\AutoOrder\OrderChannel;
+use App\Enums\AutoOrder\OrderEntrySource;
 use App\Enums\AutoOrder\OriginType;
 use App\Enums\QuantityType;
 use App\Models\Sakemaru\Item;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
+use App\Models\WmsOrderIncomingSchedule;
+use App\Services\AutoOrder\OrderRegistrationSearchService;
+use App\Services\AutoOrder\OrderRegistrationService;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -43,67 +48,147 @@ class DistributionOrderCandidateService
      */
     public function createDirect(int $selectedWarehouseId, int $createdBy, array $rows): array
     {
-        $expandedRows = $this->expandRowsForDirectDestinations($selectedWarehouseId, $rows);
-
-        if ($expandedRows === []) {
-            throw new RuntimeException('直送分配の発注候補を作成できる店舗別分配数がありません。');
+        $this->resolveWarehouse($selectedWarehouseId);
+        $items = $this->resolveItems($rows);
+        foreach ($rows as $row) {
+            $item = $this->resolveRowItem($items, $row);
+            $allocations = $row['allocations'] ?? [];
+            $allocationTotal = array_sum(array_column($allocations, 'quantity'));
+            $orderTotal = (int) ($row['po_case'] ?? 0) * max(1, (int) ($item?->capacity_case ?? 1))
+                + (int) ($row['po_each'] ?? 0);
+            $destinationIds = array_column($allocations, 'destination_id');
+            if (! $item || blank($row['row_id'] ?? null) || $allocationTotal <= 0
+                || count($destinationIds) !== count(array_unique($destinationIds))
+                || count(array_filter($destinationIds)) !== count($destinationIds)
+                || ($orderTotal > 0 && $orderTotal !== $allocationTotal)
+                || (int) ($row['alloc_total'] ?? 0) !== $allocationTotal) {
+                throw new RuntimeException('直送分配の商品・店舗別分配数とケース・バラの合計を確認してください。');
+            }
+        }
+        if ($rows === [] || count(array_unique(array_column($rows, 'row_id'))) !== count($rows)) {
+            throw new RuntimeException('直送分配の対象行が不正です。');
         }
 
-        $warehouseIds = collect($expandedRows)
-            ->pluck('target_warehouse_id')
-            ->filter()
-            ->map(fn ($warehouseId): int => (int) $warehouseId)
-            ->unique()
-            ->values()
-            ->all();
+        $excludedContractorIds = array_values(array_filter([$this->resolveHqTransferContractorId()]));
+        $rows = $this->hydrateRowPartnerIds($rows, $excludedContractorIds);
+        $expandedRows = $this->expandRowsForDirectDestinations($selectedWarehouseId, $rows);
 
-        $warehouses = collect($warehouseIds)
-            ->mapWithKeys(fn (int $warehouseId): array => [$warehouseId => $this->resolveWarehouse($warehouseId)]);
-
-        return DB::connection('sakemaru')->transaction(function () use ($createdBy, $expandedRows, $warehouses): array {
-            $results = [];
-            $failedGroups = [];
-            $groups = collect($expandedRows)->groupBy(fn (array $row): int => (int) ($row['target_warehouse_id'] ?? 0));
-
+        return DB::connection('sakemaru')->transaction(function () use ($createdBy, $expandedRows, $items, $excludedContractorIds): array {
+            $createdIds = [];
+            $existingIds = [];
+            $idsByRow = [];
+            $generatedRowIds = [];
+            $scheduleCount = 0;
+            $groups = collect($expandedRows)->groupBy('target_warehouse_id');
             foreach ($groups as $warehouseId => $warehouseRows) {
-                $warehouse = $warehouses->get((int) $warehouseId);
-                if (! $warehouse) {
+                $warehouse = $this->resolveWarehouse((int) $warehouseId);
+                if (in_array((string) $warehouse->code, ['90', '92', '93', '94', '95', '96', '97', '98'], true)
+                    || preg_match('/業販|卸|外商/u', (string) $warehouse->name)) {
+                    throw new RuntimeException('依頼書に含まれない業販・部門への直送分配は発注できません。店舗別分配数を確認してください。');
+                }
+                $incomingWarehouseId = app(OrderRegistrationSearchService::class)->incomingWarehouseId((int) $warehouseId);
+                $itemIds = $items->keys()->all();
+                $itemContractors = $this->resolveItemContractors($incomingWarehouseId, $itemIds, $warehouseRows->all(), $excludedContractorIds);
+                $existingCandidates = $this->loadExistingGeneratedCandidates((int) $warehouseId, $itemIds);
+                $lines = [];
+                $seenDedupeKeys = [];
+                foreach ($warehouseRows as $row) {
+                    $item = $this->resolveRowItem($items, $row);
+                    $partner = $this->resolveRowItemContractor($itemContractors, (int) $item->id, $row, $excludedContractorIds);
+                    if (! $partner || (int) $partner->supplier_id <= 0
+                        || ((int) ($row['contractor_id'] ?? 0) > 0 && (int) $row['contractor_id'] !== (int) $partner->contractor_id)
+                        || ((int) ($row['supplier_id'] ?? 0) > 0 && (int) $row['supplier_id'] !== (int) $partner->supplier_id)) {
+                        throw new RuntimeException('直送分配の発注先・仕入先が商品設定と一致していません。');
+                    }
+                    $dedupeKeys = array_map(fn (string $id): string => $this->orderDedupeKey(
+                        'direct_distribution', (int) $warehouseId, (int) $item->id,
+                        (int) $partner->contractor_id, (int) $partner->supplier_id, QuantityType::PIECE, $id
+                    ), $this->distributionDedupeRowIds($row, (string) $row['row_id']));
+                    if (array_intersect($dedupeKeys, $seenDedupeKeys) !== []) {
+                        throw new RuntimeException('同じ直送分配が複数行選択されています。対象行を確認してください。');
+                    }
+                    $seenDedupeKeys = array_merge($seenDedupeKeys, $dedupeKeys);
+                    $sourceRowId = (string) $row['source_row_id'];
+                    if ($existing = $this->firstExistingGeneratedCandidate($existingCandidates, $dedupeKeys)) {
+                        $this->assertDirectOrderMatches((int) $existing['candidate_id'], $row);
+                        $existingIds[] = (int) $existing['candidate_id'];
+                        $idsByRow[$sourceRowId][] = (int) $existing['candidate_id'];
+
+                        continue;
+                    }
+                    $lines[] = [
+                        'warehouse_id' => (int) $warehouseId,
+                        'item_id' => (int) $item->id,
+                        'contractor_id' => (int) $partner->contractor_id,
+                        'supplier_id' => (int) $partner->supplier_id,
+                        'item_contractor_warehouse_id' => (int) ($partner->warehouse_id ?? 0),
+                        'order_channel' => OrderChannel::FAX->value,
+                        'entry_source' => OrderEntrySource::DISTRIBUTION->value,
+                        'quantity_type' => QuantityType::PIECE->value,
+                        'order_quantity' => (int) $row['alloc_total'],
+                        'purchase_unit' => max(1, (int) ($partner->purchase_unit ?? 1)),
+                        'expected_arrival_date' => $row['delivery_date'] ?? null,
+                        'order_date' => $row['order_date'] ?? null,
+                        'row_id' => (string) $row['row_id'],
+                        'source_row_id' => $sourceRowId,
+                        'distribution_business_key' => $row['distribution_business_key'] ?? null,
+                        'distribution_order_dedupe_key' => $dedupeKeys[0],
+                    ];
+                }
+                if ($lines === []) {
                     continue;
                 }
-
-                try {
-                    $results[] = $this->createForWarehouse(
-                        $warehouse,
-                        (int) $warehouse->id,
-                        $createdBy,
-                        $warehouseRows->values()->all(),
-                        'direct_distribution'
-                    );
-                } catch (RuntimeException $e) {
-                    foreach ($warehouseRows as $row) {
-                        $failedGroups[] = $this->skip(
-                            (string) ($row['source_row_id'] ?? $row['row_id'] ?? ''),
-                            (string) ($row['product_code'] ?? ''),
-                            $e->getMessage()
-                        );
-                    }
+                $result = app(OrderRegistrationService::class)->register(
+                    warehouseId: (int) $warehouseId, lines: $lines, userId: $createdBy,
+                    fallbackChannel: OrderChannel::FAX, generateDataFiles: false, originType: OriginType::DIST
+                );
+                foreach ($result['candidate_ids'] as $index => $candidateId) {
+                    $sourceRowId = $lines[$index]['source_row_id'];
+                    $idsByRow[$sourceRowId][] = (int) $candidateId;
+                    $generatedRowIds[] = $sourceRowId;
+                    $createdIds[] = (int) $candidateId;
                 }
+                $scheduleCount += $result['incoming_schedule_count'];
             }
+            $rowIds = array_keys($idsByRow);
 
-            if ($results === []) {
-                $firstReason = $failedGroups[0]['reason'] ?? '直送分配の発注候補を作成できる店舗がありません。';
-
-                throw new RuntimeException($firstReason);
-            }
-
-            $merged = $this->mergeCreateResults($results);
-            if ($failedGroups !== []) {
-                $merged['skipped_count'] = (int) ($merged['skipped_count'] ?? 0) + count($failedGroups);
-                $merged['skipped'] = array_slice(array_merge($merged['skipped'] ?? [], $failedGroups), 0, 20);
-            }
-
-            return $merged;
+            return [
+                'created_count' => count($createdIds), 'updated_count' => 0,
+                'candidate_count' => count($createdIds) + count($existingIds),
+                'already_generated_count' => count($existingIds),
+                'incoming_schedule_count' => $scheduleCount,
+                'candidate_ids' => array_merge($createdIds, $existingIds),
+                'candidate_ids_by_row' => $idsByRow,
+                'row_ids' => $rowIds,
+                'generated_row_ids' => array_values(array_unique($generatedRowIds)),
+                'already_generated_row_ids' => array_values(array_diff($rowIds, $generatedRowIds)),
+                'skipped_count' => 0, 'skipped' => [],
+                'redirect_url' => '/admin/wms-order-incoming-schedules',
+            ];
         });
+    }
+
+    private function assertDirectOrderMatches(int $candidateId, array $row): void
+    {
+        $candidate = WmsOrderCandidate::find($candidateId);
+        $schedules = WmsOrderIncomingSchedule::where('order_candidate_id', $candidateId)->get();
+        $schedule = $schedules->first();
+        if (! $candidate || ! in_array($candidate->status, [CandidateStatus::CONFIRMED, CandidateStatus::EXECUTED], true)
+            || $candidate->order_channel !== OrderChannel::FAX
+            || (int) $candidate->order_quantity !== (int) $row['alloc_total']
+            || $candidate->expected_arrival_date?->toDateString() !== ($row['delivery_date'] ?? null)
+            || $schedules->count() !== 1
+            || (int) $schedule->expected_quantity !== (int) $candidate->order_quantity
+            || $schedule->warehouse_id !== $candidate->warehouse_id
+            || $schedule->item_id !== $candidate->item_id
+            || $schedule->contractor_id !== $candidate->contractor_id
+            || $schedule->supplier_id !== $candidate->supplier_id
+            || $schedule->quantity_type !== $candidate->quantity_type
+            || $schedule->order_channel !== OrderChannel::FAX
+            || $schedule->order_date?->toDateString() !== ($row['order_date'] ?? null)
+            || $schedule->expected_arrival_date?->toDateString() !== $candidate->expected_arrival_date?->toDateString()) {
+            throw new RuntimeException('既存の直送発注と分配の内容が一致していません。発注状態・数量・入荷予定日を確認してください。');
+        }
     }
 
     /**
@@ -165,7 +250,9 @@ class DistributionOrderCandidateService
      */
     private function findExistingGeneratedForWarehouse(object $warehouse, array $rows, string $source): array
     {
-        $incomingWarehouseId = (int) ($warehouse->stock_warehouse_id ?? $warehouse->id);
+        $incomingWarehouseId = $source === 'direct_distribution'
+            ? app(OrderRegistrationSearchService::class)->incomingWarehouseId((int) $warehouse->id)
+            : (int) ($warehouse->stock_warehouse_id ?? $warehouse->id);
         $items = $this->resolveItems($rows);
         $itemIds = $items->keys()->map(fn ($id): int => (int) $id)->values()->all();
 
@@ -226,6 +313,13 @@ class DistributionOrderCandidateService
                 $rowStatuses[$resultRowId]['expected']++;
 
                 if ($existing = $this->firstExistingGeneratedCandidate($existingGeneratedCandidates, $orderDedupeKeys)) {
+                    if ($source === 'direct_distribution') {
+                        try {
+                            $this->assertDirectOrderMatches((int) $existing['candidate_id'], $row);
+                        } catch (RuntimeException) {
+                            continue;
+                        }
+                    }
                     $rowStatuses[$resultRowId]['existing']++;
                     $candidateIds[] = (int) ($existing['candidate_id'] ?? 0);
                 }
@@ -770,7 +864,7 @@ class DistributionOrderCandidateService
             })
             ->orderByDesc('is_auto_order')
             ->orderBy('id')
-            ->get(['id', 'item_id', 'contractor_id', 'supplier_id', 'safety_stock', 'purchase_unit'])
+            ->get(['id', 'warehouse_id', 'item_id', 'contractor_id', 'supplier_id', 'safety_stock', 'purchase_unit'])
             ->groupBy(fn ($row): int => (int) $row->item_id)
             ->map(fn (Collection $rows): Collection => $rows->values());
     }
@@ -1235,7 +1329,8 @@ class DistributionOrderCandidateService
                 $join->on('candidates.batch_code', '=', 'logs.batch_code')
                     ->on('candidates.warehouse_id', '=', 'logs.warehouse_id')
                     ->on('candidates.item_id', '=', 'logs.item_id')
-                    ->on('candidates.contractor_id', '=', 'logs.contractor_id');
+                    ->on('candidates.contractor_id', '=', 'logs.contractor_id')
+                    ->whereRaw("(JSON_EXTRACT(logs.calculation_details, '$.candidate_id') IS NULL OR candidates.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(logs.calculation_details, '$.candidate_id')) AS UNSIGNED))");
             })
             ->where('logs.warehouse_id', $warehouseId)
             ->whereIn('logs.item_id', $itemIds)
