@@ -74,6 +74,7 @@ class ItemContractorForm
                             ->label('発注点')
                             ->numeric()
                             ->default(0)
+                            ->dehydrateStateUsing(fn ($state) => $state ?? 0)
                             ->minValue(0)
                             ->suffix('個')
                             ->helperText('この数を下回ると発注を検討'),
@@ -82,6 +83,7 @@ class ItemContractorForm
                             ->label('最大在庫')
                             ->numeric()
                             ->default(0)
+                            ->dehydrateStateUsing(fn ($state) => $state ?? 0)
                             ->minValue(0)
                             ->suffix('個')
                             ->helperText('在庫の上限目安'),
@@ -90,6 +92,7 @@ class ItemContractorForm
                             ->label('最低在庫')
                             ->numeric()
                             ->default(0)
+                            ->dehydrateStateUsing(fn ($state) => $state ?? 0)
                             ->minValue(0)
                             ->suffix('個')
                             ->helperText('旧システムの最低在庫数'),
@@ -98,6 +101,7 @@ class ItemContractorForm
                             ->label('自動発注数')
                             ->numeric()
                             ->default(0)
+                            ->dehydrateStateUsing(fn ($state) => $state ?? 0)
                             ->minValue(0)
                             ->suffix('個')
                             ->helperText('設定時は不足数ではなくこの数量を発注数量に使用'),
