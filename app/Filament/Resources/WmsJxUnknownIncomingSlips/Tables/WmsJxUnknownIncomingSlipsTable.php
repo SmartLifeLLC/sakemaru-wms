@@ -701,6 +701,7 @@ class WmsJxUnknownIncomingSlipsTable
             'SCHEDULE_ITEM_NOT_FOUND' => '伝票内の入荷予定に商品がありません',
             'SCHEDULE_STATUS_NOT_APPLICABLE' => '入荷予定が受信適用できない状態です',
             'PRICE_MISMATCH' => '単価が一致しません',
+            'PRICE_UNIT_UNCONFIRMED' => '単位要確認（確定仕入明細との連結後に比較します）',
             default => '確認が必要です',
         };
     }

@@ -954,6 +954,10 @@ class IncomingReceiveService
         WmsIncomingReceivedFile $file,
         $detail
     ): void {
+        if (config('wms.client') === 'hana') {
+            // Hana warnings are confirmed from the actual purchase snapshot.
+            return;
+        }
         $priceType = $schedule->price_type;
         $hasMismatch = false;
         $expectedPrice = null;
@@ -1123,8 +1127,7 @@ class IncomingReceiveService
                 'partner_unit_price' => $priceData['partner_unit_price'],
                 'partner_case_price' => $priceData['partner_case_price'],
                 'price_type' => $priceData['price_type'],
-                'unit_price' => $templateSchedule?->unit_price,
-                'case_price' => $templateSchedule?->case_price,
+                ...$this->newScheduleMasterPrices($itemId, $deliveryDate, $templateSchedule),
                 'quantity_type' => $quantityType,
                 'order_date' => $orderDate,
                 'expected_arrival_date' => $deliveryDate,
@@ -1546,6 +1549,7 @@ class IncomingReceiveService
                     'partner_unit_price' => $priceData['partner_unit_price'],
                     'partner_case_price' => $priceData['partner_case_price'],
                     'price_type' => $priceData['price_type'],
+                    ...$this->newScheduleMasterPrices($itemId, $deliveryDate),
                     'quantity_type' => QuantityType::PIECE,
                     'order_date' => $orderDate,
                     'expected_arrival_date' => $deliveryDate,
@@ -1954,8 +1958,7 @@ class IncomingReceiveService
             'received_quantity' => 0,
             'shortage_quantity' => $shortageQty,
             'is_receive_matched' => true,
-            'unit_price' => $templateSchedule->unit_price,
-            'case_price' => $templateSchedule->case_price,
+            ...$this->newScheduleMasterPrices((int) $templateSchedule->item_id, $deliveryDate, $templateSchedule),
             'quantity_type' => $templateSchedule->quantity_type,
             'order_date' => $orderDate,
             'expected_arrival_date' => $deliveryDate,
@@ -2180,10 +2183,23 @@ class IncomingReceiveService
         ]));
     }
 
+    private function newScheduleMasterPrices(int $itemId, string $arrivalDate, ?WmsOrderIncomingSchedule $template = null): array
+    {
+        if (config('wms.client') !== 'hana') {
+            return $template ? ['unit_price' => $template->unit_price, 'case_price' => $template->case_price] : [];
+        }
+        $prices = app(PurchasePriceService::class)->getIncomingPrice($itemId, null, null, $arrivalDate);
+        return ['unit_price' => $prices['unit_price'], 'case_price' => $prices['case_price']];
+    }
+
     private function receivedPriceWritebackData(
         ?WmsOrderIncomingSchedule $schedule,
         WmsIncomingReceivedDetail $detail
     ): array {
+        if (config('wms.client') === 'hana') {
+            // EOS case/piece counts do not prove the unit of its price.
+            return ['partner_unit_price' => null, 'partner_case_price' => null, 'price_type' => null];
+        }
         $rawUnitPrice = $detail->d_unit_price;
         $partnerPrice = is_numeric($rawUnitPrice) ? (float) $rawUnitPrice / 100 : null;
         $priceType = $this->receivedPriceType($schedule, $detail, $partnerPrice);
@@ -2369,7 +2385,27 @@ class IncomingReceiveService
         }
 
         try {
-            $this->priceCheckSourceRecorder()->record($file, $detail, $schedule);
+            $source = $this->priceCheckSourceRecorder()->record($file, $detail, $schedule);
+            if (config('wms.client') === 'hana'
+                && $source->source_schema_version === '2026-10-12'
+                && ! $source->is_price_check_excluded
+                && ! WmsIncomingImportError::query()->where('received_detail_id', $detail->id)
+                    ->whereIn('error_code', ['PRICE_UNIT_UNCONFIRMED', 'PRICE_MISMATCH'])->exists()) {
+                WmsIncomingImportError::create([
+                    'received_file_id' => $file->id,
+                    'received_slip_id' => $detail->received_slip_id,
+                    'received_detail_id' => $detail->id,
+                    'error_code' => 'PRICE_UNIT_UNCONFIRMED',
+                    'error_type' => 'WARNING',
+                    'error_message' => '単位要確認（確定仕入明細との連結後に比較します）',
+                    'item_code' => $detail->d_jan_code ?: $detail->d_item_code,
+                    'raw_data' => ['comparison_policy' => 'CONFIRMED_PURCHASE_V1'],
+                ]);
+            }
+            if (config('wms.client') === 'hana' && $source->source_schema_version === '2026-10-12'
+                && ! $source->is_price_check_excluded) {
+                $this->confirmPurchasePriceWarning($schedule, $detail);
+            }
         } catch (\Throwable $throwable) {
             Log::warning('[IncomingReceiveService] 単価チェック原本保存に失敗しました', [
                 'received_file_id' => $file->id,
@@ -2383,6 +2419,45 @@ class IncomingReceiveService
     private function priceCheckSourceRecorder(): IncomingPriceCheckSourceRecorder
     {
         return $this->priceCheckSourceRecorder ??= app(IncomingPriceCheckSourceRecorder::class);
+    }
+
+    private function confirmPurchasePriceWarning(WmsOrderIncomingSchedule $schedule, WmsIncomingReceivedDetail $detail): void
+    {
+        $warning = WmsIncomingImportError::query()->where('received_detail_id', $detail->id)
+            ->where('error_code', 'PRICE_UNIT_UNCONFIRMED')->where('is_resolved', false)
+            ->where('raw_data->comparison_policy', 'CONFIRMED_PURCHASE_V1')->first();
+        if (! $warning) {
+            return;
+        }
+        $comparison = app(IncomingPurchaseComparisonReader::class)->read($schedule);
+        if (! $comparison || $comparison->expected_quantity === null
+            || $comparison->comparison_master_price === null || $comparison->comparison_received_price === null
+            || ! in_array($comparison->comparison_price_type, ['PIECE', 'CASE', 'CARTON'], true)) {
+            return;
+        }
+        $type = $comparison->comparison_price_type;
+        $label = QuantityType::from($type)->name();
+        $mismatch = (bool) $comparison->current_price_mismatch;
+        WmsIncomingImportError::query()->where('id', $warning->id)
+            ->where('error_code', 'PRICE_UNIT_UNCONFIRMED')->where('is_resolved', false)->update([
+            'error_code' => $mismatch ? 'PRICE_MISMATCH' : 'PRICE_UNIT_UNCONFIRMED',
+            'error_message' => $mismatch
+                ? "単価不一致（{$label}）: 自社={$comparison->comparison_master_price} vs 仕入先={$comparison->comparison_received_price}"
+                : "単位確認済み（{$label}）: 相違なし",
+            'expected_price' => $comparison->comparison_master_price,
+            'actual_price' => $comparison->comparison_received_price,
+            'raw_data' => json_encode(array_merge($warning->raw_data ?? [], [
+                'comparison_status' => 'CONFIRMED',
+                'trade_item_id' => data_get(json_decode($comparison->calculation_payload, true), 'trade_item_id'),
+                'comparison_quantity' => (float) $comparison->expected_quantity,
+                'comparison_price_type' => $type,
+                'comparison_master_price' => (float) $comparison->comparison_master_price,
+                'comparison_received_price' => (float) $comparison->comparison_received_price,
+                'comparison_amount' => $comparison->received_amount === null ? null : (float) $comparison->received_amount,
+            ]), JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+            'is_resolved' => ! $mismatch,
+            'resolved_at' => $mismatch ? null : now(),
+        ]);
     }
 
     /**

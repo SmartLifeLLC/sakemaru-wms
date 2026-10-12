@@ -61,19 +61,37 @@ class IncomingPriceCheckSourceRecorder
         $sentLinePayload = $this->resolveSentLinePayload($assignment, $orderCandidate, $slip, $detail);
 
         $sourceKeys = $this->buildSourceKeys($file, $slip, $detail);
+        $usesItemCost = config('wms.client') === 'hana';
+        $existing = $usesItemCost
+            ? WmsIncomingPriceCheckSource::query()->where('source_key', $sourceKeys['source_key'])->first()
+            : null;
+        if ($usesItemCost && $existing) {
+            // Preserve received originals, including historical comparisons.
+            return $existing;
+        }
         $receivedPrice = $this->receivedUnitPrice($detail);
-        $receivedAmount = $this->receivedAmount(
+        $receivedAmount = $usesItemCost
+            ? $this->decimal($detail->d_amount ?? $eosLine?->amount)
+            : $this->receivedAmount(
             $detail,
             $eosLine,
             $receivedPrice,
             $this->comparisonPriceType($schedule, $detail, $receivedPrice, $sentLinePayload),
         );
-        $comparison = $this->comparisonPayload($schedule, $receivedPrice, $receivedAmount, $detail, $sentLinePayload);
+        $comparison = $usesItemCost ? [
+            'price_type' => null,
+            'master_price' => null,
+            'received_price' => null,
+            'price_diff' => null,
+            'has_mismatch' => false,
+            'comparison_status' => 'AWAITING_PURCHASE',
+            'price_reference' => 'ITEM_COST',
+        ] : $this->comparisonPayload($schedule, $receivedPrice, $receivedAmount, $detail, $sentLinePayload);
         $isExcluded = $this->isPriceCheckExcluded($detail);
 
         $attributes = $this->encodeJsonAttributes([
             'source_type' => self::SOURCE_TYPE,
-            'source_schema_version' => self::SOURCE_SCHEMA_VERSION,
+            'source_schema_version' => $usesItemCost ? '2026-10-12' : self::SOURCE_SCHEMA_VERSION,
             'source_key' => $sourceKeys['source_key'],
             'source_document_key' => $sourceKeys['document_key'],
             'source_line_key' => $sourceKeys['line_key'],
