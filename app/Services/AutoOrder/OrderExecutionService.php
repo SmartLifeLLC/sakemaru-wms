@@ -201,11 +201,13 @@ class OrderExecutionService
         $supplierPartnerId = $this->getSupplierPartnerId($supplierId);
         $searchCode = $this->getSearchCodeForItem($candidate->item_id);
         $expirationDate = $this->calculateExpirationDate($candidate->item_id, $candidate->expected_arrival_date);
-        $prices = $this->purchasePriceService->getPrice(
+        $prices = $this->purchasePriceService->getIncomingPrice(
             $candidate->item_id,
             $supplierPartnerId,
             $candidate->warehouse_id,
-            now()->toDateString()
+            config('wms.client') === 'hana'
+                ? ($candidate->expected_arrival_date?->toDateString() ?? now()->toDateString())
+                : now()->toDateString()
         );
 
         // demand_breakdownがある場合は各倉庫ごとに入庫予定を作成
@@ -393,11 +395,13 @@ class OrderExecutionService
         $orderDate = $data['order_date'] ?? now()->format('Y-m-d');
         $supplierId = $data['supplier_id'] ?? null;
         $supplierPartnerId = $this->getSupplierPartnerId($supplierId ? (int) $supplierId : null);
-        $prices = $this->purchasePriceService->getPrice(
+        $prices = $this->purchasePriceService->getIncomingPrice(
             $data['item_id'],
             $supplierPartnerId,
             $data['warehouse_id'],
-            $orderDate
+            config('wms.client') === 'hana'
+                ? Carbon::parse($data['expected_arrival_date'] ?? $orderDate)->toDateString()
+                : $orderDate
         );
 
         $itemCode = Item::where('id', $data['item_id'])->value('code');
