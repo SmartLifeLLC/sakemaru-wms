@@ -66,6 +66,45 @@ class OrderDataFileServiceTest extends TestCase
         $this->assertSame([2], $groups->get('10_100_201_2026-05-20')->pluck('id')->all());
     }
 
+    public function test_fax_candidates_with_different_suppliers_share_one_group(): void
+    {
+        $service = new OrderDataFileService;
+        $method = new \ReflectionMethod($service, 'groupCandidatesForDataFiles');
+
+        $groups = $method->invoke($service, collect([
+            $this->candidate(1, 10, 100, 200, '2026-05-20'),
+            $this->candidate(2, 10, 100, 201, '2026-05-20'),
+            $this->candidate(3, 10, 100, null, '2026-05-20'),
+            $this->candidate(4, 10, 101, 200, '2026-05-20'),
+            $this->candidate(5, 11, 100, 200, '2026-05-20'),
+            $this->candidate(6, 10, 100, 200, '2026-05-21'),
+        ]), true, false);
+
+        $this->assertCount(4, $groups);
+        $this->assertSame([1, 2, 3], $groups->get('10_100_2026-05-20')->pluck('id')->all());
+        $this->assertSame([4], $groups->get('10_101_2026-05-20')->pluck('id')->all());
+        $this->assertSame([5], $groups->get('11_100_2026-05-20')->pluck('id')->all());
+        $this->assertSame([6], $groups->get('10_100_2026-05-21')->pluck('id')->all());
+    }
+
+    public function test_fax_candidates_ignore_suppliers_when_warehouses_are_combined(): void
+    {
+        $service = new OrderDataFileService;
+        $method = new \ReflectionMethod($service, 'groupCandidatesForDataFiles');
+
+        $groups = $method->invoke($service, collect([
+            $this->candidate(1, 10, 100, 200, '2026-05-20'),
+            $this->candidate(2, 11, 100, 201, '2026-05-20'),
+            $this->candidate(3, 10, 101, 200, '2026-05-20'),
+            $this->candidate(4, 10, 100, 200, '2026-05-21'),
+        ]), false, false);
+
+        $this->assertCount(3, $groups);
+        $this->assertSame([1, 2], $groups->get('100_2026-05-20')->pluck('id')->all());
+        $this->assertSame([3], $groups->get('101_2026-05-20')->pluck('id')->all());
+        $this->assertSame([4], $groups->get('100_2026-05-21')->pluck('id')->all());
+    }
+
     public function test_created_by_name_uses_authenticated_user_name(): void
     {
         $this->actingAs((new User)->forceFill([
@@ -136,7 +175,7 @@ class OrderDataFileServiceTest extends TestCase
         $this->assertSame(53, $method->invoke($service, collect([$caseCandidate, $pieceCandidate])));
     }
 
-    private function candidate(int $id, int $warehouseId, int $contractorId, int $supplierId, string $expectedArrivalDate): WmsOrderCandidate
+    private function candidate(int $id, int $warehouseId, int $contractorId, ?int $supplierId, string $expectedArrivalDate): WmsOrderCandidate
     {
         $candidate = new WmsOrderCandidate([
             'warehouse_id' => $warehouseId,
