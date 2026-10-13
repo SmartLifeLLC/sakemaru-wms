@@ -10,6 +10,7 @@ use App\Models\WmsPickingItemResult;
 use App\Services\StockAllocationService;
 use App\Services\StockTransferLotAllocationService;
 use App\Services\WarehouseResolver;
+use App\Services\WaveAllocationBudget;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -112,7 +113,7 @@ class GenerateWavesCommand extends Command
             }
 
             // Create wave within transaction
-            DB::transaction(function () use ($setting, $shippingDate, $earningsCount, $warehouseId, &$createdCount) {
+            DB::connection('sakemaru')->transaction(function () use ($setting, $shippingDate, $earningsCount, $warehouseId, &$createdCount) {
                 // Get warehouse and course codes for wave_no generation
                 $warehouse = DB::connection('sakemaru')
                     ->table('warehouses')
@@ -167,6 +168,13 @@ class GenerateWavesCommand extends Command
                 // Create earning_id and buyer_id lookup for each trade_item
                 $tradeIdToEarningId = $earnings->pluck('id', 'trade_id')->toArray();
                 $tradeIdToBuyerId = $earnings->pluck('buyer_id', 'trade_id')->toArray();
+                $stockTransfers = $this->getEligibleStockTransfersQuery(
+                    $shippingDate,
+                    $warehouseId,
+                    $setting->delivery_course_id
+                )->get();
+                $allocationBudget = new WaveAllocationBudget($earningIds, $stockTransfers->pluck('id')->all());
+                $allocationBudget->prepare((int) $warehouseId);
 
                 // Group trade items by (floor_id, picking_area_id)
                 // We determine the floor and picking area by reserving stock first
@@ -182,7 +190,7 @@ class GenerateWavesCommand extends Command
                     }
 
                     // Reserve stock for this trade item using optimized allocation service
-                    $allocationService = new StockAllocationService;
+                    $allocationService = new StockAllocationService($allocationBudget);
                     $result = $allocationService->allocateForItem(
                         $wave->id,
                         $warehouseId,
@@ -194,6 +202,9 @@ class GenerateWavesCommand extends Command
                         'EARNING',
                         $buyerId
                     );
+                    if ($result['lock_failed'] ?? false) {
+                        throw new \RuntimeException('在庫引当のロックを取得できませんでした。波動生成を再実行してください');
+                    }
 
                     // Get primary location and real_stock from first reservation
                     // Note: There may be multiple reservations if stock is split across locations
@@ -210,6 +221,9 @@ class GenerateWavesCommand extends Command
 
                     $reservationResult = [
                         'allocated_qty' => $result['allocated'],
+                        'shortage_qty' => $result['shortage'] ?? 0,
+                        'qty_type' => $result['qty_type'] ?? $tradeItem->quantity_type,
+                        'ordered_qty' => $result['ordered_qty'] ?? $tradeItem->quantity,
                         'real_stock_id' => $primaryReservation->real_stock_id ?? null,
                         'location_id' => $primaryReservation->location_id ?? null,
                         'walking_order' => null,
@@ -373,13 +387,13 @@ class GenerateWavesCommand extends Command
                             'real_stock_id' => $reservationResult['real_stock_id'], // Primary real_stock from reservation
                             'location_id' => $reservationResult['location_id'], // Primary picking location from reservation
                             'walking_order' => $reservationResult['walking_order'], // Warehouse movement sequence for route optimization
-                            'ordered_qty' => $tradeItem->quantity, // Original order quantity
-                            'ordered_qty_type' => $tradeItem->quantity_type, // From trade_items.quantity_type (must be specified)
+                            'ordered_qty' => $reservationResult['ordered_qty'], // Original order quantity
+                            'ordered_qty_type' => $reservationResult['qty_type'], // From trade_items.quantity_type (must be specified)
                             'planned_qty' => $reservationResult['allocated_qty'], // Allocated quantity from reservations
-                            'planned_qty_type' => $tradeItem->quantity_type, // Same as ordered (for now)
+                            'planned_qty_type' => $reservationResult['qty_type'], // Same as ordered (for now)
                             'picked_qty' => $itemSkipPicking ? $reservationResult['allocated_qty'] : 0, // Auto-complete if same real warehouse
-                            'picked_qty_type' => $tradeItem->quantity_type, // Will be set by picker
-                            'shortage_qty' => max(0, $tradeItem->quantity - $reservationResult['allocated_qty']),
+                            'picked_qty_type' => $reservationResult['qty_type'], // Will be set by picker
+                            'shortage_qty' => $reservationResult['shortage_qty'] ?? 0,
                             'status' => $itemStatus, // Changed: PENDING is initial state (not PICKING)
                             'picker_id' => null,
                             'created_at' => now(),
@@ -414,12 +428,6 @@ class GenerateWavesCommand extends Command
                 // ============================================================
                 // Stock Transfers Processing (倉庫間移動)
                 // ============================================================
-                $stockTransfers = $this->getEligibleStockTransfersQuery(
-                    $shippingDate,
-                    $warehouseId,
-                    $setting->delivery_course_id
-                )->get();
-
                 $stockTransferIds = [];
                 if ($stockTransfers->isNotEmpty()) {
                     $stockTransferIds = $stockTransfers->pluck('id')->toArray();
@@ -443,13 +451,15 @@ class GenerateWavesCommand extends Command
                         }
 
                         // Reserve stock for this trade item
-                        $allocationService = new StockTransferLotAllocationService;
+                        $allocationService = new StockTransferLotAllocationService($allocationBudget);
                         $result = $allocationService->allocateForTradeItem(
                             $wave->id,
                             $warehouseId,
                             $stockTransferId,
                             $tradeItem
                         );
+                        $wmsQuantityType = $result['qty_type'] ?? $tradeItem->quantity_type;
+                        $wmsOrderQty = $result['ordered_qty'] ?? $tradeItem->quantity;
 
                         // Get primary location and real_stock from first reservation
                         $primaryReservation = DB::connection('sakemaru')
@@ -540,14 +550,14 @@ class GenerateWavesCommand extends Command
                             'item_id' => $tradeItem->item_id,
                             'real_stock_id' => $reservationResult['real_stock_id'],
                             'location_id' => $reservationResult['location_id'],
-                            'walking_order' => $reservationResult['walking_order'],
-                            'ordered_qty' => $tradeItem->quantity,
-                            'ordered_qty_type' => $tradeItem->quantity_type,
+                            'walking_order' => $reservationResult['walking_order'] ?? null,
+                            'ordered_qty' => $wmsOrderQty,
+                            'ordered_qty_type' => $wmsQuantityType,
                             'planned_qty' => $reservationResult['allocated_qty'],
-                            'planned_qty_type' => $tradeItem->quantity_type,
+                            'planned_qty_type' => $wmsQuantityType,
                             'picked_qty' => 0,
-                            'picked_qty_type' => $tradeItem->quantity_type,
-                            'shortage_qty' => max(0, $tradeItem->quantity - $reservationResult['allocated_qty']),
+                            'picked_qty_type' => $wmsQuantityType,
+                            'shortage_qty' => $result['shortage'] ?? 0,
                             'status' => 'PENDING',
                             'picker_id' => null,
                             'created_at' => now(),

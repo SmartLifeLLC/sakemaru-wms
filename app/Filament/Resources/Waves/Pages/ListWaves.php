@@ -19,6 +19,7 @@ use App\Services\PickingList\PickingListPdfService;
 use App\Services\StockAllocationService;
 use App\Services\StockTransferLotAllocationService;
 use App\Services\WarehouseResolver;
+use App\Services\WaveAllocationBudget;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
@@ -48,6 +49,8 @@ class ListWaves extends ListRecords
     }
 
     protected static string $resource = WaveResource::class;
+
+    private ?WaveAllocationBudget $allocationBudget = null;
 
     public function getTitle(): string|Htmlable
     {
@@ -847,10 +850,17 @@ class ListWaves extends ListRecords
             $shippingDateAndDeliveryCourseKeys,
             $earningsByShippingDateAndDeliveryCourse,
             $stockTransfersByShippingDateAndDeliveryCourse,
+            $earnings,
+            $stockTransfers,
             &$createdWaveIds,
             &$totalEarnings,
             &$totalStockTransfers
         ) {
+            $this->allocationBudget = new WaveAllocationBudget(
+                $earnings->pluck('id')->all(),
+                $stockTransfers->pluck('id')->all(),
+            );
+            $this->allocationBudget->prepare((int) $warehouseId);
             $warehouse = DB::connection('sakemaru')
                 ->table('warehouses')
                 ->where('id', $warehouseId)
@@ -1994,7 +2004,7 @@ class ListWaves extends ListRecords
                 continue;
             }
 
-            $allocationService = new StockAllocationService;
+            $allocationService = new StockAllocationService($this->allocationBudget);
             $result = $allocationService->allocateForItem(
                 $wave->id,
                 $waveSetting->warehouse_id,
@@ -2006,6 +2016,9 @@ class ListWaves extends ListRecords
                 'EARNING',
                 $buyerId
             );
+            if ($result['lock_failed'] ?? false) {
+                throw new \RuntimeException('在庫引当のロックを取得できませんでした。波動生成を再実行してください');
+            }
 
             $primaryReservation = DB::connection('sakemaru')
                 ->table('wms_reservations')
@@ -2019,6 +2032,8 @@ class ListWaves extends ListRecords
 
             $reservationResult = [
                 'allocated_qty' => $result['allocated'],
+                'qty_type' => $result['qty_type'] ?? $tradeItem->quantity_type,
+                'ordered_qty' => $result['ordered_qty'] ?? $tradeItem->quantity,
                 'shortage_qty' => $result['shortage'] ?? 0,
                 'real_stock_id' => $primaryReservation->real_stock_id ?? null,
                 'location_id' => $primaryReservation->location_id ?? null,
@@ -2155,12 +2170,12 @@ class ListWaves extends ListRecords
                     'real_stock_id' => $reservationResult['real_stock_id'],
                     'location_id' => $reservationResult['location_id'],
                     'walking_order' => $reservationResult['walking_order'],
-                    'ordered_qty' => $tradeItem->quantity,
-                    'ordered_qty_type' => $tradeItem->quantity_type,
+                    'ordered_qty' => $reservationResult['ordered_qty'],
+                    'ordered_qty_type' => $reservationResult['qty_type'],
                     'planned_qty' => $reservationResult['allocated_qty'],
-                    'planned_qty_type' => $tradeItem->quantity_type,
+                    'planned_qty_type' => $reservationResult['qty_type'],
                     'picked_qty' => 0,
-                    'picked_qty_type' => $tradeItem->quantity_type,
+                    'picked_qty_type' => $reservationResult['qty_type'],
                     'shortage_qty' => $reservationResult['shortage_qty'] ?? 0,
                     'status' => 'PENDING',
                     'picker_id' => null,
@@ -2221,13 +2236,15 @@ class ListWaves extends ListRecords
                 continue;
             }
 
-            $allocationService = new StockTransferLotAllocationService;
+            $allocationService = new StockTransferLotAllocationService($this->allocationBudget);
             $result = $allocationService->allocateForTradeItem(
                 $wave->id,
                 $waveSetting->warehouse_id,
                 $stockTransferId,
                 $tradeItem
             );
+            $wmsQuantityType = $result['qty_type'] ?? $tradeItem->quantity_type;
+            $wmsOrderQty = $result['ordered_qty'] ?? $tradeItem->quantity;
 
             $primaryReservation = DB::connection('sakemaru')
                 ->table('wms_reservations')
@@ -2334,12 +2351,12 @@ class ListWaves extends ListRecords
                 'real_stock_id' => $reservationResult['real_stock_id'],
                 'location_id' => $reservationResult['location_id'],
                 'walking_order' => $reservationResult['walking_order'],
-                'ordered_qty' => $tradeItem->quantity,
-                'ordered_qty_type' => $tradeItem->quantity_type,
+                'ordered_qty' => $wmsOrderQty,
+                'ordered_qty_type' => $wmsQuantityType,
                 'planned_qty' => $reservationResult['allocated_qty'],
-                'planned_qty_type' => $tradeItem->quantity_type,
+                'planned_qty_type' => $wmsQuantityType,
                 'picked_qty' => 0,
-                'picked_qty_type' => $tradeItem->quantity_type,
+                'picked_qty_type' => $wmsQuantityType,
                 'shortage_qty' => $reservationResult['shortage_qty'] ?? 0,
                 'status' => 'PENDING',
                 'picker_id' => null,
