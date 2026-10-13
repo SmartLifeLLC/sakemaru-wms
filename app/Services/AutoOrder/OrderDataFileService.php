@@ -191,7 +191,12 @@ class OrderDataFileService
         $errors = [];
 
         foreach ($candidates->groupBy('batch_code') as $batchCode => $batchCandidates) {
-            $grouped = $this->groupCandidatesForDataFiles($batchCandidates, $splitByWarehouse);
+            // FAXは送付先単位でまとめ、仕入先が異なっても同じ発注書に含める。
+            $grouped = $this->groupCandidatesForDataFiles(
+                $batchCandidates,
+                $splitByWarehouse,
+                splitBySupplier: $channel !== OrderDataFileChannel::FAX,
+            );
 
             foreach ($grouped as $groupKey => $groupCandidates) {
                 try {
@@ -232,8 +237,9 @@ class OrderDataFileService
         $firstCandidate = $candidates->first();
         $contractorId = $firstCandidate->contractor_id;
         $contractor = $firstCandidate->contractor;
-        $supplierId = $firstCandidate->supplier_id;
-        $supplierName = $firstCandidate->supplier?->partner?->name;
+        $hasSingleSupplier = $candidates->pluck('supplier_id')->unique()->count() === 1;
+        $supplierId = $hasSingleSupplier ? $firstCandidate->supplier_id : null;
+        $supplierName = $hasSingleSupplier ? $firstCandidate->supplier?->partner?->name : null;
         $warehouseId = $splitByWarehouse ? $firstCandidate->warehouse_id : null;
         $warehouse = $splitByWarehouse ? $firstCandidate->warehouse : null;
         $expectedArrivalDate = $firstCandidate->expected_arrival_date;
@@ -499,19 +505,19 @@ class OrderDataFileService
         }
     }
 
-    private function groupCandidatesForDataFiles(Collection $candidates, bool $splitByWarehouse): Collection
+    private function groupCandidatesForDataFiles(Collection $candidates, bool $splitByWarehouse, bool $splitBySupplier = true): Collection
     {
-        return $candidates->groupBy(fn (WmsOrderCandidate $candidate): string => $this->dataFileGroupKey($candidate, $splitByWarehouse));
+        return $candidates->groupBy(fn (WmsOrderCandidate $candidate): string => $this->dataFileGroupKey($candidate, $splitByWarehouse, $splitBySupplier));
     }
 
-    private function dataFileGroupKey(WmsOrderCandidate $candidate, bool $splitByWarehouse): string
+    private function dataFileGroupKey(WmsOrderCandidate $candidate, bool $splitByWarehouse, bool $splitBySupplier): string
     {
-        $supplierId = $candidate->supplier_id ?? 'no-supplier';
+        $supplierKey = $splitBySupplier ? '_'.($candidate->supplier_id ?? 'no-supplier') : '';
         $arrivalDate = $candidate->expected_arrival_date?->format('Y-m-d') ?? 'no-date';
 
         return $splitByWarehouse
-            ? "{$candidate->warehouse_id}_{$candidate->contractor_id}_{$supplierId}_{$arrivalDate}"
-            : "{$candidate->contractor_id}_{$supplierId}_{$arrivalDate}";
+            ? "{$candidate->warehouse_id}_{$candidate->contractor_id}{$supplierKey}_{$arrivalDate}"
+            : "{$candidate->contractor_id}{$supplierKey}_{$arrivalDate}";
     }
 
     private function sumTotalPieceQuantity(Collection $candidates): int
