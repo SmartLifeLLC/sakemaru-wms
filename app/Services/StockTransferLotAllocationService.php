@@ -8,6 +8,8 @@ use Illuminate\Support\Facades\Log;
 
 class StockTransferLotAllocationService
 {
+    public function __construct(private ?WaveAllocationBudget $budget = null) {}
+
     /**
      * Allocate WMS reservations from core stock transfer lot allocations.
      *
@@ -16,6 +18,17 @@ class StockTransferLotAllocationService
      * original stock transfer line quantity.
      */
     public function allocateForTradeItem(
+        int $waveId,
+        int $warehouseId,
+        int $stockTransferId,
+        object $tradeItem
+    ): array {
+        return DB::connection('sakemaru')->transaction(
+            fn () => $this->doAllocateForTradeItem($waveId, $warehouseId, $stockTransferId, $tradeItem)
+        );
+    }
+
+    private function doAllocateForTradeItem(
         int $waveId,
         int $warehouseId,
         int $stockTransferId,
@@ -55,11 +68,10 @@ class StockTransferLotAllocationService
                 $tradeItemId
             );
 
-            return $this->result(0, $needQty);
+            return $this->result(0, $needQty) + ['allocation_issue' => '店舗移動のロット引当情報を確認してください'];
         }
 
         $stlaPieces = 0;
-        $shortagePieces = 0;
         $primaryAllocation = null;
 
         foreach ($allocations as $allocation) {
@@ -85,7 +97,7 @@ class StockTransferLotAllocationService
                     $tradeItemId
                 );
 
-                return $this->result(0, $needQty);
+                return $this->result(0, $needQty) + ['allocation_issue' => '店舗移動のロット引当情報を確認してください'];
             }
 
             $pieces = (int) $allocation->quantity;
@@ -95,16 +107,10 @@ class StockTransferLotAllocationService
 
             $stlaPieces += $pieces;
 
-            if ($this->sourceLotRepresentsShortage($allocation, $item)) {
-                $shortagePieces += $pieces;
-
-                continue;
-            }
-
             $primaryAllocation ??= $allocation;
         }
 
-        if ($stlaPieces !== $expectedPieces) {
+        if ($stlaPieces !== $expectedPieces || $allocations->pluck('real_stock_id')->unique()->count() !== 1) {
             Log::warning('Stock transfer lot allocation quantity mismatch; marking transfer line as shortage.', [
                 'stock_transfer_id' => $stockTransferId,
                 'trade_item_id' => $tradeItemId,
@@ -125,58 +131,56 @@ class StockTransferLotAllocationService
                 $tradeItemId
             );
 
-            return $this->result(0, $needQty);
+            return $this->result(0, $needQty) + ['allocation_issue' => '店舗移動のロット引当情報を確認してください'];
         }
 
-        $shortageQty = $this->shortageQuantityFromPieces($shortagePieces, $unitSize, $needQty);
-        $allocatedQty = max(0, $needQty - $shortageQty);
-
-        if ($allocatedQty > 0 && $primaryAllocation === null) {
-            Log::warning('Stock transfer lot allocations have no usable source lot; marking transfer line as shortage.', [
-                'stock_transfer_id' => $stockTransferId,
-                'trade_item_id' => $tradeItemId,
-                'item_id' => $itemId,
-                'need_qty' => $needQty,
-                'qty_type' => $quantityType,
+        $budget = $this->budget ?? new WaveAllocationBudget([], [$stockTransferId]);
+        $managed = (int) ($item->is_managed_stock ?? 1) !== 0;
+        $piecesByStock = $allocations->groupBy('real_stock_id')
+            ->map(fn ($rows) => max(0, (int) $rows->sum('quantity')));
+        $availablePieces = $managed
+            ? (int) $piecesByStock->map(fn ($pieces, $stockId) => min($pieces, $budget->remainingPieces((int) $stockId)))->sum()
+            : $expectedPieces;
+        $allocatedPieces = min($expectedPieces, $availablePieces);
+        $remainingPieces = $allocatedPieces;
+        $segments = [];
+        foreach ($allocations as $allocation) {
+            $take = min($remainingPieces, max(0, (int) $allocation->quantity));
+            if ($take <= 0) {
+                continue;
+            }
+            if ($managed) {
+                $budget->consume((int) $allocation->real_stock_id, $take, (int) $allocation->from_real_stock_lot_id);
+            }
+            $key = $allocation->real_stock_id.':'.($allocation->location_id ?? 'null');
+            $segments[$key] ??= ['source' => $allocation, 'pieces' => 0];
+            $segments[$key]['pieces'] += $take;
+            $remainingPieces -= $take;
+        }
+        // A reservation cannot hold a fractional CASE/CARTON at any shelf.
+        if ($allocatedPieces % $unitSize !== 0 || ! collect($segments)->every(fn ($segment) => $segment['pieces'] % $unitSize === 0)) {
+            $quantityType = 'PIECE';
+            $needQty = $expectedPieces;
+            $unitSize = 1;
+        }
+        $allocatedQty = intdiv($allocatedPieces, $unitSize);
+        $shortageQty = max(0, $needQty - $allocatedQty);
+        foreach ($segments as $segment) {
+            $source = $segment['source'];
+            $inserted = DB::connection('sakemaru')->table('wms_reservations')->insertOrIgnore([
+                'warehouse_id' => $warehouseId, 'location_id' => $source->location_id,
+                'real_stock_id' => $source->real_stock_id, 'item_id' => $itemId,
+                'expiry_date' => $source->expiration_date, 'received_at' => null,
+                'purchase_id' => $source->purchase_id, 'unit_cost' => $source->unit_cost,
+                'qty_each' => intdiv($segment['pieces'], $unitSize), 'qty_type' => $quantityType,
+                'shortage_qty' => 0, 'source_type' => 'STOCK_TRANSFER',
+                'source_id' => $stockTransferId, 'source_line_id' => $tradeItemId,
+                'wave_id' => $waveId, 'status' => 'RESERVED', 'created_by' => 0,
+                'created_at' => now(), 'updated_at' => now(),
             ]);
-
-            $this->insertShortageReservation(
-                $waveId,
-                $warehouseId,
-                $itemId,
-                $needQty,
-                $quantityType,
-                $stockTransferId,
-                $tradeItemId
-            );
-
-            return $this->result(0, $needQty);
-        }
-
-        if ($allocatedQty > 0 && $primaryAllocation !== null) {
-            DB::connection('sakemaru')
-                ->table('wms_reservations')
-                ->insertOrIgnore([
-                    'warehouse_id' => $warehouseId,
-                    'location_id' => $primaryAllocation->location_id,
-                    'real_stock_id' => $primaryAllocation->real_stock_id,
-                    'item_id' => $itemId,
-                    'expiry_date' => $primaryAllocation->expiration_date,
-                    'received_at' => null,
-                    'purchase_id' => $primaryAllocation->purchase_id,
-                    'unit_cost' => $primaryAllocation->unit_cost,
-                    'qty_each' => $allocatedQty,
-                    'qty_type' => $quantityType,
-                    'shortage_qty' => 0,
-                    'source_type' => 'STOCK_TRANSFER',
-                    'source_id' => $stockTransferId,
-                    'source_line_id' => $tradeItemId,
-                    'wave_id' => $waveId,
-                    'status' => 'RESERVED',
-                    'created_by' => 0,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
+            if ($inserted !== 1) {
+                throw new \RuntimeException('店舗移動の在庫予約を保存できませんでした');
+            }
         }
 
         if ($shortageQty > 0) {
@@ -192,7 +196,10 @@ class StockTransferLotAllocationService
             );
         }
 
-        return $this->result($allocatedQty, $shortageQty);
+        return $this->result($allocatedQty, $shortageQty) + [
+            'qty_type' => $quantityType,
+            'ordered_qty' => $needQty,
+        ];
     }
 
     protected function insertShortageReservation(
@@ -209,7 +216,7 @@ class StockTransferLotAllocationService
             return;
         }
 
-        DB::connection('sakemaru')->table('wms_reservations')->insertOrIgnore([
+        $inserted = DB::connection('sakemaru')->table('wms_reservations')->insertOrIgnore([
             'warehouse_id' => $warehouseId,
             'location_id' => null,
             'real_stock_id' => null,
@@ -230,6 +237,9 @@ class StockTransferLotAllocationService
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+        if ($inserted !== 1) {
+            throw new \RuntimeException('店舗移動の欠品予約を保存できませんでした');
+        }
     }
 
     protected function result(int $allocatedQty, int $shortageQty): array
@@ -259,7 +269,7 @@ class StockTransferLotAllocationService
             ->where('source_id', $stockTransferId)
             ->where('source_line_id', $tradeItemId)
             ->whereIn('status', ['RESERVED', 'PARTIAL', 'SHORTAGE'])
-            ->get(['qty_each', 'shortage_qty']);
+            ->get(['qty_each', 'shortage_qty', 'qty_type']);
 
         if ($existing->isEmpty()) {
             return null;
@@ -271,6 +281,8 @@ class StockTransferLotAllocationService
             'elapsed_ms' => 0.0,
             'race_count' => 0,
             'lock_failed' => false,
+            'qty_type' => $existing->first()->qty_type,
+            'ordered_qty' => (int) $existing->sum('qty_each') + (int) $existing->sum('shortage_qty'),
         ];
     }
 
