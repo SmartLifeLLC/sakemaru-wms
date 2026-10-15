@@ -33,12 +33,12 @@
                         @forelse($menuStructure as $tab)
                             <button
                                 type="button"
-                                class="flex items-center gap-1.5 px-3 py-1 text-base font-medium transition-colors duration-200 rounded-md"
+                                class="flex shrink-0 items-center gap-1 px-2 xl:px-2.5 py-1 text-xs xl:text-sm font-medium whitespace-nowrap transition-colors duration-200 rounded-md"
                                 :class="openTab === '{{ $tab['id'] }}' ? 'text-white bg-slate-700' : 'text-slate-200 hover:text-white hover:bg-slate-700'"
                                 @click="openTab = openTab === '{{ $tab['id'] }}' ? null : '{{ $tab['id'] }}'"
                             >
                                 <i class="fa-solid {{ $tab['icon'] }}"></i>
-                                <span class="hidden lg:inline">{{ $tab['label'] }}</span>
+                                <span class="hidden lg:inline whitespace-nowrap">{{ $tab['label'] }}</span>
                                 <i class="fa-solid fa-chevron-down text-[10px] transition-transform duration-200"
                                    :class="openTab === '{{ $tab['id'] }}' ? 'rotate-180' : ''"></i>
                             </button>
@@ -109,7 +109,10 @@
                                         @foreach($group['items'] as $item)
                                             <li>
                                                 <a href="{{ $item['url'] }}"
-                                                   @if(!empty($item['openInSplitView']))
+                                                   @if(!empty($item['openInNewTab']))
+                                                       target="_blank" rel="noopener noreferrer"
+                                                       @click="openTab = null"
+                                                   @elseif(!empty($item['openInSplitView']))
                                                        @click.prevent="$store.splitView.open('{{ $item['url'] }}', '{{ $item['label'] }}', '{{ $group['label'] }}'); openTab = null"
                                                    @endif
                                                    class="group flex items-center gap-1.5 px-1.5 py-0.5 rounded transition-all duration-150 hover:bg-indigo-100 {{ $item['isActive'] ? 'bg-indigo-50' : '' }}">

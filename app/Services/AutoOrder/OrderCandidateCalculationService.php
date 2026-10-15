@@ -864,13 +864,16 @@ class OrderCandidateCalculationService
      */
     private function loadTransferCandidatesToMemory(string $batchCode): array
     {
+        // ケース発注の移動候補はバラ数に換算して扱う（在庫・需要はバラ数で計算するため）
         $candidates = DB::connection('sakemaru')
-            ->table('wms_stock_transfer_candidates')
+            ->table('wms_stock_transfer_candidates as transfer_candidates')
+            ->leftJoin('items as transfer_items', 'transfer_items.id', '=', 'transfer_candidates.item_id')
             ->where(function ($query) use ($batchCode) {
-                $query->where('batch_code', $batchCode)
-                    ->orWhere('status', CandidateStatus::PENDING->value);
+                $query->where('transfer_candidates.batch_code', $batchCode)
+                    ->orWhere('transfer_candidates.status', CandidateStatus::PENDING->value);
             })
-            ->select('satellite_warehouse_id', 'hub_warehouse_id', 'item_id', 'transfer_quantity')
+            ->select('transfer_candidates.satellite_warehouse_id', 'transfer_candidates.hub_warehouse_id', 'transfer_candidates.item_id')
+            ->selectRaw(WmsStockTransferCandidate::pieceQuantitySql('transfer_candidates', 'transfer_items').' as transfer_quantity')
             ->get();
 
         $result = [];
@@ -880,18 +883,18 @@ class OrderCandidateCalculationService
             if (! isset($result[$c->satellite_warehouse_id][$c->item_id])) {
                 $result[$c->satellite_warehouse_id][$c->item_id] = ['incoming' => 0, 'outgoing' => 0, 'outgoing_breakdown' => []];
             }
-            $result[$c->satellite_warehouse_id][$c->item_id]['incoming'] += $c->transfer_quantity;
+            $result[$c->satellite_warehouse_id][$c->item_id]['incoming'] += (int) $c->transfer_quantity;
 
             // 移動元（出庫）
             if (! isset($result[$c->hub_warehouse_id][$c->item_id])) {
                 $result[$c->hub_warehouse_id][$c->item_id] = ['incoming' => 0, 'outgoing' => 0, 'outgoing_breakdown' => []];
             }
-            $result[$c->hub_warehouse_id][$c->item_id]['outgoing'] += $c->transfer_quantity;
+            $result[$c->hub_warehouse_id][$c->item_id]['outgoing'] += (int) $c->transfer_quantity;
 
             // 出庫先の内訳を記録（仮想倉庫ごとの需要）
             $result[$c->hub_warehouse_id][$c->item_id]['outgoing_breakdown'][] = [
                 'warehouse_id' => $c->satellite_warehouse_id,
-                'quantity' => $c->transfer_quantity,
+                'quantity' => (int) $c->transfer_quantity,
             ];
         }
 

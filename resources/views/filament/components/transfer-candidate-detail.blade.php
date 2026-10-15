@@ -89,7 +89,10 @@
                 </div>
                 <div class="text-center bg-primary-50 dark:bg-primary-900/20 rounded-lg py-2 px-1">
                     <div class="text-xs text-primary-600 dark:text-primary-400">発注数</div>
-                    <div class="text-lg font-bold text-primary-700 dark:text-primary-300">{{ number_format($transferQuantity) }}</div>
+                    <div class="text-lg font-bold text-primary-700 dark:text-primary-300">{{ number_format($transferQuantity) }}<span class="ml-1 text-xs font-semibold">{{ $quantityTypeLabel ?? 'バラ' }}</span></div>
+                    @if(($quantityTypeLabel ?? 'バラ') !== 'バラ' && isset($totalPieceQuantity))
+                        <div class="text-xs font-semibold text-primary-600 dark:text-primary-400">総バラ数 {{ number_format($totalPieceQuantity) }}</div>
+                    @endif
                 </div>
             </div>
 

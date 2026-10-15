@@ -12,7 +12,7 @@ abstract class TestCase extends BaseTestCase
         parent::setUp();
 
         if (! app()->environment('testing')) {
-            return;
+            throw new RuntimeException('Tests must run in the testing environment. Disable the application config cache for this test process.');
         }
 
         $this->assertSafeTestDatabaseConfiguration();

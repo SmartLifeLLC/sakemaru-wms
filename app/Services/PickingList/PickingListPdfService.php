@@ -12,6 +12,8 @@ use TCPDF;
  */
 class PickingListPdfService
 {
+    public function __construct(private array $allocationWarnings = []) {}
+
     // フォントサイズ（pt）
     private const FONT_SIZE_TITLE = 14;
 
@@ -428,7 +430,7 @@ class PickingListPdfService
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_HEADER);
         $this->pdf->SetXY(self::MARGIN, $this->currentY);
         $this->pdf->Cell(self::SHORTAGE_CONTENT_WIDTH, self::LINE_HEIGHT,
-            sprintf('合計  件数: %d  /  欠品総数: %d',
+            sprintf('合計  件数: %d  /  欠品総数（総バラ）: %d',
                 $summary['sku_count'], $summary['total_shortage']
             ), 0, 0, 'L');
     }
@@ -1033,6 +1035,12 @@ class PickingListPdfService
             $this->renderPrimarySummary($data['summary']);
         }
 
+        if ($this->pdf->getNumPages() === 0) {
+            $this->pdf->AddPage();
+            $this->pdf->SetXY(self::MARGIN, self::MARGIN);
+            $this->pdf->Cell(self::PRIMARY_CONTENT_WIDTH, 10, '対象明細なし', 0, 0, 'C');
+        }
+
         $this->totalPages = $this->pdf->getNumPages();
         $this->renderPageNumbers(self::PRIMARY_PAGE_WIDTH, self::PRIMARY_PAGE_HEIGHT);
 
@@ -1123,8 +1131,34 @@ class PickingListPdfService
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
     }
 
+    private function appendAllocationWarnings(): void
+    {
+        if ($this->allocationWarnings === []) {
+            return;
+        }
+        $width = $this->pdf->getPageWidth() - 20;
+        foreach (array_chunk($this->allocationWarnings, 12) as $warnings) {
+            $this->pdf->AddPage();
+            $this->pdf->SetFont('kozminproregular', '', 14);
+            $this->pdf->SetXY(10, 20);
+            $this->pdf->Cell($width, 8, '波動生成の処理記録', 0, 1);
+            $this->pdf->SetFont('kozminproregular', '', 9);
+            $this->pdf->SetXY(10, 32);
+            $this->pdf->MultiCell($width, 10, '再計算・欠品処理などの結果です。各明細の引当数量・欠品数量に従って処理してください。');
+            $y = 48;
+            foreach ($warnings as $warning) {
+                $this->pdf->SetXY(10, $y);
+                $text = ($warning['source_type'] ?? '').' ID '.($warning['source_id'] ?? '-').' / 明細ID '.($warning['trade_item_id'] ?? '-').' / 商品CD '.($warning['item_code'] ?? $warning['item_id'] ?? '-')."\n".($warning['message'] ?? '処理記録');
+                $this->pdf->MultiCell($width, 12, $text, 1);
+                $y += 12;
+            }
+        }
+    }
+
     private function renderPageNumbers(float $pageWidth, float $pageHeight): void
     {
+        $this->appendAllocationWarnings();
+        $this->totalPages = $this->pdf->getNumPages();
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
 
         for ($i = 1; $i <= $this->totalPages; $i++) {
@@ -1537,6 +1571,8 @@ class PickingListPdfService
      */
     private function renderCourseGroupedPageNumbers(): void
     {
+        $this->appendAllocationWarnings();
+        $this->totalPages = $this->pdf->getNumPages();
         $this->pdf->SetFont('kozgopromedium', '', 10);
         $total = $this->totalPages;
 
@@ -1886,6 +1922,8 @@ class PickingListPdfService
 
     private function renderBuyerGroupedPageNumbers(): void
     {
+        $this->appendAllocationWarnings();
+        $this->totalPages = $this->pdf->getNumPages();
         $this->pdf->SetFont('kozgopromedium', '', 8);
         $total = $this->totalPages;
         for ($i = 1; $i <= $total; $i++) {

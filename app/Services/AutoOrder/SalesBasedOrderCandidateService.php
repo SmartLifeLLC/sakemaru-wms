@@ -937,10 +937,13 @@ class SalesBasedOrderCandidateService
 
     private function loadTransferCandidatesToMemory(string $batchCode): array
     {
+        // ケース発注の移動候補はバラ数に換算して扱う（在庫・需要はバラ数で計算するため）
         $candidates = DB::connection('sakemaru')
-            ->table('wms_stock_transfer_candidates')
-            ->where('batch_code', $batchCode)
-            ->select('satellite_warehouse_id', 'hub_warehouse_id', 'item_id', 'transfer_quantity')
+            ->table('wms_stock_transfer_candidates as transfer_candidates')
+            ->leftJoin('items as transfer_items', 'transfer_items.id', '=', 'transfer_candidates.item_id')
+            ->where('transfer_candidates.batch_code', $batchCode)
+            ->select('transfer_candidates.satellite_warehouse_id', 'transfer_candidates.hub_warehouse_id', 'transfer_candidates.item_id')
+            ->selectRaw(WmsStockTransferCandidate::pieceQuantitySql('transfer_candidates', 'transfer_items').' as transfer_quantity')
             ->get();
 
         $result = [];
@@ -949,15 +952,15 @@ class SalesBasedOrderCandidateService
             if (! isset($result[$c->satellite_warehouse_id][$c->item_id])) {
                 $result[$c->satellite_warehouse_id][$c->item_id] = ['incoming' => 0, 'outgoing' => 0, 'outgoing_breakdown' => []];
             }
-            $result[$c->satellite_warehouse_id][$c->item_id]['incoming'] += $c->transfer_quantity;
+            $result[$c->satellite_warehouse_id][$c->item_id]['incoming'] += (int) $c->transfer_quantity;
 
             if (! isset($result[$c->hub_warehouse_id][$c->item_id])) {
                 $result[$c->hub_warehouse_id][$c->item_id] = ['incoming' => 0, 'outgoing' => 0, 'outgoing_breakdown' => []];
             }
-            $result[$c->hub_warehouse_id][$c->item_id]['outgoing'] += $c->transfer_quantity;
+            $result[$c->hub_warehouse_id][$c->item_id]['outgoing'] += (int) $c->transfer_quantity;
             $result[$c->hub_warehouse_id][$c->item_id]['outgoing_breakdown'][] = [
                 'warehouse_id' => $c->satellite_warehouse_id,
-                'quantity' => $c->transfer_quantity,
+                'quantity' => (int) $c->transfer_quantity,
             ];
         }
 
