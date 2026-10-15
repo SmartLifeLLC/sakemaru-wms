@@ -158,7 +158,8 @@ class ContractorForm
                             ->searchable()
                             ->nullable()
                             ->visible(fn (Get $get) => $get('wms_transmission_type') === TransmissionType::JX_FINET->value)
-                            ->required(fn (Get $get) => $get('wms_transmission_type') === TransmissionType::JX_FINET->value),
+                            ->required(fn (Get $get) => $get('wms_transmission_type') === TransmissionType::JX_FINET->value && blank($get('wms_transmission_contractor_id')))
+                            ->helperText(fn (Get $get) => filled($get('wms_transmission_contractor_id')) ? '集約先のJX設定を使用するため、選択は不要です。' : null),
 
                         Select::make('wms_order_ftp_setting_id')
                             ->label('FTP設定')
