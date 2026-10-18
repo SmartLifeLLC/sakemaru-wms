@@ -108,6 +108,10 @@ class OrderCandidateCalculationService
      */
     public function calculate(?int $contractorId = null, bool $transferOnly = false, ?int $warehouseId = null, ?int $createdBy = null, ?array $contractorIds = null, ?string $batchCode = null, ?OriginType $originType = null): WmsAutoOrderJobControl
     {
+        if (in_array($originType, [OriginType::AUTO_SAFETY_STOCK, OriginType::AUTO_SALES_BASED], true)) {
+            app(\App\Services\AutoReplenishment\ReplenishmentGuard::class)->assertLegacyAllowed();
+        }
+
         if (WmsAutoOrderJobControl::hasRunningJob(JobProcessName::ORDER_CALC)) {
             throw new \RuntimeException('Order calculation job is already running');
         }

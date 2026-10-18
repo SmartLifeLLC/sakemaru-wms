@@ -83,6 +83,9 @@ return [
     ],
 
     'permissions' => array_merge(
+        $buildPermissions(['auto-replenishment-settings'], ['view', 'edit', 'enable', 'enable-warehouse', 'enable-global'], '発注', '自動発注'),
+        $buildPermissions(['auto-replenishment-checklist'], ['view', 'preview'], '発注', '自動発注'),
+        $buildPermissions(['auto-replenishment-history'], ['view', 'resume', 'abort'], '発注', '自動発注'),
         [
             [
                 'name' => 'wms.access',

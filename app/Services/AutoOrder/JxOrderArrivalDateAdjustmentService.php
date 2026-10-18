@@ -16,7 +16,7 @@ class JxOrderArrivalDateAdjustmentService
 {
     private const MAX_LOOKAHEAD_DAYS = 14;
 
-    public function earliestArrivalDate(int $contractorId, int $warehouseId, ?Carbon $orderDate = null): ?Carbon
+    public function earliestArrivalDate(int $contractorId, int $warehouseId, ?Carbon $orderDate = null, ?Carbon $notBefore = null): ?Carbon
     {
         $orderDay = ($orderDate ?? Carbon::parse(ClientSetting::freshSystemDateYMD('jx_arrival_date:default')))
             ->copy()
@@ -34,6 +34,9 @@ class JxOrderArrivalDateAdjustmentService
 
         if ($arrivalDate->lte($orderDay)) {
             $arrivalDate = $orderDay->copy()->addDay();
+        }
+        if ($notBefore !== null && $arrivalDate->lt($notBefore->copy()->startOfDay())) {
+            $arrivalDate = $notBefore->copy()->startOfDay();
         }
 
         $deliveryDays = $this->loadDeliveryDaySetting($contractorId, $warehouseId);

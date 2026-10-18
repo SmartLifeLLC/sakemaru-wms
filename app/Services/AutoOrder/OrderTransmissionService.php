@@ -146,6 +146,11 @@ class OrderTransmissionService
         int $contractorId,
         $candidates
     ): WmsOrderJxDocument {
+        if (app(\App\Services\AutoReplenishment\ReplenishmentGuard::class)->installed()
+            && \App\Models\WmsAutoOrderRunLine::whereIn('order_candidate_id', $candidates->pluck('id'))->exists()) {
+            throw new \RuntimeException('自動発注は生成済みJX文書の送信処理を使用してください。');
+        }
+
         return DB::transaction(function () use ($batchCode, $warehouseId, $contractorId, $candidates) {
             $quantityResolver = app(OrderOutputQuantityResolver::class);
             $totalQuantity = $quantityResolver->sumOutputOrderQuantity($candidates);
@@ -789,6 +794,13 @@ class OrderTransmissionService
             return ['success' => false, 'transmitted' => [], 'errors' => [$zeroQuantityError]];
         }
 
+        if (app(\App\Services\AutoReplenishment\ReplenishmentGuard::class)->installed()) {
+            $autoIds = \App\Models\WmsAutoOrderRunLine::whereIn('order_candidate_id', $candidates->pluck('id'))->pluck('order_candidate_id');
+            $candidates = $candidates->reject(fn ($c) => $autoIds->contains($c->id))->values();
+            if ($candidates->isEmpty()) {
+                return ['success' => true, 'transmitted' => [], 'errors' => [], 'message' => '自動発注は生成済み文書の送信処理から扱ってください'];
+            }
+        }
         $files = $generator->generate($candidates);
         if (empty($files)) {
             return ['success' => true, 'transmitted' => [], 'errors' => []];
@@ -1464,6 +1476,11 @@ class OrderTransmissionService
         ]);
 
         $generator = $this->getOrderFileGenerator();
+        $generationGuard = app(\App\Services\AutoReplenishment\JxGenerationGuard::class);
+        if ($linkCandidates) {
+            $candidates = $generationGuard->eligible($candidates);
+        }
+        $claimToken = $linkCandidates ? $generationGuard->acquire($candidates) : null;
         $results = [];
         $errors = [];
         $totalOrders = 0;
@@ -1521,14 +1538,18 @@ class OrderTransmissionService
                     $expectedArrivalDate,
                     $csvPath,
                     $linkCandidates,
-                    $fileCandidates
+                    $fileCandidates,
+                    $generationGuard,
+                    $claimToken
                 ): WmsOrderJxDocument {
+                    $generationGuard->validatePublication($fileCandidates, $claimToken);
                     $document = $this->createOrderDocument($batchCode, $file, $s3Path, $warehouseId, $status, $expectedArrivalDate, $csvPath);
 
                     // 発注候補とドキュメントを紐付け（確定済みの場合のみ）
                     if ($linkCandidates) {
                         $this->linkCandidatesToDocument($fileCandidates, $file['contractor_id'], $document);
                         $this->persistSlipAssignments($document, $file['slip_assignments'] ?? []);
+                        $generationGuard->recordPublication($fileCandidates, $document, $claimToken, $file, $this->extractJxDetailRowsFromContent($file['content']));
                     }
 
                     return $document;
@@ -1578,13 +1599,15 @@ class OrderTransmissionService
                     $results[] = $emptyResult;
                 }
             }
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             $errors[] = $e->getMessage();
             Log::error('Order file generation failed', [
                 'batch_code' => $batchCode,
                 'error' => $e->getMessage(),
             ]);
         }
+
+        $generationGuard->releaseUnpublished($claimToken);
 
         return [
             'success' => empty($errors),
@@ -1757,7 +1780,7 @@ class OrderTransmissionService
         $csvFilename = "{$batchCode}_{$warehouseCode}_{$contractorCode}_".now()->format('YmdHisv').'_'.Str::random(6).'.csv';
         $csvPath = "jx-orders/{$date}/{$csvFilename}";
 
-        Storage::disk('s3')->put($csvPath, $csvContent);
+        throw_unless(Storage::disk('s3')->put($csvPath, $csvContent), \RuntimeException::class, 'JX確認CSVを保存できませんでした。');
 
         $firstCandidate = $candidates->first();
         $createdBy = $this->resolveOrderDataFileCreatedBy($batchCode, $candidates);
@@ -2123,7 +2146,7 @@ class OrderTransmissionService
      *
      * @return array<int>
      */
-    private function jxOrderTargetContractorIds(?OrderFileGeneratorInterface $generator = null): array
+    public function jxOrderTargetContractorIds(?OrderFileGeneratorInterface $generator = null): array
     {
         $generator ??= $this->getOrderFileGenerator();
 
@@ -2436,7 +2459,7 @@ class OrderTransmissionService
      *
      * @return array<int, array<string, int|string|float>>
      */
-    private function extractJxDetailRowsFromContent(string $content): array
+    public function extractJxDetailRowsFromContent(string $content): array
     {
         $content = str_replace(["\r\n", "\n", "\r"], '', $content);
 
@@ -2522,6 +2545,7 @@ class OrderTransmissionService
                 'd_piece_quantity' => $pieceQuantity,
                 'd_total_piece_quantity' => ($caseQuantity * max(1, $purchaseLot)) + $pieceQuantity,
                 'd_unit_price' => $unitPrice,
+                'd_unit_price_decimal' => bcdiv((string) (int) substr($record, 108, 10), '100', 2),
             ]);
         }
 
@@ -2550,27 +2574,11 @@ class OrderTransmissionService
             default => 'jx-orders',
         };
 
-        $path = "{$folder}/{$date}/{$file['filename']}";
-        if (Storage::disk('s3')->exists($path)) {
-            $pathInfo = pathinfo($file['filename']);
-            $baseName = $pathInfo['filename'];
-            $extension = isset($pathInfo['extension']) ? '.'.$pathInfo['extension'] : '';
-            $suffix = 2;
+        // Independent generations must never overwrite one another's payload.
+        $objectDirectory = (string) Str::uuid();
+        $path = "{$folder}/{$date}/{$objectDirectory}/{$file['filename']}";
 
-            do {
-                $path = "{$folder}/{$date}/{$baseName}_{$suffix}{$extension}";
-                $suffix++;
-            } while (Storage::disk('s3')->exists($path));
-
-            Log::warning('Order file S3 path collision avoided', [
-                'batch_code' => $batchCode,
-                'filename' => $file['filename'],
-                'resolved_path' => $path,
-                'status' => $status->value,
-            ]);
-        }
-
-        Storage::disk('s3')->put($path, $file['content']);
+        throw_unless(Storage::disk('s3')->put($path, $file['content']), \RuntimeException::class, 'JXファイルを保存できませんでした。');
 
         Log::info('Order file saved to S3', [
             'batch_code' => $batchCode,
@@ -2605,6 +2613,7 @@ class OrderTransmissionService
             'file_path' => $s3Path,
             'csv_path' => $csvPath,
             'file_size' => strlen($file['content']),
+            'content_sha256' => hash('sha256', $file['content']),
             'record_count' => $file['record_count'],
             'order_count' => $file['order_count'],
             'encoding' => $file['encoding'],
@@ -2834,6 +2843,7 @@ class OrderTransmissionService
             ];
         }
 
+        app(\App\Services\AutoReplenishment\BudgetService::class)->markTransmissionState((int) $document->id, 'TRANSMITTING');
         $jxSetting = $this->resolveJxSetting($document);
 
         if (! $jxSetting) {
@@ -2856,6 +2866,11 @@ class OrderTransmissionService
             return ['success' => false, 'error' => 'ファイルが見つかりません'];
         }
 
+        if ($document->content_sha256 && ! hash_equals($document->content_sha256, hash('sha256', $fileContent))) {
+            $document->update(['status' => TransmissionDocumentStatus::ERROR, 'error_message' => '生成時とファイル内容が一致しません。送信を保留します。']);
+
+            return ['success' => false, 'error' => 'JXファイルの整合性を確認できません'];
+        }
         // JX送信実行
         $client = new JxClient($jxSetting);
         try {

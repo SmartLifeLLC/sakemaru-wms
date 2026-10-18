@@ -415,7 +415,7 @@ class IncomingConfirmationService
 
         $requestId = "transfer-deliver-{$schedule->id}-".now()->format('YmdHis');
 
-        DB::connection('sakemaru')->table('stock_transfer_queue')->insert([
+        $receiptQueueId = DB::connection('sakemaru')->table('stock_transfer_queue')->insertGetId([
             'client_id' => config('app.client_id'),
             'request_id' => $requestId,
             'stock_transfer_id' => $schedule->stock_transfer_id,
@@ -439,6 +439,10 @@ class IncomingConfirmationService
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+        if (app(\App\Services\AutoReplenishment\ReplenishmentGuard::class)->installed()) {
+            DB::connection('sakemaru')->table('wms_replenishment_effect_sources')->where('incoming_schedule_id', $schedule->id)->update(['receipt_queue_id' => $receiptQueueId, 'updated_at' => now()]);
+            app(\App\Services\AutoReplenishment\SupplyRecorder::class)->refreshReceipt((int) $schedule->id);
+        }
 
         Log::info('Deliver queue created', [
             'schedule_id' => $schedule->id,

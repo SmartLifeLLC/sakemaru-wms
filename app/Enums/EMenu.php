@@ -50,6 +50,10 @@ enum EMenu: string
     case WMS_ORDER_CANDIDATES = 'auto_order.wms_order_candidates';
     case WMS_ORDER_CONFIRMATION_WAITING = 'auto_order.wms_order_confirmation_waiting';
 
+    case AUTO_REPLENISHMENT_SETTINGS = 'auto_replenishment.settings';
+    case AUTO_REPLENISHMENT_CHECKLIST = 'auto_replenishment.checklist';
+    case AUTO_REPLENISHMENT_HISTORY = 'auto_replenishment.history';
+
     // 発注履歴
     case WMS_ORDER_CONFIRMED = 'order_history.wms_order_confirmed';
     case WMS_ORDER_FOR_JX = 'order_history.wms_order_for_jx';
@@ -114,6 +118,7 @@ enum EMenu: string
     public function category(): EMenuCategory
     {
         return match ($this) {
+            self::AUTO_REPLENISHMENT_SETTINGS, self::AUTO_REPLENISHMENT_CHECKLIST, self::AUTO_REPLENISHMENT_HISTORY => EMenuCategory::AUTO_REPLENISHMENT,
             self::INBOUND_DASHBOARD,
             self::WMS_ORDER_INCOMING_SCHEDULES,
             self::WMS_INCOMING_COMPLETED,
@@ -218,6 +223,7 @@ enum EMenu: string
     public function label(): string
     {
         return match ($this) {
+            self::AUTO_REPLENISHMENT_SETTINGS => '商品別発注設定', self::AUTO_REPLENISHMENT_CHECKLIST => '自動発注確認リスト', self::AUTO_REPLENISHMENT_HISTORY => '自動発注履歴',
             self::INBOUND_DASHBOARD => '入荷ダッシュボード',
             self::WMS_ORDER_INCOMING_SCHEDULES => '入荷予定',
             self::WMS_INCOMING_COMPLETED => '入荷完了',
@@ -316,6 +322,7 @@ enum EMenu: string
     public function icon(): ?string
     {
         return match ($this) {
+            self::AUTO_REPLENISHMENT_SETTINGS => 'heroicon-o-adjustments-horizontal', self::AUTO_REPLENISHMENT_CHECKLIST => 'heroicon-o-clipboard-document-check', self::AUTO_REPLENISHMENT_HISTORY => 'heroicon-o-clock',
             self::INBOUND_DASHBOARD => 'heroicon-o-presentation-chart-line',
             self::WMS_ORDER_INCOMING_SCHEDULES => 'heroicon-o-inbox-arrow-down',
             self::WMS_INCOMING_COMPLETED => 'heroicon-o-check-circle',
@@ -413,6 +420,7 @@ enum EMenu: string
     public function sort(): int
     {
         return match ($this) {
+            self::AUTO_REPLENISHMENT_SETTINGS => 1, self::AUTO_REPLENISHMENT_CHECKLIST => 2, self::AUTO_REPLENISHMENT_HISTORY => 3,
             // 入荷管理
             self::INBOUND_DASHBOARD => 1,
             self::WMS_ORDER_INCOMING_SCHEDULES => 2,

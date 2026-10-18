@@ -45,6 +45,7 @@ class OrderCancellationService
         }
 
         return DB::connection('sakemaru')->transaction(function () use ($candidate, $userId, $reason) {
+            app(\App\Services\AutoReplenishment\JxGenerationGuard::class)->assertEditable($candidate);
             // 1. 関連するPENDING入庫予定を削除
             $deletedSchedules = WmsOrderIncomingSchedule::where('order_candidate_id', $candidate->id)
                 ->where('status', IncomingScheduleStatus::PENDING)

@@ -39,7 +39,9 @@ class OrderRegistrationService
         ?OrderChannel $fallbackChannel = null,
         ?string $communicationNotes = null,
         bool $generateDataFiles = true,
-        ?OriginType $originType = null
+        ?OriginType $originType = null,
+        ?callable $onCandidateConfirmed = null,
+        ?string $batchCode = null
     ): array {
         if ($warehouseId < 1) {
             throw new \InvalidArgumentException('倉庫を選択してください。');
@@ -80,6 +82,8 @@ class OrderRegistrationService
             $userId,
             $originType,
             $source,
+            $onCandidateConfirmed,
+            $batchCode,
             &$candidateIds,
             &$candidateIdsByChannel,
             &$incomingScheduleCount
@@ -91,7 +95,7 @@ class OrderRegistrationService
                     'order_channel' => $jobOrderChannel,
                     'entry_source' => $jobEntrySource,
                 ],
-                batchCode: WmsAutoOrderJobControl::generateBatchCode($warehouseId),
+                batchCode: $batchCode ?? WmsAutoOrderJobControl::generateBatchCode($warehouseId),
                 settlementStatus: SettlementStatus::CONFIRMED,
                 createdBy: $userId,
                 warehouseId: $warehouseId,
@@ -115,6 +119,9 @@ class OrderRegistrationService
                 );
 
                 $schedules = $this->orderExecutionService->confirmCandidate($candidate, $userId);
+                if ($onCandidateConfirmed !== null) {
+                    $onCandidateConfirmed($candidate, $schedules);
+                }
                 $candidateIds[] = (int) $candidate->id;
                 $candidateIdsByChannel[$lineChannel->value][] = (int) $candidate->id;
                 $incomingScheduleCount += $schedules->count();

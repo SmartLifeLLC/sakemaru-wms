@@ -10,6 +10,7 @@ enum EMenuCategory: string
     case HORIZONTAL_SHIPMENT = 'horizontal_shipment';
     case DISTRIBUTION = 'distribution';
     case AUTO_ORDER = 'auto_order';
+    case AUTO_REPLENISHMENT = 'auto_replenishment';
     case ORDER_TRANSMISSION = 'order_transmission';
     case ORDER_HISTORY = 'order_history';
     case ORDER_SETTINGS = 'order_settings';
@@ -33,6 +34,7 @@ enum EMenuCategory: string
             self::HORIZONTAL_SHIPMENT => '倉庫移動',
             self::DISTRIBUTION => '分配',
             self::AUTO_ORDER => '発注処理',
+            self::AUTO_REPLENISHMENT => '自動発注',
             self::ORDER_TRANSMISSION => '発注送受信管理',
             self::ORDER_HISTORY => '発注履歴',
             self::ORDER_SETTINGS => '発注解説',
@@ -58,6 +60,7 @@ enum EMenuCategory: string
             self::HORIZONTAL_SHIPMENT => 'heroicon-o-truck',
             self::DISTRIBUTION => 'heroicon-o-squares-plus',
             self::AUTO_ORDER => 'heroicon-o-clipboard-document-check',
+            self::AUTO_REPLENISHMENT => 'heroicon-o-arrow-path',
             self::ORDER_TRANSMISSION => 'heroicon-o-paper-airplane',
             self::ORDER_HISTORY => 'heroicon-o-clock',
             self::ORDER_SETTINGS => 'heroicon-o-cog-6-tooth',
@@ -83,6 +86,7 @@ enum EMenuCategory: string
             self::HORIZONTAL_SHIPMENT => 4,
             self::DISTRIBUTION => 5,
             self::AUTO_ORDER => 6,
+            self::AUTO_REPLENISHMENT => 7,
             self::ORDER_TRANSMISSION => 7,
             self::ORDER_HISTORY => 8,
             self::ORDER_SETTINGS => 9,

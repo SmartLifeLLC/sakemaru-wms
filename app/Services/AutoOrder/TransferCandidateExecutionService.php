@@ -57,11 +57,15 @@ class TransferCandidateExecutionService
         }
 
         return DB::connection('sakemaru')->transaction(function () use ($candidate, $executedBy) {
+            $this->assertReplenishmentExecutionAllowed(collect([$candidate]), false);
+            $candidate = WmsStockTransferCandidate::lockForUpdate()->findOrFail($candidate->id);
+            throw_unless($candidate->status === CandidateStatus::APPROVED, \RuntimeException::class, '移動候補は既に確定されています。');
             // 1. stock_transfer_queue を作成 (action_type=CREATE)
             $queueId = $this->createStockTransferQueue($candidate);
 
             // 2. WmsOrderIncomingSchedule を作成（Satellite入荷予定）
             $schedule = $this->createIncomingSchedule($candidate);
+            app(\App\Services\AutoReplenishment\SupplyRecorder::class)->record('transfer', $candidate, collect([$schedule]), $queueId);
 
             // 3. 候補ステータスを更新
             $candidate->update([
@@ -379,6 +383,17 @@ class TransferCandidateExecutionService
      * @param  int  $executedBy  確定者ID
      * @return array{queue_count: int, candidate_count: int, errors: array}
      */
+    public function executeSelected(array $ids, int $actorId, bool $automatic = false): array
+    {
+        $candidates = WmsStockTransferCandidate::whereIn('id', $ids)
+            ->where('status', CandidateStatus::APPROVED)->with(['hubWarehouse', 'satelliteWarehouse', 'item'])->get();
+        if ($candidates->count() !== count(array_unique($ids))) {
+            throw new \RuntimeException('対象の移動候補が変更されました。');
+        }
+
+        return $this->executeGroupedCandidates($candidates, $actorId, $automatic);
+    }
+
     public function executeAllApprovedGrouped(int $executedBy, ?int $warehouseId = null, ?int $createdBy = null): array
     {
         $query = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)
@@ -409,7 +424,7 @@ class TransferCandidateExecutionService
      * @param  Collection<int, WmsStockTransferCandidate>  $candidates
      * @return array{queue_count: int, candidate_count: int, executed_candidate_ids: array<int>, errors: array}
      */
-    private function executeGroupedCandidates(Collection $candidates, int $executedBy): array
+    private function executeGroupedCandidates(Collection $candidates, int $executedBy, bool $automatic = false): array
     {
         $queueCount = 0;
         $candidateCount = 0;
@@ -453,7 +468,18 @@ class TransferCandidateExecutionService
         // これにより、1グループ失敗しても他グループには影響しない
         foreach ($grouped as $groupKey => $groupCandidates) {
             try {
-                DB::connection('sakemaru')->transaction(function () use ($groupKey, $groupCandidates, $executedBy, &$queueCount, &$candidateCount, &$executedCandidateIds) {
+                DB::connection('sakemaru')->transaction(function () use ($groupKey, $groupCandidates, $executedBy, $automatic, &$queueCount, &$candidateCount, &$executedCandidateIds) {
+                    $this->assertReplenishmentExecutionAllowed($groupCandidates, $automatic);
+                    foreach ($groupCandidates->sortBy('id') as $candidate) {
+                        $guard = app(\App\Services\AutoReplenishment\ReplenishmentGuard::class);
+                        $guard->lockScope((int) config('app.client_id'), (int) $candidate->satellite_warehouse_id, (int) $candidate->item_id);
+                        $fresh = WmsStockTransferCandidate::lockForUpdate()->findOrFail($candidate->id);
+                        if ($fresh->status !== CandidateStatus::APPROVED) {
+                            throw new \RuntimeException('移動候補は既に確定されています。');
+                        }
+                        $candidate->setRawAttributes($fresh->getAttributes(), true);
+                    }
+                    $this->assertReplenishmentExecutionAllowed($groupCandidates, $automatic);
                     // 1. 入荷予定を先に作成（失敗時はキューが作られないようにするため）
                     foreach ($groupCandidates as $candidate) {
                         $this->createIncomingSchedule($candidate);
@@ -461,6 +487,13 @@ class TransferCandidateExecutionService
 
                     // 2. キューを作成（入荷予定が全て成功した後）
                     $queueId = $this->createGroupedStockTransferQueue($groupCandidates, $executedBy);
+                    foreach ($groupCandidates as $candidate) {
+                        app(\App\Services\AutoReplenishment\SupplyRecorder::class)->record('transfer', $candidate,
+                            WmsOrderIncomingSchedule::where('transfer_candidate_id', $candidate->id)->get(), $queueId);
+                    }
+                    if (app(\App\Services\AutoReplenishment\ReplenishmentGuard::class)->installed()) {
+                        \App\Models\WmsAutoOrderRunLine::whereIn('transfer_candidate_id', $groupCandidates->pluck('id'))->update(['queue_id' => $queueId]);
+                    }
 
                     // 3. ステータスを更新
                     foreach ($groupCandidates as $candidate) {
@@ -501,6 +534,29 @@ class TransferCandidateExecutionService
             'executed_candidate_ids' => $executedCandidateIds,
             'errors' => $errors,
         ];
+    }
+
+    private function assertReplenishmentExecutionAllowed(Collection $candidates, bool $automatic): void
+    {
+        $guard = app(\App\Services\AutoReplenishment\ReplenishmentGuard::class);
+        if (! $guard->installed()) {
+            return;
+        }
+        $lines = \App\Models\WmsAutoOrderRunLine::whereIn('transfer_candidate_id', $candidates->pluck('id'))->get();
+        throw_if(! $automatic && $lines->isNotEmpty(), \RuntimeException::class, '自動発注の移動候補は自動発注履歴から再開してください。');
+        if ($automatic) {
+            throw_unless($lines->count() === $candidates->count(), \RuntimeException::class, '自動発注の対象が一致しません。');
+            foreach ($lines->sortBy('id') as $line) {
+                $guard->assertLine($line);
+                $candidate = $candidates->firstWhere('id', $line->transfer_candidate_id);
+                throw_unless($candidate->quantity_type === \App\Enums\QuantityType::PIECE
+                    && (int) $candidate->transfer_quantity === (int) $line->quantity_pieces
+                    && (int) $candidate->hub_warehouse_id === (int) $line->confirmation_snapshot['policy']['source_warehouse_id']
+                    && (int) $candidate->satellite_warehouse_id === (int) $line->warehouse_id
+                    && $candidate->expected_arrival_date?->toDateString() === $line->confirmation_snapshot['arrival_date'],
+                    \RuntimeException::class, '自動発注の移動候補が変更されています。');
+            }
+        }
     }
 
     /**

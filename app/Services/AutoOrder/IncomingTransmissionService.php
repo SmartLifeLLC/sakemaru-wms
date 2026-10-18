@@ -489,8 +489,16 @@ class IncomingTransmissionService
             'details' => $details,
         ];
 
+        $originAttributes = [];
+        if (app(\App\Services\AutoReplenishment\ReplenishmentGuard::class)->installed()
+            && \App\Models\WmsAutoOrderRunLine::whereIn('order_candidate_id', $schedules->pluck('order_candidate_id')->filter())->exists()) {
+            $actorId = (int) config('replenishment.system_actor_id');
+            throw_unless(DB::connection('sakemaru')->table('users')->where(['id' => $actorId, 'client_id' => config('app.client_id'), 'is_active' => 1])->exists(), \RuntimeException::class, '自動発注の仕入連携ユーザーが未設定です。');
+            $originAttributes['request_user_id'] = $actorId;
+        }
         // キューに挿入
         $queueId = DB::connection('sakemaru')->table('purchase_create_queue')->insertGetId([
+            ...$originAttributes,
             'request_uuid' => Str::uuid()->toString(),
             'slip_number' => $slipNumber,
             'delivered_date' => $deliveredDate,
