@@ -13,7 +13,6 @@
         $categoryOptions = $this->categoryOptions();
         $amountRows = $this->amountRows();
         $valuationRows = $this->valuationRows();
-        $valuationAmountIds = $valuationRows->pluck('amount_id')->unique()->all();
         $rows = $listTab === 'items' ? $this->rows() : null;
         $pageFirst = $rows?->firstItem() ?? 0;
         $pageLast = $rows?->lastItem() ?? 0;
@@ -21,8 +20,6 @@
         $filterInputClass = 'h-8 w-full rounded-md border border-slate-300 bg-slate-50 px-2 text-xs text-slate-900 shadow-inner outline-none transition placeholder:text-slate-400 focus:border-sky-500 focus:bg-white focus:ring-1 focus:ring-sky-500';
         $filterSelectClass = 'h-8 w-full rounded-md border border-slate-300 bg-slate-50 px-2 text-xs text-slate-900 shadow-inner outline-none transition focus:border-sky-500 focus:bg-white focus:ring-1 focus:ring-sky-500';
         $countInputClass = 'w-20 h-7 rounded border border-slate-300 bg-white px-1 text-right text-xs tabular-nums font-bold outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed';
-        $amountInputClass = 'w-28 h-7 rounded border border-slate-300 bg-white px-1 text-right text-xs tabular-nums font-bold outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed';
-        $dateInputClass = 'w-32 h-7 rounded border border-slate-300 bg-white px-1 text-xs tabular-nums outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed';
         $thClass = 'border border-slate-300 px-2 py-2';
         $tdClass = 'whitespace-nowrap border border-slate-300 px-2 py-1';
         $statusColors = [
@@ -42,6 +39,7 @@
     <div x-data="{
         filtersOpen: true,
         changes: { items: {}, amounts: {}, valuation: {} },
+        valuationPreviews: {},
         get changeCount() {
             return Object.keys(this.changes.items).length + Object.keys(this.changes.amounts).length + Object.keys(this.changes.valuation).length;
         },
@@ -96,7 +94,10 @@
         save() {
             if (!this.changeCount) return;
             this.$wire.saveChanges(this.changes).then((saved) => {
-                if (saved) this.changes = { items: {}, amounts: {}, valuation: {} };
+                if (saved) {
+                    this.changes = { items: {}, amounts: {}, valuation: {} };
+                    this.valuationPreviews = {};
+                }
             });
         },
         guard(callback) {
@@ -110,7 +111,7 @@
     @sundry-item-change="setItemChange($event.detail.id, $event.detail.value, $event.detail.original)"
     @sundry-amount-change="setAmountChange($event.detail.id, $event.detail.fields)"
     @sundry-weighed-change="setWeighedChange($event.detail.id, $event.detail.fields)"
-    @sundry-valuation-change="if ($event.detail.changed) { changes.valuation[$event.detail.id] = { quantity: $event.detail.value, revision: $event.detail.revision }; } else { delete changes.valuation[$event.detail.id]; }"
+    @sundry-valuation-change="if ($event.detail.changed) { changes.valuation[$event.detail.id] = { quantity: $event.detail.value, revision: $event.detail.revision }; valuationPreviews[$event.detail.id] = $event.detail; } else { delete changes.valuation[$event.detail.id]; delete valuationPreviews[$event.detail.id]; }"
     class="flex h-[calc(100vh-72px)] min-h-0 flex-col gap-2">
         {{-- Header bar --}}
         <div class="relative z-20 shrink-0 overflow-visible rounded-lg border border-slate-300 bg-slate-100 shadow-sm">
@@ -188,11 +189,13 @@
                         <span class="text-xs font-semibold text-slate-700">商品名</span>
                         <input type="text" wire:model.live.debounce.300ms="itemNameFilter" x-bind:disabled="changeCount > 0" placeholder="商品名検索" class="{{ $filterInputClass }}">
                     </label>
-                    <label class="space-y-1 md:col-span-2" @if ($listTab === 'valuation') hidden @endif>
+                    <label class="space-y-1 md:col-span-2">
                         <span class="text-xs font-semibold text-slate-700">表示</span>
                         <select wire:model.live="stateFilter" x-bind:disabled="changeCount > 0" class="{{ $filterSelectClass }}">
                             <option value="all">全件</option>
-                            <option value="diff">差異あり</option>
+                            @if ($listTab !== 'valuation')
+                                <option value="diff">差異あり</option>
+                            @endif
                             <option value="uncounted">未入力</option>
                         </select>
                     </label>
@@ -209,7 +212,7 @@
         <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
             <div class="border-b border-slate-200 bg-green-700 px-3 pt-2 text-white">
                 <div class="flex flex-wrap items-end justify-between gap-2">
-                    <div class="flex items-end gap-1">
+                    <div class="flex flex-wrap items-end gap-1">
                         <button type="button"
                             @click="guard(() => $wire.setListTab('items'))"
                             class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition {{ $tabClass('items') }}">
@@ -218,23 +221,21 @@
                                 {{ number_format($counts['all']) }}
                             </span>
                         </button>
+                        @if ($this->valuationAvailable())
+                            <button type="button" @click="guard(() => $wire.setListTab('valuation'))"
+                                class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition {{ $tabClass('valuation') }}">
+                                <span>数量明細（在庫管理なし）</span>
+                                <span class="rounded-full px-2 py-0.5 text-[11px] tabular-nums {{ $tabBadgeClass('valuation') }}">{{ $valuationRows->count() }}</span>
+                            </button>
+                        @endif
                         @unless ($isWeighed)
                             <button type="button"
                                 @click="guard(() => $wire.setListTab('amounts'))"
                                 class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition {{ $tabClass('amounts') }}">
-                                <span>金額明細（在庫管理なし）</span>
-                                <span class="rounded-full px-2 py-0.5 text-[11px] font-black tabular-nums {{ $tabBadgeClass('amounts') }}">
-                                    {{ number_format($amountRows->count()) }}
-                                </span>
+                                <span>前残・分類集計</span>
+                                <span class="rounded-full px-2 py-0.5 text-[11px] font-black tabular-nums {{ $tabBadgeClass('amounts') }}">{{ number_format($amountRows->count()) }}</span>
                             </button>
                         @endunless
-                        @if ($this->valuationAvailable())
-                            <button type="button" @click="guard(() => $wire.setListTab('valuation'))"
-                                class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition {{ $tabClass('valuation') }}">
-                                <span>商品数量（在庫管理なし）</span>
-                                <span class="rounded-full px-2 py-0.5 text-[11px] tabular-nums {{ $tabBadgeClass('valuation') }}">{{ $valuationRows->count() }}</span>
-                            </button>
-                        @endif
                         <button type="button"
                             @click="guard(() => $wire.setListTab('summary'))"
                             class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition {{ $tabClass('summary') }}">
@@ -408,167 +409,9 @@
 
                 {{-- 金額明細（在庫管理なし・中分類別） --}}
                 @if ($listTab === 'amounts')
-                    @if ($amountRows->isEmpty())
-                        <div class="p-8 text-center text-sm text-slate-500">金額で棚卸しする中分類（在庫管理なしの商品）はありません。</div>
-                    @else
-                        @php
-                            $reportReferences = $this->reportReferences();
-                        @endphp
-                        @include('filament.resources.wms-sundry-inventory-count.pages.partials.monthly-openings')
-                        <div class="border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-                            保存済み受払・実棚入力（計算元基準日の翌日〜{{ $record->theory_end_date?->format('Y/m/d') }}・移行差額補正前）
-                        </div>
-                        <table class="w-max min-w-full border-collapse text-xs">
-                            <thead class="sticky top-0 z-10 bg-slate-100 text-slate-700">
-                                <tr>
-                                    <th class="{{ $thClass }} text-left">大分類</th>
-                                    <th class="{{ $thClass }} text-left">中分類CD</th>
-                                    <th class="{{ $thClass }} text-left">中分類名</th>
-                                    <th class="{{ $thClass }} text-left">計算元基準日</th>
-                                    <th class="{{ $thClass }} text-right">計算元前残</th>
-                                    <th class="{{ $thClass }} text-left">前残の出所</th>
-                                    <th class="{{ $thClass }} text-right">仕入</th>
-                                    <th class="{{ $thClass }} text-right">移入</th>
-                                    <th class="{{ $thClass }} text-right">移出</th>
-                                    <th class="{{ $thClass }} text-right">売上原価</th>
-                                    <th class="{{ $thClass }} text-right">調整</th>
-                                    <th class="{{ $thClass }} text-right">理論金額</th>
-                                    <th class="{{ $thClass }} text-right">実棚金額</th>
-                                    <th class="{{ $thClass }} text-right">差異金額</th>
-                                    <th class="{{ $thClass }} text-left">入力者</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach ($amountRows as $row)
-                                    @php
-                                        $initCounted = $this->inputValue($row->counted_amount);
-                                        $initOpening = $this->inputValue($row->opening_amount);
-                                        $initOpeningDate = $row->opening_date?->toDateString() ?? '';
-                                        $flowAmount = (float) $row->purchase_amount + (float) $row->transfer_in_amount - (float) $row->transfer_out_amount - (float) $row->sales_cost_amount + (float) $row->adjustment_amount;
-                                    @endphp
-                                    <tr wire:key="sundry-amount-{{ $row->id }}-u{{ $row->updated_at?->timestamp ?? 0 }}"
-                                        x-data="{
-                                            counted: @js($initCounted),
-                                            originalCounted: @js($initCounted),
-                                            opening: @js($initOpening),
-                                            originalOpening: @js($initOpening),
-                                            openingDate: @js($initOpeningDate),
-                                            originalOpeningDate: @js($initOpeningDate),
-                                            flow: {{ $flowAmount }},
-                                            get system() { return Math.round((toNum(this.opening) ?? 0) + this.flow); },
-                                            get diff() {
-                                                let amount = toNum(this.counted);
-                                                return amount === null ? null : Math.round(amount - this.system);
-                                            },
-                                            get changed() {
-                                                return this.counted !== this.originalCounted
-                                                    || this.opening !== this.originalOpening
-                                                    || this.openingDate !== this.originalOpeningDate;
-                                            },
-                                            notify() {
-                                                let fields = {};
-                                                if (this.counted !== this.originalCounted) fields.counted_amount = this.counted === '' ? null : this.counted;
-                                                if (this.opening !== this.originalOpening) fields.opening_amount = this.opening === '' ? 0 : this.opening;
-                                                if (this.openingDate !== this.originalOpeningDate) fields.opening_date = this.openingDate;
-                                                $dispatch('sundry-amount-change', { id: {{ $row->id }}, fields: fields });
-                                            }
-                                        }"
-                                        :class="changed ? 'bg-amber-50' : ($el.rowIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50')"
-                                        class="hover:bg-sky-50">
-                                        <td class="{{ $tdClass }} text-slate-600">{{ $row->category1_code }} {{ $row->category1_name }}</td>
-                                        <td class="{{ $tdClass }} font-mono">{{ $row->category2_code }}</td>
-                                        <td class="{{ $tdClass }}">
-                                            {{ $row->category2_name }}
-                                            @if ($row->is_additional)
-                                                <span class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">追加</span>
-                                            @endif
-                                        </td>
-                                        @if ($isEditable)
-                                            <td class="whitespace-nowrap border border-slate-300 px-1 py-0.5" @click.stop>
-                                                <input type="date" :value="openingDate"
-                                                    @change="openingDate = $event.target.value; notify()"
-                                                    class="{{ $dateInputClass }}">
-                                            </td>
-                                            <td class="whitespace-nowrap border border-slate-300 px-1 py-0.5" @click.stop>
-                                                <input type="text" inputmode="decimal" :value="opening"
-                                                    @input="opening = clean($event.target.value); $event.target.value = opening; notify()"
-                                                    class="{{ $amountInputClass }}" placeholder="0">
-                                            </td>
-                                        @else
-                                            <td class="{{ $tdClass }} tabular-nums">{{ $row->opening_date?->format('Y/m/d') ?? '-' }}</td>
-                                            <td class="{{ $tdClass }} text-right tabular-nums">{{ $this->formatAmount($row->opening_amount) }}</td>
-                                        @endif
-                                        <td class="{{ $tdClass }} text-slate-600">{{ $row->opening_source_label }}</td>
-                                        <td class="{{ $tdClass }} text-right tabular-nums">{{ $this->formatAmount($row->purchase_amount) }}</td>
-                                        <td class="{{ $tdClass }} text-right tabular-nums">{{ $this->formatAmount($row->transfer_in_amount) }}</td>
-                                        <td class="{{ $tdClass }} text-right tabular-nums">{{ $this->formatAmount($row->transfer_out_amount) }}</td>
-                                        <td class="{{ $tdClass }} text-right tabular-nums">{{ $this->formatAmount($row->sales_cost_amount) }}</td>
-                                        <td class="{{ $tdClass }} text-right tabular-nums">{{ $this->formatAmount($row->adjustment_amount) }}</td>
-                                        @if ($isEditable)
-                                            <td class="{{ $tdClass }} text-right font-bold tabular-nums text-slate-700"
-                                                x-text="'¥' + formatNumber(system)"></td>
-                                            <td class="whitespace-nowrap border border-slate-300 px-1 py-0.5" @click.stop>
-                                                <input type="text" inputmode="decimal" :value="counted"
-                                                    @disabled(in_array($row->id, $valuationAmountIds))
-                                                    @input="counted = clean($event.target.value); $event.target.value = counted; notify()"
-                                                    @keydown.enter.prevent="$el.closest('tr').nextElementSibling?.querySelector('input[inputmode]:last-of-type')?.focus()"
-                                                    class="{{ $amountInputClass }}" placeholder="-">
-                                            </td>
-                                            <td class="{{ $tdClass }} text-right font-bold tabular-nums"
-                                                :class="{ 'text-green-700': diff > 0, 'text-red-700': diff < 0 }"
-                                                x-text="diff !== null ? '¥' + formatNumber(diff) : '-'"></td>
-                                        @else
-                                            <td class="{{ $tdClass }} text-right font-bold tabular-nums text-slate-700">{{ $this->formatAmount($row->system_amount) }}</td>
-                                            <td class="{{ $tdClass }} text-right tabular-nums">{{ $this->formatAmount($row->counted_amount) }}</td>
-                                            <td class="{{ $tdClass }} text-right font-bold tabular-nums {{ $signClass($row->difference_amount) }}">{{ $this->formatAmount($row->difference_amount) }}</td>
-                                        @endif
-                                        <td class="{{ $tdClass }} text-slate-600">{{ $row->counted_by_name ?: '-' }}</td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
-
-                        {{-- 在庫金額報告書との突合（大分類別） --}}
-                        @if ($reportReferences !== [])
-                            <div class="border-y border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">
-                                在庫金額報告書との突合（大分類別・参考）
-                                <span class="ml-2 font-normal text-slate-600">
-                                    報告書ベースの理論金額 =（報告書の月末金額 − 在庫管理あり評価額）+ 月末の翌日からの受払。中分類の理論金額の合計と比べます。
-                                    報告書の在庫管理なし商品は旧システム期間（5/1〜5/5）の売上原価・移動を含まないため、その分は差に出ます。
-                                </span>
-                            </div>
-                            <table class="w-max min-w-full border-collapse text-xs">
-                                <thead class="bg-slate-100 text-slate-700">
-                                    <tr>
-                                        <th class="{{ $thClass }} text-left">大分類</th>
-                                        <th class="{{ $thClass }} text-left">報告書</th>
-                                        <th class="{{ $thClass }} text-right">報告書 月末金額</th>
-                                        <th class="{{ $thClass }} text-right">うち在庫管理あり</th>
-                                        <th class="{{ $thClass }} text-right">非管理品 月末残高</th>
-                                        <th class="{{ $thClass }} text-right">以降の受払</th>
-                                        <th class="{{ $thClass }} text-right">報告書ベース理論金額</th>
-                                        <th class="{{ $thClass }} text-right">中分類の理論金額 合計</th>
-                                        <th class="{{ $thClass }} text-right">差（合計 − 報告書ベース）</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach ($reportReferences as $reference)
-                                        <tr class="bg-white">
-                                            <td class="{{ $tdClass }}">{{ $reference['category1_code'] }} {{ $reference['category1_name'] }}</td>
-                                            <td class="{{ $tdClass }}">{{ $reference['report_month'] ? $reference['report_month'].' 月末' : '報告書なし' }}</td>
-                                            <td class="{{ $tdClass }} text-right tabular-nums">{{ $this->formatAmount($reference['report_amount']) }}</td>
-                                            <td class="{{ $tdClass }} text-right tabular-nums">{{ $this->formatAmount($reference['managed_amount']) }}</td>
-                                            <td class="{{ $tdClass }} text-right tabular-nums">{{ $this->formatAmount($reference['opening_amount']) }}</td>
-                                            <td class="{{ $tdClass }} text-right tabular-nums">{{ $this->formatAmount($reference['flow_amount']) }}</td>
-                                            <td class="{{ $tdClass }} text-right font-bold tabular-nums">{{ $this->formatAmount($reference['system_amount']) }}</td>
-                                            <td class="{{ $tdClass }} text-right font-bold tabular-nums">{{ $this->formatAmount($reference['detail_system_amount']) }}</td>
-                                            <td class="{{ $tdClass }} text-right font-bold tabular-nums {{ $signClass($reference['difference_amount']) }}">{{ $this->formatAmount($reference['difference_amount']) }}</td>
-                                        </tr>
-                                    @endforeach
-                                </tbody>
-                            </table>
-                        @endif
-                    @endif
+                    @include('filament.resources.wms-sundry-inventory-count.pages.partials.monthly-openings')
+                    @include('filament.resources.wms-sundry-inventory-count.pages.partials.valuation-summary')
+                    @include('filament.resources.wms-sundry-inventory-count.pages.partials.amount-source-history')
                 @endif
 
                 {{-- 集計（量り売り: 店舗計） --}}
