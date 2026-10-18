@@ -706,14 +706,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
 
     private function getSalesBasedGenerationWarehouseIds(int $warehouseId): array
     {
-        $enabledWarehouseIds = WmsWarehouseAutoOrderSetting::enabled()
-            ->pluck('warehouse_id')
-            ->toArray();
-
-        return array_values(array_intersect(
-            $enabledWarehouseIds,
-            [$warehouseId],
-        ));
+        return app(\App\Services\AutoOrder\ManualOrderWarehouseResolver::class)->selected($warehouseId);
     }
 
     private function calculateSalesBasedInternalTransferPreviewCount(

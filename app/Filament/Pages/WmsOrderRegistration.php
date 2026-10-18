@@ -20,7 +20,6 @@ use App\Models\StatsItemWarehouseSalesSummary;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderDataFile;
-use App\Models\WmsWarehouseAutoOrderSetting;
 use App\Services\AutoOrder\OrderRegistrationListPdfService;
 use App\Services\AutoOrder\OrderRegistrationSearchService;
 use App\Services\AutoOrder\OrderRegistrationService;
@@ -2390,14 +2389,7 @@ class WmsOrderRegistration extends AdminPage
 
     private function getSalesBasedExternalOrderGenerationWarehouseIds(int $warehouseId): array
     {
-        $enabledWarehouseIds = WmsWarehouseAutoOrderSetting::enabled()
-            ->pluck('warehouse_id')
-            ->toArray();
-
-        return array_values(array_intersect(
-            $enabledWarehouseIds,
-            [$warehouseId],
-        ));
+        return app(\App\Services\AutoOrder\ManualOrderWarehouseResolver::class)->selected($warehouseId);
     }
 
     public function removeLine(int $index): void

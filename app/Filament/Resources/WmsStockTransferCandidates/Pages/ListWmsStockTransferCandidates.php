@@ -23,7 +23,6 @@ use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsStockTransferCandidate;
-use App\Models\WmsWarehouseAutoOrderSetting;
 use App\Services\AutoOrder\ItemCodeSearchService;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
@@ -1227,23 +1226,7 @@ class ListWmsStockTransferCandidates extends ListRecords
 
     private function getSalesBasedTransferGenerationWarehouseIds(int $warehouseId): array
     {
-        $enabledWarehouseIds = WmsWarehouseAutoOrderSetting::enabled()
-            ->pluck('warehouse_id')
-            ->toArray();
-
-        $satelliteWarehouseIds = DB::connection('sakemaru')
-            ->table('item_contractors')
-            ->join('wms_contractor_settings as wcs', 'wcs.contractor_id', '=', 'item_contractors.contractor_id')
-            ->where('wcs.transmission_type', TransmissionType::INTERNAL->value)
-            ->where('wcs.supply_warehouse_id', $warehouseId)
-            ->pluck('item_contractors.warehouse_id')
-            ->unique()
-            ->toArray();
-
-        return array_values(array_intersect(
-            $enabledWarehouseIds,
-            array_values(array_unique(array_merge([$warehouseId], $satelliteWarehouseIds))),
-        ));
+        return app(\App\Services\AutoOrder\ManualOrderWarehouseResolver::class)->transfer($warehouseId);
     }
 
     private function getMountedSalesBasedTransferActionData(): array

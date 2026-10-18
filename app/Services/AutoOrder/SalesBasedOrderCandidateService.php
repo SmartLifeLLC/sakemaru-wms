@@ -15,7 +15,6 @@ use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsStockTransferCandidate;
-use App\Models\WmsWarehouseAutoOrderSetting;
 use App\Support\DbMutex;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -240,32 +239,8 @@ class SalesBasedOrderCandidateService
 
     private function loadAllDataToMemory(): void
     {
-        $enabledWarehouseIds = WmsWarehouseAutoOrderSetting::enabled()
-            ->pluck('warehouse_id')
-            ->toArray();
-
-        if ($this->targetWarehouseId !== null && $this->transferOnly) {
-            $satelliteWarehouseIds = DB::connection('sakemaru')
-                ->table('item_contractors')
-                ->join('wms_contractor_settings as wcs', 'wcs.contractor_id', '=', 'item_contractors.contractor_id')
-                ->where('wcs.transmission_type', TransmissionType::INTERNAL->value)
-                ->where('wcs.supply_warehouse_id', $this->targetWarehouseId)
-                ->pluck('item_contractors.warehouse_id')
-                ->unique()
-                ->toArray();
-
-            $enabledWarehouseIds = array_intersect(
-                $enabledWarehouseIds,
-                array_values(array_unique(array_merge([$this->targetWarehouseId], $satelliteWarehouseIds))),
-            );
-        }
-
-        $this->realWarehouseIds = DB::connection('sakemaru')
-            ->table('warehouses')
-            ->where('is_virtual', false)
-            ->whereIn('id', $enabledWarehouseIds)
-            ->pluck('id')
-            ->toArray();
+        $this->realWarehouseIds = app(ManualOrderWarehouseResolver::class)
+            ->forCalculation($this->targetWarehouseId, $this->transferOnly);
 
         Log::info('[SalesBased] 実倉庫をロード', ['count' => count($this->realWarehouseIds)]);
 

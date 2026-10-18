@@ -25,7 +25,6 @@ use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
-use App\Models\WmsWarehouseAutoOrderSetting;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
@@ -1522,14 +1521,7 @@ class ListWmsOrderCandidates extends ListRecords
 
     private function getSalesBasedExternalOrderGenerationWarehouseIds(int $warehouseId): array
     {
-        $enabledWarehouseIds = WmsWarehouseAutoOrderSetting::enabled()
-            ->pluck('warehouse_id')
-            ->toArray();
-
-        return array_values(array_intersect(
-            $enabledWarehouseIds,
-            [$warehouseId],
-        ));
+        return app(\App\Services\AutoOrder\ManualOrderWarehouseResolver::class)->selected($warehouseId);
     }
 
     private function getMountedSalesBasedExternalOrderActionData(): array
