@@ -371,6 +371,7 @@ class MegaMenuBuilder
                 'icon' => 'fa-cart-shopping',
                 'categories' => [
                     EMenuCategory::AUTO_ORDER,
+                    EMenuCategory::AUTO_REPLENISHMENT,
                     EMenuCategory::ORDER_HISTORY,
                     EMenuCategory::ORDER_SETTINGS,
                 ],

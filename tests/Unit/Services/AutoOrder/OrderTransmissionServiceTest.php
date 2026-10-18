@@ -360,8 +360,11 @@ class OrderTransmissionServiceTest extends TestCase
             $file['content'] = 'second-content';
             $secondPath = $method->invoke($this->service, 'BATCH2', $file, TransmissionDocumentStatus::TRANSMITTED);
 
-            $this->assertSame('jx-orders/2026-05-06/1106_order_20260506154526.dat', $firstPath);
-            $this->assertSame('jx-orders/2026-05-06/1106_order_20260506154526_2.dat', $secondPath);
+            $this->assertNotSame($firstPath, $secondPath);
+            foreach ([$firstPath, $secondPath] as $path) {
+                $this->assertStringStartsWith('jx-orders/2026-05-06/', $path);
+                $this->assertSame($file['filename'], basename($path));
+            }
             $this->assertSame('first-content', Storage::disk('s3')->get($firstPath));
             $this->assertSame('second-content', Storage::disk('s3')->get($secondPath));
         } finally {

@@ -26,6 +26,21 @@ class WmsOrderIncomingSchedule extends WmsModel
 {
     protected $table = 'wms_order_incoming_schedules';
 
+    public function save(array $options = [])
+    {
+        return $this->getConnection()->transaction(function () use ($options) {
+            $saved = parent::save($options);
+            if ($saved && $this->wasRecentlyCreated) {
+                app(\App\Services\AutoReplenishment\SupplyRecorder::class)->attachSchedule($this);
+            }
+            if ($saved && $this->wasChanged(['received_quantity', 'expected_quantity', 'status', 'purchase_queue_id'])) {
+                app(\App\Services\AutoReplenishment\SupplyRecorder::class)->refreshReceipt((int) $this->id);
+            }
+
+            return $saved;
+        });
+    }
+
     protected $fillable = [
         'warehouse_id',
         'item_id',

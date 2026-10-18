@@ -210,3 +210,6 @@ Schedule::command('wms:snapshot-archive')
     ->withoutOverlapping()
     ->onOneServer()
     ->appendOutputTo(storage_path('logs/wms-stock-snapshot-archive.log'));
+
+// v2 defaults to OFF; its client/warehouse/product gates are checked again at publication.
+Schedule::command('wms:run-auto-replenishment')->everyMinute()->withoutOverlapping(10);

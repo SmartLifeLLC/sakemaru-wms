@@ -42,6 +42,15 @@ class WmsOrderCandidate extends WmsModel
 
     protected bool $itemContractorPreloaded = false;
 
+    protected static function booted(): void
+    {
+        static::updating(function (self $candidate): void {
+            if ($candidate->isDirty(['order_quantity', 'quantity_type', 'expected_arrival_date', 'ordering_code', 'warehouse_id', 'item_id', 'contractor_id', 'supplier_id', 'purchase_unit_price'])) {
+                app(\App\Services\AutoReplenishment\JxGenerationGuard::class)->assertEditable($candidate);
+            }
+        });
+    }
+
     protected $fillable = [
         'batch_code',
         'warehouse_id',

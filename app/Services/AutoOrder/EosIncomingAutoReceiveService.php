@@ -700,6 +700,7 @@ class EosIncomingAutoReceiveService
                         'confirmed_picker_id' => null,
                         'updated_at' => $now,
                     ]);
+                app(\App\Services\AutoReplenishment\SupplyRecorder::class)->refreshScheduleIds($ids);
             });
 
         return $completed;
@@ -745,6 +746,7 @@ class EosIncomingAutoReceiveService
                         'confirmed_picker_id' => null,
                         'updated_at' => $now,
                     ]);
+                app(\App\Services\AutoReplenishment\SupplyRecorder::class)->refreshScheduleIds($ids);
             });
 
         return $completed;
