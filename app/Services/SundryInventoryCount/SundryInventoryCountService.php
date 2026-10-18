@@ -111,6 +111,9 @@ class SundryInventoryCountService
 
             $this->syncManagedItems($count, $categories, $balances);
             $this->syncAmountRows($count);
+            if (SundryQuantityValuationService::available()) {
+                (new SundryQuantityValuationService)->prepareUnenteredCategories($count);
+            }
 
             return $count;
         });
