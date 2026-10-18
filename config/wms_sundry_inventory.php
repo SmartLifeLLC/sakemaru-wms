@@ -2,6 +2,9 @@
 
 return [
 
+    // Enable only after deploying the core report reader and approving book reconciliation.
+    'amount_posting_enabled' => env('WMS_SUNDRY_AMOUNT_POSTING_ENABLED', false),
+
     /*
     |--------------------------------------------------------------------------
     | 棚卸し（雑貨）の既定の対象中分類

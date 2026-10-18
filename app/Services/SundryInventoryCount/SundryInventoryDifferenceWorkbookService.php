@@ -5,6 +5,7 @@ namespace App\Services\SundryInventoryCount;
 use App\Models\WmsSundryInventoryCount;
 use App\Models\WmsSundryInventoryCountAmount;
 use App\Models\WmsSundryInventoryCountItem;
+use App\Models\WmsSundryValuationItem;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
@@ -81,6 +82,37 @@ class SundryInventoryDifferenceWorkbookService
         $purchaseSheet = $spreadsheet->createSheet();
         $purchaseSheet->setTitle('非管理品仕入');
         $this->writePurchases($purchaseSheet, $count, $amounts);
+
+        if (SundryQuantityValuationService::available()) {
+            $valuations = WmsSundryValuationItem::where('sundry_inventory_count_id', $count->id)
+                ->orderBy('amount_id')->orderBy('item_code')->get();
+            if ($valuations->isNotEmpty()) {
+                $sheet = $spreadsheet->createSheet()->setTitle('非管理品数量');
+                $sheet->fromArray(['中分類CD', '中分類名', '商品CD', '商品名', '価格基準日', '単価適用開始日', '販売単価', '税区分',
+                    '税抜販売単価', '分類原価率(%)', '評価単価', '実棚数(バラ)', '実棚評価額', '入力者'], null, 'A1');
+                foreach ($valuations as $index => $valuation) {
+                    $line = $index + 2;
+                    $category = $amounts->firstWhere('id', $valuation->amount_id);
+                    $sheet->fromArray([$category?->category2_code, $category?->category2_name, $valuation->item_code,
+                        $valuation->item_name, $valuation->price_date?->toDateString(), $valuation->price_start_date?->toDateString(),
+                        $valuation->sale_price, $valuation->price_tax_type, $valuation->net_sale_price, $valuation->cost_rate,
+                        $valuation->valuation_unit_price, $valuation->quantity, $valuation->amount, $valuation->counted_by_name], null, "A{$line}", true);
+                    foreach (['A' => $category?->category2_code, 'C' => $valuation->item_code, 'D' => $valuation->item_name, 'N' => $valuation->counted_by_name] as $col => $value) {
+                        $sheet->setCellValueExplicit("{$col}{$line}", (string) $value, DataType::TYPE_STRING);
+                    }
+                }
+                $last = $valuations->count() + 1;
+                $sheet->setCellValue('L'.($last + 1), '入力済評価額合計');
+                $sheet->setCellValue('M'.($last + 1), "=SUM(M2:M{$last})");
+                $this->styleHeader($sheet, 'A1:N1');
+                $sheet->getStyle('I2:M'.($last + 1))->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->getStyle("L2:L{$last}")->getNumberFormat()->setFormatCode(self::QUANTITY_FORMAT);
+                $sheet->setAutoFilter("A1:N{$last}")->freezePane('A2');
+                foreach (range('A', 'N') as $column) {
+                    $sheet->getColumnDimension($column)->setWidth($column === 'D' ? 50 : 18);
+                }
+            }
+        }
 
         $spreadsheet->getProperties()
             ->setTitle('棚卸し（雑貨）差異表')

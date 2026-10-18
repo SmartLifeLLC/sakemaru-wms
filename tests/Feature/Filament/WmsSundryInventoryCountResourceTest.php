@@ -10,6 +10,8 @@ use App\Models\Sakemaru\User;
 use App\Models\WmsSundryInventoryCount;
 use App\Models\WmsSundryInventoryCountAmount;
 use App\Models\WmsSundryInventoryCountItem;
+use App\Models\WmsSundryValuationItem;
+use App\Services\SundryInventoryCount\SundryFinalizationService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -122,6 +124,47 @@ class WmsSundryInventoryCountResourceTest extends TestCase
             ->assertReturned(false);
 
         $this->assertNull($item->fresh()->counted_quantity);
+    }
+
+    public function test_finalization_requires_preview_confirmation_and_does_not_request_stock_application(): void
+    {
+        if (! Schema::connection('sakemaru')->hasTable(SundryFinalizationService::TABLE)) {
+            $this->markTestSkipped('Finalization migration is required in the dedicated test DB.');
+        }
+        [$count] = $this->sundryCount(WmsSundryInventoryCount::STATUS_CONFIRMED);
+        $this->mock(SundryFinalizationService::class, function ($mock): void {
+            $mock->shouldReceive('preview')->once()->andReturn(['token' => str_repeat('a', 64), 'snapshot' => [
+                'count_date' => '2026-06-30', 'total_amount' => -300, 'lines' => [],
+            ]]);
+            $mock->shouldReceive('finalize')->once()->withArgs(fn ($count, $date, $token, $user) => $date === '2026-06-30' && $token === str_repeat('a', 64))->andReturn(1);
+            $mock->shouldNotReceive('requestApplication');
+        });
+        Livewire::actingAs($this->user())->test(ViewWmsSundryInventoryCount::class, ['record' => $count])
+            ->assertActionEnabled('finalizeSundry')
+            ->assertActionDisabled('applySundry')
+            ->callAction('finalizeSundry', ['date' => '2026-06-30'])
+            ->assertActionMounted('finalizeSundryConfirmation')
+            ->assertSet('finalizationPreview.date', '2026-06-30')
+            ->callMountedAction()
+            ->assertHasNoActionErrors();
+    }
+
+    public function test_nonmanaged_quantity_tab_saves_without_changing_managed_input(): void
+    {
+        [$count, $item, $amount] = $this->sundryCount();
+        $before = $item->fresh()->getAttributes();
+        $valuation = WmsSundryValuationItem::create(['sundry_inventory_count_id' => $count->id, 'amount_id' => $amount->id,
+            'item_id' => 990099, 'item_code' => '990099', 'item_name' => '非管理品数量テスト', 'price_date' => '2026-06-30',
+            'sale_price' => 100, 'net_sale_price' => 100, 'cost_rate' => 80, 'valuation_unit_price' => 80]);
+
+        Livewire::actingAs($this->user())->test(ViewWmsSundryInventoryCount::class, ['record' => $count])
+            ->assertSee('商品数量（在庫管理なし）')->call('setListTab', 'valuation')
+            ->assertSee('非管理品数量テスト')->assertSee('実棚数（バラ）')
+            ->call('saveChanges', ['valuation' => [$valuation->id => ['quantity' => 3, 'revision' => 0]]])
+            ->assertReturned(true);
+        $this->assertSame('3.000', $valuation->fresh()->quantity);
+        $this->assertSame(240.0, $amount->fresh()->counted_amount);
+        $this->assertSame($before, $item->fresh()->getAttributes());
     }
 
     public function test_weighed_view_page_takes_jar_and_reserve_input(): void
