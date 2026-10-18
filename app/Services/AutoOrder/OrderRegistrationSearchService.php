@@ -9,7 +9,6 @@ use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\ItemCategory;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsContractorSetting;
-use App\Models\WmsWarehouseAutoOrderSetting;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -625,11 +624,6 @@ class OrderRegistrationSearchService
      */
     private function salesHistoryWarehouseIds(int $warehouseId): array
     {
-        $enabledWarehouseIds = WmsWarehouseAutoOrderSetting::enabled()
-            ->pluck('warehouse_id')
-            ->map(fn ($id) => (int) $id)
-            ->all();
-
-        return array_values(array_intersect($enabledWarehouseIds, [$warehouseId]));
+        return app(ManualOrderWarehouseResolver::class)->selected($warehouseId);
     }
 }
