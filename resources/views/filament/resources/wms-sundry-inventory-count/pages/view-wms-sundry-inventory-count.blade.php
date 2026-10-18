@@ -12,6 +12,8 @@
         $counts = $this->itemCounts();
         $categoryOptions = $this->categoryOptions();
         $amountRows = $this->amountRows();
+        $valuationRows = $this->valuationRows();
+        $valuationAmountIds = $valuationRows->pluck('amount_id')->unique()->all();
         $rows = $listTab === 'items' ? $this->rows() : null;
         $pageFirst = $rows?->firstItem() ?? 0;
         $pageLast = $rows?->lastItem() ?? 0;
@@ -39,9 +41,9 @@
 
     <div x-data="{
         filtersOpen: true,
-        changes: { items: {}, amounts: {} },
+        changes: { items: {}, amounts: {}, valuation: {} },
         get changeCount() {
-            return Object.keys(this.changes.items).length + Object.keys(this.changes.amounts).length;
+            return Object.keys(this.changes.items).length + Object.keys(this.changes.amounts).length + Object.keys(this.changes.valuation).length;
         },
         toNum(value) {
             value = String(value ?? '');
@@ -87,7 +89,7 @@
         save() {
             if (!this.changeCount) return;
             this.$wire.saveChanges(this.changes).then((saved) => {
-                if (saved) this.changes = { items: {}, amounts: {} };
+                if (saved) this.changes = { items: {}, amounts: {}, valuation: {} };
             });
         },
         guard(callback) {
@@ -101,6 +103,7 @@
     @sundry-item-change="setItemChange($event.detail.id, $event.detail.value, $event.detail.original)"
     @sundry-amount-change="setAmountChange($event.detail.id, $event.detail.fields)"
     @sundry-weighed-change="setWeighedChange($event.detail.id, $event.detail.fields)"
+    @sundry-valuation-change="if ($event.detail.changed) { changes.valuation[$event.detail.id] = { quantity: $event.detail.value, revision: $event.detail.revision }; } else { delete changes.valuation[$event.detail.id]; }"
     class="flex h-[calc(100vh-72px)] min-h-0 flex-col gap-2">
         {{-- Header bar --}}
         <div class="relative z-20 shrink-0 overflow-visible rounded-lg border border-slate-300 bg-slate-100 shadow-sm">
@@ -162,7 +165,7 @@
                     @unless ($isWeighed)
                         <label class="space-y-1 md:col-span-2">
                             <span class="text-xs font-semibold text-slate-700">中分類</span>
-                            <select wire:model.live="categoryFilter" class="{{ $filterSelectClass }}">
+                            <select wire:model.live="categoryFilter" x-bind:disabled="changeCount > 0" class="{{ $filterSelectClass }}">
                                 <option value="">すべて</option>
                                 @foreach ($categoryOptions as $code => $label)
                                     <option value="{{ $code }}">{{ $label }}</option>
@@ -172,22 +175,22 @@
                     @endunless
                     <label class="space-y-1 md:col-span-2">
                         <span class="text-xs font-semibold text-slate-700">商品CD</span>
-                        <input type="text" wire:model.live.debounce.300ms="itemCodeFilter" placeholder="商品CD検索" class="{{ $filterInputClass }}">
+                        <input type="text" wire:model.live.debounce.300ms="itemCodeFilter" x-bind:disabled="changeCount > 0" placeholder="商品CD検索" class="{{ $filterInputClass }}">
                     </label>
                     <label class="space-y-1 md:col-span-2">
                         <span class="text-xs font-semibold text-slate-700">商品名</span>
-                        <input type="text" wire:model.live.debounce.300ms="itemNameFilter" placeholder="商品名検索" class="{{ $filterInputClass }}">
+                        <input type="text" wire:model.live.debounce.300ms="itemNameFilter" x-bind:disabled="changeCount > 0" placeholder="商品名検索" class="{{ $filterInputClass }}">
                     </label>
-                    <label class="space-y-1 md:col-span-2">
+                    <label class="space-y-1 md:col-span-2" @if ($listTab === 'valuation') hidden @endif>
                         <span class="text-xs font-semibold text-slate-700">表示</span>
-                        <select wire:model.live="stateFilter" class="{{ $filterSelectClass }}">
+                        <select wire:model.live="stateFilter" x-bind:disabled="changeCount > 0" class="{{ $filterSelectClass }}">
                             <option value="all">全件</option>
                             <option value="diff">差異あり</option>
                             <option value="uncounted">未入力</option>
                         </select>
                     </label>
                     <div class="flex items-end justify-end gap-2 md:col-span-2 xl:col-span-4">
-                        <button type="button" wire:click="clearFilters" class="h-8 rounded-md border border-slate-300 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                        <button type="button" @click="guard(() => $wire.clearFilters())" class="h-8 rounded-md border border-slate-300 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                             クリア
                         </button>
                     </div>
@@ -218,6 +221,13 @@
                                 </span>
                             </button>
                         @endunless
+                        @if ($this->valuationAvailable())
+                            <button type="button" @click="guard(() => $wire.setListTab('valuation'))"
+                                class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition {{ $tabClass('valuation') }}">
+                                <span>商品数量（在庫管理なし）</span>
+                                <span class="rounded-full px-2 py-0.5 text-[11px] tabular-nums {{ $tabBadgeClass('valuation') }}">{{ $valuationRows->count() }}</span>
+                            </button>
+                        @endif
                         <button type="button"
                             @click="guard(() => $wire.setListTab('summary'))"
                             class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition {{ $tabClass('summary') }}">
@@ -257,20 +267,39 @@
                         @endif
                     </div>
                 </div>
-                <div class="flex flex-wrap items-center justify-end gap-2 pb-2">
+                <div class="flex flex-wrap items-center justify-end gap-2 pb-2"
+                    @click.capture="if (changeCount > 0) { $event.preventDefault(); $event.stopPropagation(); alert('先に反映を実施してください'); }">
                     {{ $this->getAction('addItem') }}
+                    {{ $this->getAction('prepareValuation') }}
                     {{ $this->getAction('refreshTheory') }}
                     {{ $this->getAction('fillUncountedWithZero') }}
                     {{ $this->getAction('downloadInstructionSheet') }}
                     {{ $this->getAction('downloadDifferenceWorkbook') }}
                     {{ $this->getAction('confirm') }}
+                    {{ $this->getAction('downloadFinalization') }}
+                    {{ $this->getAction('finalizeSundry') }}
+                    {{ $this->getAction('applySundry') }}
+                    {{ $this->getAction('cancelSundryFinalization') }}
                     {{ $this->getAction('reopen') }}
                     {{ $this->getAction('cancel') }}
                     <div wire:loading class="text-xs">読込中...</div>
                 </div>
             </div>
 
+            @if($finalization = $this->finalizationRecord())
+                <div class="px-3 py-2 text-sm border-b border-gray-200 dark:border-gray-700" wire:poll.10s>
+                    最終確定: {{ $finalization->process_date }} /
+                    {{ ['queued' => '伝票作成待ち', 'recorded' => '伝票記録済み・未適用', 'record_failed' => '伝票作成失敗', 'applying' => '適用待ち', 'apply_failed' => '適用停止', 'applied' => '適用済み'][$finalization->status] ?? $finalization->status }}
+                    @if($finalization->inventory_adjustment_id)
+                        / 実棚変更伝票ID {{ $finalization->inventory_adjustment_id }}
+                    @endif
+                    @if($finalization->error_message)<span class="text-red-600">{{ $finalization->error_message }}</span>@endif
+                </div>
+            @endif
             <div class="min-h-0 flex-1 overflow-auto">
+                @if ($listTab === 'valuation')
+                    @include('filament.resources.wms-sundry-inventory-count.pages.partials.valuation-items')
+                @endif
                 {{-- 数量明細（在庫管理あり） --}}
                 @if ($listTab === 'items')
                     @if (! $rows || $rows->count() === 0)
@@ -469,6 +498,7 @@
                                                 x-text="'¥' + formatNumber(system)"></td>
                                             <td class="whitespace-nowrap border border-slate-300 px-1 py-0.5" @click.stop>
                                                 <input type="text" inputmode="decimal" :value="counted"
+                                                    @disabled(in_array($row->id, $valuationAmountIds))
                                                     @input="counted = clean($event.target.value); $event.target.value = counted; notify()"
                                                     @keydown.enter.prevent="$el.closest('tr').nextElementSibling?.querySelector('input[inputmode]:last-of-type')?.focus()"
                                                     class="{{ $amountInputClass }}" placeholder="-">

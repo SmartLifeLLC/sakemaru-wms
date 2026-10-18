@@ -70,6 +70,30 @@ class SundryInventoryCountServiceTest extends TestCase
         $this->assertSame(-40.0, $row->difference_amount);
     }
 
+    public function test_amount_journal_is_in_the_sundry_flow_once_and_not_after_its_opening_date(): void
+    {
+        $fixture = $this->fixture();
+        $count = $this->service($fixture)->create($this->createData($fixture));
+        $amount = $count->amounts()->sole();
+        DB::connection('sakemaru')->table('wms_sundry_amount_adjustments')->insert([
+            'client_id' => $fixture['client_id'], 'warehouse_id' => $fixture['warehouse_id'],
+            'sundry_inventory_count_id' => $count->id, 'amount_id' => $amount->id,
+            'category1_id' => $fixture['major_category_id'], 'category2_id' => $fixture['target_category_id'],
+            'category1_code' => '1004', 'category2_code' => '2041', 'count_date' => '2026-06-30', 'process_date' => '2026-06-30',
+            'book_amount' => 100, 'counted_amount' => 65, 'adjustment_amount' => -35, 'book_reference' => 'Test book',
+            'source_snapshot' => '{}', 'is_active' => true, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $calculator = new SundryInventoryTheoryCalculator;
+        $flow = $calculator->unmanagedFlows($fixture['client_id'], $fixture['warehouse_id'], [$fixture['target_category_id']], '2026-06-30', '2026-06-30');
+        $this->assertSame(-35.0, $flow[$fixture['target_category_id']]['adjustment']);
+        $after = $calculator->unmanagedFlows($fixture['client_id'], $fixture['warehouse_id'], [$fixture['target_category_id']], '2026-07-01', '2026-07-31');
+        $this->assertSame(0.0, $after[$fixture['target_category_id']]['adjustment']);
+        $major = $calculator->unmanagedFlows($fixture['client_id'], $fixture['warehouse_id'], [$fixture['major_category_id']], '2026-06-30', '2026-06-30', 1);
+        $this->assertSame(-35.0, $major[$fixture['major_category_id']]['adjustment']);
+        $foreign = $calculator->unmanagedFlows($fixture['client_id'] + 1, $fixture['warehouse_id'], [$fixture['major_category_id']], '2026-06-30', '2026-06-30', 1);
+        $this->assertSame(0.0, $foreign[$fixture['major_category_id']]['adjustment']);
+    }
+
     public function test_default_targets_are_the_sundry_departments(): void
     {
         $this->assertSame(
