@@ -113,6 +113,210 @@ class SundryQuantityValuationServiceTest extends TestCase
         parent::tearDown();
     }
 
+    public function test_new_count_prepares_all_selected_unmanaged_categories_without_manual_actions(): void
+    {
+        $service = $this->creationService();
+        $this->amount->update(['counted_amount' => 850]);
+        $existing = $this->amount->fresh()->getAttributes();
+        $protected = $this->protectedSnapshot();
+        $this->db()->table('item_categories')->insert([
+            ['id' => 10, 'client_id' => 6, 'depth' => 1, 'code' => 1005, 'name' => 'Other major', 'cost_rate' => 90],
+            ['id' => 11, 'client_id' => 6, 'depth' => 2, 'code' => 2051, 'name' => 'Other middle', 'cost_rate' => 90],
+        ]);
+        foreach ([5 => [6, 10, 11], 6 => [7, 1, 2], 7 => [6, 20, 21]] as $id => [$client, $major, $middle]) {
+            $this->db()->table('items')->insert(['id' => $id, 'client_id' => $client, 'code' => '40'.$id, 'name' => 'Test item',
+                'is_managed_stock' => false, 'item_category1_id' => $major, 'item_category2_id' => $middle,
+                'item_category3_id' => 3]);
+            $this->price($id, 100, '2026-09-01');
+        }
+        $count = $service->create(['amount_category_ids' => [1, 10]] + $this->creationData());
+
+        $rows = WmsSundryValuationItem::where('sundry_inventory_count_id', $count->id)->orderBy('item_id')->get();
+        $this->assertSame([1, 2, 5], $rows->pluck('item_id')->all());
+        $this->assertTrue($rows->every(fn ($row) => $row->quantity === null && $row->amount === null));
+        $this->assertTrue($rows->every(fn ($row) => $row->valuation_unit_price === '80.000000'));
+        $this->assertSame(2, $count->amounts()->count());
+        $this->assertSame(0, $count->amounts()->whereNotNull('counted_amount')->count());
+        $this->assertSame([4], $count->items()->pluck('item_id')->all());
+        $this->assertSame($existing, $this->amount->fresh()->getAttributes());
+        foreach ($protected as $table => $before) {
+            $after = $this->db()->table($table)->whereIn('id', array_column($before, 'id'))->orderBy('id')->get()->map(fn ($row) => (array) $row)->all();
+            $this->assertSame($before, $after);
+        }
+        $this->assertSame(0, $this->service->prepareUnenteredCategories($count)['prepared_items']);
+        $page = new \App\Filament\Resources\WmsSundryInventoryCount\Pages\ViewWmsSundryInventoryCount;
+        $page->mount($count);
+        $this->assertSame('valuation', $page->listTab);
+        $this->assertSame([1, 2, 5], $page->valuationRows()->pluck('item_id')->all());
+    }
+
+    public function test_new_count_preserves_manually_prepared_rows_and_inputs(): void
+    {
+        $service = $this->creationService();
+        $this->service->prepareUnenteredCategories($this->count);
+        $this->save(1, 2);
+
+        foreach ([false, true] as $complete) {
+            if ($complete) {
+                $this->save(2, 3);
+            }
+            $header = $this->count->fresh()->getAttributes();
+            $amount = $this->amount->fresh()->getAttributes();
+            $rows = WmsSundryValuationItem::where('sundry_inventory_count_id', $this->count->id)
+                ->orderBy('id')->get()->map->getAttributes()->all();
+
+            $service->create($this->creationData());
+            $this->assertSame(0, $this->service->prepareUnenteredCategories($this->count)['prepared_items']);
+
+            $this->assertSame($header, $this->count->fresh()->getAttributes());
+            $this->assertSame($amount, $this->amount->fresh()->getAttributes());
+            $this->assertSame($rows, WmsSundryValuationItem::where('sundry_inventory_count_id', $this->count->id)
+                ->orderBy('id')->get()->map->getAttributes()->all());
+        }
+    }
+
+    public function test_new_count_quantity_input_updates_category_and_summary_once(): void
+    {
+        $service = $this->creationService();
+        $count = $service->create($this->creationData());
+        $rows = WmsSundryValuationItem::where('sundry_inventory_count_id', $count->id)->get()->keyBy('item_id');
+        $this->service->save($count, [
+            $rows[1]->id => ['quantity' => 2, 'revision' => 0],
+            $rows[2]->id => ['quantity' => 3, 'revision' => 0],
+        ], 'test');
+        $service->saveChanges($count, [$count->items()->sole()->id => 3], [], 'test');
+
+        $this->assertSame(400.0, $count->amounts()->sole()->counted_amount);
+        $this->assertSame(-600.0, $count->amounts()->sole()->difference_amount);
+        $summary = $service->summary($count);
+        $this->assertSame(400.0, $summary['totals']['unmanaged']['counted']);
+        $this->assertSame(460.0, $summary['totals']['total']['counted']);
+        $this->assertSame(-680.0, $summary['totals']['total']['difference']);
+        $this->assertNull($this->amount->fresh()->counted_amount);
+    }
+
+    public function test_new_count_prepares_middle_category_only_and_keeps_missing_price_unvalued(): void
+    {
+        $service = $this->creationService();
+        $this->db()->table('item_prices')->where('item_id', 2)->update(['start_date' => '2026-10-07']);
+        $count = $service->create(['amount_category_ids' => []] + $this->creationData());
+        $rows = WmsSundryValuationItem::where('sundry_inventory_count_id', $count->id)->get()->keyBy('item_id');
+        $this->assertCount(2, $rows);
+        $this->assertNull($rows[2]->valuation_unit_price);
+        $this->assertNull($rows[2]->quantity);
+        $this->assertNull($rows[2]->amount);
+        $this->assertRejected(fn () => $this->service->save($count, [$rows[2]->id => ['quantity' => 1, 'revision' => 0]], 'test'));
+    }
+
+    public function test_new_count_rolls_back_header_and_all_details_when_quantity_preparation_fails(): void
+    {
+        $service = $this->creationService();
+        $protected = $this->protectedSnapshot();
+        WmsSundryValuationItem::creating(function ($row): void {
+            if ($row->item_id === 2) {
+                throw new \RuntimeException('Preparation failed');
+            }
+        });
+        try {
+            $service->create($this->creationData());
+            $this->fail('An incomplete count was created.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('Preparation failed', $e->getMessage());
+        } finally {
+            WmsSundryValuationItem::flushEventListeners();
+        }
+        $this->assertSame(1, WmsSundryInventoryCount::count());
+        $this->assertSame(1, WmsSundryInventoryCountAmount::count());
+        $this->assertSame(0, WmsSundryValuationItem::count());
+        $this->assertSame($protected, $this->protectedSnapshot());
+    }
+
+    public function test_new_managed_only_count_does_not_create_nonmanaged_rows(): void
+    {
+        $service = $this->creationService();
+        $this->db()->table('items')->update(['is_managed_stock' => true]);
+        $count = $service->create($this->creationData());
+        $this->assertSame([4], $count->items()->pluck('item_id')->all());
+        $this->assertSame(0, $count->amounts()->count());
+        $this->assertSame(0, WmsSundryValuationItem::count());
+    }
+
+    public function test_new_weighed_count_does_not_prepare_nonmanaged_quantities(): void
+    {
+        $service = $this->creationService();
+        $this->db()->table('items')->where('id', 4)->update(['code' => '129002']);
+        $count = $service->create(['kind' => 'weighed', 'sales_from_date' => '2026-09-01'] + $this->creationData());
+        $this->assertTrue($count->isWeighed());
+        $this->assertSame([4], $count->items()->pluck('item_id')->all());
+        $this->assertSame(0, $count->amounts()->count());
+        $this->assertSame(0, WmsSundryValuationItem::count());
+    }
+
+    private function creationData(): array
+    {
+        return ['warehouse_id' => 10, 'count_date' => '2026-10-06', 'category_ids' => [2], 'amount_category_ids' => [1]];
+    }
+
+    private function creationService(): SundryInventoryCountService
+    {
+        $schema = Schema::connection('sakemaru');
+        $schema->create('warehouses', function (Blueprint $t): void {
+            $t->id();
+            $t->integer('client_id');
+            $t->string('code');
+            $t->string('name');
+            $t->boolean('is_active')->default(true);
+        });
+        $this->db()->table('warehouses')->insert(['id' => 10, 'client_id' => 6, 'code' => '10', 'name' => 'Test warehouse']);
+        $schema->table('item_categories', function (Blueprint $t): void {
+            $t->integer('client_id')->default(6);
+            $t->integer('depth')->default(3);
+            $t->integer('code')->default(0);
+            $t->string('name')->default('Test category');
+        });
+        $this->db()->table('item_categories')->where('id', 1)->update(['depth' => 1, 'code' => 1004]);
+        $this->db()->table('item_categories')->where('id', 2)->update(['depth' => 2, 'code' => 2041]);
+        $schema->table('items', fn (Blueprint $t) => $t->string('type')->default('NOT_ALCOHOL'));
+        $schema->table('real_stocks', function (Blueprint $t): void {
+            $t->integer('client_id')->default(6);
+            $t->integer('warehouse_id')->default(10);
+            $t->integer('item_id')->default(4);
+        });
+
+        return new SundryInventoryCountService(new class extends SundryInventoryTheoryCalculator
+        {
+            public function managedBalances(int $clientId, int $warehouseId, string $endDate): array
+            {
+                return [4 => 7.0];
+            }
+
+            public function costPrices(int $clientId, array $itemIds, string $date): array
+            {
+                return array_fill_keys($itemIds, 20.0);
+            }
+
+            public function unmanagedLegacyOpening(string $warehouseCode, string $category2Code, string $onOrBeforeDate): ?array
+            {
+                return ['date' => '2026-09-30', 'amount' => 1000.0];
+            }
+
+            public function unmanagedOpeningFromStockReport(int $clientId, int $warehouseId, int $category1Id, string $onOrBeforeDate): ?array
+            {
+                return null;
+            }
+
+            public function unmanagedFlows(int $clientId, int $warehouseId, array $categoryIds, string $fromDate, string $endDate, int $depth = 2): array
+            {
+                return [];
+            }
+
+            public function periodSalesQuantities(int $clientId, int $warehouseId, array $itemIds, string $fromDate, string $endDate): array
+            {
+                return array_fill_keys($itemIds, 0.0);
+            }
+        });
+    }
+
     public function test_preparation_preserves_existing_inputs_and_selects_only_unmanaged_non_owned_items(): void
     {
         $header = $this->count->fresh()->getAttributes();

@@ -5,11 +5,13 @@ namespace Tests\Unit\Services;
 use App\Models\WmsSundryInventoryCount;
 use App\Models\WmsSundryInventoryCountAmount;
 use App\Models\WmsSundryInventoryCountItem;
+use App\Models\WmsSundryValuationItem;
 use App\Services\SundryInventoryCount\SundryInventoryCountService;
 use App\Services\SundryInventoryCount\SundryInventoryDifferenceWorkbookService;
 use App\Services\SundryInventoryCount\SundryInventoryInstructionSheetPdfService;
 use App\Services\SundryInventoryCount\SundryInventorySettings;
 use App\Services\SundryInventoryCount\SundryInventoryTheoryCalculator;
+use App\Services\SundryInventoryCount\SundryQuantityValuationService;
 use App\Services\SundryInventoryCount\WeighedInventoryDifferenceWorkbookService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
@@ -233,6 +235,7 @@ class SundryInventoryCountServiceTest extends TestCase
         $service = $this->service($fixture, null, ['2041' => ['date' => '2026-05-31', 'amount' => 3800.0]]);
 
         $previous = $service->create(['count_date' => '2026-06-20'] + $this->createData($fixture));
+        $this->useLegacyManualAmounts($previous);
         $service->saveChanges($previous, [], [$previous->amounts()->firstOrFail()->id => ['counted_amount' => '900']], 'WEB: phpunit');
         $service->confirm($previous, null);
 
@@ -267,6 +270,7 @@ class SundryInventoryCountServiceTest extends TestCase
         $fixture = $this->fixture();
         $service = $this->service($fixture);
         $count = $service->create($this->createData($fixture));
+        $this->useLegacyManualAmounts($count);
         $item = $count->items()->firstOrFail();
         $amount = $count->amounts()->firstOrFail();
 
@@ -359,6 +363,7 @@ class SundryInventoryCountServiceTest extends TestCase
         $fixture = $this->fixture();
         $service = $this->service($fixture);
         $count = $service->create($this->createData($fixture));
+        $this->useLegacyManualAmounts($count);
         $item = $count->items()->firstOrFail();
         $amount = $count->amounts()->firstOrFail();
 
@@ -409,7 +414,11 @@ class SundryInventoryCountServiceTest extends TestCase
         $this->assertStringStartsWith('%PDF', $pdfService->generate($count));
 
         $workbook = (new SundryInventoryDifferenceWorkbookService)->build($count);
-        $this->assertSame(['集計', '数量明細', '金額明細', '非管理品仕入'], $workbook->getSheetNames());
+        $expectedSheets = ['集計', '数量明細', '金額明細', '非管理品仕入'];
+        if (SundryQuantityValuationService::available()) {
+            $expectedSheets[] = '非管理品数量';
+        }
+        $this->assertSame($expectedSheets, $workbook->getSheetNames());
 
         $itemSheet = $workbook->getSheetByName('数量明細');
         $this->assertSame((string) $fixture['managed_item_code'], (string) $itemSheet->getCell('C2')->getValue());
@@ -441,6 +450,14 @@ class SundryInventoryCountServiceTest extends TestCase
         $this->assertSame('2041', (string) $summarySheet->getCell('B11')->getValue());
         $this->assertSame('合計', $summarySheet->getCell('C13')->getValue());
         $workbook->disconnectWorksheets();
+    }
+
+    private function useLegacyManualAmounts(WmsSundryInventoryCount $count): void
+    {
+        // Represent a count created before product-level quantity entry was introduced.
+        if (SundryQuantityValuationService::available()) {
+            WmsSundryValuationItem::where('sundry_inventory_count_id', $count->id)->delete();
+        }
     }
 
     public function test_weighed_count_lists_configured_items_with_period_sales(): void
