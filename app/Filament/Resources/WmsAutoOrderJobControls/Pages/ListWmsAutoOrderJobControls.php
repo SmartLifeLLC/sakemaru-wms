@@ -19,7 +19,6 @@ use App\Models\WmsWarehouseAutoOrderSetting;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
-use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\ViewField;
@@ -151,18 +150,11 @@ class ListWmsAutoOrderJobControls extends ListRecords
 
     protected function getHeaderActions(): array
     {
+        // 旧管理者メニュー（移動候補生成・仕入先別発注候補生成）は利用停止のため登録しない。
+        // 旧計算は自動発注ONの倉庫と旧商品設定に依存し、全倉庫OFFでは空のIN句で失敗する。
+        // 再利用時は倉庫ON/OFFとの分離・対象0件・初期化済みの商品設定を検証すること。
         return [
             $this->getSalesBasedGenerateAction(),
-
-            ActionGroup::make([
-                //                $this->getOrderGenerationWizardAction(),
-                $this->getGenerateTransferCandidatesAction(),
-                $this->getForceGenerateByContractorAction(),
-            ])
-                ->label('管理者メニュー')
-                ->icon('heroicon-o-shield-check')
-                ->color('gray')
-                ->button(),
         ];
     }
 
@@ -1232,7 +1224,8 @@ class ListWmsAutoOrderJobControls extends ListRecords
             ->send();
     }
 
-    public function executeStep1Delete(): void
+    // 利用停止中の旧ウィザードから候補を削除させないため、Livewireの公開メソッドから外す。
+    private function executeStep1Delete(): void
     {
         $this->isProcessing = true;
         $this->progressMessage = '未承認の発注・移動候補を削除中...';
@@ -1267,7 +1260,8 @@ class ListWmsAutoOrderJobControls extends ListRecords
     /**
      * 発注候補生成をQueueジョブとして開始
      */
-    public function startGenerationJob(): void
+    // 旧候補生成は非表示。再利用条件を満たすまでLivewireから直接起動させない。
+    private function startGenerationJob(): void
     {
         try {
             // 発注確定待ち（APPROVED）の候補がある場合は生成不可

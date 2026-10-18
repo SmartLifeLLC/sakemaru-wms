@@ -25,7 +25,7 @@ class OrderCancellationService
     /**
      * 発注確定をキャンセル（CONFIRMED → APPROVED）
      *
-     * 確定済みで未送信の発注候補を承認済み状態に戻し、
+     * JX未生成（または生成取消済み）の発注候補を承認済み状態に戻し、
      * 関連するPENDING入庫予定を削除する。
      *
      * @param  WmsOrderCandidate  $candidate  対象の発注候補
@@ -38,25 +38,29 @@ class OrderCancellationService
         int $userId,
         string $reason
     ): int {
-        if (! in_array($candidate->status, [CandidateStatus::CONFIRMED, CandidateStatus::EXECUTED])) {
-            throw new \RuntimeException(
-                'この発注候補は確定取消できません（ステータス: '.$candidate->status->label().'）'
-            );
-        }
-
         return DB::connection('sakemaru')->transaction(function () use ($candidate, $userId, $reason) {
+            // JX生成と同じ順序で候補をロックし、画面表示後の状態変更も確認する。
+            $candidate = WmsOrderCandidate::lockForUpdate()->findOrFail($candidate->id);
+            if (! in_array($candidate->status, [CandidateStatus::CONFIRMED, CandidateStatus::EXECUTED])) {
+                throw new \RuntimeException(
+                    'この発注候補は確定取消できません（ステータス: '.$candidate->status->label().'）'
+                );
+            }
+
             app(\App\Services\AutoReplenishment\JxGenerationGuard::class)->assertEditable($candidate);
+            // 文書単位の生成取消を先に行い、他商品のJXや生成履歴を残したまま紐付けを切らない。
+            if ($candidate->wms_order_jx_document_id) {
+                throw new \RuntimeException(
+                    'JXデータが生成済みのため確定取消できません。送信待ちの場合は「JX送信ファイル」で対象ファイルの「生成取消」を行ってから、再度確定取消してください。送信中・送信済みの場合は確定取消できません。'
+                );
+            }
+
             // 1. 関連するPENDING入庫予定を削除
             $deletedSchedules = WmsOrderIncomingSchedule::where('order_candidate_id', $candidate->id)
                 ->where('status', IncomingScheduleStatus::PENDING)
                 ->delete();
 
-            // 2. JXドキュメント参照をクリア
-            if ($candidate->wms_order_jx_document_id) {
-                $candidate->wms_order_jx_document_id = null;
-            }
-
-            // 3. ステータスをAPPROVEDに戻す
+            // 2. ステータスをAPPROVEDに戻す
             $candidate->update([
                 'status' => CandidateStatus::APPROVED,
                 'wms_order_jx_document_id' => null,
@@ -64,7 +68,7 @@ class OrderCancellationService
                 'modified_at' => now(),
             ]);
 
-            // 4. 監査ログ
+            // 3. 監査ログ
             $this->auditService->logConfirmationCancellation($candidate, $reason);
 
             Log::info('発注確定を取消', [

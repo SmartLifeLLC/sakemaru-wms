@@ -70,7 +70,7 @@ class JxGenerationGuard
                             $claim = null;
                         }
                     }
-                    throw_if($claim, \RuntimeException::class, 'JX生成中または生成履歴があります。照合が必要です。');
+                    throw_if($claim, \RuntimeException::class, "発注候補ID {$fresh->id}：JX生成中または生成履歴があります。管理者が生成結果を照合してください。");
                     DB::connection('sakemaru')->table('wms_order_generation_claims')->insert([
                         'candidate_id' => $fresh->id, 'token' => $token, 'manifest_hash' => $this->hash($fresh),
                         'state' => 'BUILDING', 'created_at' => now(), 'updated_at' => now(),
@@ -176,7 +176,8 @@ class JxGenerationGuard
         throw_if($line && $line->generated_at, \RuntimeException::class, '自動発注の内容変更は工程の照合・中止から行ってください。');
     }
 
-    private function hash(WmsOrderCandidate $candidate): string
+    // 手動復旧でも、生成開始時と同じ条件で発注内容を照合する。
+    public function hash(WmsOrderCandidate $candidate): string
     {
         $values = array_intersect_key($candidate->getRawOriginal(), array_flip([
             'id', 'warehouse_id', 'item_id', 'contractor_id', 'supplier_id', 'ordering_code', 'order_quantity',
