@@ -53,6 +53,29 @@ class SundryManagedBookValueTest extends SundryQuantityValuationServiceTest
         $this->assertSame(1000.0, (new SundryManagedBookValue)->calculate(6, 10, 1, '2026-08')['amount']);
     }
 
+    public function test_october_posting_uses_september_reference_even_when_october_report_is_regenerated(): void
+    {
+        $this->bookFixture();
+        $db = DB::connection('sakemaru');
+        foreach (['2026-09', '2026-10'] as $month) {
+            $db->table('stats_item_stock_movement_monthly_summaries')->insert(['client_id' => 6, 'warehouse_id' => 10, 'item_id' => 4,
+                'closing_month' => $month, 'opening_quantity' => 10, 'closing_quantity' => 10]);
+            $db->table('item_cost_snapshots')->insert(['client_id' => 6, 'item_id' => 4, 'target_year_month' => $month, 'cost_unit_price' => 120]);
+            $db->table('stats_monthly_stock_amount_reports')->insert(['client_id' => 6, 'warehouse_id' => 10,
+                'target_year_month' => $month, 'category_code' => '4', 'closing_amount' => $month === '2026-09' ? 1280 : 9999]);
+        }
+        $calculator = new SundryInventoryTheoryCalculator;
+        $proof = new \App\Support\SundryCalculationProof($db);
+        [$reference, $queries] = $proof->capture(fn () => $calculator->unmanagedOpeningFromStockReport(6, 10, 1, '2026-10-29'));
+        $this->assertSame('2026-09-30', $reference['date']);
+        $this->assertSame(280.0, $reference['amount']);
+        $this->assertSame($reference, $calculator->unmanagedOpeningFromStockReport(6, 10, 1, '2026-10-30'));
+        $db->table('stats_monthly_stock_amount_reports')->where('target_year_month', '2026-10')->update(['closing_amount' => 1440]);
+        $db->table('stats_item_stock_movement_monthly_summaries')->where('closing_month', '2026-10')->update(['closing_quantity' => 9]);
+        $proof->verify($queries);
+        $this->assertSame($reference, $calculator->unmanagedOpeningFromStockReport(6, 10, 1, '2026-10-29'));
+    }
+
     public function test_missing_month_cost_or_discontinuous_quantity_is_not_invented(): void
     {
         $this->bookFixture();

@@ -17,7 +17,7 @@ use Illuminate\Validation\ValidationException;
 
 class SundryFinalizationServiceTest extends SundryQuantityValuationServiceTest
 {
-    private function fixture(): array
+    private function fixture(string $referenceDate = '2026-08-31'): array
     {
         config(['sundry_book_reconciliation.unmanaged_gaps' => [], 'sundry_book_reconciliation.managed_gaps' => []]);
         $db = DB::connection('sakemaru');
@@ -55,8 +55,10 @@ class SundryFinalizationServiceTest extends SundryQuantityValuationServiceTest
         $count->update(['status' => 'confirmed', 'warehouse_code' => '10']);
         $count->items()->update(['counted_quantity' => 7, 'item_code' => '404', 'item_name' => 'TEST', 'category2_id' => 2]);
         $count->amounts()->update(['opening_date' => '2026-08-31', 'counted_amount' => 400]);
-        $theory = new class extends SundryInventoryTheoryCalculator
+        $theory = new class($referenceDate) extends SundryInventoryTheoryCalculator
         {
+            public function __construct(private readonly string $referenceDate) {}
+
             public function managedBalances(int $clientId, int $warehouseId, string $endDate): array
             {
                 return DB::connection('sakemaru')->table('review_balances')->pluck('quantity', 'item_id')->all();
@@ -69,7 +71,7 @@ class SundryFinalizationServiceTest extends SundryQuantityValuationServiceTest
             }
             public function unmanagedOpeningFromStockReport(int $clientId, int $warehouseId, int $category1Id, string $onOrBeforeDate): ?array
             {
-                return ['date' => '2026-08-31', 'amount' => (float) DB::connection('sakemaru')->table('review_reference')->value('amount')];
+                return ['date' => $this->referenceDate, 'amount' => (float) DB::connection('sakemaru')->table('review_reference')->value('amount')];
             }
             public function unmanagedCategories(int $clientId, array $category1Ids, array $category2Ids = []): \Illuminate\Support\Collection
             {
@@ -84,6 +86,115 @@ class SundryFinalizationServiceTest extends SundryQuantityValuationServiceTest
             }
         };
         return [$count, new SundryFinalizationService(new SundryFinalizationCalculator($theory, $ledger))];
+    }
+
+    private function nextMonthFixture(): array
+    {
+        $this->travelTo(\Carbon\Carbon::parse('2026-11-07 12:00:00'));
+        [$count, $service] = $this->fixture('2026-09-30');
+        $db = DB::connection('sakemaru');
+        $count->update(['count_date' => '2026-11-06', 'theory_end_date' => '2026-11-06']);
+        $count->amounts()->update(['opening_date' => '2026-10-06', 'opening_source' => 'previous_count',
+            'opening_amount' => 400, 'counted_amount' => 500]);
+        $db->table('item_cost_snapshots')->update(['target_year_month' => '2026-10']);
+        $db->table('review_reference')->update(['amount' => 280]);
+        $db->table('review_flows')->insert([
+            ['date' => '2026-10-20', 'purchase' => 200, 'sales_cost' => 80],
+            ['date' => '2026-11-02', 'purchase' => 100, 'sales_cost' => 40],
+        ]);
+        $db->table('wms_sundry_amount_adjustments')->insert([
+            'client_id' => 6, 'warehouse_id' => 10, 'sundry_inventory_count_id' => 99, 'amount_id' => 99,
+            'category1_id' => 1, 'category1_code' => '1004', 'category2_id' => 2, 'category2_code' => '2041',
+            'count_date' => '2026-10-06', 'process_date' => '2026-09-30', 'book_amount' => 1000,
+            'counted_amount' => 280, 'adjustment_amount' => -720, 'book_reference' => 'Prior applied count',
+            'source_snapshot' => '{}', 'is_active' => true,
+        ]);
+        foreach (['2026-09', '2026-10'] as $month) {
+            $db->table('stats_monthly_stock_amount_reports')->insert(['client_id' => 6, 'warehouse_id' => 10, 'target_year_month' => $month]);
+        }
+        return [$count, $service];
+    }
+
+    public function test_november_count_can_be_posted_on_october_30_after_october_report_exists(): void
+    {
+        [$count, $service] = $this->nextMonthFixture();
+        $db = DB::connection('sakemaru');
+        $reports = $db->table('stats_monthly_stock_amount_reports')->get()->toJson();
+        $inputs = [$count->items()->get()->toJson(), $count->amounts()->get()->toJson()];
+        $preview = $service->preview($count, '2026-10-30');
+        $snapshot = $preview['snapshot'];
+        $amount = collect($snapshot['lines'])->firstWhere('kind', 'amount');
+        $this->assertSame(580.0, $amount['count_theory']);
+        $this->assertSame(520.0, $amount['book_before']);
+        $this->assertSame(440.0, $amount['book_after']);
+        $this->assertSame(-80.0, $amount['amount']);
+        $this->assertSame(280.0, $snapshot['report_reconciliations'][1]['unmanaged_book_amount']);
+        $this->assertEquals(0, $snapshot['report_reconciliations'][1]['unknown_gap']);
+        $id = $service->finalize($count, '2026-10-30', $preview['token'], null);
+        $db->table(SundryFinalizationService::TABLE)->where('id', $id)->update(['status' => 'recorded', 'inventory_adjustment_id' => 1]);
+        $service->requestApplication($count, null);
+        $this->assertSame('applying', SundryFinalizationService::record($count->id)->status);
+        $this->assertSame($reports, $db->table('stats_monthly_stock_amount_reports')->get()->toJson());
+        $this->assertSame($inputs, [$count->items()->get()->toJson(), $count->amounts()->get()->toJson()]);
+        $this->assertSame(2, $db->table('inventory_adjustment_queue')->count());
+        $this->assertSame(['2026-10-30'], $db->table('inventory_adjustment_queue')->distinct()->pluck('process_date')->all());
+    }
+
+    public function test_month_lock_is_client_wide_and_allows_only_the_latest_report_month(): void
+    {
+        [$count] = $this->fixture();
+        $db = DB::connection('sakemaru');
+        $db->table('stats_monthly_stock_amount_reports')->insert([
+            ['client_id' => 6, 'warehouse_id' => 11, 'target_year_month' => '2026-10'],
+            ['client_id' => 7, 'warehouse_id' => 10, 'target_year_month' => '2026-11'],
+        ]);
+        $calculator = new SundryFinalizationCalculator;
+        $calculator->assertPeriodOpen($count, '2026-10-30');
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('翌月以降');
+        $calculator->assertPeriodOpen($count, '2026-09-30');
+    }
+
+    public function test_newer_report_after_preview_blocks_finalization(): void
+    {
+        [$count, $service] = $this->nextMonthFixture();
+        $preview = $service->preview($count, '2026-10-30');
+        DB::connection('sakemaru')->table('stats_monthly_stock_amount_reports')
+            ->insert(['client_id' => 6, 'warehouse_id' => 11, 'target_year_month' => '2026-11']);
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('翌月以降');
+        $service->finalize($count, '2026-10-30', $preview['token'], null);
+    }
+
+    public function test_newer_report_after_finalization_blocks_application_request(): void
+    {
+        [$count, $service] = $this->nextMonthFixture();
+        $preview = $service->preview($count, '2026-10-30');
+        $id = $service->finalize($count, '2026-10-30', $preview['token'], null);
+        $db = DB::connection('sakemaru');
+        $db->table(SundryFinalizationService::TABLE)->where('id', $id)->update(['status' => 'recorded', 'inventory_adjustment_id' => 1]);
+        $db->table('stats_monthly_stock_amount_reports')->insert(['client_id' => 6, 'warehouse_id' => 11, 'target_year_month' => '2026-11']);
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('翌月以降');
+        $service->requestApplication($count, null);
+    }
+
+    public function test_next_count_requires_the_matching_applied_opening_not_an_unrelated_journal(): void
+    {
+        [$count, $service] = $this->nextMonthFixture();
+        DB::connection('sakemaru')->table('wms_sundry_amount_adjustments')->update(['count_date' => '2026-09-06']);
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('前回棚卸しに対応する適用済み伝票がありません');
+        $service->preview($count, '2026-10-30');
+    }
+
+    public function test_manual_opening_after_report_reference_is_not_silently_replaced(): void
+    {
+        [$count, $service] = $this->nextMonthFixture();
+        $count->amounts()->update(['opening_source' => 'manual']);
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('前残基準日が報告書の照合日より後');
+        $service->preview($count, '2026-10-30');
     }
 
     public function test_finalization_backdates_and_records_without_changing_inputs_or_stock(): void

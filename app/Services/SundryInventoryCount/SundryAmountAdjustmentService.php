@@ -53,8 +53,8 @@ class SundryAmountAdjustmentService
             }
             $month = substr($date, 0, 7);
             if ($db->table('stats_monthly_stock_amount_reports')->where('client_id', $count->client_id)
-                ->where('warehouse_id', $count->warehouse_id)->where('target_year_month', '>=', $month)->exists()) {
-                $this->fail('適用月以降の在庫金額報告書が既に保存されています。報告書の再作成手順を先に確認してください。');
+                ->where('target_year_month', '>', $month)->exists()) {
+                $this->fail('翌月以降の在庫金額報告書が保存されているため、この適用月は変更できません。');
             }
             if (Schema::connection('sakemaru')->hasTable('stock_report_generation_runs')
                 && $db->table('stock_report_generation_runs')->where('client_id', $count->client_id)->whereIn('status', ['queued', 'running'])->exists()) {
