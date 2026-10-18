@@ -21,7 +21,7 @@ use Illuminate\Support\Facades\Schema;
  * - 在庫管理なしの前残:
  *     中分類別 … 旧システム Ｔ３在庫（在庫管理区分=0）の最終残高を取り込んだCSV
  *                 （旧システムは 2026-05-05 まで。新システムの受払は 2026-05-06 から）
- *     大分類別 … 在庫金額報告書の月末金額 − 在庫管理あり商品の月末評価額（突合用）
+ *     大分類別 … 在庫金額報告書の月末金額 − 管理品の月次帳簿繰越額（突合用）
  */
 class SundryInventoryTheoryCalculator
 {
@@ -315,6 +315,17 @@ class SundryInventoryTheoryCalculator
             }
         }
 
+        if (Schema::connection('sakemaru')->hasTable(SundryAmountAdjustmentService::TABLE)) {
+            $categoryColumn = $depth === 1 ? 'category1_id' : 'category2_id';
+            $adjustments = DB::connection('sakemaru')->table(SundryAmountAdjustmentService::TABLE)
+                ->where('client_id', $clientId)->where('warehouse_id', $warehouseId)->where('is_active', true)
+                ->whereIn($categoryColumn, $categoryIds)->whereBetween('process_date', [$fromDate, $endDate])
+                ->groupBy($categoryColumn)->selectRaw("{$categoryColumn} as category_id, SUM(adjustment_amount) as amount")->get();
+            foreach ($adjustments as $adjustment) {
+                $flows[(int) $adjustment->category_id]['adjustment'] += (float) $adjustment->amount;
+            }
+        }
+
         foreach ($flows as $categoryId => $flow) {
             $flows[$categoryId] = array_map(fn (float $amount): float => round($amount, 2), $flow);
         }
@@ -428,7 +439,9 @@ class SundryInventoryTheoryCalculator
 
             return [
                 'date' => $date,
-                'amount' => round((float) ($byWarehouse[$warehouseCode][$category2Code] ?? 0), 2),
+                // Approved opening for unmanaged gift certificates; managed items are unrelated.
+                'amount' => $date === '2026-05-05' && $category2Code === '2052'
+                    ? 0.0 : round((float) ($byWarehouse[$warehouseCode][$category2Code] ?? 0), 2),
             ];
         }
 
@@ -514,9 +527,15 @@ class SundryInventoryTheoryCalculator
             ->where('i.item_category1_id', $category1Id);
         $this->excludeOwnedSetParents($managedQuery);
 
-        $managedAmount = round((float) $managedQuery->sum(
+        $missingRevaluationCosts = (clone $managedQuery)->whereNull('ics.id')->count();
+        $revaluedAmount = round((float) $managedQuery->sum(
             DB::raw('COALESCE(m.real_stock_quantity_at_close, m.closing_quantity) * COALESCE(ics.cost_unit_price, 0)')
         ), 2);
+        $managedBook = (new SundryManagedBookValue)->calculate($clientId, $warehouseId, $category1Id, $month);
+        if ($managedBook === null) {
+            return null;
+        }
+        $managedAmount = $managedBook['amount'];
         $reportAmount = round((float) $report->closing_amount, 2);
 
         return [
@@ -524,6 +543,9 @@ class SundryInventoryTheoryCalculator
             'date' => CarbonImmutable::createFromFormat('!Y-m-d', $month.'-01')->endOfMonth()->toDateString(),
             'report_amount' => $reportAmount,
             'managed_amount' => $managedAmount,
+            'managed_revalued_amount' => $revaluedAmount,
+            'missing_revaluation_costs' => $missingRevaluationCosts,
+            'managed_book_basis' => $managedBook,
             'amount' => round($reportAmount - $managedAmount, 2),
         ];
     }

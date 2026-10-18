@@ -6,10 +6,15 @@ use App\Filament\Resources\WmsSundryInventoryCountResource;
 use App\Models\WmsSundryInventoryCount;
 use App\Models\WmsSundryInventoryCountAmount;
 use App\Models\WmsSundryInventoryCountItem;
+use App\Models\WmsSundryValuationItem;
+use App\Services\SundryInventoryCount\SundryAmountAdjustmentService;
 use App\Services\SundryInventoryCount\SundryInventoryCountService;
 use App\Services\SundryInventoryCount\SundryInventoryDifferenceWorkbookService;
 use App\Services\SundryInventoryCount\SundryInventoryInstructionSheetPdfService;
+use App\Services\SundryInventoryCount\SundryQuantityValuationService;
 use App\Services\SundryInventoryCount\WeighedInventoryDifferenceWorkbookService;
+use App\Services\SundryInventoryCount\SundryFinalizationService;
+use App\Services\SundryInventoryCount\SundryFinalizationWorkbook;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DatePicker;
@@ -24,6 +29,8 @@ use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -34,7 +41,7 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
 {
     use InteractsWithForms;
 
-    private const LIST_TABS = ['items', 'amounts', 'summary'];
+    private const LIST_TABS = ['items', 'amounts', 'valuation', 'summary'];
 
     private const STATE_FILTERS = ['all', 'diff', 'uncounted'];
 
@@ -57,6 +64,36 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
     public int $itemPage = 1;
 
     public int $itemPerPage = 200;
+
+    #[\Livewire\Attributes\Locked]
+    public array $finalizationPreview = [];
+
+    public function finalizationRecord(): ?object
+    {
+        return SundryFinalizationService::record($this->record->id);
+    }
+
+    public function finalizeSundryConfirmationAction(): Action
+    {
+        return Action::make('finalizeSundryConfirmation')
+            ->label('棚卸し最終確定')->color('danger')->modalHeading('実棚変更伝票の記録')
+            ->modalWidth('7xl')->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+            ->modalContent(fn () => view('filament.resources.wms-sundry-inventory-count.pages.partials.finalization-preview', ['preview' => $this->finalizationPreview]))
+            ->schema([\Filament\Forms\Components\Checkbox::make('approve_unknown')
+                ->label('部門の不明差異を含めて確定する')->default(false)
+                ->visible(fn () => collect($this->finalizationPreview['lines'] ?? [])->contains('kind', 'book'))])
+            ->modalFooterActionsAlignment(Alignment::End)->modalCancelActionLabel('確定せず閉じる')
+            ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit')->label('最終確定して伝票を記録')->color('danger'))
+            ->action(function (array $data): void {
+                try {
+                    app(SundryFinalizationService::class)->finalize($this->record, $this->finalizationPreview['date'], $this->finalizationPreview['token'], auth()->id(), (bool) ($data['approve_unknown'] ?? false));
+                    $this->finalizationPreview = [];
+                    Notification::make()->success()->title('最終確定しました。実棚変更伝票を作成待ちです。')->send();
+                } catch (\Throwable $e) {
+                    $this->notifyFailure('最終確定できません', $e);
+                }
+            });
+    }
 
     public function mount(WmsSundryInventoryCount $record): void
     {
@@ -234,6 +271,37 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
         return (new SundryInventoryCountService)->summary($this->record);
     }
 
+    public function valuationAvailable(): bool
+    {
+        return ! $this->isWeighed() && SundryQuantityValuationService::available();
+    }
+
+    public function valuationRows(bool $filtered = false): Collection
+    {
+        if (! $this->valuationAvailable()) {
+            return collect();
+        }
+
+        $query = WmsSundryValuationItem::where('sundry_inventory_count_id', $this->record->id);
+        if ($filtered) {
+            if ($this->categoryFilter !== '') {
+                $query->whereIn('amount_id', $this->record->amounts()->where('category2_code', $this->categoryFilter)->select('id'));
+            }
+            foreach (['item_code' => trim(mb_convert_kana($this->itemCodeFilter, 'as')), 'item_name' => trim($this->itemNameFilter)] as $column => $value) {
+                if ($value !== '') {
+                    $query->where($column, 'like', '%'.addcslashes($value, '%_\\').'%');
+                }
+            }
+        }
+
+        return $query->orderBy('amount_id')->orderBy('item_code')->orderBy('id')->get();
+    }
+
+    public function amountApplied(): bool
+    {
+        return SundryAmountAdjustmentService::isApplied((int) $this->record->id);
+    }
+
     /**
      * @return array{all: int, diff: int, uncounted: int}
      */
@@ -254,6 +322,10 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
      */
     public function categoryOptions(): array
     {
+        if ($this->listTab === 'valuation') {
+            return $this->amountRows()->mapWithKeys(fn ($row) => [$row->category2_code => "[{$row->category2_code}] {$row->category2_name}"])->all();
+        }
+
         return (new SundryInventoryInstructionSheetPdfService)->categoryOptions($this->record);
     }
 
@@ -329,17 +401,23 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
     public function saveChanges(array $changes): bool
     {
         $items = is_array($changes['items'] ?? null) ? $changes['items'] : [];
+        $valuation = is_array($changes['valuation'] ?? null) ? $changes['valuation'] : [];
         $amounts = array_filter(
             is_array($changes['amounts'] ?? null) ? $changes['amounts'] : [],
             fn (mixed $change): bool => is_array($change),
         );
 
-        if ($items === [] && $amounts === []) {
+        if ($items === [] && $amounts === [] && $valuation === []) {
             return true;
         }
 
         try {
-            $result = (new SundryInventoryCountService)->saveChanges($this->record, $items, $amounts, $this->actorName());
+            $result = DB::connection('sakemaru')->transaction(function () use ($items, $amounts, $valuation): array {
+                $result = (new SundryInventoryCountService)->saveChanges($this->record, $items, $amounts, $this->actorName());
+                $result['valuation'] = $valuation === [] ? 0 : (new SundryQuantityValuationService)->save($this->record, $valuation, $this->actorName());
+
+                return $result;
+            });
             $this->record->refresh();
 
             Notification::make()
@@ -347,7 +425,7 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
                 ->title('入力を反映しました')
                 ->body($this->isWeighed()
                     ? "量り売り明細: {$result['items']}件"
-                    : "数量明細: {$result['items']}件 / 金額明細: {$result['amounts']}件")
+                    : "数量明細: {$result['items']}件 / 金額明細: {$result['amounts']}件 / 非管理品数量: {$result['valuation']}件")
                 ->send();
 
             return true;
@@ -370,7 +448,9 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
     {
         $body = $e instanceof ValidationException
             ? collect($e->errors())->flatten()->implode("\n")
-            : $e->getMessage();
+            : ($e instanceof \Illuminate\Database\QueryException
+                ? 'データベースへの保存・照会に失敗しました。入力値を変更せず、処理履歴を管理者へ確認してください。'
+                : $e->getMessage());
 
         if (! $e instanceof ValidationException) {
             report($e);
@@ -390,6 +470,114 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('finalizeSundry')
+                ->label('棚卸し最終確定')->icon('heroicon-o-check-circle')->color('danger')
+                ->disabled(fn () => ! Schema::connection('sakemaru')->hasTable(SundryFinalizationService::TABLE)
+                    || $this->record->status !== WmsSundryInventoryCount::STATUS_CONFIRMED || $this->finalizationRecord() !== null)
+                ->modalHeading('棚卸し最終確定の適用日')->schema([DatePicker::make('date')->label('適用日')->required()->default(fn () => $this->record->count_date)])
+                ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])->modalFooterActionsAlignment(Alignment::End)
+                ->modalCancelActionLabel('確認せず閉じる')->modalSubmitActionLabel('差異を確認')
+                ->action(function (array $data): void {
+                    try {
+                        $preview = app(SundryFinalizationService::class)->preview($this->record, $data['date']);
+                        $this->finalizationPreview = ['date' => $data['date'], 'token' => $preview['token'],
+                            'total' => $preview['snapshot']['total_amount'], 'count_date' => $preview['snapshot']['count_date'],
+                            'lines' => collect($preview['snapshot']['lines'])->map(fn ($row) => \Illuminate\Support\Arr::only($row,
+                                ['kind', 'item_code', 'item_name', 'category1_code', 'category1_name', 'category2_code', 'category2_name', 'count_theory', 'count_actual', 'quantity_before', 'quantity_after', 'book_before', 'book_after', 'difference_quantity', 'unit_price', 'amount', 'book_reconciliation']))->all()];
+                        $this->replaceMountedAction('finalizeSundryConfirmation');
+                    } catch (\Throwable $e) {
+                        $this->notifyFailure('差異を確認できません', $e);
+                    }
+                }),
+            Action::make('applySundry')
+                ->label('在庫へ適用')->icon('heroicon-o-arrow-path')->color('danger')
+                ->disabled(fn () => ! in_array($this->finalizationRecord()?->status, ['recorded', 'apply_failed'], true))
+                ->requiresConfirmation()->modalHeading('保存済み実棚変更伝票を適用')
+                ->modalDescription('確定後の受払・原価変更を再検証し、在庫へ差分を適用します。実棚数量への上書きは行いません。')
+                ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])->modalFooterActionsAlignment(Alignment::End)
+                ->modalCancelActionLabel('適用せず閉じる')->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit')->label('適用を依頼')->color('danger'))
+                ->action(function (): void {
+                    try {
+                        app(SundryFinalizationService::class)->requestApplication($this->record, auth()->id());
+                        Notification::make()->success()->title('在庫への適用を依頼しました')->send();
+                    } catch (\Throwable $e) {
+                        $this->notifyFailure('在庫へ適用できません', $e);
+                    }
+                }),
+            Action::make('downloadFinalization')
+                ->label('最終差異Excel')->icon('heroicon-o-table-cells')->color('gray')
+                ->disabled(fn () => $this->finalizationRecord() === null)
+                ->action(function () {
+                    $record = $this->finalizationRecord();
+                    abort_unless($record, 404);
+                    $content = (new SundryFinalizationWorkbook)->generate($record);
+                    return response()->streamDownload(fn () => print($content), '雑貨棚卸し最終差異_'.$this->record->count_no.'.xlsx',
+                        ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
+                }),
+            Action::make('cancelSundryFinalization')
+                ->label('未適用の最終確定取消')->icon('heroicon-o-arrow-uturn-left')->color('warning')
+                ->disabled(fn () => ! in_array($this->finalizationRecord()?->status, ['queued', 'record_failed', 'recorded', 'apply_failed'], true))
+                ->requiresConfirmation()->modalHeading('未適用の最終確定を取り消す')
+                ->modalDescription('確定差異・実棚変更伝票の履歴を残して取消します。入力値は変更しません。再計算後、改めて最終確定してください。')
+                ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])->modalFooterActionsAlignment(Alignment::End)
+                ->modalCancelActionLabel('取り消さず閉じる')->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit')->label('最終確定を取り消す')->color('danger'))
+                ->action(function (): void {
+                    try {
+                        app(SundryFinalizationService::class)->cancelUnapplied($this->record, auth()->id());
+                        Notification::make()->success()->title('未適用の最終確定を取り消しました')->send();
+                    } catch (\Throwable $e) {
+                        $this->notifyFailure('最終確定を取り消せません', $e);
+                    }
+                }),
+            Action::make('prepareValuation')
+                ->label('非管理品の数量入力')
+                ->icon('heroicon-o-calculator')
+                ->visible(fn () => $this->valuationAvailable() && $this->isEditable())
+                ->schema([
+                    Select::make('amount_id')->label('中分類')->required()
+                        ->options(fn () => $this->amountRows()->mapWithKeys(fn ($row) => [$row->id => "[{$row->category2_code}] {$row->category2_name}"])->all()),
+                    Checkbox::make('refresh_prices')->label('未入力商品の単価・原価率を再取得する（入力済みは保持）')->default(false),
+                ])
+                ->modalHeading('非管理品の商品数量入力を開始')
+                ->modalDescription('棚卸し日までの販売単価と分類原価率を保存します。既存の実棚金額が入力済みの分類は変更しません。未入力は0とは扱いません。')
+                ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('数量入力を開始')->color('danger'))
+                ->modalCancelActionLabel('開始せず閉じる')
+                ->action(function (array $data): void {
+                    try {
+                        $inserted = (new SundryQuantityValuationService)->prepare($this->record, (int) $data['amount_id'], (bool) ($data['refresh_prices'] ?? false));
+                        $this->listTab = 'valuation';
+                        Notification::make()->success()->title("非管理品数量明細 {$inserted}件を準備しました")->send();
+                    } catch (\Throwable $e) {
+                        $this->notifyFailure('数量入力を開始できません', $e);
+                    }
+                }),
+            Action::make('applyAmountAdjustment')
+                ->label(fn () => $this->amountApplied() ? '非管理品金額適用済み' : '非管理品金額適用')
+                ->icon('heroicon-o-check-circle')->color('danger')
+                ->visible(false)
+                ->disabled(fn () => ! config('wms_sundry_inventory.amount_posting_enabled')
+                    || $this->record->status !== WmsSundryInventoryCount::STATUS_CONFIRMED || $this->amountApplied())
+                ->schema([
+                    DatePicker::make('date')->label('適用日')->default(fn () => $this->record->count_date)->required(),
+                    TextInput::make('book_reference')->label('照合した帳簿・基準日')->required()->minLength(5)->maxLength(500),
+                    Checkbox::make('reviewed')->label('分類別の理論金額・実棚金額と帳簿の一致を確認した')->accepted(),
+                ])
+                ->modalHeading('非管理品の金額差異を適用')
+                ->modalDescription('商品数量入力した分類だけ金額調整を登録します。実在庫・LOT・管理品は変更しません。適用月の在庫金額報告書生成時に反映されます。適用後は確定解除できません。')
+                ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('金額差異を適用')->color('danger'))
+                ->modalCancelActionLabel('適用せず閉じる')
+                ->action(function (array $data): void {
+                    try {
+                        $saved = (new SundryAmountAdjustmentService)->apply($this->record, $data['date'], $data['book_reference'], auth()->id());
+                        Notification::make()->success()->title("非管理品の金額調整 {$saved}件を登録しました")->send();
+                    } catch (\Throwable $e) {
+                        $this->notifyFailure('金額差異を適用できません', $e);
+                    }
+                }),
             Action::make('addItem')
                 ->label('商品追加')
                 ->icon('heroicon-o-plus-circle')
@@ -602,7 +790,7 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
                     $uncountedAmounts = $this->amountRows()->whereNull('counted_amount')->count();
 
                     return "入力を締めて確定します。未入力: 数量明細 {$uncountedItems}件 / 金額明細 {$uncountedAmounts}件（未入力の明細は差異に含めません）。"
-                        .'在庫や伝票は変更しません。調整伝票は差異表をもとに基幹で起票してください。';
+                        .'在庫や伝票は変更しません。入力確定後に棚卸し最終確定を実行できます。';
                 })
                 ->modalSubmitActionLabel('確定する')
                 ->modalCancelActionLabel('確定せず閉じる')
@@ -622,6 +810,7 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
                 ->icon('heroicon-o-arrow-uturn-left')
                 ->color('warning')
                 ->visible(fn () => $this->record->status === WmsSundryInventoryCount::STATUS_CONFIRMED)
+                ->disabled(fn () => $this->amountApplied() || $this->finalizationRecord() !== null)
                 ->requiresConfirmation()
                 ->modalHeading('確定解除')
                 ->modalDescription('確定を解除して入力中に戻します。')

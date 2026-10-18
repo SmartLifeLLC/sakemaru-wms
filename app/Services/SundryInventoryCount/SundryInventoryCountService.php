@@ -240,6 +240,9 @@ class SundryInventoryCountService
                     $openingEdited = false;
 
                     if (array_key_exists('counted_amount', $change)) {
+                        if (SundryQuantityValuationService::categoryUsesQuantities((int) $row->id)) {
+                            throw ValidationException::withMessages(['changes' => "{$label}は商品数量から自動評価しています。商品数量の画面で修正してください。"]);
+                        }
                         $amount = $this->parseNumber($change['counted_amount'], 2, "{$label}の実棚金額");
                         $row->counted_amount = $amount;
                         $row->counted_by_name = $amount === null ? null : $actorName;
@@ -420,6 +423,7 @@ class SundryInventoryCountService
     public function confirm(WmsSundryInventoryCount $count, ?int $userId): void
     {
         $this->withEditableCount($count, function (WmsSundryInventoryCount $count) use ($userId): void {
+            (new SundryQuantityValuationService)->assertComplete($count);
             $count->update([
                 'status' => WmsSundryInventoryCount::STATUS_CONFIRMED,
                 'confirmed_at' => now(),
@@ -435,6 +439,13 @@ class SundryInventoryCountService
     {
         DB::connection('sakemaru')->transaction(function () use ($count): void {
             $locked = WmsSundryInventoryCount::query()->whereKey($count->id)->lockForUpdate()->firstOrFail();
+
+            if (SundryFinalizationService::record((int) $locked->id)) {
+                throw ValidationException::withMessages(['sundry_inventory_count' => '最終確定済みの棚卸しは確定解除できません。実棚変更伝票を確認してください。']);
+            }
+            if (SundryAmountAdjustmentService::isApplied((int) $locked->id)) {
+                throw ValidationException::withMessages(['sundry_inventory_count' => '金額適用済みの棚卸しは確定解除できません。調整履歴を保持しています。']);
+            }
 
             if ($locked->status !== WmsSundryInventoryCount::STATUS_CONFIRMED) {
                 throw ValidationException::withMessages(['sundry_inventory_count' => '確定済みの棚卸しだけ確定解除できます。']);
@@ -1001,6 +1012,20 @@ class SundryInventoryCountService
             ->where('c.id', '!=', $count->id)
             ->where('a.category2_id', $row->category2_id)
             ->whereNotNull('a.counted_amount')
+            ->when(Schema::connection('sakemaru')->hasTable(SundryFinalizationService::TABLE), function ($query): void {
+                // Input confirmation alone does not change the book, even for manual amounts.
+                $query->whereExists(fn ($q) => $q->selectRaw('1')->from(SundryAmountAdjustmentService::TABLE.' as j')
+                    ->whereColumn('j.amount_id', 'a.id')->where('j.is_active', true));
+            })
+            ->when(SundryQuantityValuationService::available(), function ($query): void {
+                // New quantity-based appraisals become book openings only after posting.
+                // Preserve legacy manual-amount behavior.
+                $query->where(function ($eligible): void {
+                    $eligible->whereNotExists(fn ($q) => $q->selectRaw('1')->from('wms_sundry_valuation_items as v')->whereColumn('v.amount_id', 'a.id'))
+                        ->orWhereExists(fn ($q) => $q->selectRaw('1')->from(SundryAmountAdjustmentService::TABLE.' as j')
+                            ->whereColumn('j.amount_id', 'a.id')->where('j.is_active', true));
+                });
+            })
             ->orderByDesc('c.count_date')
             ->orderByDesc('c.id')
             ->first(['c.count_date', 'a.counted_amount']);

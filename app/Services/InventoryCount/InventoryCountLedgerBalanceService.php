@@ -608,6 +608,9 @@ class InventoryCountLedgerBalanceService
             return collect();
         }
 
+        $relative = Schema::connection('sakemaru')->hasColumn('inventory_adjustments', 'source_type')
+            ? "a.source_type = 'WMS_SUNDRY_INVENTORY_COUNT'" : '1 = 0';
+
         return DB::connection('sakemaru')
             ->table('inventory_adjustment_items as ai')
             ->join('inventory_adjustments as a', 'a.id', '=', 'ai.inventory_adjustment_id')
@@ -625,8 +628,8 @@ class InventoryCountLedgerBalanceService
                 'a.adjustment_date as movement_date',
                 'a.id as source_id',
                 'ai.id as source_detail_id',
-                'ai.stock_quantity_before',
-                DB::raw('COALESCE(ai.stock_quantity_after, ai.applied_stock_quantity_after) AS stock_quantity_after'),
+                DB::raw("CASE WHEN {$relative} THEN NULL ELSE ai.stock_quantity_before END AS stock_quantity_before"),
+                DB::raw("CASE WHEN {$relative} THEN NULL ELSE COALESCE(ai.stock_quantity_after, ai.applied_stock_quantity_after) END AS stock_quantity_after"),
                 DB::raw('COALESCE(ai.inventory_adjustment_quantity, ai.stock_quantity_after - ai.stock_quantity_before, ai.applied_stock_quantity_after - ai.applied_stock_quantity_before, 0) AS net_quantity'),
             ])
             ->get();
