@@ -65,6 +65,13 @@
         formatNumber(value, digits = 0) {
             return new Intl.NumberFormat('ja-JP', { maximumFractionDigits: digits }).format(value);
         },
+        roundValue(value, digits = 2) {
+            const scaled = Math.abs(value) * (10 ** digits);
+            return Math.sign(value) * Math.round(scaled + Number.EPSILON * scaled) / (10 ** digits);
+        },
+        money(value) {
+            return value === null ? '-' : '¥' + new Intl.NumberFormat('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+        },
         setItemChange(id, value, original) {
             if (value !== original) {
                 this.changes.items[id] = value === '' ? null : value;
@@ -313,7 +320,9 @@
                                     <th class="{{ $thClass }} text-left">中分類</th>
                                     <th class="{{ $thClass }} text-left">商品CD</th>
                                     <th class="{{ $thClass }} text-left">商品名</th>
-                                    <th class="{{ $thClass }} text-right">原価</th>
+                                    <th class="{{ $thClass }} text-left">在庫管理</th>
+                                    <th class="{{ $thClass }} text-left">評価方法</th>
+                                    <th class="{{ $thClass }} text-right">保存原価（バラ）</th>
                                     <th class="{{ $thClass }} text-right">理論数</th>
                                     <th class="{{ $thClass }} text-right">実棚数</th>
                                     <th class="{{ $thClass }} text-right">差異数</th>
@@ -336,14 +345,14 @@
                                             cost: {{ (float) $row->cost_price }},
                                             get diff() {
                                                 let quantity = toNum(this.counted);
-                                                return quantity === null ? null : Math.round((quantity - this.system) * 1000) / 1000;
+                                                return quantity === null ? null : roundValue(roundValue(quantity, 3) - this.system, 3);
                                             },
                                             get countedAmount() {
                                                 let quantity = toNum(this.counted);
-                                                return quantity === null ? null : Math.round(quantity * this.cost);
+                                                return quantity === null ? null : roundValue(roundValue(quantity, 3) * this.cost);
                                             },
                                             get diffAmount() {
-                                                return this.diff === null ? null : Math.round(this.diff * this.cost);
+                                                return this.diff === null ? null : roundValue(this.diff * this.cost);
                                             },
                                             get changed() { return this.counted !== this.original; },
                                             notify() {
@@ -360,11 +369,14 @@
                                                 <span class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">追加</span>
                                             @endif
                                         </td>
+                                        <td class="{{ $tdClass }}">{{ $row->item?->is_managed_stock === null ? '不明' : ($row->item->is_managed_stock ? '対象' : '対象外') }}</td>
+                                        <td class="{{ $tdClass }}">数量 × 保存原価</td>
                                         <td class="{{ $tdClass }} text-right tabular-nums">{{ number_format((float) $row->cost_price, 2) }}</td>
                                         <td class="{{ $tdClass }} text-right font-bold tabular-nums text-slate-700">{{ $this->formatQuantity($row->system_quantity) }}</td>
                                         @if ($isEditable)
                                             <td class="whitespace-nowrap border border-slate-300 px-1 py-0.5" @click.stop>
                                                 <input type="text" inputmode="decimal"
+                                                    aria-label="商品{{ $row->item_code }} 実棚数"
                                                     :value="counted"
                                                     @input="counted = clean($event.target.value); $event.target.value = counted; notify()"
                                                     @keydown.enter.prevent="$el.closest('tr').nextElementSibling?.querySelector('input')?.focus()"
@@ -373,18 +385,18 @@
                                             <td class="{{ $tdClass }} text-right font-bold tabular-nums"
                                                 :class="{ 'text-green-700': diff > 0, 'text-red-700': diff < 0 }"
                                                 x-text="diff !== null ? formatNumber(diff, 3) : '-'"></td>
-                                            <td class="{{ $tdClass }} text-right tabular-nums">{{ $this->formatAmount($row->system_amount) }}</td>
+                                            <td class="{{ $tdClass }} text-right tabular-nums">{{ $this->formatAmount($row->system_amount, 2) }}</td>
                                             <td class="{{ $tdClass }} text-right tabular-nums"
-                                                x-text="countedAmount !== null ? '¥' + formatNumber(countedAmount) : '-'"></td>
+                                                x-text="money(countedAmount)"></td>
                                             <td class="{{ $tdClass }} text-right font-bold tabular-nums"
                                                 :class="{ 'text-green-700': diffAmount > 0, 'text-red-700': diffAmount < 0 }"
-                                                x-text="diffAmount !== null ? '¥' + formatNumber(diffAmount) : '-'"></td>
+                                                x-text="money(diffAmount)"></td>
                                         @else
                                             <td class="{{ $tdClass }} text-right font-bold tabular-nums">{{ $this->formatQuantity($row->counted_quantity) }}</td>
                                             <td class="{{ $tdClass }} text-right font-bold tabular-nums {{ $signClass($row->difference_quantity) }}">{{ $this->formatQuantity($row->difference_quantity) }}</td>
-                                            <td class="{{ $tdClass }} text-right tabular-nums">{{ $this->formatAmount($row->system_amount) }}</td>
-                                            <td class="{{ $tdClass }} text-right tabular-nums">{{ $this->formatAmount($row->counted_amount) }}</td>
-                                            <td class="{{ $tdClass }} text-right font-bold tabular-nums {{ $signClass($row->difference_amount) }}">{{ $this->formatAmount($row->difference_amount) }}</td>
+                                            <td class="{{ $tdClass }} text-right tabular-nums">{{ $this->formatAmount($row->system_amount, 2) }}</td>
+                                            <td class="{{ $tdClass }} text-right tabular-nums">{{ $this->formatAmount($row->counted_amount, 2) }}</td>
+                                            <td class="{{ $tdClass }} text-right font-bold tabular-nums {{ $signClass($row->difference_amount) }}">{{ $this->formatAmount($row->difference_amount, 2) }}</td>
                                         @endif
                                         <td class="{{ $tdClass }} text-slate-600">{{ $row->counted_by_name ?: '-' }}</td>
                                     </tr>
@@ -402,10 +414,9 @@
                         @php
                             $reportReferences = $this->reportReferences();
                         @endphp
+                        @include('filament.resources.wms-sundry-inventory-count.pages.partials.monthly-openings')
                         <div class="border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-                            理論金額 = 前残金額 + 仕入 + 移入 − 移出 − 売上原価 + 調整（基準日の翌日から受払終了日まで。売上原価 = 売価 × 分類原価率）。
-                            前残金額は、前回確定した棚卸し（雑貨）の実棚金額、無ければ旧システムの最終残高（2026/05/05 時点。新システムの受払は 5/6 から）です。
-                            前残金額や基準日を手で直した行は、理論在庫更新でも自動の値に戻しません。
+                            保存済み受払・実棚入力（計算元基準日の翌日〜{{ $record->theory_end_date?->format('Y/m/d') }}・移行差額補正前）
                         </div>
                         <table class="w-max min-w-full border-collapse text-xs">
                             <thead class="sticky top-0 z-10 bg-slate-100 text-slate-700">
@@ -413,8 +424,8 @@
                                     <th class="{{ $thClass }} text-left">大分類</th>
                                     <th class="{{ $thClass }} text-left">中分類CD</th>
                                     <th class="{{ $thClass }} text-left">中分類名</th>
-                                    <th class="{{ $thClass }} text-left">基準日</th>
-                                    <th class="{{ $thClass }} text-right">前残金額</th>
+                                    <th class="{{ $thClass }} text-left">計算元基準日</th>
+                                    <th class="{{ $thClass }} text-right">計算元前残</th>
                                     <th class="{{ $thClass }} text-left">前残の出所</th>
                                     <th class="{{ $thClass }} text-right">仕入</th>
                                     <th class="{{ $thClass }} text-right">移入</th>

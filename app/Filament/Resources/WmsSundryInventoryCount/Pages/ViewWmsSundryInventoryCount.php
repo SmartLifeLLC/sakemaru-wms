@@ -217,7 +217,7 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
      */
     public function rows(): LengthAwarePaginator
     {
-        $query = $this->filteredItemsQuery();
+        $query = $this->filteredItemsQuery()->with('item:id,is_managed_stock');
 
         // 量り売りは旧Accessと同じ出力順（追加した商品は末尾）。
         if ($this->isWeighed()) {
@@ -263,6 +263,11 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
         return (new SundryInventoryCountService)->reportReferences($this->record);
     }
 
+    public function monthlyOpenings(Collection $amountRows): array
+    {
+        return app(\App\Services\SundryInventoryCount\SundryMonthlyOpeningDisplay::class)->build($this->record, $amountRows);
+    }
+
     /**
      * @return array{managed: array<int, array<string, mixed>>, unmanaged: array<int, array<string, mixed>>, totals: array<string, array<string, mixed>>}
      */
@@ -284,6 +289,7 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
 
         $query = WmsSundryValuationItem::where('sundry_inventory_count_id', $this->record->id);
         if ($filtered) {
+            $query->with('item:id,is_managed_stock');
             if ($this->categoryFilter !== '') {
                 $query->whereIn('amount_id', $this->record->amounts()->where('category2_code', $this->categoryFilter)->select('id'));
             }
@@ -342,21 +348,21 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
             : $formatted;
     }
 
-    public function formatAmount(mixed $amount): string
+    public function formatAmount(mixed $amount, int $decimals = 0): string
     {
-        return $amount === null ? '-' : '¥'.number_format((float) round((float) $amount));
+        return $amount === null ? '-' : '¥'.number_format((float) $amount, $decimals);
     }
 
     /**
      * 入力欄の初期値（末尾の0を落とした数値文字列。未入力は空文字）。
      */
-    public function inputValue(mixed $value): string
+    public function inputValue(mixed $value, int $decimals = 3): string
     {
         if ($value === null) {
             return '';
         }
 
-        $formatted = number_format((float) $value, 3, '.', '');
+        $formatted = number_format((float) $value, $decimals, '.', '');
 
         return rtrim(rtrim($formatted, '0'), '.');
     }
