@@ -168,6 +168,47 @@ class SundryQuantityValuationServiceTest extends TestCase
         $this->assertSame(0, WmsSundryValuationItem::count());
     }
 
+    public function test_bulk_preparation_preserves_manual_amounts_and_does_not_treat_empty_categories_as_zero(): void
+    {
+        $manual = $this->amount->replicate();
+        $manual->fill(['category2_id' => 99, 'category2_code' => '2047', 'counted_amount' => 850])->save();
+        $empty = $this->amount->replicate();
+        $empty->fill(['category2_id' => 98, 'category2_code' => '2052'])->save();
+        $before = $this->count->amounts()->orderBy('id')->get()->map->getAttributes()->all();
+        $result = $this->service->prepareUnenteredCategories($this->count);
+        $this->assertSame(['prepared_items' => 2, 'preserved_categories' => 1, 'empty_categories' => 1], $result);
+        $this->assertSame($before, $this->count->amounts()->orderBy('id')->get()->map->getAttributes()->all());
+        $this->assertSame([1, 2], WmsSundryValuationItem::orderBy('item_id')->pluck('item_id')->all());
+        $this->assertSame(0, WmsSundryValuationItem::whereNotNull('quantity')->count());
+        $this->assertSame(0, $this->service->prepareUnenteredCategories($this->count)['prepared_items']);
+        $this->assertSame($this->protectedRows, $this->protectedSnapshot());
+    }
+
+    public function test_bulk_refresh_keeps_entered_quantity_price_and_category_total(): void
+    {
+        $this->service->prepareUnenteredCategories($this->count);
+        $this->save(1, 2);
+        $entered = WmsSundryValuationItem::where('item_id', 1)->firstOrFail()->getAttributes();
+        $this->price(1, 900, '2026-10-01');
+        $this->price(2, 200, '2026-10-01');
+        $this->assertSame(1, $this->service->prepareUnenteredCategories($this->count, true)['prepared_items']);
+        $this->assertSame($entered, WmsSundryValuationItem::where('item_id', 1)->firstOrFail()->getAttributes());
+        $this->save(2, 3);
+        $this->assertSame(640.0, $this->amount->fresh()->counted_amount);
+        $this->assertSame(0, $this->service->prepareUnenteredCategories($this->count, true)['prepared_items']);
+        $this->assertSame(640.0, $this->amount->fresh()->counted_amount);
+    }
+
+    public function test_bulk_preparation_rejects_confirmed_or_weighed_counts(): void
+    {
+        $this->count->update(['status' => 'confirmed']);
+        $this->assertRejected(fn () => $this->service->prepareUnenteredCategories($this->count));
+        $this->count->update(['status' => 'counting', 'kind' => 'weighed']);
+        $this->assertRejected(fn () => $this->service->prepareUnenteredCategories($this->count));
+        $this->assertSame(0, WmsSundryValuationItem::count());
+        $this->assertSame($this->protectedRows, $this->protectedSnapshot());
+    }
+
     public function test_missing_price_is_not_assumed_zero_and_only_unentered_prices_can_be_refreshed(): void
     {
         $this->db()->table('item_prices')->where('item_id', 2)->update(['start_date' => '2026-10-07']);

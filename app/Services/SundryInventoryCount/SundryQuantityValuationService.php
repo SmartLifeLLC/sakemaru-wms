@@ -23,6 +23,43 @@ class SundryQuantityValuationService
         return self::available() && WmsSundryValuationItem::where('amount_id', $amountId)->exists();
     }
 
+    /** Prepare all unentered categories without replacing legacy monetary inputs. */
+    public function prepareUnenteredCategories(WmsSundryInventoryCount $count, bool $refreshUnenteredPrices = false): array
+    {
+        return DB::connection('sakemaru')->transaction(function () use ($count, $refreshUnenteredPrices): array {
+            $count = $this->lockEditable($count);
+            $amounts = $count->amounts()->orderBy('id')->get();
+            $existing = WmsSundryValuationItem::where('sundry_inventory_count_id', $count->id)
+                ->pluck('amount_id')->unique();
+            $categories = $this->unmanagedItemsQuery($count)
+                ->whereIn('i.item_category2_id', $amounts->pluck('category2_id'))
+                ->distinct()->pluck('i.item_category2_id');
+            $result = ['prepared_items' => 0, 'preserved_categories' => 0, 'empty_categories' => 0];
+            foreach ($amounts as $amount) {
+                if ($amount->counted_amount !== null && ! $existing->contains($amount->id)) {
+                    $result['preserved_categories']++;
+                    continue;
+                }
+                if (! $categories->contains($amount->category2_id)) {
+                    $result['empty_categories']++;
+                    continue;
+                }
+                $result['prepared_items'] += $this->prepare($count, $amount->id, $refreshUnenteredPrices);
+            }
+
+            return $result;
+        });
+    }
+
+    private function unmanagedItemsQuery(WmsSundryInventoryCount $count): \Illuminate\Database\Query\Builder
+    {
+        return DB::connection('sakemaru')->table('items as i')
+            ->where('i.client_id', $count->client_id)
+            ->where('i.is_managed_stock', false)
+            ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('item_sets as s')
+                ->whereColumn('s.id', 'i.item_set_id')->where('s.set_type', 'OWNED')->where('s.is_active', true));
+    }
+
     public function prepare(WmsSundryInventoryCount $count, int $amountId, bool $refreshUnenteredPrices = false): int
     {
         return DB::connection('sakemaru')->transaction(function () use ($count, $amountId, $refreshUnenteredPrices): int {
@@ -38,15 +75,11 @@ class SundryQuantityValuationService
             }
 
             $db = DB::connection('sakemaru');
-            $items = $db->table('items as i')
+            $items = $this->unmanagedItemsQuery($count)
                 ->leftJoin('item_categories as c1', 'c1.id', '=', 'i.item_category1_id')
                 ->leftJoin('item_categories as c2', 'c2.id', '=', 'i.item_category2_id')
                 ->leftJoin('item_categories as c3', 'c3.id', '=', 'i.item_category3_id')
-                ->where('i.client_id', $count->client_id)
                 ->where('i.item_category2_id', $amount->category2_id)
-                ->where('i.is_managed_stock', false)
-                ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('item_sets as s')
-                    ->whereColumn('s.id', 'i.item_set_id')->where('s.set_type', 'OWNED')->where('s.is_active', true))
                 ->orderBy('i.code')->get(['i.id', 'i.code', 'i.name',
                     'c1.id as c1_id', 'c2.id as c2_id', 'c3.id as c3_id',
                     'c1.cost_rate as rate1', 'c2.cost_rate as rate2', 'c3.cost_rate as rate3']);

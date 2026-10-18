@@ -34,7 +34,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 /**
- * 棚卸し（雑貨）詳細。指示書に手書きした実棚を画面で入力し、金額で差異を確認する。
+ * 棚卸し（雑貨）詳細。管理品・非管理品とも商品数量を入力し、評価額を確認する。
  * 種類が量り売りの棚卸しは、実棚をカメ・QT で入力し、期間売上とロスを合わせて確認する。
  */
 class ViewWmsSundryInventoryCount extends Page implements HasForms
@@ -99,6 +99,9 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
     {
         $record->load(['createdByUser', 'confirmedByUser']);
         $this->record = $record;
+        if ($this->valuationAvailable() && $record->amounts()->exists()) {
+            $this->listTab = 'valuation';
+        }
     }
 
     public function getTitle(): string|Htmlable
@@ -136,6 +139,9 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
     public function setListTab(string $tab): void
     {
         $this->listTab = in_array($tab, self::LIST_TABS, true) ? $tab : 'items';
+        if ($this->listTab === 'valuation' && $this->stateFilter === 'diff') {
+            $this->stateFilter = 'all';
+        }
         $this->itemPage = 1;
     }
 
@@ -217,7 +223,7 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
      */
     public function rows(): LengthAwarePaginator
     {
-        $query = $this->filteredItemsQuery();
+        $query = $this->filteredItemsQuery()->with('item:id,is_managed_stock');
 
         // 量り売りは旧Accessと同じ出力順（追加した商品は末尾）。
         if ($this->isWeighed()) {
@@ -263,6 +269,11 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
         return (new SundryInventoryCountService)->reportReferences($this->record);
     }
 
+    public function monthlyOpenings(Collection $amountRows): array
+    {
+        return app(\App\Services\SundryInventoryCount\SundryMonthlyOpeningDisplay::class)->build($this->record, $amountRows);
+    }
+
     /**
      * @return array{managed: array<int, array<string, mixed>>, unmanaged: array<int, array<string, mixed>>, totals: array<string, array<string, mixed>>}
      */
@@ -284,6 +295,10 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
 
         $query = WmsSundryValuationItem::where('sundry_inventory_count_id', $this->record->id);
         if ($filtered) {
+            $query->with('item:id,is_managed_stock');
+            if ($this->stateFilter === 'uncounted') {
+                $query->whereNull('quantity');
+            }
             if ($this->categoryFilter !== '') {
                 $query->whereIn('amount_id', $this->record->amounts()->where('category2_code', $this->categoryFilter)->select('id'));
             }
@@ -342,21 +357,21 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
             : $formatted;
     }
 
-    public function formatAmount(mixed $amount): string
+    public function formatAmount(mixed $amount, int $decimals = 0): string
     {
-        return $amount === null ? '-' : '¥'.number_format((float) round((float) $amount));
+        return $amount === null ? '-' : '¥'.number_format((float) $amount, $decimals);
     }
 
     /**
      * 入力欄の初期値（末尾の0を落とした数値文字列。未入力は空文字）。
      */
-    public function inputValue(mixed $value): string
+    public function inputValue(mixed $value, int $decimals = 3): string
     {
         if ($value === null) {
             return '';
         }
 
-        $formatted = number_format((float) $value, 3, '.', '');
+        $formatted = number_format((float) $value, $decimals, '.', '');
 
         return rtrim(rtrim($formatted, '0'), '.');
     }
@@ -530,12 +545,12 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
                     }
                 }),
             Action::make('prepareValuation')
-                ->label('非管理品の数量入力')
+                ->label('数量入力を準備')
                 ->icon('heroicon-o-calculator')
                 ->visible(fn () => $this->valuationAvailable() && $this->isEditable())
                 ->schema([
-                    Select::make('amount_id')->label('中分類')->required()
-                        ->options(fn () => $this->amountRows()->mapWithKeys(fn ($row) => [$row->id => "[{$row->category2_code}] {$row->category2_name}"])->all()),
+                    Select::make('amount_id')->label('中分類')->required()->default('all')
+                        ->options(fn () => ['all' => 'すべての中分類（入力済み金額は保持）'] + $this->amountRows()->mapWithKeys(fn ($row) => [$row->id => "[{$row->category2_code}] {$row->category2_name}"])->all()),
                     Checkbox::make('refresh_prices')->label('未入力商品の単価・原価率を再取得する（入力済みは保持）')->default(false),
                 ])
                 ->modalHeading('非管理品の商品数量入力を開始')
@@ -546,9 +561,16 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
                 ->modalCancelActionLabel('開始せず閉じる')
                 ->action(function (array $data): void {
                     try {
-                        $inserted = (new SundryQuantityValuationService)->prepare($this->record, (int) $data['amount_id'], (bool) ($data['refresh_prices'] ?? false));
+                        $service = new SundryQuantityValuationService;
+                        if ($data['amount_id'] === 'all') {
+                            $result = $service->prepareUnenteredCategories($this->record, (bool) ($data['refresh_prices'] ?? false));
+                        } else {
+                            $result = ['prepared_items' => $service->prepare($this->record, (int) $data['amount_id'], (bool) ($data['refresh_prices'] ?? false)), 'preserved_categories' => 0];
+                        }
+                        $this->clearFilters();
                         $this->listTab = 'valuation';
-                        Notification::make()->success()->title("非管理品数量明細 {$inserted}件を準備しました")->send();
+                        Notification::make()->success()->title("非管理品数量明細 {$result['prepared_items']}件を準備しました")
+                            ->body("入力済み金額の保持: {$result['preserved_categories']}分類")->send();
                     } catch (\Throwable $e) {
                         $this->notifyFailure('数量入力を開始できません', $e);
                     }
