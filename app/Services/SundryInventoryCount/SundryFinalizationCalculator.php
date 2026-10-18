@@ -230,6 +230,12 @@ class SundryFinalizationCalculator
                 if ($row) {
                     $openingDate = substr($row['original_count_row']['opening_date'], 0, 10);
                     $opening = $this->effectiveOpening($count, $row['original_count_row']);
+                    if ($openingDate > $ref['date'] && $row['original_count_row']['opening_source'] === 'previous_count') {
+                        // A backdated prior count has a posting-date basis for report reconciliation.
+                        $basis = $this->reconciliationOpening($count, $expected, $ref['date'], $openingDate);
+                        $openingDate = $basis['date'];
+                        $opening = $basis['amount'];
+                    }
                 } else {
                     // Reconcile the full department without creating counts for unselected categories.
                     $basis = $this->reconciliationOpening($count, $expected, $ref['date']);
@@ -250,14 +256,18 @@ class SundryFinalizationCalculator
         return $references;
     }
 
-    private function reconciliationOpening(WmsSundryInventoryCount $count, object $category, string $date): array
+    private function reconciliationOpening(WmsSundryInventoryCount $count, object $category, string $date, ?string $previousCountDate = null): array
     {
         $prior = DB::connection('sakemaru')->table(SundryAmountAdjustmentService::TABLE)
             ->where('client_id', $count->client_id)->where('warehouse_id', $count->warehouse_id)
             ->where('category2_id', $category->category2_id)->where('is_active', true)->where('process_date', '<=', $date)
+            ->when($previousCountDate !== null, fn ($query) => $query->where('count_date', $previousCountDate))
             ->orderByDesc('process_date')->orderByDesc('id')->first();
         if ($prior) {
             return ['date' => $prior->process_date, 'amount' => round($prior->book_amount + $prior->adjustment_amount, 2)];
+        }
+        if ($previousCountDate !== null) {
+            $this->fail("中分類CD {$category->category2_code} の前回棚卸しに対応する適用済み伝票がありません。前残の根拠を確認してください。");
         }
         $legacy = $this->theory->unmanagedLegacyOpening((string) $count->warehouse_code, (string) $category->category2_code, $date);
         if ($legacy === null) {
@@ -292,9 +302,9 @@ class SundryFinalizationCalculator
         if ((int) $count->warehouse_code === 23) {
             $this->fail('この倉庫は在庫金額報告書の前残固定対象のため最終確定できません。');
         }
-        if ($db->table('stats_monthly_stock_amount_reports')->where('client_id', $count->client_id)->where('warehouse_id', $count->warehouse_id)
-            ->where('target_year_month', '>=', substr($date, 0, 7))->exists()) {
-            $this->fail('適用月以降の在庫金額報告書が保存されています。先に再作成手順を確認してください。');
+        if ($db->table('stats_monthly_stock_amount_reports')->where('client_id', $count->client_id)
+            ->where('target_year_month', '>', substr($date, 0, 7))->exists()) {
+            $this->fail('翌月以降の在庫金額報告書が保存されているため、この適用月は変更できません。');
         }
     }
 
