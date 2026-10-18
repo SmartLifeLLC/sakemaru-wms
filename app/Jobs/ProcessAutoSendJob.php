@@ -46,6 +46,8 @@ class ProcessAutoSendJob implements ShouldQueue
 
     public function handle(): void
     {
+        app(\App\Services\AutoReplenishment\ReplenishmentGuard::class)->assertLegacyAllowed();
+
         ini_set('memory_limit', '-1');
 
         $progress = WmsQueueProgress::findByJobId($this->progressId);

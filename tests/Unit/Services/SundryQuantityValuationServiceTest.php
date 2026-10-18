@@ -188,6 +188,7 @@ class SundryQuantityValuationServiceTest extends TestCase
     public function test_applies_amount_only_once_and_freezes_source_without_stock_writes(): void
     {
         $this->complete();
+        $this->db()->table('stats_monthly_stock_amount_reports')->insert(['client_id' => 6, 'warehouse_id' => 10, 'target_year_month' => '2026-10']);
         $service = new SundryAmountAdjustmentService;
         $this->assertSame(1, $service->apply($this->count, '2026-10-06', '帳簿確認2026-10-06', null));
         $this->assertSame(0, $service->apply($this->count, '2026-10-06', '帳簿確認2026-10-06', null));
@@ -199,12 +200,12 @@ class SundryQuantityValuationServiceTest extends TestCase
         $this->assertRejected(fn () => $this->save(1, 999));
     }
 
-    public function test_backdating_existing_reports_running_generation_and_flag_block_posting(): void
+    public function test_backdating_later_reports_running_generation_and_flag_block_posting(): void
     {
         $this->complete();
         $service = new SundryAmountAdjustmentService;
         $this->assertRejected(fn () => $service->apply($this->count, '2026-09-30', 'September approval', null));
-        $this->db()->table('stats_monthly_stock_amount_reports')->insert(['client_id' => 6, 'warehouse_id' => 10, 'target_year_month' => '2026-10']);
+        $this->db()->table('stats_monthly_stock_amount_reports')->insert(['client_id' => 6, 'warehouse_id' => 10, 'target_year_month' => '2026-11']);
         $this->assertRejected(fn () => $service->apply($this->count, '2026-10-06', 'October approval', null));
         $this->db()->table('stats_monthly_stock_amount_reports')->where('warehouse_id', 10)->update(['target_year_month' => '2026-09']);
         $this->db()->table('stock_report_generation_runs')->insert(['client_id' => 6, 'status' => 'queued']);

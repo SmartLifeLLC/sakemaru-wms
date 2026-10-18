@@ -53,6 +53,12 @@ class OrderExecutionService
         }
 
         return DB::connection('sakemaru')->transaction(function () use ($candidate, $confirmedBy) {
+            $guard = app(\App\Services\AutoReplenishment\ReplenishmentGuard::class);
+            $guard->lockScope((int) config('app.client_id'), (int) $candidate->warehouse_id, (int) $candidate->item_id);
+            $candidate = WmsOrderCandidate::lockForUpdate()->findOrFail($candidate->id);
+            if ($guard->installed() && \App\Models\WmsAutoOrderRunLine::where('order_candidate_id', $candidate->id)->whereNotNull('generated_at')->exists()) {
+                throw new \RuntimeException('自動発注は再確定できません。残工程から再開してください。');
+            }
             if ($candidate->status === CandidateStatus::CONFIRMED && $this->hasJxSlipNumberAssignment($candidate)) {
                 $existingSchedules = WmsOrderIncomingSchedule::query()
                     ->where('order_candidate_id', $candidate->id)
@@ -93,6 +99,7 @@ class OrderExecutionService
 
             // 4. 入庫予定を作成（demand_breakdownの有無で分岐）
             $incomingSchedules = $this->createIncomingSchedulesFromCandidate($candidate);
+            app(\App\Services\AutoReplenishment\SupplyRecorder::class)->record('order', $candidate, $incomingSchedules);
 
             return $incomingSchedules;
         });
