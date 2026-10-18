@@ -1480,12 +1480,14 @@ class OrderTransmissionService
         if ($linkCandidates) {
             $candidates = $generationGuard->eligible($candidates);
         }
-        $claimToken = $linkCandidates ? $generationGuard->acquire($candidates) : null;
+        $claimToken = null;
         $results = [];
         $errors = [];
         $totalOrders = 0;
 
         try {
+            // 生成中の記録が残る場合も、既存画面へエラー内容を返す。
+            $claimToken = $linkCandidates ? $generationGuard->acquire($candidates) : null;
             // Generatorでファイル生成
             $generatorStart = microtime(true);
             $files = $generator->generate($candidates);
@@ -1605,9 +1607,11 @@ class OrderTransmissionService
                 'batch_code' => $batchCode,
                 'error' => $e->getMessage(),
             ]);
+        } finally {
+            // エラー通知に失敗しても、今回取得した未登録の記録とロックは解除を試みる。
+            // プロセス強制終了で残った記録は、管理者が復旧コマンドで照合する。
+            $generationGuard->releaseUnpublished($claimToken);
         }
-
-        $generationGuard->releaseUnpublished($claimToken);
 
         return [
             'success' => empty($errors),
