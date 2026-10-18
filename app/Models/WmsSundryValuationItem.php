@@ -2,6 +2,9 @@
 
 namespace App\Models;
 
+use App\Models\Sakemaru\Item;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
 class WmsSundryValuationItem extends WmsModel
 {
     protected $guarded = [];
@@ -18,4 +21,9 @@ class WmsSundryValuationItem extends WmsModel
         'price_start_date' => 'date',
         'counted_at' => 'datetime',
     ];
+
+    public function item(): BelongsTo
+    {
+        return $this->belongsTo(Item::class);
+    }
 }
