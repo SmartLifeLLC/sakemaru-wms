@@ -326,6 +326,18 @@ class SundryInventoryTheoryCalculator
             }
         }
 
+        if ($depth === 1 && Schema::connection('sakemaru')->hasTable(SundryBookReconciliation::TABLE)) {
+            $adjustments = DB::connection('sakemaru')->table(SundryBookReconciliation::TABLE.' as j')
+                ->join('item_categories as c', function ($join) use ($clientId): void {
+                    $join->on('c.code', '=', 'j.category1_code')->where('c.client_id', $clientId)->where('c.depth', 1);
+                })->where('j.client_id', $clientId)->where('j.warehouse_id', $warehouseId)
+                ->where('j.approval_key', 'like', 'submitted-%')->whereIn('c.id', $categoryIds)
+                ->whereBetween('j.process_date', [$fromDate, $endDate])->groupBy('c.id')
+                ->selectRaw('c.id as category_id, SUM(j.adjustment_amount) as amount')->get();
+            foreach ($adjustments as $adjustment) {
+                $flows[(int) $adjustment->category_id]['adjustment'] += (float) $adjustment->amount;
+            }
+        }
         foreach ($flows as $categoryId => $flow) {
             $flows[$categoryId] = array_map(fn (float $amount): float => round($amount, 2), $flow);
         }

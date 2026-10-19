@@ -14,12 +14,14 @@ use App\Services\SundryInventoryCount\SundryInventoryInstructionSheetPdfService;
 use App\Services\SundryInventoryCount\SundryQuantityValuationService;
 use App\Services\SundryInventoryCount\WeighedInventoryDifferenceWorkbookService;
 use App\Services\SundryInventoryCount\SundryFinalizationService;
+use App\Services\SundryInventoryCount\SundryFinalizationScope;
 use App\Services\SundryInventoryCount\SundryFinalizationWorkbook;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\ViewField;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Notifications\Notification;
@@ -80,19 +82,34 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
             ->modalWidth('7xl')->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
             ->modalContent(fn () => view('filament.resources.wms-sundry-inventory-count.pages.partials.finalization-preview', ['preview' => $this->finalizationPreview]))
             ->schema([\Filament\Forms\Components\Checkbox::make('approve_unknown')
-                ->label('部門の不明差異を含めて確定する')->default(false)
+                ->label('部門の金額調整（提出差異・不明差異）を確認して確定する')->default(false)
                 ->visible(fn () => collect($this->finalizationPreview['lines'] ?? [])->contains('kind', 'book'))])
             ->modalFooterActionsAlignment(Alignment::End)->modalCancelActionLabel('確定せず閉じる')
             ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit')->label('最終確定して伝票を記録')->color('danger'))
             ->action(function (array $data): void {
                 try {
-                    app(SundryFinalizationService::class)->finalize($this->record, $this->finalizationPreview['date'], $this->finalizationPreview['token'], auth()->id(), (bool) ($data['approve_unknown'] ?? false));
+                    app(SundryFinalizationService::class)->finalize($this->record, $this->finalizationPreview['date'], $this->finalizationPreview['token'], auth()->id(),
+                        (bool) ($data['approve_unknown'] ?? false), $this->finalizationPreview['application_scope'] ?? SundryFinalizationScope::ALL,
+                        $this->finalizationPreview['zero_difference_row_ids'] ?? []);
                     $this->finalizationPreview = [];
                     Notification::make()->success()->title('最終確定しました。実棚変更伝票を作成待ちです。')->send();
                 } catch (\Throwable $e) {
                     $this->notifyFailure('最終確定できません', $e);
                 }
             });
+    }
+
+    public function zeroDifferenceOptions(): array
+    {
+        return DB::connection('sakemaru')->table('wms_sundry_inventory_count_items as r')
+            ->join('items as i', 'i.id', '=', 'r.item_id')
+            ->where('r.sundry_inventory_count_id', $this->record->id)->where('i.client_id', $this->record->client_id)
+            ->whereNotNull('r.counted_quantity')->where('i.is_managed_stock', true)
+            ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('item_sets as s')
+                ->whereColumn('s.id', 'i.item_set_id')->where('s.is_active', true)->where('s.set_type', 'OWNED'))
+            ->orderBy('r.item_code')->orderBy('r.id')
+            ->get(['r.id', 'r.item_code', 'r.item_name', 'r.system_quantity', 'r.counted_quantity'])
+            ->map(fn ($row) => (array) $row)->all();
     }
 
     public function mount(WmsSundryInventoryCount $record): void
@@ -489,16 +506,28 @@ class ViewWmsSundryInventoryCount extends Page implements HasForms
                 ->label('棚卸し最終確定')->icon('heroicon-o-check-circle')->color('danger')
                 ->disabled(fn () => ! Schema::connection('sakemaru')->hasTable(SundryFinalizationService::TABLE)
                     || $this->record->status !== WmsSundryInventoryCount::STATUS_CONFIRMED || $this->finalizationRecord() !== null)
-                ->modalHeading('棚卸し最終確定の適用日')->schema([DatePicker::make('date')->label('適用日')->required()->default(fn () => $this->record->count_date)])
+                ->modalWidth('5xl')->modalHeading('棚卸し最終確定の適用対象・日付')->schema([
+                    Select::make('application_scope')->label('適用対象')->options(SundryFinalizationScope::options())
+                        ->required()->default(fn () => \App\Services\SundryInventoryCount\SundrySubmittedDifference::eligible($this->record)
+                            ? SundryFinalizationScope::SUBMITTED_SEPTEMBER : SundryFinalizationScope::ALL),
+                    DatePicker::make('date')->label('適用日')->required()->default(fn () => \App\Services\SundryInventoryCount\SundrySubmittedDifference::eligible($this->record)
+                        ? config('sundry_submitted_difference.process_date') : $this->record->count_date),
+                    ViewField::make('zero_difference_row_ids')->label('差異0指定（数量・金額を調整しない商品）')
+                        ->view('filament.resources.wms-sundry-inventory-count.pages.partials.zero-difference-selection')
+                        ->viewData(fn () => ['options' => $this->zeroDifferenceOptions()])->default([])->rules(['array'])->live(),
+                ])
                 ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])->modalFooterActionsAlignment(Alignment::End)
                 ->modalCancelActionLabel('確認せず閉じる')->modalSubmitActionLabel('差異を確認')
                 ->action(function (array $data): void {
                     try {
-                        $preview = app(SundryFinalizationService::class)->preview($this->record, $data['date']);
+                        $preview = app(SundryFinalizationService::class)->preview($this->record, $data['date'], $data['application_scope'], $data['zero_difference_row_ids'] ?? []);
                         $this->finalizationPreview = ['date' => $data['date'], 'token' => $preview['token'],
+                            'application_scope' => $preview['snapshot']['application_scope'],
+                            'zero_difference_row_ids' => $preview['snapshot']['zero_difference_row_ids'],
+                            'excluded_lines' => collect($preview['snapshot']['excluded_lines'])->map(fn ($row) => \Illuminate\Support\Arr::except($row, ['original_count_row']))->all(),
                             'total' => $preview['snapshot']['total_amount'], 'count_date' => $preview['snapshot']['count_date'],
                             'lines' => collect($preview['snapshot']['lines'])->map(fn ($row) => \Illuminate\Support\Arr::only($row,
-                                ['kind', 'item_code', 'item_name', 'category1_code', 'category1_name', 'category2_code', 'category2_name', 'count_theory', 'count_actual', 'quantity_before', 'quantity_after', 'book_before', 'book_after', 'difference_quantity', 'unit_price', 'amount', 'book_reconciliation']))->all()];
+                                ['kind', 'item_code', 'item_name', 'category1_code', 'category1_name', 'category2_code', 'category2_name', 'count_theory', 'count_actual', 'quantity_before', 'quantity_after', 'book_before', 'book_after', 'difference_quantity', 'unit_price', 'amount', 'rounding_adjustment', 'book_reconciliation', 'department_adjustment', 'reason']))->all()];
                         $this->replaceMountedAction('finalizeSundryConfirmation');
                     } catch (\Throwable $e) {
                         $this->notifyFailure('差異を確認できません', $e);

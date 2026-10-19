@@ -19,7 +19,7 @@ class SundryFinalizationWorkbook
             ['管理品差異金額', round(collect($data['lines'])->where('kind', 'managed')->sum('amount'), 2)],
             ['非管理品差異金額', round(collect($data['lines'])->where('kind', 'amount')->sum('amount'), 2)],
             ['棚卸差異金額合計', '=SUM(B6:B7)+B9'],
-            ['部門の不明差異金額', round(collect($data['lines'])->where('kind', 'book')->sum('amount'), 2)],
+            ['部門金額調整（提出差異等）', round(collect($data['lines'])->where('kind', 'book')->sum('amount'), 2)],
         ], null, 'A1', true);
         $summary->getColumnDimension('A')->setWidth(25);
         $summary->getColumnDimension('B')->setWidth(35);
@@ -30,6 +30,14 @@ class SundryFinalizationWorkbook
             $summary->getStyle('B10')->getAlignment()->setWrapText(true);
             $summary->getRowDimension(10)->setRowHeight(60);
         }
+        $summary->setCellValue('A12', '適用対象');
+        $summary->setCellValue('B12', SundryFinalizationScope::label($data['application_scope'] ?? SundryFinalizationScope::ALL));
+        $summary->setCellValue('A13', '適用対象外件数');
+        $summary->setCellValue('B13', count($data['excluded_lines'] ?? []));
+        $summary->getStyle('B12')->getAlignment()->setWrapText(true);
+        $summary->getRowDimension(12)->setRowHeight(36);
+        $summary->setCellValue('A14', 'うち差異0指定');
+        $summary->setCellValue('B14', count($data['zero_difference_row_ids'] ?? []));
         foreach (['managed' => '管理品数量', 'amount' => '非管理品金額'] as $kind => $title) {
             $sheet = $book->createSheet()->setTitle($title);
             $hasRounding = $kind === 'managed' && collect($data['lines'])->where('kind', $kind)
@@ -78,13 +86,14 @@ class SundryFinalizationWorkbook
                 ->setOrientation('landscape')->setFitToWidth(1)->setFitToHeight(0);
         }
         $unknown = $book->createSheet()->setTitle('部門不明差異');
-        $unknown->fromArray(['大分類CD', '大分類名', '照合日', '報告書残高', '管理品帳簿額', '非管理品帳簿額', '既知の承認差額', '棚卸不明差異金額'], null, 'A1');
+        $unknown->fromArray(['大分類CD', '大分類名', '照合日', '報告書残高', '管理品帳簿額', '非管理品帳簿額', '既知の承認差額', '部門調整金額', '調整根拠'], null, 'A1');
         $row = 2;
         foreach (collect($data['lines'])->where('kind', 'book') as $line) {
             $ref = $line['book_reconciliation']['report_reconciliation'];
             $unknown->fromArray([$line['category1_code'], $line['category1_name'], $ref['date'],
                 $ref['reference']['report_amount'] ?? null, $ref['reference']['managed_amount'] ?? null,
                 $ref['unmanaged_book_amount'], $ref['approved_gap'], $line['amount']], null, 'A'.$row, true);
+            $unknown->setCellValueExplicit('I'.$row, (string) ($line['reason'] ?? '棚卸不明差異'), DataType::TYPE_STRING);
             $unknown->setCellValueExplicit('A'.$row, (string) $line['category1_code'], DataType::TYPE_STRING);
             $unknown->setCellValueExplicit('B'.$row, (string) $line['category1_name'], DataType::TYPE_STRING);
             $row++;
@@ -92,13 +101,48 @@ class SundryFinalizationWorkbook
         $unknown->setCellValue('A'.$row, '合計');
         $unknown->setCellValue('H'.$row, $row > 2 ? '=SUM(H2:H'.($row - 1).')' : 0);
         $unknown->getStyle('D2:H'.$row)->getNumberFormat()->setFormatCode('#,##0.00;[Red]-#,##0.00');
-        foreach (range('A', 'H') as $col) {
+        foreach (range('A', 'I') as $col) {
             $unknown->getColumnDimension($col)->setWidth($col === 'B' ? 30 : 21);
         }
-        $unknown->getStyle('A1:H1')->getFont()->setBold(true);
-        $unknown->freezePane('D2')->setAutoFilter('A1:H'.max(1, $row - 1));
-        $unknown->getPageSetup()->setRowsToRepeatAtTopByStartAndEnd(1, 1)->setPrintArea('A1:H'.$row)
+        $unknown->getColumnDimension('I')->setWidth(60);
+        $unknown->getStyle('A1:I1')->getFont()->setBold(true);
+        $unknown->freezePane('D2')->setAutoFilter('A1:I'.max(1, $row - 1));
+        $unknown->getPageSetup()->setRowsToRepeatAtTopByStartAndEnd(1, 1)->setPrintArea('A1:I'.$row)
             ->setOrientation('landscape')->setFitToWidth(1)->setFitToHeight(0);
+        if (! empty($data['excluded_lines'])) {
+            $excluded = $book->createSheet()->setTitle('適用対象外');
+            $hasZeroDifference = collect($data['excluded_lines'])->contains('quantity_policy', 'no_adjustment');
+            $headers = ['種別', '元明細ID', '商品・分類CD', '名称', '対象外理由'];
+            if ($hasZeroDifference) {
+                $headers = array_merge($headers, ['再計算理論', '入力実棚', '今回差異']);
+            }
+            $last = $hasZeroDifference ? 'H' : 'E';
+            $excluded->fromArray($headers, null, 'A1');
+            $row = 2;
+            foreach ($data['excluded_lines'] as $line) {
+                $values = [$line['kind'] === 'managed' ? '管理品' : '非管理品分類', $line['source_id'], $line['item_code'], $line['item_name'], $line['reason']];
+                foreach (range('A', 'E') as $index => $column) {
+                    $excluded->setCellValueExplicit($column.$row, (string) $values[$index], DataType::TYPE_STRING);
+                }
+                if ($hasZeroDifference) {
+                    $excluded->fromArray([$line['count_theory'] ?? null, $line['count_actual'] ?? null, $line['difference_quantity'] ?? null], null, 'F'.$row, true);
+                }
+                $row++;
+            }
+            foreach (['A' => 18, 'B' => 16, 'C' => 18, 'D' => 40, 'E' => 60] as $column => $width) {
+                $excluded->getColumnDimension($column)->setWidth($width);
+            }
+            if ($hasZeroDifference) {
+                foreach (range('F', 'H') as $column) {
+                    $excluded->getColumnDimension($column)->setWidth(18);
+                }
+                $excluded->getStyle('F2:H'.($row - 1))->getNumberFormat()->setFormatCode('#,##0.###;[Red]-#,##0.###');
+            }
+            $excluded->getStyle("A1:{$last}1")->getFont()->setBold(true);
+            $excluded->freezePane('D2')->setAutoFilter("A1:{$last}".($row - 1));
+            $excluded->getPageSetup()->setRowsToRepeatAtTopByStartAndEnd(1, 1)->setPrintArea("A1:{$last}".($row - 1))
+                ->setOrientation('landscape')->setFitToWidth(1)->setFitToHeight(0);
+        }
         return $book;
     }
 

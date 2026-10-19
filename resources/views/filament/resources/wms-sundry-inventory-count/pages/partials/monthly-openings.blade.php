@@ -25,6 +25,15 @@
     </tbody>
     <tfoot class="bg-slate-100">
         @foreach ($monthlyOpenings['totals'] as $opening)
+            @if(($opening['department_adjustment_amount'] ?? 0) != 0)
+                <tr>
+                    <th colspan="4" class="{{ $thClass }} text-left">{{ $opening['category1_code'] }} 大分類調整（中分類未配賦）</th>
+                    <td class="{{ $tdClass }}">{{ str_replace('-', '/', $opening['date']) }}</td>
+                    <td colspan="2" class="{{ $tdClass }}">顧客提出差異の適用残高</td>
+                    <td class="{{ $tdClass }} text-right">{{ $this->formatAmount($opening['department_adjustment_amount'], 2) }}</td>
+                    <td class="{{ $tdClass }}"></td>
+                </tr>
+            @endif
             <tr>
                 <th colspan="4" class="{{ $thClass }} text-left">{{ $opening['category1_code'] }} {{ $opening['category1_name'] }} 合計</th>
                 <td class="{{ $tdClass }}">{{ $opening['date'] ? str_replace('-', '/', $opening['date']) : '-' }}</td>
