@@ -22,13 +22,13 @@ class SundryFinalizationService
             : null;
     }
 
-    public function preview(WmsSundryInventoryCount $count, string $date): array
+    public function preview(WmsSundryInventoryCount $count, string $date, string $scope = SundryFinalizationScope::ALL, array $zeroDifferenceRowIds = []): array
     {
         $db = DB::connection('sakemaru');
-        $calculate = function () use ($count, $date): array {
+        $calculate = function () use ($count, $date, $scope, $zeroDifferenceRowIds): array {
             $this->calculator->assertPeriodOpen($count, $date);
             [$snapshot, $proof] = (new SundryCalculationProof(DB::connection('sakemaru')))
-                ->capture(fn () => $this->calculator->calculate($count->fresh(), $date));
+                ->capture(fn () => $this->calculator->calculate($count->fresh(), $date, $scope, $zeroDifferenceRowIds));
             $snapshot['proof'] = $proof;
             return ['snapshot' => $snapshot, 'token' => $this->token($snapshot)];
         };
@@ -39,21 +39,26 @@ class SundryFinalizationService
         return $db->transaction($calculate);
     }
 
-    public function finalize(WmsSundryInventoryCount $count, string $date, string $token, ?int $userId, bool $approveUnknown = false): int
+    public function finalize(WmsSundryInventoryCount $count, string $date, string $token, ?int $userId, bool $approveUnknown = false, string $scope = SundryFinalizationScope::ALL, array $zeroDifferenceRowIds = []): int
     {
+        SundryFinalizationScope::validate($scope);
+        $zeroDifferenceRowIds = SundryFinalizationCalculator::normalizeZeroDifferenceRowIds($zeroDifferenceRowIds);
         if ($existing = self::record($count->id)) {
-            if ($existing->process_date === $date && hash_equals($existing->token, $token)) {
+            $saved = json_decode($existing->snapshot, true, 512, JSON_THROW_ON_ERROR);
+            if ($existing->process_date === $date && hash_equals($existing->token, $token)
+                && ($saved['application_scope'] ?? SundryFinalizationScope::ALL) === $scope
+                && ($saved['zero_difference_row_ids'] ?? []) === $zeroDifferenceRowIds) {
                 return $existing->id;
             }
             $this->fail('既に最終確定されています。保存済みの確定差異を確認してください。');
         }
         // Long ledger reads run before acquiring the short finalization lock.
-        $preview = $this->preview($count, $date);
+        $preview = $this->preview($count, $date, $scope, $zeroDifferenceRowIds);
         if (! hash_equals($preview['token'], $token)) {
-            $this->fail('確認後に入力・受払・原価が変わりました。差異を再確認してください。');
+            $this->fail('確認後に適用対象・入力・受払・原価が変わりました。差異を再確認してください。');
         }
         if (collect($preview['snapshot']['lines'])->contains('kind', 'book') && ! $approveUnknown) {
-            $this->fail('部門の不明差異金額を確認し、「不明差異を含めて確定する」にチェックしてください。');
+            $this->fail('部門の提出差異・不明差異金額を確認し、金額調整の確認欄にチェックしてください。');
         }
         return DB::connection('sakemaru')->transaction(function () use ($count, $date, $userId, $preview, $approveUnknown): int {
             $db = DB::connection('sakemaru');
@@ -84,6 +89,8 @@ class SundryFinalizationService
             }
             $snapshot = $preview['snapshot'];
             $snapshot['unknown_approval'] = ['accepted' => $approveUnknown, 'user_id' => $userId, 'at' => now()->toIso8601String()];
+            $snapshot['zero_difference_approval'] = ['row_ids' => $snapshot['zero_difference_row_ids'],
+                'user_id' => $userId, 'at' => now()->toIso8601String()];
             $id = $db->table(self::TABLE)->insertGetId([
                 'client_id' => $count->client_id, 'warehouse_id' => $count->warehouse_id, 'sundry_inventory_count_id' => $count->id, 'active_count_id' => $count->id,
                 'count_date' => $count->count_date->toDateString(), 'process_date' => $date, 'status' => 'queued',

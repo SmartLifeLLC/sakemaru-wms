@@ -252,6 +252,25 @@ class SundryQuantityValuationServiceTest extends TestCase
         $this->assertSame(0, WmsSundryValuationItem::count());
     }
 
+    public function test_new_weighed_count_excludes_active_owned_parent_without_changing_existing_inputs(): void
+    {
+        $service = $this->creationService();
+        $this->db()->table('items')->where('id', 4)->update(['code' => '129002']);
+        $this->db()->table('items')->where('id', 3)->update(['code' => '129011', 'is_managed_stock' => true]);
+        $this->db()->table('real_stocks')->insert(['client_id' => 6, 'warehouse_id' => 10, 'item_id' => 3, 'quantity' => 0]);
+        $before = $this->count->items()->get()->toJson();
+        $count = $service->create(['kind' => 'weighed', 'sales_from_date' => '2026-09-01'] + $this->creationData());
+        $this->assertSame([4], $count->items()->pluck('item_id')->all());
+        $this->assertRejected(fn () => $service->addItemByCode($count, '129011'));
+        $service->refreshTheory($count, '2026-10-06');
+        $this->assertSame([4], $count->items()->pluck('item_id')->all());
+        $this->assertSame($before, $this->count->items()->get()->toJson());
+
+        $this->db()->table('item_sets')->where('id', 1)->update(['is_active' => false]);
+        $other = $service->create(['kind' => 'weighed', 'sales_from_date' => '2026-09-01'] + $this->creationData());
+        $this->assertSame([3, 4], $other->items()->orderBy('item_id')->pluck('item_id')->all());
+    }
+
     private function creationData(): array
     {
         return ['warehouse_id' => 10, 'count_date' => '2026-10-06', 'category_ids' => [2], 'amount_category_ids' => [1]];
@@ -332,12 +351,12 @@ class SundryQuantityValuationServiceTest extends TestCase
         $this->assertSame(0, $this->service->prepare($this->count, $this->amount->id));
     }
 
-    public function test_partial_input_stays_unconfirmed_and_complete_category_is_aggregated_once(): void
+    public function test_partial_valuation_is_incomplete_and_complete_category_is_aggregated_once(): void
     {
         $this->prepare();
         $this->save(1, '２.５');
         $this->assertNull($this->amount->fresh()->counted_amount);
-        $this->assertRejected(fn () => (new SundryInventoryCountService)->confirm($this->count, null));
+        $this->assertRejected(fn () => $this->service->assertComplete($this->count));
         $this->save(2, 0);
         $this->assertSame(200.0, $this->amount->fresh()->counted_amount);
         $this->assertSame(-800.0, $this->amount->fresh()->difference_amount);
@@ -346,6 +365,20 @@ class SundryQuantityValuationServiceTest extends TestCase
         $this->assertRejected(fn () => (new SundryInventoryCountService)->saveChanges($this->count, [], [$this->amount->id => ['counted_amount' => 9]], 'test'));
         $this->save(2, null);
         $this->assertNull($this->amount->fresh()->difference_amount);
+        $this->assertSame($this->protectedRows, $this->protectedSnapshot());
+    }
+
+    public function test_input_confirmation_preserves_incomplete_nonmanaged_inputs_without_applying_stock(): void
+    {
+        $this->prepare();
+        $this->save(1, 2);
+        $before = [$this->count->items()->get()->toJson(), $this->count->amounts()->get()->toJson(),
+            WmsSundryValuationItem::orderBy('id')->get()->toJson()];
+        (new SundryInventoryCountService)->confirm($this->count, null);
+        $this->assertSame('confirmed', $this->count->fresh()->status);
+        $this->assertSame($before, [$this->count->items()->get()->toJson(), $this->count->amounts()->get()->toJson(),
+            WmsSundryValuationItem::orderBy('id')->get()->toJson()]);
+        $this->assertRejected(fn () => $this->service->assertComplete($this->count));
         $this->assertSame($this->protectedRows, $this->protectedSnapshot());
     }
 

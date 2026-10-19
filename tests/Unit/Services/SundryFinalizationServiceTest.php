@@ -5,6 +5,7 @@ namespace Tests\Unit\Services;
 use App\Models\WmsSundryInventoryCount;
 use App\Services\InventoryCount\InventoryCountLedgerBalanceService;
 use App\Services\SundryInventoryCount\SundryFinalizationCalculator;
+use App\Services\SundryInventoryCount\SundryFinalizationScope;
 use App\Services\SundryInventoryCount\SundryFinalizationService;
 use App\Services\SundryInventoryCount\SundryFinalizationWorkbook;
 use App\Services\SundryInventoryCount\SundryInventoryCountService;
@@ -17,6 +18,300 @@ use Illuminate\Validation\ValidationException;
 
 class SundryFinalizationServiceTest extends SundryQuantityValuationServiceTest
 {
+    public function test_customer_submission_is_amount_only_keeps_inputs_and_requires_approval(): void
+    {
+        [$count, $service] = $this->fixture();
+        $db = DB::connection('sakemaru');
+        Schema::connection('sakemaru')->table('item_categories', function (Blueprint $t): void {
+            $t->integer('client_id')->nullable(); $t->integer('depth')->nullable();
+        });
+        $db->table('item_categories')->where('id', 1)->update(['client_id' => 6, 'depth' => 1, 'name' => '雑貨']);
+        config(['sundry_submitted_difference' => array_replace(require config_path('sundry_submitted_difference.php'), [
+            'counts' => [$count->id => ['warehouse_code' => '10', 'amount' => -20030]],
+        ])]);
+        $before = $count->amounts()->get()->toJson();
+        $scope = SundryFinalizationScope::SUBMITTED_SEPTEMBER;
+        $preview = $service->preview($count, '2026-09-30', $scope);
+        $this->assertSame(['managed', 'book'], array_column($preview['snapshot']['lines'], 'kind'));
+        $this->assertSame(-20330.0, $preview['snapshot']['total_amount']);
+        $line = $preview['snapshot']['lines'][1];
+        $this->assertNull($line['item_id']);
+        $this->assertNull($line['difference_quantity']);
+        $this->assertValidationRejected(fn () => $service->preview($count, '2026-10-01', $scope));
+        $this->assertValidationRejected(fn () => $service->finalize($count, '2026-09-30', $preview['token'], null, false, $scope));
+        $service->finalize($count, '2026-09-30', $preview['token'], null, true, $scope);
+        $this->assertSame($before, $count->amounts()->get()->toJson());
+        $book = (new SundryFinalizationWorkbook)->build(SundryFinalizationService::record($count->id));
+        $this->assertSame(-20330.0, $book->getSheetByName('確定差異')->getCell('B8')->getCalculatedValue());
+        $this->assertStringContainsString('顧客提出', $book->getSheetByName('部門不明差異')->getCell('I2')->getValue());
+        $book->disconnectWorksheets();
+    }
+
+    public function test_submitted_policy_is_bound_to_thirteen_counts_and_assigns_91_92_only_to_91(): void
+    {
+        $policy = require config_path('sundry_submitted_difference.php');
+        $this->assertCount(13, $policy['counts']);
+        $this->assertSame(-6787406, array_sum(array_column($policy['counts'], 'amount')));
+        $this->assertSame(['91', '92'], $policy['counts'][26]['includes_warehouse_codes']);
+        $this->assertArrayNotHasKey(12, $policy['counts']);
+        $this->assertArrayNotHasKey(28, $policy['counts']);
+        $this->assertArrayNotHasKey(30, $policy['counts']);
+    }
+
+    public function test_submitted_history_uses_confirmed_department_opening_and_requires_full_recount(): void
+    {
+        $this->travelTo(\Carbon\Carbon::parse('2026-11-06'));
+        [$count, $service] = $this->fixture('2026-09-30');
+        $count->update(['count_date' => '2026-11-06']);
+        $db = DB::connection('sakemaru');
+        $db->table('review_reference')->update(['amount' => 850]);
+        $db->table('item_cost_snapshots')->insert(['client_id' => 6, 'item_id' => 4, 'target_year_month' => '2026-10', 'cost_unit_price' => 100]);
+        $db->table('wms_sundry_book_reconciliations')->insert(['client_id' => 6, 'warehouse_id' => 10, 'finalization_id' => 100,
+            'approval_key' => 'submitted-2026-09-unmanaged-41-47', 'category1_code' => '1004',
+            'process_date' => '2026-09-30', 'adjustment_amount' => -200, 'source_snapshot' => '{}']);
+        $snapshot = $service->preview($count, '2026-10-31')['snapshot'];
+        $book = collect($snapshot['lines'])->firstWhere('kind', 'book');
+        $this->assertSame(50.0, $snapshot['report_reconciliations'][1]['department_reference_gap']);
+        $this->assertSame(0.0, $snapshot['report_reconciliations'][1]['unknown_gap']);
+        $this->assertSame(150.0, $book['amount']);
+        $this->assertSame(-870.0, $snapshot['total_amount']);
+        config(['sundry_test.categories' => [['category2_id' => 2, 'category2_code' => '2041'], ['category2_id' => 47, 'category2_code' => '2047']]]);
+        // The missing middle category must not silently become a zero appraisal.
+        $this->assertValidationRejected(fn () => $service->preview($count, '2026-10-31'));
+        $this->assertSame(0, $db->table('inventory_adjustment_queue')->count());
+    }
+
+    public function test_next_full_inventory_absorbs_major_adjustment_without_repeating_unknown_difference(): void
+    {
+        $this->travelTo(\Carbon\Carbon::parse('2026-11-06'));
+        [$count, $service] = $this->fixture('2026-09-30');
+        $count->update(['count_date' => '2026-11-06']);
+        $db = DB::connection('sakemaru');
+        $db->table('review_reference')->update(['amount' => 800]);
+        $db->table('wms_sundry_book_reconciliations')->insert([
+            'client_id' => 6, 'warehouse_id' => 10, 'finalization_id' => 100,
+            'approval_key' => 'submitted-2026-09-unmanaged-41-47', 'category1_code' => '1004',
+            'process_date' => '2026-09-30', 'adjustment_amount' => -200, 'source_snapshot' => '{}',
+        ]);
+        $db->table('item_cost_snapshots')->insert(['client_id' => 6, 'item_id' => 4, 'target_year_month' => '2026-10', 'cost_unit_price' => 100]);
+        $preview = $service->preview($count, '2026-10-31');
+        $books = collect($preview['snapshot']['lines'])->where('kind', 'book')->values();
+        $this->assertCount(1, $books);
+        $this->assertSame('absorption', $books[0]['department_adjustment']['type']);
+        $this->assertSame(200.0, $books[0]['amount']);
+        $this->assertSame(-820.0, $preview['snapshot']['total_amount']);
+        $this->assertSame(0.0, $preview['snapshot']['report_reconciliations'][1]['unknown_gap']);
+        $db->table('wms_sundry_book_reconciliations')->insert([
+            'client_id' => 6, 'warehouse_id' => 10, 'finalization_id' => 101,
+            'approval_key' => $books[0]['book_reconciliation']['approval_key'], 'category1_code' => '1004',
+            'process_date' => '2026-10-31', 'adjustment_amount' => 200, 'source_snapshot' => json_encode($books[0]),
+        ]);
+        $policy = new \App\Services\SundryInventoryCount\SundrySubmittedDifference;
+        $this->assertSame(0.0, $policy->balance($count, '1004', '2026-10-31'));
+        $this->assertSame(-200.0, $policy->balance($count, '1004', '2026-09-30'));
+    }
+
+    public function test_managed_scope_skips_null_and_all_amount_inputs_but_keeps_explicit_zero(): void
+    {
+        [$count, $service] = $this->fixture();
+        $item = $count->items()->sole();
+        $item->update(['counted_quantity' => 0]);
+        $missing = $item->replicate();
+        $missing->fill(['item_id' => 999, 'item_code' => '999', 'item_name' => '=UNENTERED', 'counted_quantity' => null])->save();
+        $count->amounts()->update(['counted_amount' => null]);
+        DB::connection('sakemaru')->table('review_reference')->update(['amount' => 1500]);
+        $inputs = [$count->items()->get()->toJson(), $count->amounts()->get()->toJson()];
+
+        $preview = $service->preview($count, '2026-09-30', SundryFinalizationScope::ENTERED_MANAGED);
+        $snapshot = $preview['snapshot'];
+        $this->assertCount(1, $snapshot['lines']);
+        $this->assertCount(2, $snapshot['excluded_lines']);
+        $this->assertCount(2, $snapshot['inputs']['items']);
+        $this->assertCount(1, $snapshot['inputs']['amounts']);
+        $this->assertSame([], $snapshot['report_reconciliations']);
+        $this->assertSame(-10.0, $snapshot['lines'][0]['difference_quantity']);
+        $this->assertSame(2.0, $snapshot['lines'][0]['quantity_after']);
+        $this->assertSame(-1000.0, $snapshot['total_amount']);
+        $id = $service->finalize($count, '2026-09-30', $preview['token'], null, false, SundryFinalizationScope::ENTERED_MANAGED);
+        $this->assertSame($id, $service->finalize($count, '2026-09-30', $preview['token'], null, false, SundryFinalizationScope::ENTERED_MANAGED));
+        $this->assertSame($inputs, [$count->items()->get()->toJson(), $count->amounts()->get()->toJson()]);
+        $this->assertEquals(91, DB::connection('sakemaru')->table('real_stocks')->value('quantity'));
+        $this->assertSame(1, DB::connection('sakemaru')->table('inventory_adjustment_queue')->count());
+        $book = (new SundryFinalizationWorkbook)->build(SundryFinalizationService::record($count->id));
+        $this->assertSame(-1000.0, $book->getSheetByName('確定差異')->getCell('B8')->getCalculatedValue());
+        $this->assertSame(2, $book->getSheetByName('確定差異')->getCell('B13')->getValue());
+        $excluded = $book->getSheetByName('適用対象外');
+        $this->assertSame('s', $excluded->getCell('D2')->getDataType());
+        $this->assertSame('=UNENTERED', $excluded->getCell('D2')->getValue());
+        $this->assertSame('A1:E3', $excluded->getPageSetup()->getPrintArea());
+        $book->disconnectWorksheets();
+    }
+
+    public function test_managed_scope_ignores_entered_nonmanaged_amount_without_overwriting_it(): void
+    {
+        [$count, $service] = $this->fixture();
+        $count->amounts()->update(['counted_amount' => 999999]);
+        $preview = $service->preview($count, '2026-09-30', SundryFinalizationScope::ENTERED_MANAGED);
+        $this->assertSame(-300.0, $preview['snapshot']['total_amount']);
+        $this->assertSame(['managed'], array_column($preview['snapshot']['lines'], 'kind'));
+        $this->assertSame(999999.0, $count->amounts()->sole()->counted_amount);
+    }
+
+    public function test_all_scope_still_rejects_unentered_managed_and_nonmanaged_rows(): void
+    {
+        [$count, $service] = $this->fixture();
+        $count->items()->update(['counted_quantity' => null]);
+        $this->assertValidationRejected(fn () => $service->preview($count, '2026-09-30'));
+        $count->items()->update(['counted_quantity' => 7]);
+        $count->amounts()->update(['counted_amount' => null]);
+        $this->assertValidationRejected(fn () => $service->preview($count, '2026-09-30'));
+    }
+
+    public function test_managed_scope_rejects_empty_selection_and_unknown_scope(): void
+    {
+        [$count, $service] = $this->fixture();
+        $count->items()->update(['counted_quantity' => null]);
+        $this->assertValidationRejected(fn () => $service->preview($count, '2026-09-30', SundryFinalizationScope::ENTERED_MANAGED));
+        $this->assertValidationRejected(fn () => $service->preview($count, '2026-09-30', 'invalid'));
+        $this->assertSame(0, DB::connection('sakemaru')->table('inventory_adjustment_queue')->count());
+    }
+
+    public function test_scope_changes_cannot_reuse_preview_or_finalization_token(): void
+    {
+        [$count, $service] = $this->fixture();
+        $preview = $service->preview($count, '2026-09-30', SundryFinalizationScope::ENTERED_MANAGED);
+        $this->assertValidationRejected(fn () => $service->finalize($count, '2026-09-30', $preview['token'], null));
+        $service->finalize($count, '2026-09-30', $preview['token'], null, false, SundryFinalizationScope::ENTERED_MANAGED);
+        $this->assertValidationRejected(fn () => $service->finalize($count, '2026-09-30', $preview['token'], null));
+        $this->assertSame(1, DB::connection('sakemaru')->table('inventory_adjustment_queue')->count());
+    }
+
+    public function test_changes_to_excluded_inputs_invalidate_the_preview(): void
+    {
+        [$count, $service] = $this->fixture();
+        $preview = $service->preview($count, '2026-09-30', SundryFinalizationScope::ENTERED_MANAGED);
+        $count->amounts()->update(['counted_amount' => 500]);
+        $this->assertValidationRejected(fn () => $service->finalize($count, '2026-09-30', $preview['token'], null, false, SundryFinalizationScope::ENTERED_MANAGED));
+        $this->assertSame(0, DB::connection('sakemaru')->table('inventory_adjustment_queue')->count());
+    }
+
+    public function test_zero_owned_parent_is_preserved_and_excluded_from_weighed_finalization(): void
+    {
+        [$count, $service] = $this->fixture();
+        $count->update(['kind' => 'weighed']);
+        $parent = $count->items()->sole()->replicate();
+        $parent->fill(['item_id' => 3, 'item_code' => '129011', 'system_quantity' => 0, 'counted_quantity' => 0,
+            'counted_quantity_jar' => 0, 'counted_quantity_reserve' => 0])->recalculate()->save();
+        $before = $parent->fresh()->getAttributes();
+        foreach ([SundryFinalizationScope::ALL, SundryFinalizationScope::ENTERED_MANAGED] as $scope) {
+            $preview = $service->preview($count, '2026-09-30', $scope);
+            $this->assertNotContains(3, array_column($preview['snapshot']['lines'], 'item_id'));
+            $excluded = collect($preview['snapshot']['excluded_lines'])->firstWhere('item_code', '129011');
+            $this->assertSame($parent->id, $excluded['source_id']);
+            $this->assertStringContainsString('自社セット親', $excluded['reason']);
+        }
+        $service->finalize($count, '2026-09-30', $preview['token'], null, false, SundryFinalizationScope::ENTERED_MANAGED);
+        $this->assertSame($before, $parent->fresh()->getAttributes());
+    }
+
+    public function test_owned_parent_is_not_silently_excluded_when_saved_values_or_current_ledger_are_nonzero(): void
+    {
+        [$count, $service] = $this->fixture();
+        $count->update(['kind' => 'weighed']);
+        $parent = $count->items()->sole()->replicate();
+        $parent->fill(['item_id' => 3, 'item_code' => '129011', 'system_quantity' => 0, 'counted_quantity' => 0])->recalculate()->save();
+        foreach (['system_quantity', 'counted_quantity', 'difference_quantity', 'counted_quantity_jar', 'counted_quantity_reserve', 'difference_amount'] as $field) {
+            $parent->update([$field => 1]);
+            $this->assertValidationRejected(fn () => $service->preview($count, '2026-09-30'));
+            $parent->update([$field => 0]);
+        }
+        DB::connection('sakemaru')->table('review_balances')->insert(['item_id' => 3, 'quantity' => 1, 'posting_quantity' => 0]);
+        $this->assertValidationRejected(fn () => $service->preview($count, '2026-09-30'));
+        DB::connection('sakemaru')->table('review_balances')->where('item_id', 3)->update(['quantity' => 0]);
+        $count->update(['kind' => 'sundry']);
+        $this->assertValidationRejected(fn () => $service->preview($count, '2026-09-30'));
+        $this->assertSame(0, DB::connection('sakemaru')->table('inventory_adjustment_queue')->count());
+    }
+
+    public function test_scope_and_exclusions_are_visible_and_html_escaped_in_confirmation(): void
+    {
+        [$count, $service] = $this->fixture();
+        $count->amounts()->update(['category2_name' => '<script>unsafe</script>']);
+        $snapshot = $service->preview($count, '2026-09-30', SundryFinalizationScope::ENTERED_MANAGED)['snapshot'];
+        $html = view('filament.resources.wms-sundry-inventory-count.pages.partials.finalization-preview', [
+            'preview' => $snapshot + ['date' => '2026-09-30', 'total' => $snapshot['total_amount']],
+        ])->render();
+        $this->assertStringContainsString('入力済み管理品のみ', $html);
+        $this->assertStringContainsString('対象外 1件', $html);
+        $this->assertStringContainsString('&lt;script&gt;unsafe&lt;/script&gt;', $html);
+        $this->assertStringNotContainsString('<script>unsafe</script>', $html);
+    }
+
+    public function test_confirmation_actions_pass_the_selected_scope_through_both_steps(): void
+    {
+        [$count, $service] = $this->fixture();
+        $ids = [$count->items()->sole()->id];
+        $preview = $service->preview($count, '2026-09-30', SundryFinalizationScope::ENTERED_MANAGED, $ids);
+        $mock = \Mockery::mock(SundryFinalizationService::class);
+        $mock->shouldReceive('preview')->once()->with($count, '2026-09-30', SundryFinalizationScope::ENTERED_MANAGED, $ids)->andReturn($preview);
+        $mock->shouldReceive('finalize')->once()->with($count, '2026-09-30', $preview['token'], null, false, SundryFinalizationScope::ENTERED_MANAGED, $ids)->andReturn(1);
+        $mock->shouldNotReceive('requestApplication');
+        $this->app->instance(SundryFinalizationService::class, $mock);
+        $class = \App\Filament\Resources\WmsSundryInventoryCount\Pages\ViewWmsSundryInventoryCount::class;
+        $page = \Mockery::mock($class)->makePartial();
+        $page->record = $count;
+        $page->shouldReceive('replaceMountedAction')->once()->with('finalizeSundryConfirmation')->andReturnNull();
+        $actions = (new \ReflectionMethod($class, 'getHeaderActions'))->invoke($page);
+        $action = collect($actions)->first(fn ($action) => $action->getName() === 'finalizeSundry');
+        ($action->getActionFunction())(['date' => '2026-09-30', 'application_scope' => SundryFinalizationScope::ENTERED_MANAGED, 'zero_difference_row_ids' => $ids]);
+        $this->assertSame(SundryFinalizationScope::ENTERED_MANAGED, $page->finalizationPreview['application_scope']);
+        $this->assertSame($ids, $page->finalizationPreview['zero_difference_row_ids']);
+        $this->assertCount(2, $page->finalizationPreview['excluded_lines']);
+        ($page->finalizeSundryConfirmationAction()->getActionFunction())([]);
+        $this->assertSame([], $page->finalizationPreview);
+    }
+
+    public function test_zero_difference_picker_is_opt_in_and_only_lists_entered_managed_rows_in_this_count(): void
+    {
+        [$count] = $this->fixture();
+        $entered = $count->items()->sole();
+        DB::connection('sakemaru')->table('items')->where('id', 2)->update(['is_managed_stock' => true]);
+        foreach (['null', 'foreign_count', 'unmanaged', 'owned'] as $kind) {
+            $row = $entered->replicate();
+            match ($kind) {
+                'null' => $row->fill(['item_id' => 2, 'counted_quantity' => null]),
+                'foreign_count' => $row->sundry_inventory_count_id = $count->id + 1,
+                'unmanaged' => $row->item_id = 1,
+                'owned' => $row->item_id = 3,
+            };
+            $row->save();
+        }
+        DB::connection('sakemaru')->table('items')->where('id', 3)->update(['is_managed_stock' => true]);
+        $class = \App\Filament\Resources\WmsSundryInventoryCount\Pages\ViewWmsSundryInventoryCount::class;
+        $page = new $class;
+        $page->record = $count;
+        $options = $page->zeroDifferenceOptions();
+        $this->assertSame([$entered->id], array_column($options, 'id'));
+        $actions = (new \ReflectionMethod($class, 'getHeaderActions'))->invoke($page);
+        $action = collect($actions)->first(fn ($action) => $action->getName() === 'finalizeSundry');
+        $schema = $action->getSchema(\Filament\Schemas\Schema::make($page));
+        $field = collect($schema->getComponents())->first(fn ($field) => $field->getName() === 'zero_difference_row_ids');
+        $this->assertSame([], $field->getDefaultState());
+        view()->share('errors', new \Illuminate\Support\ViewErrorBag);
+        $this->assertStringContainsString('差異0指定', $field->toHtml());
+        $this->assertStringContainsString('入力実棚', $field->toHtml());
+    }
+
+    private function assertValidationRejected(callable $operation): void
+    {
+        try {
+            $operation();
+            $this->fail('Invalid finalization was accepted.');
+        } catch (ValidationException $exception) {
+            $this->assertNotEmpty($exception->errors());
+        }
+    }
+
     private function fixture(string $referenceDate = '2026-08-31'): array
     {
         config(['sundry_book_reconciliation.unmanaged_gaps' => [], 'sundry_book_reconciliation.managed_gaps' => []]);
@@ -80,12 +375,184 @@ class SundryFinalizationServiceTest extends SundryQuantityValuationServiceTest
         };
         $ledger = new class extends InventoryCountLedgerBalanceService
         {
+            public function countBalancesBeforeEligibilityByItem(int $clientId, int $warehouseId, string $endDate): array
+            {
+                return DB::connection('sakemaru')->table('review_balances')->pluck('quantity', 'item_id')->all();
+            }
+
             public function balancesBeforeAdjustmentByItem(int $clientId, int $warehouseId, string $date): array
             {
                 return DB::connection('sakemaru')->table('review_balances')->pluck('posting_quantity', 'item_id')->all();
             }
         };
         return [$count, new SundryFinalizationService(new SundryFinalizationCalculator($theory, $ledger))];
+    }
+
+    public function test_explicit_zero_difference_survives_theory_changes_without_rewriting_input(): void
+    {
+        [$count, $service] = $this->fixture();
+        $item = $count->items()->sole();
+        $item->update(['system_quantity' => -5, 'counted_quantity' => -5, 'difference_quantity' => 0]);
+        $before = $item->fresh()->getAttributes();
+        $ids = [$item->id];
+        DB::connection('sakemaru')->table('review_balances')->where('item_id', 4)->update(['quantity' => -1]);
+        $ordinary = $service->preview($count, '2026-09-30', SundryFinalizationScope::ENTERED_MANAGED);
+        $this->assertSame(-4.0, $ordinary['snapshot']['lines'][0]['difference_quantity']);
+        $preview = $service->preview($count, '2026-09-30', SundryFinalizationScope::ENTERED_MANAGED, $ids);
+        $this->assertSame([], $preview['snapshot']['lines']);
+        $this->assertSame(0.0, $preview['snapshot']['total_amount']);
+        $excluded = collect($preview['snapshot']['excluded_lines'])->firstWhere('quantity_policy', 'no_adjustment');
+        $this->assertSame(-5.0, $excluded['count_actual']);
+        $this->assertSame(-1.0, $excluded['count_theory']);
+        $this->assertSame(0.0, $excluded['difference_quantity']);
+        $this->assertSame($before, $excluded['original_count_row']);
+        $this->assertSame($preview['token'], $service->preview($count, '2026-09-30', SundryFinalizationScope::ENTERED_MANAGED, [(string) $item->id, $item->id])['token']);
+        $id = $service->finalize($count, '2026-09-30', $preview['token'], 77, false, SundryFinalizationScope::ENTERED_MANAGED, $ids);
+        $snapshot = json_decode(SundryFinalizationService::record($count->id)->snapshot, true);
+        $this->assertSame($ids, $snapshot['zero_difference_approval']['row_ids']);
+        $this->assertSame(77, $snapshot['zero_difference_approval']['user_id']);
+        $this->assertSame($id, $service->finalize($count, '2026-09-30', $preview['token'], 77, false, SundryFinalizationScope::ENTERED_MANAGED, $ids));
+        $this->assertValidationRejected(fn () => $service->finalize($count, '2026-09-30', $preview['token'], 77, false, SundryFinalizationScope::ENTERED_MANAGED));
+        $this->assertSame($before, $item->fresh()->getAttributes());
+        $this->assertEquals(91, DB::connection('sakemaru')->table('real_stocks')->value('quantity'));
+        $this->assertSame(1, DB::connection('sakemaru')->table('inventory_adjustment_queue')->count());
+        $book = (new SundryFinalizationWorkbook)->build(SundryFinalizationService::record($count->id));
+        $this->assertSame(1, $book->getSheetByName('確定差異')->getCell('B14')->getValue());
+        $sheet = $book->getSheetByName('適用対象外');
+        $this->assertSame(-5.0, $sheet->getCell('G3')->getValue());
+        $this->assertSame(0.0, $sheet->getCell('H3')->getValue());
+        $html = view('filament.resources.wms-sundry-inventory-count.pages.partials.finalization-preview', [
+            'preview' => $preview['snapshot'] + ['date' => '2026-09-30', 'total' => 0],
+        ])->render();
+        $this->assertStringContainsString('差異0指定', $html);
+        $this->assertStringContainsString('再計算理論', $html);
+        $this->assertStringContainsString('-5.000', $html);
+    }
+
+    public function test_zero_difference_selection_cannot_reuse_a_token_or_ignore_other_inputs(): void
+    {
+        [$count, $service] = $this->fixture();
+        $item = $count->items()->sole();
+        $selected = [$item->id];
+        $preview = $service->preview($count, '2026-09-30', SundryFinalizationScope::ENTERED_MANAGED, $selected);
+        $this->assertValidationRejected(fn () => $service->finalize($count, '2026-09-30', $preview['token'], null, false, SundryFinalizationScope::ENTERED_MANAGED));
+        $item->update(['counted_quantity' => 8]);
+        $this->assertValidationRejected(fn () => $service->finalize($count, '2026-09-30', $preview['token'], null, false, SundryFinalizationScope::ENTERED_MANAGED, $selected));
+        $this->assertSame(0, DB::connection('sakemaru')->table('inventory_adjustment_queue')->count());
+        $count->amounts()->update(['counted_amount' => 400]);
+        $all = $service->preview($count, '2026-09-30', SundryFinalizationScope::ALL, $selected)['snapshot'];
+        $this->assertCount(1, $all['lines']);
+        $this->assertSame('amount', $all['lines'][0]['kind']);
+        $this->assertSame(-720.0, $all['lines'][0]['amount']);
+    }
+
+    public function test_zero_difference_leaves_other_managed_rows_and_their_differences_unchanged(): void
+    {
+        [$count, $service] = $this->fixture();
+        $db = DB::connection('sakemaru');
+        $master = (array) $db->table('items')->where('id', 4)->first();
+        $master['id'] = 5;
+        $master['code'] = '405';
+        $db->table('items')->insert($master);
+        $second = $count->items()->sole()->replicate();
+        $second->fill(['item_id' => 5, 'item_code' => '405', 'counted_quantity' => 0])->save();
+        $db->table('review_balances')->insert(['item_id' => 5, 'quantity' => 2, 'posting_quantity' => 4]);
+        $db->table('item_cost_snapshots')->insert(['client_id' => 6, 'item_id' => 5, 'target_year_month' => '2026-09', 'cost_unit_price' => 100]);
+        $before = $count->items()->orderBy('id')->get()->map->getAttributes()->all();
+        $snapshot = $service->preview($count, '2026-09-30', SundryFinalizationScope::ENTERED_MANAGED, [$before[0]['id']])['snapshot'];
+        $this->assertCount(1, $snapshot['lines']);
+        $this->assertSame(5, $snapshot['lines'][0]['item_id']);
+        $this->assertSame(-2.0, $snapshot['lines'][0]['difference_quantity']);
+        $this->assertSame(2.0, $snapshot['lines'][0]['quantity_after']);
+        $this->assertSame(-200.0, $snapshot['total_amount']);
+        $this->assertSame($before, $count->items()->orderBy('id')->get()->map->getAttributes()->all());
+    }
+
+    public function test_zero_difference_selection_rejects_null_foreign_owned_and_malformed_rows(): void
+    {
+        [$count, $service] = $this->fixture();
+        foreach ([[0], [-1], [true], [1.2], ['invalid'], [[]], [99999]] as $ids) {
+            $this->assertValidationRejected(fn () => $service->preview($count, '2026-09-30', SundryFinalizationScope::ENTERED_MANAGED, $ids));
+        }
+        $item = $count->items()->sole();
+        $item->update(['counted_quantity' => null]);
+        $this->assertValidationRejected(fn () => $service->preview($count, '2026-09-30', SundryFinalizationScope::ENTERED_MANAGED, [$item->id]));
+        $count->update(['kind' => 'weighed']);
+        $item->update(['item_id' => 3, 'item_code' => '129011', 'system_quantity' => 0, 'counted_quantity' => 0, 'difference_quantity' => 0, 'difference_amount' => 0]);
+        $this->assertValidationRejected(fn () => $service->preview($count, '2026-09-30', SundryFinalizationScope::ENTERED_MANAGED, [$item->id]));
+    }
+
+    private function actualLedgerFixture(): array
+    {
+        [$count] = $this->fixture();
+        $count->update(['kind' => 'weighed']);
+        $db = DB::connection('sakemaru');
+        $schema = Schema::connection('sakemaru');
+        $db->table('items')->where('id', 3)->update(['is_managed_stock' => true, 'code' => '129011']);
+        $parent = $count->items()->sole()->replicate();
+        $parent->fill(['item_id' => 3, 'item_code' => '129011', 'system_quantity' => 0, 'counted_quantity' => 0,
+            'difference_quantity' => 0, 'difference_amount' => 0, 'counted_quantity_jar' => 0])->save();
+        foreach ([
+            'stats_item_stock_opening_balances' => ['client_id', 'warehouse_id', 'opening_date', 'item_id', 'opening_quantity'],
+            'purchases' => ['trade_id', 'warehouse_id', 'is_active'],
+            'earnings' => ['trade_id', 'warehouse_id', 'is_active', 'delivered_date'],
+            'stock_transfers' => ['trade_id', 'from_warehouse_id', 'to_warehouse_id', 'is_active', 'is_delivered', 'picking_date', 'delivered_date'],
+        ] as $table => $columns) {
+            $schema->create($table, function (Blueprint $t) use ($columns): void {
+                $t->id();
+                foreach ($columns as $column) { $t->string($column)->nullable(); }
+            });
+        }
+        foreach ([
+            'trades' => ['client_id', 'process_date', 'trade_category', 'is_returned', 'trade_direction'],
+            'trade_items' => ['trade_id', 'is_active', 'total_piece_quantity', 'quantity_type', 'quantity', 'capacity_case', 'capacity_carton'],
+            'inventory_adjustment_items' => ['stock_quantity_before', 'stock_quantity_after', 'applied_stock_quantity_after', 'applied_stock_quantity_before', 'inventory_adjustment_quantity'],
+        ] as $table => $columns) {
+            $schema->table($table, function (Blueprint $t) use ($columns): void {
+                foreach ($columns as $column) { $t->string($column)->nullable(); }
+            });
+        }
+        foreach ([3 => 0, 4 => 10] as $item => $quantity) {
+            $db->table('stats_item_stock_opening_balances')->insert(['client_id' => 6, 'warehouse_id' => $count->warehouse_id,
+                'opening_date' => '2026-05-06', 'item_id' => $item, 'opening_quantity' => $quantity]);
+        }
+        $ledger = new InventoryCountLedgerBalanceService;
+        return [$count, new SundryFinalizationService(new SundryFinalizationCalculator(new SundryInventoryTheoryCalculator, $ledger)), $ledger];
+    }
+
+    public function test_owned_guard_checks_real_unfiltered_count_ledger_instead_of_filtered_theory(): void
+    {
+        [$count, $service, $ledger] = $this->actualLedgerFixture();
+        $db = DB::connection('sakemaru');
+        foreach ([1, -1] as $quantity) {
+            $db->table('stats_item_stock_opening_balances')->where('item_id', 3)->update(['opening_quantity' => $quantity]);
+            $this->assertArrayNotHasKey(3, $ledger->balancesByItem(6, $count->warehouse_id, '2026-10-06'));
+            $this->assertSame((float) $quantity, $ledger->countBalancesBeforeEligibilityByItem(6, $count->warehouse_id, '2026-10-06')[3]);
+            $this->assertValidationRejected(fn () => $db->transaction(fn () => $service->preview($count, '2026-09-30', SundryFinalizationScope::ENTERED_MANAGED)));
+        }
+        $db->table('stats_item_stock_opening_balances')->where('item_id', 3)->update(['opening_quantity' => 0]);
+        $preview = $db->transaction(fn () => $service->preview($count, '2026-09-30', SundryFinalizationScope::ENTERED_MANAGED));
+        $this->assertNotContains(3, array_column($preview['snapshot']['lines'], 'item_id'));
+        $this->assertSame(0.0, $count->items()->where('item_id', 3)->sole()->counted_quantity);
+    }
+
+    public function test_unfiltered_count_ledger_keeps_receipt_completion_and_date_rules(): void
+    {
+        [$count, $service, $ledger] = $this->actualLedgerFixture();
+        $db = DB::connection('sakemaru');
+        $db->table('trades')->insert(['id' => 1, 'client_id' => 6, 'trade_category' => 'STOCK_TRANSFER', 'process_date' => '2026-10-08', 'is_active' => 1, 'is_latest' => 1]);
+        $db->table('trade_items')->insert(['id' => 1, 'trade_id' => 1, 'item_id' => 3, 'is_active' => 1, 'total_piece_quantity' => 5, 'quantity' => 5, 'quantity_type' => 'PIECE']);
+        $db->table('stock_transfers')->insert(['id' => 1, 'trade_id' => 1, 'from_warehouse_id' => 91, 'to_warehouse_id' => $count->warehouse_id,
+            'is_active' => 1, 'is_delivered' => 0, 'picking_date' => '2026-10-06', 'delivered_date' => '2026-10-06']);
+        $this->assertSame(0.0, $ledger->countBalancesBeforeEligibilityByItem(6, $count->warehouse_id, '2026-10-06')[3]);
+        $this->assertSame(5.0, $ledger->balancesBeforeAdjustmentByItem(6, $count->warehouse_id, '2026-10-06')[3]);
+        $db->transaction(fn () => $service->preview($count, '2026-09-30', SundryFinalizationScope::ENTERED_MANAGED));
+        $db->table('stock_transfers')->where('id', 1)->update(['is_delivered' => 1, 'delivered_date' => '2026-10-07']);
+        $this->assertSame(0.0, $ledger->countBalancesBeforeEligibilityByItem(6, $count->warehouse_id, '2026-10-06')[3]);
+        $db->table('stock_transfers')->where('id', 1)->update(['delivered_date' => '2026-10-06']);
+        $this->assertSame(5.0, $ledger->countBalancesBeforeEligibilityByItem(6, $count->warehouse_id, '2026-10-06')[3]);
+        $this->assertValidationRejected(fn () => $db->transaction(fn () => $service->preview($count, '2026-09-30', SundryFinalizationScope::ENTERED_MANAGED)));
+        $this->assertSame(-5.0, $ledger->countBalancesBeforeEligibilityByItem(6, 91, '2026-10-06')[3]);
     }
 
     private function nextMonthFixture(): array

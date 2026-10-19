@@ -340,12 +340,17 @@ class SundryInventoryCountService
             ->where('i.client_id', $clientId)
             ->where('i.code', $itemCode)
             ->first([
-                'i.id', 'i.code', 'i.name', 'i.type', 'i.is_managed_stock', 'i.item_category1_id', 'i.item_category2_id',
+                'i.id', 'i.code', 'i.name', 'i.type', 'i.is_managed_stock', 'i.item_category1_id', 'i.item_category2_id', 'i.item_set_id',
                 'c1.code as category1_code', 'c2.code as category2_code', 'c2.name as category2_name',
             ]);
 
         if (! $item) {
             throw ValidationException::withMessages(['item_code' => "商品CD {$itemCode} が見つかりません。"]);
+        }
+
+        if ($count->isWeighed() && $item->item_set_id !== null && DB::connection('sakemaru')->table('item_sets')
+            ->where('id', $item->item_set_id)->where('is_active', true)->where('set_type', 'OWNED')->exists()) {
+            throw ValidationException::withMessages(['item_code' => "商品CD {$itemCode} は自社セット親のため、量り売りの棚卸し対象に追加できません。"]);
         }
 
         $isUnmanaged = $item->is_managed_stock !== null && ! (bool) $item->is_managed_stock;
@@ -426,7 +431,7 @@ class SundryInventoryCountService
     public function confirm(WmsSundryInventoryCount $count, ?int $userId): void
     {
         $this->withEditableCount($count, function (WmsSundryInventoryCount $count) use ($userId): void {
-            (new SundryQuantityValuationService)->assertComplete($count);
+            // Closing input does not apply stock; completeness is validated for the chosen finalization scope.
             $count->update([
                 'status' => WmsSundryInventoryCount::STATUS_CONFIRMED,
                 'confirmed_at' => now(),
@@ -611,6 +616,8 @@ class SundryInventoryCountService
             ->leftJoin('item_categories as c2', 'c2.id', '=', 'i.item_category2_id')
             ->where('i.client_id', $clientId)
             ->whereIn('i.code', $codes)
+            ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('item_sets as s')
+                ->whereColumn('s.id', 'i.item_set_id')->where('s.is_active', true)->where('s.set_type', 'OWNED'))
             ->where(function ($query): void {
                 $query->whereNull('i.is_managed_stock')->orWhere('i.is_managed_stock', true);
             })
@@ -1164,14 +1171,16 @@ class SundryInventoryCountService
             ->selectRaw('category1_id, SUM(system_amount) as system_amount')
             ->pluck('system_amount', 'category1_id');
 
-        return array_map(function (array $reference) use ($detailTotals): array {
+        return array_map(function (array $reference) use ($detailTotals, $count): array {
             $detail = round((float) ($detailTotals[$reference['category1_id']] ?? 0), 2);
+            $department = (new SundrySubmittedDifference)->balance($count, (string) $reference['category1_code'], $this->theoryEndDate($count));
 
             return $reference + [
-                'detail_system_amount' => $detail,
+                'detail_system_amount' => round($detail + $department, 2),
+                'department_adjustment_amount' => $department,
                 'difference_amount' => $reference['system_amount'] === null
                     ? null
-                    : round($detail - (float) $reference['system_amount'], 2),
+                    : round($detail + $department - (float) $reference['system_amount'], 2),
             ];
         }, array_values((array) ($count->amount_report_references ?? [])));
     }

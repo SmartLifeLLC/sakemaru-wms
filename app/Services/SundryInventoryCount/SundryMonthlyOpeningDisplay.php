@@ -76,13 +76,16 @@ class SundryMonthlyOpeningDisplay
         $totals = [];
         foreach (collect($rows)->groupBy('category1_id') as $category => $details) {
             $complete = $details->every(fn ($row) => $row['opening_amount'] !== null);
-            $opening = $complete ? round($details->sum('opening_amount'), 2) : null;
+            $date = $details->first()['date'];
+            $departmentAdjustment = $date ? (new SundrySubmittedDifference)->balance($count, (string) $details->first()['category1_code'], $date) : 0;
+            $opening = $complete ? round($details->sum('opening_amount') + $departmentAdjustment, 2) : null;
             $reportOpening = $references->get($category)['opening_amount'] ?? null;
             $totals[] = [
                 'category1_code' => $details->first()['category1_code'],
                 'category1_name' => $details->first()['category1_name'],
                 'date' => $details->first()['date'],
                 'opening_amount' => $opening,
+                'department_adjustment_amount' => $departmentAdjustment,
                 'report_amount' => $reportOpening,
                 'difference_amount' => $opening !== null && $reportOpening !== null ? round($opening - $reportOpening, 2) : null,
             ];
