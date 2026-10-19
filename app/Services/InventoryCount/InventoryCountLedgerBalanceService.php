@@ -23,6 +23,12 @@ class InventoryCountLedgerBalanceService
         return $this->calculateBalances($clientId, $warehouseId, $endDate, false);
     }
 
+    /** Count-day delivery rules, before excluding unmanaged/container/OWNED items. */
+    public function countBalancesBeforeEligibilityByItem(int $clientId, int $warehouseId, string $endDate): array
+    {
+        return $this->calculateBalances($clientId, $warehouseId, $endDate, false, false);
+    }
+
     /**
      * 基幹の棚卸調節伝票（当日sort_order=90）を追加する直前の残高。
      * 棚卸理論の入庫完了条件とは分離し、基幹受払の移入・旧前残の扱いに合わせる。
@@ -34,7 +40,7 @@ class InventoryCountLedgerBalanceService
         return $this->calculateBalances($clientId, $warehouseId, $date, true);
     }
 
-    private function calculateBalances(int $clientId, int $warehouseId, string $endDate, bool $forAdjustment): array
+    private function calculateBalances(int $clientId, int $warehouseId, string $endDate, bool $forAdjustment, bool $filterEligibleItems = true): array
     {
         $end = CarbonImmutable::parse($endDate)->toDateString();
         if ($end < self::OPENING_DATE) {
@@ -119,7 +125,7 @@ class InventoryCountLedgerBalanceService
             $balances[$itemId] = $balance;
         }
 
-        if ($forAdjustment) {
+        if ($forAdjustment || ! $filterEligibleItems) {
             return collect($balances)->map(fn (int $quantity): float => $this->scaledToQuantity($quantity))->all();
         }
 

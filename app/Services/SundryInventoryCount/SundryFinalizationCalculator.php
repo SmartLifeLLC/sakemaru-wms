@@ -20,8 +20,11 @@ class SundryFinalizationCalculator
         private readonly InventoryCountLedgerBalanceService $ledger = new InventoryCountLedgerBalanceService,
     ) {}
 
-    public function calculate(WmsSundryInventoryCount $count, string $date): array
+    public function calculate(WmsSundryInventoryCount $count, string $date, string $scope = SundryFinalizationScope::ALL, array $zeroDifferenceRowIds = []): array
     {
+        SundryFinalizationScope::validate($scope);
+        $zeroDifferenceRowIds = self::normalizeZeroDifferenceRowIds($zeroDifferenceRowIds);
+        $managedOnly = $scope !== SundryFinalizationScope::ALL;
         $date = $this->date($date);
         $countDate = $count->count_date->toDateString();
         if ($count->status !== WmsSundryInventoryCount::STATUS_CONFIRMED) {
@@ -36,13 +39,47 @@ class SundryFinalizationCalculator
         if ($countDate > today()->toDateString()) {
             $this->fail('棚卸し実施日が未来です。実際に数えた日付を確認してください。');
         }
-        (new SundryQuantityValuationService)->assertComplete($count);
-        $items = $count->items()->orderBy('id')->get();
-        $amounts = $count->amounts()->orderBy('id')->get();
+        if (! $managedOnly) {
+            (new SundryQuantityValuationService)->assertComplete($count);
+        }
+        $allItems = $count->items()->orderBy('id')->get();
+        $allAmounts = $count->amounts()->orderBy('id')->get();
+        $excluded = [];
+        $items = $allItems->filter(function ($item) use ($managedOnly, &$excluded): bool {
+            if ($managedOnly && $item->counted_quantity === null) {
+                $excluded[] = ['kind' => 'managed', 'source_id' => $item->id, 'item_code' => $item->item_code,
+                    'item_name' => $item->item_name, 'reason' => '未入力のため適用対象外'];
+
+                return false;
+            }
+
+            return true;
+        });
+        $amounts = $managedOnly ? collect() : $allAmounts;
+        if ($managedOnly) {
+            foreach ($allAmounts as $amount) {
+                $excluded[] = ['kind' => 'amount', 'source_id' => $amount->id, 'item_code' => $amount->category2_code,
+                    'item_name' => $amount->category2_name, 'reason' => '非管理品は今回の適用対象外（入力値は保持）'];
+            }
+        }
         if ($items->contains(fn ($r) => $r->counted_quantity === null) || $amounts->contains(fn ($r) => $r->counted_amount === null)) {
             $this->fail('未入力の商品数量または分類別実棚金額があります。0の場合も明示的に入力してください。');
         }
         $db = DB::connection('sakemaru');
+        $ownedIds = $db->table('items as i')->join('item_sets as s', 's.id', '=', 'i.item_set_id')
+            ->where('i.client_id', $count->client_id)->whereIn('i.id', $items->pluck('item_id'))
+            ->where('s.is_active', true)->where('s.set_type', 'OWNED')->pluck('i.id')->all();
+        $ownedRows = $items->whereIn('item_id', $ownedIds);
+        foreach ($ownedRows as $item) {
+            if (! $count->isWeighed() || $item->system_quantity !== 0.0 || $item->counted_quantity !== 0.0
+                || $item->difference_quantity !== 0.0 || (float) $item->counted_quantity_jar !== 0.0
+                || (float) $item->counted_quantity_reserve !== 0.0 || (float) $item->difference_amount !== 0.0) {
+                $this->fail("商品CD {$item->item_code} は自社セット親です。数量・差異があるため自動除外できません。入力内容を確認してください。");
+            }
+            $excluded[] = ['kind' => 'managed', 'source_id' => $item->id, 'item_code' => $item->item_code,
+                'item_name' => $item->item_name, 'reason' => '理論・実棚・差異が0の自社セット親（入力履歴は保持）'];
+        }
+        $items = $items->whereNotIn('item_id', $ownedIds);
         $ids = $items->pluck('item_id')->all();
         $master = $db->table('items as i')->join('item_categories as c1', 'c1.id', '=', 'i.item_category1_id')
             ->where('i.client_id', $count->client_id)->whereIn('i.id', $ids)
@@ -52,7 +89,30 @@ class SundryFinalizationCalculator
         if ($master->count() !== count(array_unique($ids))) {
             $this->fail('商品の在庫管理設定・自社セット設定が変わっています。対象商品を確認してください。');
         }
-        $countBalances = $ids === [] ? [] : $this->theory->managedBalances($count->client_id, $count->warehouse_id, $countDate);
+        $zeroRows = $items->whereIn('id', $zeroDifferenceRowIds);
+        if ($zeroRows->count() !== count($zeroDifferenceRowIds) || $zeroRows->contains(fn ($row) => $row->counted_quantity === null)) {
+            $this->fail('差異0指定には、この棚卸しの入力済み管理品を選択してください。自社セット親・未入力・他の棚卸しの明細は指定できません。');
+        }
+        $countBalances = $ids === [] && $ownedRows->isEmpty() ? [] : $this->theory->managedBalances($count->client_id, $count->warehouse_id, $countDate);
+        $ownedBalances = $ownedRows->isEmpty() ? [] : $this->ledger->countBalancesBeforeEligibilityByItem($count->client_id, $count->warehouse_id, $countDate);
+        foreach ($ownedRows as $item) {
+            if (round((float) ($ownedBalances[$item->item_id] ?? 0), 3) !== 0.0) {
+                $this->fail("商品CD {$item->item_code} は自社セット親ですが現在の受払残高が0ではありません。対象商品を確認してください。");
+            }
+        }
+        foreach ($zeroRows as $item) {
+            $this->assertSupportedCategory((string) $master[$item->item_id]->category1_code);
+            if ((int) $master[$item->item_id]->item_category2_id !== (int) $item->category2_id) {
+                $this->fail("商品CD {$item->item_code} の中分類が変わっています。対象商品を確認してください。");
+            }
+            $excluded[] = ['kind' => 'managed', 'source_id' => $item->id, 'item_code' => $item->item_code,
+                'item_name' => $item->item_name, 'reason' => '差異0指定（数量・金額を調整しない／入力値は保持）',
+                'quantity_policy' => 'no_adjustment', 'count_actual' => $item->counted_quantity,
+                'count_theory' => round((float) ($countBalances[$item->item_id] ?? 0), 3),
+                'difference_quantity' => 0.0, 'amount' => 0.0, 'original_count_row' => $item->getAttributes()];
+        }
+        $items = $items->whereNotIn('id', $zeroDifferenceRowIds);
+        $ids = $items->pluck('item_id')->all();
         $postingBalances = $ids === [] ? [] : $this->ledger->balancesBeforeAdjustmentByItem($count->client_id, $count->warehouse_id, $date);
         $costs = $db->table('item_cost_snapshots')->where('client_id', $count->client_id)
             ->where('target_year_month', substr($date, 0, 7))->whereIn('item_id', $ids)->get()->keyBy('item_id');
@@ -142,12 +202,19 @@ class SundryFinalizationCalculator
                 'original_count_row' => $amount->getAttributes(), 'valuations' => $values->map->getAttributes()->all(),
             ];
         }
-        if ($lines === []) {
+        if ($scope === SundryFinalizationScope::SUBMITTED_SEPTEMBER) {
+            $lines = (new SundrySubmittedDifference)->append($count, $date, $lines);
+        }
+        if ($lines === [] && $zeroRows->isEmpty()) {
             $this->fail('確定する棚卸し明細がありません。');
         }
-        $references = $this->assertReportOpenings($count, $lines, min($date, $countDate));
-        $lines = (new SundryBookReconciliation)->includeInLines($count, $date, $lines, $references);
-        $lines = (new SundryBookReconciliation)->includeUnknownLines($count, $date, $lines, $references);
+        // Quantity-only application must not also settle the department's uncounted amount balance.
+        $references = $managedOnly ? [] : $this->assertReportOpenings($count, $lines, min($date, $countDate));
+        if (! $managedOnly) {
+            $lines = (new SundryBookReconciliation)->includeInLines($count, $date, $lines, $references);
+            $lines = (new SundryBookReconciliation)->includeUnknownLines($count, $date, $lines, $references);
+            $lines = (new SundrySubmittedDifference($this->theory))->absorb($count, $date, $lines, $references);
+        }
         $lines = $this->allocateManagedRounding($lines);
         (new SundryCalculationProof($db))->applicationOnly(
             fn () => $this->assertNoLaterAdjustment($count, $date, $ids, $amounts->pluck('category2_id')->all())
@@ -155,10 +222,25 @@ class SundryFinalizationCalculator
         return ['version' => 3, 'count_id' => $count->id, 'count_no' => $count->count_no,
             'client_id' => $count->client_id, 'warehouse_id' => $count->warehouse_id, 'warehouse_code' => $count->warehouse_code,
             'count_date' => $countDate, 'process_date' => $date, 'lines' => $lines,
+            'application_scope' => $scope, 'excluded_lines' => $excluded,
+            'zero_difference_row_ids' => $zeroDifferenceRowIds,
             'report_reconciliations' => $references,
             'total_amount' => round(array_sum(array_column($lines, 'amount')), 2),
-            'inputs' => ['header' => $count->getAttributes(), 'items' => $items->map->getAttributes()->all(), 'amounts' => $amounts->map->getAttributes()->all()],
+            'inputs' => ['header' => $count->getAttributes(), 'items' => $allItems->map->getAttributes()->all(), 'amounts' => $allAmounts->map->getAttributes()->all()],
         ];
+    }
+
+    public static function normalizeZeroDifferenceRowIds(array $ids): array
+    {
+        foreach ($ids as $id) {
+            if ((! is_int($id) && ! is_string($id)) || filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) === false) {
+                throw ValidationException::withMessages(['finalization' => '差異0指定の商品を選択し直してください。']);
+            }
+        }
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        sort($ids, SORT_NUMERIC);
+
+        return $ids;
     }
 
     private function allocateManagedRounding(array $lines): array
@@ -247,11 +329,17 @@ class SundryFinalizationCalculator
                 }
                 $sum += $this->bookAmount($count, $expected->category2_id, $openingDate, $opening, $ref['date']);
             }
+            $sum += (new SundrySubmittedDifference)->balance($count, $categoryCode, $ref['date']);
             $approvedGap = $policy->approvedGap($count, $categoryCode, $ref['date']);
+            $gap = round($ref['amount'] - $sum - $approvedGap, 2);
+            // After the one-time submission, the confirmed report is the department opening.
+            // Keep any unallocated opening difference at major-category level until a full recount.
+            $departmentGap = $ref['date'] >= '2026-09-30'
+                && (new SundrySubmittedDifference)->hasHistory($count, $categoryCode, $ref['date']) ? $gap : 0.0;
             $references[$category] = ['date' => $ref['date'], 'category1_code' => $categoryCode,
                 'category1_name' => DB::connection('sakemaru')->table('item_categories')->where('id', $category)->value('name'),
                 'unmanaged_book_amount' => round($sum, 2), 'approved_gap' => $approvedGap, 'report_residual_amount' => $ref['amount'],
-                'unknown_gap' => round($ref['amount'] - $sum - $approvedGap, 2), 'reference' => $ref];
+                'unknown_gap' => round($gap - $departmentGap, 2), 'department_reference_gap' => $departmentGap, 'reference' => $ref];
         }
         return $references;
     }

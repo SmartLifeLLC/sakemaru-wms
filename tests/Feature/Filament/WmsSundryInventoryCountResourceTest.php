@@ -133,18 +133,19 @@ class WmsSundryInventoryCountResourceTest extends TestCase
         }
         [$count] = $this->sundryCount(WmsSundryInventoryCount::STATUS_CONFIRMED);
         $this->mock(SundryFinalizationService::class, function ($mock): void {
-            $mock->shouldReceive('preview')->once()->andReturn(['token' => str_repeat('a', 64), 'snapshot' => [
-                'count_date' => '2026-06-30', 'total_amount' => -300, 'lines' => [],
+            $mock->shouldReceive('preview')->once()->withArgs(fn ($count, $date, $scope, $zeroIds) => $scope === 'entered_managed' && $zeroIds === [12])->andReturn(['token' => str_repeat('a', 64), 'snapshot' => [
+                'count_date' => '2026-06-30', 'total_amount' => -300, 'lines' => [], 'application_scope' => 'entered_managed', 'excluded_lines' => [], 'zero_difference_row_ids' => [12],
             ]]);
-            $mock->shouldReceive('finalize')->once()->withArgs(fn ($count, $date, $token, $user) => $date === '2026-06-30' && $token === str_repeat('a', 64))->andReturn(1);
+            $mock->shouldReceive('finalize')->once()->withArgs(fn ($count, $date, $token, $user, $approve, $scope, $zeroIds) => $date === '2026-06-30' && $token === str_repeat('a', 64) && $scope === 'entered_managed' && $zeroIds === [12])->andReturn(1);
             $mock->shouldNotReceive('requestApplication');
         });
         Livewire::actingAs($this->user())->test(ViewWmsSundryInventoryCount::class, ['record' => $count])
             ->assertActionEnabled('finalizeSundry')
             ->assertActionDisabled('applySundry')
-            ->callAction('finalizeSundry', ['date' => '2026-06-30'])
+            ->callAction('finalizeSundry', ['date' => '2026-06-30', 'application_scope' => 'entered_managed', 'zero_difference_row_ids' => [12]])
             ->assertActionMounted('finalizeSundryConfirmation')
             ->assertSet('finalizationPreview.date', '2026-06-30')
+            ->assertSet('finalizationPreview.application_scope', 'entered_managed')
             ->callMountedAction()
             ->assertHasNoActionErrors();
     }

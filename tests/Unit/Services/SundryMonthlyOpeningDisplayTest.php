@@ -11,6 +11,14 @@ use Tests\TestCase;
 
 class SundryMonthlyOpeningDisplayTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        config(['database.connections.sakemaru' => ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']]);
+        \Illuminate\Support\Facades\DB::purge('sakemaru');
+        $this->assertSame(':memory:', \Illuminate\Support\Facades\DB::connection('sakemaru')->getDatabaseName());
+    }
+
     private function countWithReference(?string $date = '2026-08-31'): WmsSundryInventoryCount
     {
         return new WmsSundryInventoryCount([
@@ -19,6 +27,30 @@ class SundryMonthlyOpeningDisplayTest extends TestCase
                 'category1_id' => 1, 'report_date' => $date, 'opening_amount' => $date ? 4483 : null,
             ]],
         ]);
+    }
+
+    public function test_department_submission_is_shown_separately_without_allocating_to_middle_categories(): void
+    {
+        \Illuminate\Support\Facades\Schema::connection('sakemaru')->create('wms_sundry_book_reconciliations', function (\Illuminate\Database\Schema\Blueprint $t): void {
+            $t->id(); $t->integer('client_id'); $t->integer('warehouse_id'); $t->string('category1_code');
+            $t->string('approval_key'); $t->date('process_date'); $t->decimal('adjustment_amount', 18, 2); $t->text('source_snapshot');
+        });
+        \Illuminate\Support\Facades\DB::connection('sakemaru')->table('wms_sundry_book_reconciliations')->insert([
+            'client_id' => 6, 'warehouse_id' => 1, 'category1_code' => '1004', 'approval_key' => 'submitted-2026-09-unmanaged-41-47',
+            'process_date' => '2026-09-30', 'adjustment_amount' => -200, 'source_snapshot' => '{}',
+        ]);
+        $count = $this->countWithReference('2026-09-30');
+        $count->amount_report_references = [['category1_id' => 1, 'report_date' => '2026-09-30', 'opening_amount' => 800]];
+        $calculator = Mockery::mock(SundryInventoryTheoryCalculator::class);
+        $calculator->shouldReceive('unmanagedFlows')->once()->andReturn([41 => $this->zeroFlow()]);
+        $row = $this->amount(41, '2041', 1000);
+        $before = $row->getAttributes();
+        $result = (new SundryMonthlyOpeningDisplay($calculator))->build($count, collect([$row]));
+        $this->assertSame(1000.0, $result['rows'][0]['opening_amount']);
+        $this->assertSame(-200.0, $result['totals'][0]['department_adjustment_amount']);
+        $this->assertSame(800.0, $result['totals'][0]['opening_amount']);
+        $this->assertSame(0.0, $result['totals'][0]['difference_amount']);
+        $this->assertSame($before, $row->getAttributes());
     }
 
     private function amount(int $id, string $code, float $opening): WmsSundryInventoryCountAmount

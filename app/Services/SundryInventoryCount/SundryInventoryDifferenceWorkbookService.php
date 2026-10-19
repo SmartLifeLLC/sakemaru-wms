@@ -293,7 +293,7 @@ class SundryInventoryDifferenceWorkbookService
         $headerRow = $row;
         $sheet->fromArray([
             '大分類CD', '大分類名', '報告書 対象月', '報告書 月末金額', 'うち在庫管理あり', '非管理 月末残高',
-            '月末以降の受払', '報告書ベース理論金額', '中分類明細 理論金額計', '差',
+            '月末以降の受払', '報告書ベース理論金額', '中分類計＋大分類調整', '差',
         ], null, "A{$row}");
         $this->styleHeader($sheet, "A{$row}:J{$row}");
         $row++;
@@ -315,7 +315,7 @@ class SundryInventoryDifferenceWorkbookService
         }
 
         $sheet->getStyle('D'.($headerRow + 1).':J'.($row - 1))->getNumberFormat()->setFormatCode(self::AMOUNT_FORMAT);
-        $sheet->setCellValue("A{$row}", '非管理 月末残高 = 報告書の月末金額 − 在庫管理あり商品の月末評価額。差 = 中分類明細 理論金額計 − 報告書ベース理論金額。');
+        $sheet->setCellValue("A{$row}", '非管理 月末残高 = 報告書の月末金額 − 在庫管理あり商品の月末評価額。差 = 中分類計＋大分類調整 − 報告書ベース理論金額。');
         $sheet->setCellValue('A'.($row + 1), '在庫金額報告書の在庫管理なし商品は、旧システム期間（5/1〜5/5）の売上原価・移動を含みません。その分は差に出ます。');
 
         return $row + 2;
