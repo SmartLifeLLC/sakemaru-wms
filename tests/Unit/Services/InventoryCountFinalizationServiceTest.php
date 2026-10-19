@@ -176,6 +176,92 @@ class InventoryCountFinalizationServiceTest extends TestCase
         ], array_column($rows, 'note'));
     }
 
+    public function test_uncounted_positive_and_negative_theory_are_applied_as_zero_without_editing_inputs(): void
+    {
+        $count = $this->createCount();
+        $positive = $this->item($count, ['ending_system_quantity' => 8, 'final_count_quantity' => null]);
+        $negative = $this->item($count, ['ending_system_quantity' => -5, 'final_count_quantity' => null]);
+        $this->item($count, ['ending_system_quantity' => 0, 'final_count_quantity' => null]);
+        $before = $count->items()->orderBy('id')->get()->toArray();
+        $this->mock(InventoryCountLedgerBalanceService::class)
+            ->shouldReceive('balancesBeforeAdjustmentByItem')->once()
+            ->andReturn([$positive->item_id => 12, $negative->item_id => -3]);
+
+        $service = new InventoryCountFinalizationService;
+        $preview = $service->preview($count);
+        $this->assertSame(2, $preview['uncounted_count']);
+        $this->assertSame(-8, $preview['decrease_quantity']);
+        $this->assertSame(5, $preview['increase_quantity']);
+        $service->confirm($count, 1, '2026-09-24', $preview['token']);
+
+        $rows = collect(json_decode($this->queues($count)->sole()->items, true))->keyBy('item_id');
+        $this->assertCount(2, $rows);
+        $this->assertSame(-8, $rows[$positive->item_id]['inventory_adjustment_quantity']);
+        $this->assertSame(4, $rows[$positive->item_id]['stock_quantity_after']);
+        $this->assertSame(5, $rows[$negative->item_id]['inventory_adjustment_quantity']);
+        $this->assertSame(2, $rows[$negative->item_id]['stock_quantity_after']);
+        foreach ($rows as $row) {
+            $this->assertTrue($row['uncounted_as_zero']);
+            $this->assertSame(0, $row['source_count_items'][0]['stock_quantity_after']);
+        }
+        $this->assertSame($before, $count->items()->orderBy('id')->get()->toArray());
+    }
+
+    public function test_uncounted_and_entered_shelves_are_combined_once_for_the_same_product(): void
+    {
+        $count = $this->createCount();
+        $entered = $this->item($count, ['ending_system_quantity' => 8, 'final_count_quantity' => 0]);
+        $uncounted = $entered->replicate();
+        $uncounted->fill(['ending_system_quantity' => 12, 'final_count_quantity' => null, 'location_no' => 'B01'])->save();
+        $this->mock(InventoryCountLedgerBalanceService::class)
+            ->shouldReceive('balancesBeforeAdjustmentByItem')->once()->andReturn([$entered->item_id => 25]);
+
+        $this->finalize($count);
+
+        $rows = json_decode($this->queues($count)->sole()->items, true);
+        $this->assertCount(1, $rows);
+        $this->assertSame(-20, $rows[0]['inventory_adjustment_quantity']);
+        $this->assertSame(5, $rows[0]['stock_quantity_after']);
+        $this->assertSame([$entered->id, $uncounted->id], array_column($rows[0]['source_count_items'], 'wms_inventory_count_item_id'));
+        $this->assertSame([false, true], array_column($rows[0]['source_count_items'], 'uncounted_as_zero'));
+        $this->assertNull($uncounted->fresh()->final_count_quantity);
+    }
+
+    public function test_second_round_preserves_first_round_zero_carry_forward(): void
+    {
+        $count = $this->createCount();
+        $item = $this->item($count, ['first_count_quantity' => 0, 'second_count_quantity' => null,
+            'final_count_quantity' => 99, 'second_count_confirmed_system_quantity' => 8,
+            'second_count_confirmed_difference_quantity' => -8]);
+        $service = new InventoryCountFinalizationService;
+        $preview = $service->preview($count, 2);
+        $this->assertSame(0, $preview['uncounted_count']);
+        $this->assertSame(1, $preview['detail_count']);
+        $service->confirm($count, 1, '2026-09-24', $preview['token'], 2);
+        $row = json_decode($this->queues($count)->sole()->items, true)[0];
+        $this->assertSame(-8, $row['inventory_adjustment_quantity']);
+        $this->assertSame(0, $row['source_count_items'][0]['stock_quantity_after']);
+        $this->assertSame(99, $item->fresh()->final_count_quantity);
+        $this->assertNull($item->fresh()->second_count_quantity);
+    }
+
+    public function test_entering_zero_after_uncounted_preview_requires_reconfirmation(): void
+    {
+        $count = $this->createCount();
+        $item = $this->item($count, ['final_count_quantity' => null]);
+        $service = new InventoryCountFinalizationService;
+        $preview = $service->preview($count);
+        $item->update(['final_count_quantity' => 0]);
+        try {
+            $service->confirm($count, 1, '2026-09-24', $preview['token']);
+            $this->fail('Changed input provenance must require reconfirmation.');
+        } catch (ValidationException $e) {
+            $this->assertStringContainsString('画面を閉じて再確認', $e->getMessage());
+            $this->assertCount(0, $this->queues($count));
+            $this->assertSame(WmsInventoryCount::STATUS_CHECKED, $count->fresh()->status);
+        }
+    }
+
     public function test_queue_inserts_roll_back_if_final_status_cannot_be_saved(): void
     {
         $count = $this->createCount();
