@@ -2,7 +2,9 @@
 
 namespace App\Filament\Resources\Contractors\RelationManagers;
 
+use App\Filament\Support\ContractorWarehouseSettingCreation;
 use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsContractorWarehouseSetting;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
@@ -12,6 +14,7 @@ use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Validation\Rules\Unique;
 
 class WarehouseSettingsRelationManager extends RelationManager
 {
@@ -33,6 +36,13 @@ class WarehouseSettingsRelationManager extends RelationManager
                         ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}] {$w->name}"]))
                     ->searchable()
                     ->required()
+                    ->unique(
+                        table: WmsContractorWarehouseSetting::class,
+                        ignoreRecord: true,
+                        modifyRuleUsing: fn (Unique $rule): Unique => $rule
+                            ->where('contractor_id', $this->getOwnerRecord()->getKey()),
+                    )
+                    ->validationMessages(['unique' => ContractorWarehouseSettingCreation::DUPLICATE_MESSAGE])
                     ->disabledOn('edit'),
 
                 TextInput::make('designated_code')
@@ -67,7 +77,8 @@ class WarehouseSettingsRelationManager extends RelationManager
                         $data['contractor_id'] = $this->getOwnerRecord()->id;
 
                         return $data;
-                    }),
+                    })
+                    ->using(ContractorWarehouseSettingCreation::createFromAction(...)),
             ])
             ->recordActions([
                 EditAction::make(),
