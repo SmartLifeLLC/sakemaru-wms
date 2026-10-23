@@ -58,6 +58,7 @@ class RecommendationCandidatePageTest extends TestCase
         $page->warehouseId = 1;
         $page->showEditor = true;
         $page->form = ['item_id' => 122442, 'channel' => 'EOS', 'contractor_id' => 1021, 'supplier_id' => 1021, 'shipping_unit_mode' => 'STANDARD', 'is_enabled' => true];
+        $page->editorRoute = array_intersect_key($page->form, array_flip(['item_id', 'channel', 'contractor_id', 'supplier_id', 'source_warehouse_id', 'delivery_course_id']));
         $page->calculateSettings();
 
         return $page;

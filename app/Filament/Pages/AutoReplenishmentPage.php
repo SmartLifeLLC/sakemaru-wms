@@ -27,6 +27,8 @@ abstract class AutoReplenishmentPage extends AdminPage
     use \Livewire\WithFileUploads;
     use WithPagination;
 
+    private const EDITOR_ROUTE_FIELDS = ['item_id', 'channel', 'contractor_id', 'supplier_id', 'source_warehouse_id', 'delivery_course_id'];
+
     protected string $view = 'filament.pages.auto-replenishment';
 
     protected static string $permissionResource = 'auto-replenishment-settings';
@@ -65,6 +67,9 @@ abstract class AutoReplenishmentPage extends AdminPage
     public bool $showWarehouseEditor = false;
 
     public array $form = [];
+
+    #[Locked]
+    public array $editorRoute = [];
 
     public array $warehouseForm = [];
 
@@ -226,6 +231,27 @@ abstract class AutoReplenishmentPage extends AdminPage
         $this->showItemPicker = ! $policy;
         $this->showEditor = true;
         $this->loadPalletEditor();
+        $this->rememberEditorRoute();
+    }
+
+    private function rememberEditorRoute(): void
+    {
+        $this->editorRoute = array_intersect_key($this->form, array_flip(self::EDITOR_ROUTE_FIELDS));
+    }
+
+    private function assertEditorRoute(): void
+    {
+        if ($this->showEditor && $this->editorRoute !== []) {
+            foreach (self::EDITOR_ROUTE_FIELDS as $field) {
+                if ((string) ($this->form[$field] ?? '') !== (string) ($this->editorRoute[$field] ?? '')) {
+                    throw \Illuminate\Validation\ValidationException::withMessages(['operation' => '発注先・配送はこの画面では変更できません。商品設定を開き直してください。']);
+                }
+            }
+
+            return;
+        }
+
+        throw \Illuminate\Validation\ValidationException::withMessages(['operation' => '商品設定を開き直してください。']);
     }
 
     public function selectItem(int $id): void
@@ -250,6 +276,13 @@ abstract class AutoReplenishmentPage extends AdminPage
         }
         $client = $this->authorizeOperation('auto-replenishment-settings', 'edit');
         abort_unless($this->showEditor, 403);
+        if (in_array($key, self::EDITOR_ROUTE_FIELDS, true) && $key !== 'item_id') {
+            $this->form = array_replace(array_diff_key($this->form, array_flip(self::EDITOR_ROUTE_FIELDS)), $this->editorRoute);
+            throw \Illuminate\Validation\ValidationException::withMessages(['operation' => '発注先・配送はこの画面では変更できません。商品発注管理・移動配送コース設定を確認してください。']);
+        }
+        if ($key !== 'item_id') {
+            $this->assertEditorRoute();
+        }
         $hadRecommendation = $this->recommendation !== null;
         $this->recommendation = null;
         $this->recommendationContext = null;
@@ -312,6 +345,7 @@ abstract class AutoReplenishmentPage extends AdminPage
         if (($this->form['shipping_unit_mode'] ?? '') === 'PALLET' && $this->palletUnit) {
             $this->form['order_multiple_pieces'] = $this->palletUnit['pieces_per_pallet'];
         }
+        $this->rememberEditorRoute();
         // Do not replace quantities of an existing policy when only changing its route.
         if (! $this->editingId && ! empty($this->form['contractor_id']) && ! empty($this->form['supplier_id'])
             && (($this->form['channel'] ?? '') === 'EOS' || ! empty($this->form['delivery_course_id']))) {
@@ -323,6 +357,7 @@ abstract class AutoReplenishmentPage extends AdminPage
     {
         $client = $this->authorizeOperation('auto-replenishment-settings', 'edit');
         abort_unless($this->showEditor && static::$screen === 'settings', 403);
+        $this->assertEditorRoute();
         $this->resetValidation();
         $this->recommendation = null;
         $this->recommendationContext = null;
@@ -407,6 +442,7 @@ abstract class AutoReplenishmentPage extends AdminPage
     {
         $client = $this->authorizeOperation('auto-replenishment-settings', 'edit');
         abort_unless($this->showEditor && static::$screen === 'settings' && ($this->form['channel'] ?? '') === 'LOGISTICS', 403);
+        $this->assertEditorRoute();
         $this->resetValidation();
         $this->palletUnit = (array) $this->checked(fn () => app(PalletUnitService::class)->save($client,
             (int) ($this->form['source_warehouse_id'] ?? 0), (int) ($this->form['item_id'] ?? 0), $this->palletPieces,
@@ -465,6 +501,7 @@ abstract class AutoReplenishmentPage extends AdminPage
     public function savePolicy(): void
     {
         $clientId = $this->authorizeOperation('auto-replenishment-settings', 'edit');
+        $this->assertEditorRoute();
         $this->validate(['form.is_enabled' => 'required|boolean'], trans('auto-replenishment.messages', [], 'ja'), trans('auto-replenishment.attributes', [], 'ja'));
         $enabled = (bool) $this->form['is_enabled'];
         $policy = $this->checked(fn () => DB::connection('sakemaru')->transaction(function () use ($clientId, $enabled) {
