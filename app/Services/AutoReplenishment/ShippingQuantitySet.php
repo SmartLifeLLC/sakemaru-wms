@@ -11,7 +11,7 @@ final class ShippingQuantitySet
             $input = json_decode($input, false, 512, JSON_THROW_ON_ERROR);
         }
         throw_unless(is_array($input) && array_is_list($input) && count($input) >= 1 && count($input) <= 500,
-            \RuntimeException::class, '出荷数量候補は1〜500件のJSON配列で入力してください。');
+            \RuntimeException::class, '出荷数量候補を1〜500件選択してください。');
         foreach ($input as $quantity) {
             throw_unless(is_int($quantity) && $quantity > 0 && $quantity <= 2147483647,
                 \RuntimeException::class, '出荷数量候補は1以上の整数（総バラ）で入力してください。');
