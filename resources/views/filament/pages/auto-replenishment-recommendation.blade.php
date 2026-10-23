@@ -6,6 +6,8 @@
     $arrivalGuard=$strategy === 'arrival_batch_v1';
     $adaptive=$strategy === 'arrival_adaptive_v1';
     $salesBased=($basis['basis_type'] ?? '') === 'sales';
+    $safetyDays=$basis['safety_stock_days'] ?? null;
+    $safetyExample=null;
     $batch=(int)($basis['batch_quantity_pieces'] ?? 0);
     $historyMinimum=(int)($basis['minimum_quantity_pieces'] ?? ($recommended['min_order_pieces'] ?? 0));
     $historyMaximum=(int)($basis['maximum_quantity_pieces'] ?? ($recommended['max_order_pieces'] ?? 0));
@@ -31,6 +33,18 @@
     if ($registeredCandidates !== null && $valid && $multiple) {
         $example=app(\App\Services\AutoReplenishment\ShippingQuantitySet::class)->floor($registeredCandidates,min($target,$maximum),$minimum,$multiple);
     }
+    if ($safetyDays !== null && $valid && $packing && $batch > 0 && $adaptive) {
+        $lead=(int)($basis['safety_lead_days'] ?? 1);
+        $exampleStock=max(0, app(\App\Services\AutoReplenishment\SafetyStockSettings::class)->normalOrderBoundary($point,$target,$batch,(int)floor($mean*$lead)));
+        $exampleDate=\Carbon\CarbonImmutable::parse($basis['period']['end'] ?? '2000-01-01')->addDay();
+        $exampleSnapshot=['stock'=>$exampleStock,'incoming'=>0,'claims'=>0,'packing_unit'=>$packing,
+            'business_date'=>$exampleDate->toDateString(),'arrival_date'=>$exampleDate->addDays($lead)->toDateString(),
+            'next_arrival_date'=>$exampleDate->addDays($lead+max(1,(int)($basis['review_interval_days'] ?? 1)))->toDateString()];
+        if ($registeredCandidates !== null) $exampleSnapshot['shipping_unit']=['mode'=>'SHIPMENT','quantities'=>$registeredCandidates];
+        if (($this->form['shipping_unit_mode'] ?? '') === 'PALLET' && isset($basis['pallet_unit']['pieces_per_pallet'])) $exampleSnapshot['shipping_unit']=['mode'=>'PALLET','pieces_per_pallet'=>$basis['pallet_unit']['pieces_per_pallet']];
+        $safetyExample=app(\App\Services\AutoReplenishment\StrategyCalculator::class)->calculate(
+            array_replace($this->form,['calculation_basis'=>$basis,'target_stock_pieces'=>$target]),$exampleSnapshot);
+    }
 @endphp
 @php
     $receiptCount=(int)($basis['own_receipt_count'] ?? 0);
@@ -55,7 +69,15 @@
         @if($arrivalGap !== null)<span>既存設定での入荷間隔：最大{{ number_format($arrivalGap) }}日</span>@endif
     </div>
 @endif
-@if($valid && ($adaptive || $arrivalGuard))
+@if($safetyDays !== null && $recommended)
+    <p class="ar-help"><b>おすすめ算定時：安全在庫 {{ $safetyDays }}日分 {{ number_format($basis['safety_stock_pieces']) }}バラ ＋ 通常量 {{ number_format($batch) }}バラ</b>で補充目標を算定。@if(($basis['safety_arrival_gap_adjustment_pieces'] ?? 0)>0)入荷間隔のため {{ number_format($basis['safety_arrival_gap_adjustment_pieces']) }}バラを加算。@endif</p>
+@endif
+@if($safetyDays !== null && $valid && ($target != ($recommended['target_stock_pieces'] ?? null) || $maximum != ($recommended['max_order_pieces'] ?? null) || $minimum != ($recommended['min_order_pieces'] ?? null)))
+    <p class="ar-help">数量を手調整しています。日数の算定結果と異なるため、下の例と保存後のテストで確認してください。</p>
+@endif
+@if($safetyExample !== null)
+    <p class="ar-example">例：{{ $lead }}日後入荷・既発注0・現在庫 {{ number_format($exampleStock) }}バラ → @if($safetyExample['phase']==='READY'){{ number_format($safetyExample['quantity']) }}バラ発注。@else{{ $safetyExample['reason'] }}@endif</p>
+@elseif($valid && ($adaptive || $arrivalGuard))
     @if($adaptive && $example !== null && $example >= $roundedMinimum)
         <p class="ar-example">数量例（入数はおすすめ算定時）：補充前見込0・既発注0 → 最大 {{ number_format($maximum) }}・{{ $registeredCandidates !== null ? '登録済み出荷数量候補' : '発注単位 '.number_format($multiple) }}の範囲で {{ number_format($example) }}バラ。</p>
     @elseif($arrivalGuard && $roundedMinimum !== null && $roundedMinimum <= min($maximum,$target))
@@ -99,7 +121,12 @@
                 <p>数量別の実績（回数順・上位5件）：@foreach($observedCounts as $quantity){{ number_format($quantity['pieces']) }}バラ {{ number_format($quantity['count']) }}回{{ $loop->last ? '' : ' ／ ' }}@endforeach。</p>
                 @if($salesBased && $observedMaximum !== null)<p class="ar-help">実績の最小 {{ number_format($observedMinimum) }} ／ 最大 {{ number_format($observedMaximum) }}バラ。売上基準の初期値とは別に確認できます。</p>@endif
             @endif
-            @if($arrivalGap !== null)
+            @if($safetyDays !== null)
+                <p>安全在庫日数は発注間隔ではありません。通常量をまとめて発注し、既発注も考慮します。</p>
+                <p>発注点は補充目標・通常量・入荷まで{{ $basis['safety_lead_days'] }}日の出荷見込から算定。@if($basis['reorder_point_preserved'] ?? false)整合する既存の発注点を維持しました。@endif</p>
+                @if(($recommended['reorder_point_pieces'] ?? 0)>($recommended['target_stock_pieces'] ?? 0))<p class="ar-help">入荷までの出荷見込が通常量より多いため、現在庫で判定する発注点は入荷時の補充目標より大きくなっています。</p>@endif
+                @if($point && $point < ($basis['normal_order_stock_pieces'] ?? 0)+1)<p class="ar-help ar-quantity-caution">入力中の発注点は算定した発注水準より低く、発注が遅くなる場合があります。</p>@endif
+            @elseif($arrivalGap !== null)
                 <p>補充目標には、既存設定での入荷間隔 最大{{ number_format($arrivalGap) }}日分の需要 ＋ 最小1回分も反映します。入荷遅延による不足を防げるとは限りません。</p>
             @elseif(isset($basis['review_interval_days']))
                 <p>発注点は入荷まで＋次の実行まで最大{{ $basis['review_interval_days'] }}日を考慮。補充目標は「通常量＋1日分」と「次の実行までの需要＋最小1回分」の大きい方です。</p>

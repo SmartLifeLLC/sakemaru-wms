@@ -103,6 +103,9 @@ final class ArrivalBatchStrategy
             '入荷までの出荷見込：1日平均 '.round((float) $policy['calculation_basis']['mean_daily'], 2)." × {$days}日 ＝ {$outgoing}バラ",
             "補充前見込：在庫残 {$remaining} ＋ 入荷予定 {$incoming} ＋ 発注候補 {$claims} ＝ {$position}バラ",
         ];
+        if (isset($policy['calculation_basis']['safety_stock_days'])) {
+            $formula[] = 'おすすめ算定時の安全在庫 '.$policy['calculation_basis']['safety_stock_days'].'日分（'.($policy['calculation_basis']['safety_stock_pieces'] ?? 0).'バラ）。現在の補充目標 '.$target.'バラ';
+        }
         $stock = $snapshot['stock'];
         if ($stock >= $point) {
             $formula[] = "現在庫 {$stock} ≧ 発注点 {$point} のため発注不要";
@@ -143,6 +146,10 @@ final class ArrivalBatchStrategy
         if ($registered !== null) {
             $usualCandidates = array_values(array_filter($registered, fn ($q) => $q >= $normal));
             $usual = $usualCandidates[0] ?? max($registered);
+        }
+        if (isset($policy['calculation_basis']['safety_stock_days'])) {
+            $boundary = (new SafetyStockSettings)->normalOrderBoundary($point, $target, $usual, $outgoing, $incoming, $claims);
+            $formula[] = "今回の入荷日・既発注を含む通常量 {$usual}バラの発注目安：現在庫 {$boundary}バラ以下（欠品見込時は小口で判定）";
         }
         if ($quantity < $usual) {
             try {

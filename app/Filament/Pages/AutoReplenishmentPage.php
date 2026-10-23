@@ -115,6 +115,14 @@ abstract class AutoReplenishmentPage extends AdminPage
 
     public string $recommendationReviewDays = '7';
 
+    public string $recommendationSafetyDays = '5';
+
+    #[Locked]
+    public string $appliedRecommendationSafetyDays = '5';
+
+    #[Locked]
+    public bool $recommendationPreferencesChanged = false;
+
     #[Locked]
     public ?array $palletUnit = null;
 
@@ -235,6 +243,8 @@ abstract class AutoReplenishmentPage extends AdminPage
             $this->recommendationUnitMode = 'AUTO';
         }
         $this->recommendationReviewDays = (string) ($policy?->calculation_basis['review_days'] ?? 7);
+        $this->recommendationSafetyDays = $this->appliedRecommendationSafetyDays = (string) ($policy?->calculation_basis['safety_stock_days'] ?? 5);
+        $this->recommendationPreferencesChanged = false;
         $this->recommendation = $policy?->calculation_basis ? ['available' => empty($policy->calculation_basis['reason']), 'basis' => $policy->calculation_basis] : null;
         $this->recommendationContext = null;
         $this->itemSearch = '';
@@ -312,6 +322,8 @@ abstract class AutoReplenishmentPage extends AdminPage
             $this->form = ['item_id' => $value, 'channel' => 'EOS', 'strategy_key' => 'threshold_capped_v1', 'is_enabled' => false, 'shipping_unit_mode' => 'STANDARD'];
             $this->recommendationUnitMode = 'AUTO';
             $this->recommendationReviewDays = '7';
+            $this->recommendationSafetyDays = $this->appliedRecommendationSafetyDays = '5';
+            $this->recommendationPreferencesChanged = false;
         } elseif ($key === 'channel') {
             foreach (['contractor_id', 'supplier_id', 'source_warehouse_id', 'delivery_course_id'] as $field) {
                 unset($this->form[$field]);
@@ -382,7 +394,8 @@ abstract class AutoReplenishmentPage extends AdminPage
         $this->recommendationContext = null;
         try {
             $this->recommendation = app(SettingsRecommendationService::class)->recommend($client, (int) $this->warehouseId, $this->form,
-                ['unit_mode' => $this->recommendationUnitMode, 'review_days' => $this->recommendationReviewDays]);
+                ['unit_mode' => $this->recommendationUnitMode, 'review_days' => $this->recommendationReviewDays,
+                    'safety_stock_days' => $this->recommendationSafetyDays, 'existing_reorder_point' => $this->form['reorder_point_pieces'] ?? null]);
         } catch (\Throwable $e) {
             $business = get_class($e) === \RuntimeException::class || get_class($e) === \InvalidArgumentException::class;
             if (! $business) {
@@ -393,6 +406,8 @@ abstract class AutoReplenishmentPage extends AdminPage
         $this->recommendationContext = $this->currentRecommendationContext();
         if ($this->recommendation['available']) {
             $this->form = array_replace($this->form, $this->recommendation['values']);
+            $this->appliedRecommendationSafetyDays = $this->recommendationSafetyDays;
+            $this->recommendationPreferencesChanged = false;
         }
         if (isset($this->recommendation['basis']['shipping_profile'])) {
             $this->shippingProfile = $this->recommendation['basis']['shipping_profile'];
@@ -410,6 +425,11 @@ abstract class AutoReplenishmentPage extends AdminPage
         $this->invalidateRecommendationPreferences();
     }
 
+    public function updatedRecommendationSafetyDays(): void
+    {
+        $this->invalidateRecommendationPreferences();
+    }
+
     public function updatedRecommendationReviewDays(): void
     {
         $this->invalidateRecommendationPreferences();
@@ -417,6 +437,7 @@ abstract class AutoReplenishmentPage extends AdminPage
 
     private function invalidateRecommendationPreferences(): void
     {
+        $this->recommendationPreferencesChanged = true;
         $this->authorizeOperation('auto-replenishment-settings', 'edit');
         abort_unless($this->showEditor && static::$screen === 'settings', 403);
         $this->recommendation = null;
@@ -426,7 +447,8 @@ abstract class AutoReplenishmentPage extends AdminPage
     private function currentRecommendationContext(): array
     {
         $context = ['warehouse_id' => (string) $this->warehouseId,
-            'unit_mode' => $this->recommendationUnitMode, 'review_days' => $this->recommendationReviewDays];
+            'unit_mode' => $this->recommendationUnitMode, 'review_days' => $this->recommendationReviewDays,
+            'safety_stock_days' => $this->recommendationSafetyDays];
         foreach (['item_id', 'channel', 'contractor_id', 'supplier_id', 'source_warehouse_id', 'delivery_course_id', 'shipping_unit_mode'] as $field) {
             $context[$field] = (string) ($this->form[$field] ?? '');
         }
@@ -570,6 +592,10 @@ abstract class AutoReplenishmentPage extends AdminPage
     {
         $clientId = $this->authorizeOperation('auto-replenishment-settings', 'edit');
         $this->assertEditorRoute();
+        if ($this->recommendationPreferencesChanged || $this->recommendationSafetyDays !== $this->appliedRecommendationSafetyDays
+            || ($this->recommendationContext !== null && $this->recommendationContext !== $this->currentRecommendationContext())) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['operation' => '算定条件が変わりました。「おすすめ設定」で計算してから保存してください。']);
+        }
         $this->validate(['form.is_enabled' => 'required|boolean'], trans('auto-replenishment.messages', [], 'ja'), trans('auto-replenishment.attributes', [], 'ja'));
         $enabled = (bool) $this->form['is_enabled'];
         $policy = $this->checked(fn () => DB::connection('sakemaru')->transaction(function () use ($clientId, $enabled) {

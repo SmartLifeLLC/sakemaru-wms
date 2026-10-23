@@ -115,14 +115,9 @@
                 <section class="ar-editor-section">
                     <div class="ar-editor-section-heading"><h3>発注数量 <small>すべて総バラ</small></h3><span>ケース {{ $helperItem?->capacity_case ?? '—' }}入 ／ ボール {{ $helperItem?->capacity_carton ?? '—' }}入</span></div>
                     @if(($this->form['channel'] ?? '') === 'LOGISTICS')@include('filament.pages.auto-replenishment-pallet')@endif
-                    <div class="ar-recommend-actions">
-                        <div class="ar-recommend-copy"><strong>実績から数量の候補を作成</strong></div>
-                        <label title="{{ $orderUnit['reason'] ?? '商品を選択してください。' }}">発注単位（自動判定）<input type="text" readonly value="{{ $orderUnit['label'] ?? '商品選択後に判定' }}" aria-label="発注単位（自動判定）"></label>
-                        <label class="ar-review-days">売上基準の日数<input type="number" min="1" max="28" step="1" wire:model.blur="recommendationReviewDays" aria-label="売上基準の日数"></label>
-                        <button type="button" class="ar-btn primary ar-recommend-button" wire:click="calculateSettings" wire:loading.attr="disabled" wire:target="calculateSettings,selectRecommendationCandidate,recommendationUnitMode,recommendationReviewDays,savePalletUnit,saveShippingQuantities,registerShippingHistory,form.shipping_unit_mode,selectItem,form.item_id,form.channel,form.contractor_id,form.supplier_id,form.source_warehouse_id,form.delivery_course_id" @disabled(!$recommendationReady)><x-heroicon-o-sparkles aria-hidden="true" />おすすめ設定</button>
-                    </div>
+                    @include('filament.pages.auto-replenishment-recommendation-actions')
                     @if(!$recommendationReady)<p class="ar-help">商品選択後に発注先・配送を自動入力します。特定できない場合は商品発注管理・移動配送コース設定を確認してください。</p>@endif
-                    <p class="ar-loading" role="status" wire:loading wire:target="calculateSettings,selectRecommendationCandidate,recommendationUnitMode,recommendationReviewDays,savePalletUnit,saveShippingQuantities,registerShippingHistory,form.shipping_unit_mode,selectItem,form.item_id,form.channel,form.contractor_id,form.supplier_id,form.source_warehouse_id,form.delivery_course_id">出荷・入荷実績を確認して、おすすめ設定を計算しています…</p>
+                    <p class="ar-loading" role="status" wire:loading wire:target="calculateSettings,selectRecommendationCandidate,recommendationUnitMode,recommendationReviewDays,recommendationSafetyDays,savePalletUnit,saveShippingQuantities,registerShippingHistory,form.shipping_unit_mode,selectItem,form.item_id,form.channel,form.contractor_id,form.supplier_id,form.source_warehouse_id,form.delivery_course_id">出荷・入荷実績を確認して、おすすめ設定を計算しています…</p>
                     <fieldset class="ar-quantity-input-panel">
                         <legend>数量の入力</legend>
                         <div class="ar-quantity-input-content">
@@ -159,7 +154,7 @@
                     <p class="ar-help">商品発注管理・移動配送コース設定に従います。この画面では変更できません。</p>
                 </section>
                 @foreach($errors->all() as $error)<p class="ar-error" role="alert">{{ $error }}</p>@endforeach
-            </div><footer><span class="ar-editor-save-state">保存後の自動発注：<b x-text="enabled ? 'ON' : 'OFF'"></b></span><button type="button" class="ar-btn" wire:click="$set('showEditor', false)">変更せず閉じる</button><button type="button" class="ar-btn danger" wire:click="savePolicy" wire:loading.attr="disabled" wire:target="savePolicy,calculateSettings,selectRecommendationCandidate,recommendationUnitMode,recommendationReviewDays,savePalletUnit,saveShippingQuantities,registerShippingHistory,form.shipping_unit_mode,selectItem,form.item_id,form.channel,form.contractor_id,form.supplier_id,form.source_warehouse_id,form.delivery_course_id">設定を保存</button></footer>
+            </div><footer><span class="ar-editor-save-state">保存後の自動発注：<b x-text="enabled ? 'ON' : 'OFF'"></b></span><button type="button" class="ar-btn" wire:click="$set('showEditor', false)">変更せず閉じる</button><button type="button" class="ar-btn danger" wire:click="savePolicy" wire:loading.attr="disabled" wire:target="savePolicy,calculateSettings,selectRecommendationCandidate,recommendationUnitMode,recommendationReviewDays,recommendationSafetyDays,savePalletUnit,saveShippingQuantities,registerShippingHistory,form.shipping_unit_mode,selectItem,form.item_id,form.channel,form.contractor_id,form.supplier_id,form.source_warehouse_id,form.delivery_course_id">設定を保存</button></footer>
         </section>
     @endif
     @if($this->showWarehouseEditor)

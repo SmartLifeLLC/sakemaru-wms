@@ -143,6 +143,30 @@ class RecommendationCandidatePageTest extends TestCase
         $this->assertSame($before, $page->form);
     }
 
+    public function test_safety_day_change_cannot_save_or_reuse_old_candidates_even_after_reverting(): void
+    {
+        $page = $this->page();
+        $before = $page->form;
+        $page->recommendationSafetyDays = '6';
+        $page->updatedRecommendationSafetyDays();
+        self::assertNull($page->recommendation);
+        self::assertSame($before, $page->form);
+        $page->recommendationSafetyDays = '5';
+        $page->updatedRecommendationSafetyDays();
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('おすすめ設定');
+        $page->savePolicy();
+    }
+
+    public function test_safety_day_change_without_update_hook_is_checked_before_save(): void
+    {
+        $page = $this->page();
+        $page->recommendationSafetyDays = '6';
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('おすすめ設定');
+        $page->savePolicy();
+    }
+
     public function test_permission_is_checked_again_when_selecting_candidate(): void
     {
         $page = $this->page();

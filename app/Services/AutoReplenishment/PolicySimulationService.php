@@ -65,6 +65,8 @@ class PolicySimulationService
             'shipping_unit' => $snapshot['shipping_unit'] ?? ['mode' => 'STANDARD'],
             'quantity_settings' => $policy->strategy_key === 'arrival_adaptive_v1' ? [
                 'normal' => $policy->calculation_basis['batch_quantity_pieces'] ?? null,
+                'safety_days' => $policy->calculation_basis['safety_stock_days'] ?? null,
+                'safety_pieces' => $policy->calculation_basis['safety_stock_pieces'] ?? null,
                 'minimum' => (int) $policy->min_order_pieces, 'maximum' => (int) $policy->max_order_pieces,
                 'target' => (int) ($policy->target_stock_pieces ?? $policy->reorder_point_pieces),
             ] : null,

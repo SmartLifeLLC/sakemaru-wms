@@ -137,6 +137,21 @@ class ReadonlyOrderRoutePageTest extends TestCase
         $this->assertSame(8007, $page->form['supplier_id']);
     }
 
+    public function test_saved_safety_days_are_reopened_without_recalculating_or_enabling(): void
+    {
+        DB::connection('sakemaru')->table('wms_item_reorder_policies')->insert(['id' => 9, 'client_id' => 6, 'warehouse_id' => 10, 'item_id' => 200,
+            'channel' => 'LOGISTICS', 'contractor_id' => 9012, 'supplier_id' => 8007, 'source_warehouse_id' => 91,
+            'delivery_course_id' => 919210, 'strategy_key' => 'arrival_adaptive_v1', 'is_enabled' => 0,
+            'calculation_basis' => json_encode(['safety_stock_days' => 6])]);
+        $page = new ReadonlyOrderRoutePageFixture;
+        $page->warehouseId = 10;
+        $page->editPolicy(9);
+        self::assertSame('6', $page->recommendationSafetyDays);
+        self::assertSame('6', $page->appliedRecommendationSafetyDays);
+        self::assertFalse($page->recommendationPreferencesChanged);
+        self::assertFalse($page->form['is_enabled']);
+    }
+
     public function test_missing_editor_snapshot_cannot_be_used_to_save_a_policy(): void
     {
         $page = $this->newItem();

@@ -28,6 +28,13 @@ final class SettingsRecommendationCalculator
         $basis = ['method' => 'receipts-or-sales-adaptive-batch-v7', 'period' => $history['period'],
             'scope' => $history['scope'], 'unit_mode' => $options['unit_mode'] ?? 'AUTO',
             'warnings' => $history['warnings'] ?? [], 'calculated_at' => now()->toIso8601String()];
+        $safetyDays = null;
+        if (array_key_exists('safety_stock_days', $options)) {
+            $safetyDays = filter_var($options['safety_stock_days'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 28]]);
+            if ($safetyDays === false) {
+                return $this->unavailable($basis, '安全在庫日数は1〜28日の整数で入力してください。');
+            }
+        }
         $registered = isset($options['shipping_quantities']) ? app(ShippingQuantitySet::class)->normalize($options['shipping_quantities']) : null;
         if ($registered !== null && ($history['scope']['channel'] ?? '') !== 'LOGISTICS') {
             return $this->unavailable($basis, '出荷数量候補は物流発注（店間）で利用してください。');
@@ -215,6 +222,27 @@ final class SettingsRecommendationCalculator
         $arrivalGapDemand = (int) ceil($mean * $arrivalGap);
         $arrivalGapFloor = $arrivalGapDemand + $this->roundUp($min, $unit);
         $target = max($originalTarget, $arrivalGapFloor);
+        if ($safetyDays !== null) {
+            $existingPoint = filter_var($options['existing_reorder_point'] ?? null, FILTER_VALIDATE_INT,
+                ['options' => ['min_range' => 1, 'max_range' => 2147483647]]) ?: null;
+            try {
+                $settings = (new SafetyStockSettings)->calculate($mean, $safetyDays, $normal, $this->roundUp($min, $unit),
+                    $packing, $lead, $arrivalGap, $reviewInterval, $existingPoint);
+            } catch (\RuntimeException $e) {
+                return $this->unavailable($basis, $e->getMessage());
+            }
+            $point = $settings['point'];
+            $target = $settings['target'];
+            $buffer = $settings['basis']['safety_stock_pieces'];
+            $originalTarget = $settings['basis']['safety_requested_target_pieces'];
+            $basis += $settings['basis'];
+            if ($target > $originalTarget) {
+                $basis['warnings'][] = '入荷間隔を考慮して補充目標を'.($target - $originalTarget).'バラ増やしました。';
+            }
+            if ($point > $target) {
+                $basis['warnings'][] = '入荷までの出荷見込が通常量より多いため、現在庫で判定する発注点は入荷時の補充目標より大きくなります。';
+            }
+        }
         if (max($point, $target, $cap, $min, $unit) > 2147483647) {
             return $this->unavailable($basis, '算定数量が保存できる上限を超えています。管理者に確認してください。');
         }
@@ -254,6 +282,13 @@ final class SettingsRecommendationCalculator
             "補充目標：大きい方（通常量・実行間隔からの目標 {$originalTarget}、入荷間隔 {$arrivalGap}日分の平均需要 {$arrivalGapDemand} ＋ 最小発注数 {$min}） ＝ {$target}バラ",
             '入荷までの出荷見込・既発注を考慮し、補充目標までの不足を最大発注数内で補います。目標内で最小数・単位を満たせない場合は見送ります。',
         ];
+        if ($safetyDays !== null) {
+            array_splice($basis['steps'], 4, 3, [
+                '安全在庫：1日平均 '.round($mean, 2)." × {$safetyDays}日を出力単位 {$packing} で切上げ ＝ {$buffer}バラ",
+                "補充目標：安全在庫 {$buffer} ＋ 通常量 {$normal}（入荷間隔の補正を含む）＝ {$target}バラ",
+                "通常量の発注目安：既発注なし・{$lead}日後入荷なら現在庫 {$basis['normal_order_stock_pieces']}バラ以下。発注点 {$point}バラ",
+            ]);
+        }
         $values = ['reorder_point_pieces' => $point, 'target_stock_pieces' => $target, 'min_order_pieces' => $min,
             'order_multiple_pieces' => $unit, 'max_order_pieces' => $cap,
             'strategy_key' => 'arrival_adaptive_v1'];
