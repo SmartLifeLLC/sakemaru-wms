@@ -140,7 +140,7 @@ class SettingsRecommendationHistory
     {
         $rows = $this->rows($this->transferBase($client, $item, $allocation, $period)->where('st.from_warehouse_id', $source)
             ->whereExists(fn ($q) => $this->transferLink($q, $contractor))
-            ->select(['st.id', 'st.to_warehouse_id', 'st.picking_date', 'st.delivered_date', 'ti.id as line_id', 'ti.quantity', 'ti.quantity_type', 'ti.capacity_case', 'ti.capacity_carton', 'ti.total_piece_quantity'])->orderBy('st.id'));
+            ->select(['st.id', 'st.to_warehouse_id', 'st.picking_date', 'st.delivered_date', 'ti.id as line_id', 'ti.quantity', 'ti.quantity_type', 'ti.capacity_case', 'ti.capacity_carton', 'ti.total_piece_quantity', 'ti.has_shortage'])->orderBy('st.id'));
         $links = DB::connection('sakemaru')->table('wms_order_incoming_schedules as s')->join('wms_stock_transfer_candidates as c', 'c.id', '=', 's.transfer_candidate_id')
             ->join('stock_transfers as st', 'st.id', '=', 's.stock_transfer_id')
             ->where('s.order_source', 'TRANSFER')->whereColumn('s.warehouse_id', 'st.to_warehouse_id')
@@ -153,8 +153,9 @@ class SettingsRecommendationHistory
             $order = $linksForRow->min('order_date');
             $groups[$row->id] ??= ['warehouse_id' => (int) $row->to_warehouse_id, 'pieces' => 0, 'quantity_types' => [], 'date' => $row->picking_date,
                 'lead_days' => $order && $row->delivered_date ? (int) CarbonImmutable::parse($order)->diffInDays(CarbonImmutable::parse($row->delivered_date), false) : null,
-                'source' => ['type' => 'stock_transfer', 'id' => (int) $row->id, 'candidate_ids' => $linksForRow->pluck('candidate_id')->unique()->values()->all()]];
+                'has_shortage' => false, 'source' => ['type' => 'stock_transfer', 'id' => (int) $row->id, 'candidate_ids' => $linksForRow->pluck('candidate_id')->unique()->values()->all()]];
             $groups[$row->id]['pieces'] += $this->actualPieces($row);
+            $groups[$row->id]['has_shortage'] = $groups[$row->id]['has_shortage'] || (bool) $row->has_shortage;
             $groups[$row->id]['quantity_types'] = array_values(array_unique([...$groups[$row->id]['quantity_types'], $row->quantity_type]));
         }
 

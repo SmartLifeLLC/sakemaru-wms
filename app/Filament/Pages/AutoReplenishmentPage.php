@@ -15,6 +15,8 @@ use App\Services\AutoReplenishment\PolicyService;
 use App\Services\AutoReplenishment\PolicySimulationService;
 use App\Services\AutoReplenishment\ReplenishmentGuard;
 use App\Services\AutoReplenishment\SettingsRecommendationService;
+use App\Services\AutoReplenishment\ShippingQuantityService;
+use App\Services\AutoReplenishment\ShippingQuantitySet;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Locked;
@@ -118,6 +120,11 @@ abstract class AutoReplenishmentPage extends AdminPage
 
     public string $palletPieces = '';
 
+    #[Locked]
+    public ?array $shippingProfile = null;
+
+    public string $shippingQuantities = '[]';
+
     public function getTitle(): string
     {
         return '';
@@ -220,6 +227,9 @@ abstract class AutoReplenishmentPage extends AdminPage
         $this->form = $policy?->toArray() ?? ['channel' => 'EOS', 'strategy_key' => 'threshold_capped_v1'];
         $this->form['is_enabled'] = (bool) ($policy?->is_enabled ?? false);
         $this->form['shipping_unit_mode'] = app(PalletUnitService::class)->binding($policy ? (int) $policy->id : null) ? 'PALLET' : 'STANDARD';
+        if ($policy?->channel === 'LOGISTICS' && app(ShippingQuantityService::class)->binding((int) $policy->id)) {
+            $this->form['shipping_unit_mode'] = 'SHIPMENT';
+        }
         $this->recommendationUnitMode = $policy?->calculation_basis['unit_mode'] ?? ((int) $policy?->order_multiple_pieces === 1 ? 'PIECE' : 'AUTO');
         if ($this->recommendationUnitMode === 'PALLET') {
             $this->recommendationUnitMode = 'AUTO';
@@ -342,6 +352,15 @@ abstract class AutoReplenishmentPage extends AdminPage
             }
         }
         $this->loadPalletEditor();
+        if ($key === 'item_id' && $this->shippingProfile && $this->form['channel'] === 'LOGISTICS') {
+            $this->form['shipping_unit_mode'] = 'SHIPMENT';
+        }
+        if (($this->form['shipping_unit_mode'] ?? '') === 'SHIPMENT') {
+            $this->form['strategy_key'] = 'arrival_adaptive_v1';
+            if ($this->shippingProfile) {
+                $this->form['order_multiple_pieces'] = app(ShippingQuantitySet::class)->gcd($this->shippingProfile['quantities']);
+            }
+        }
         if (($this->form['shipping_unit_mode'] ?? '') === 'PALLET' && $this->palletUnit) {
             $this->form['order_multiple_pieces'] = $this->palletUnit['pieces_per_pallet'];
         }
@@ -374,6 +393,11 @@ abstract class AutoReplenishmentPage extends AdminPage
         $this->recommendationContext = $this->currentRecommendationContext();
         if ($this->recommendation['available']) {
             $this->form = array_replace($this->form, $this->recommendation['values']);
+        }
+        if (isset($this->recommendation['basis']['shipping_profile'])) {
+            $this->shippingProfile = $this->recommendation['basis']['shipping_profile'];
+            $this->shippingProfile['quantities'] = app(ShippingQuantitySet::class)->normalize($this->shippingProfile['quantities']);
+            $this->shippingQuantities = json_encode($this->shippingProfile['quantities']);
         }
         if (isset($this->recommendation['basis']['pallet_unit'])) {
             $this->palletUnit = $this->recommendation['basis']['pallet_unit'];
@@ -436,6 +460,50 @@ abstract class AutoReplenishmentPage extends AdminPage
             ? (array) app(PalletUnitService::class)->find($this->clientId(), (int) $this->form['source_warehouse_id'], (int) $this->form['item_id']) : null;
         $this->palletUnit = $this->palletUnit ?: null;
         $this->palletPieces = (string) ($this->palletUnit['pieces_per_pallet'] ?? '');
+        $service = app(ShippingQuantityService::class);
+        $profile = ($this->form['channel'] ?? '') === 'LOGISTICS' && ! empty($this->form['source_warehouse_id']) && ! empty($this->form['item_id'])
+            ? $service->find($this->clientId(), (int) $this->form['source_warehouse_id'], (int) $this->form['item_id']) : null;
+        $this->shippingProfile = $profile ? (array) $profile : null;
+        if ($profile) {
+            $this->shippingProfile['quantities'] = $service->quantities($profile);
+        }
+        $this->shippingQuantities = json_encode($this->shippingProfile['quantities'] ?? []);
+    }
+
+    public function saveShippingQuantities(): void
+    {
+        $client = $this->authorizeOperation('auto-replenishment-settings', 'edit');
+        abort_unless($this->showEditor && static::$screen === 'settings' && ($this->form['channel'] ?? '') === 'LOGISTICS', 403);
+        $this->assertEditorRoute();
+        $this->resetValidation();
+        $this->checked(fn () => app(ShippingQuantityService::class)->save($client,
+            (int) ($this->form['source_warehouse_id'] ?? 0), (int) ($this->form['item_id'] ?? 0), $this->shippingQuantities,
+            (int) ($this->shippingProfile['version'] ?? 0), (int) auth()->id()));
+        $this->loadPalletEditor();
+        $this->form['shipping_unit_mode'] = 'SHIPMENT';
+        $this->form['strategy_key'] = 'arrival_adaptive_v1';
+        $this->form['order_multiple_pieces'] = app(ShippingQuantitySet::class)->gcd($this->shippingProfile['quantities']);
+        $this->recommendation = $this->recommendationContext = null;
+        Notification::make()->success()->title('共有の出荷数量候補を保存しました。商品設定は「おすすめ設定」で確認して保存してください。')->send();
+    }
+
+    public function registerShippingHistory(): void
+    {
+        $client = $this->authorizeOperation('auto-replenishment-settings', 'edit');
+        abort_unless($this->showEditor && static::$screen === 'settings' && ($this->form['channel'] ?? '') === 'LOGISTICS', 403);
+        $this->assertEditorRoute();
+        $this->resetValidation();
+        $this->checked(function () use ($client) {
+            $history = app(\App\Services\AutoReplenishment\SettingsRecommendationHistory::class)->read($client, (int) $this->warehouseId, $this->form);
+            $profile = app(ShippingQuantitySet::class)->fromReceipts($history['receipts'], $history['period']);
+            app(ShippingQuantityService::class)->save($client, (int) $this->form['source_warehouse_id'], (int) $this->form['item_id'],
+                $profile['quantities'], (int) ($this->shippingProfile['version'] ?? 0), (int) auth()->id(), $profile['basis']);
+        });
+        $this->loadPalletEditor();
+        $this->form['shipping_unit_mode'] = 'SHIPMENT';
+        $this->form['strategy_key'] = 'arrival_adaptive_v1';
+        $this->recommendation = $this->recommendationContext = null;
+        Notification::make()->success()->title('実出庫から共有候補を登録しました。「おすすめ設定」で店舗の数量条件を確認してください。')->send();
     }
 
     public function savePalletUnit(): void
@@ -516,7 +584,8 @@ abstract class AutoReplenishmentPage extends AdminPage
             }
 
             return app(PolicyService::class)->saveWithState($clientId, (int) $this->warehouseId,
-                array_replace($this->form, ['pallet_unit_version' => (int) ($this->palletUnit['version'] ?? 0)]),
+                array_replace($this->form, ['pallet_unit_version' => (int) ($this->palletUnit['version'] ?? 0),
+                    'shipping_profile_version' => (int) ($this->shippingProfile['version'] ?? 0)]),
                 $enabled, (int) auth()->id(), $this->recommendation['basis'] ?? null);
         }, 3));
         unset($this->selectedVersions[(string) $policy->id]);
@@ -531,8 +600,8 @@ abstract class AutoReplenishmentPage extends AdminPage
             'field' => 'required|in:reorder_point_pieces,max_order_pieces,min_order_pieces,order_multiple_pieces',
             'type' => 'required|in:CASE,CARTON,PIECE', 'quantity' => 'required|integer|min:1|max:2147483647',
         ], trans('auto-replenishment.messages', [], 'ja'), trans('auto-replenishment.attributes', [], 'ja'))->validate();
-        if ($values['field'] === 'order_multiple_pieces' && ($this->form['shipping_unit_mode'] ?? '') === 'PALLET') {
-            throw \Illuminate\Validation\ValidationException::withMessages(['quantity' => 'パレット単位の最小発注単位は共有パレット入数を使用します。入数を変更する場合は共有設定を保存してください。']);
+        if ($values['field'] === 'order_multiple_pieces' && in_array($this->form['shipping_unit_mode'] ?? '', ['PALLET', 'SHIPMENT'], true)) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['quantity' => '最小発注単位は登録済みの出荷数量条件から計算します。数量候補またはパレット入数を確認してください。']);
         }
         $item = \App\Models\Sakemaru\Item::where('client_id', $clientId)->findOrFail($this->form['item_id'] ?? 0);
         $total = $this->checked(fn () => app(\App\Services\AutoReplenishment\SnapshotReader::class)->pieces((int) $values['quantity'], $values['type'], $item));

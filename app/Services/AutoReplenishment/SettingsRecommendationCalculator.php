@@ -28,7 +28,16 @@ final class SettingsRecommendationCalculator
         $basis = ['method' => 'receipts-or-sales-adaptive-batch-v7', 'period' => $history['period'],
             'scope' => $history['scope'], 'unit_mode' => $options['unit_mode'] ?? 'AUTO',
             'warnings' => $history['warnings'] ?? [], 'calculated_at' => now()->toIso8601String()];
-        $pool = $history['receipts'];
+        $registered = isset($options['shipping_quantities']) ? app(ShippingQuantitySet::class)->normalize($options['shipping_quantities']) : null;
+        if ($registered !== null && ($history['scope']['channel'] ?? '') !== 'LOGISTICS') {
+            return $this->unavailable($basis, '出荷数量候補は物流発注（店間）で利用してください。');
+        }
+        $basis['shipping_quantities'] = $registered;
+        if ($registered !== null) {
+            $basis['method'] = 'registered-shipping-quantities-adaptive-v1';
+        }
+        $pool = $registered === null ? $history['receipts'] : array_values(array_filter($history['receipts'],
+            fn ($r) => empty($r['has_shortage']) && in_array($r['pieces'], $registered, true)));
         $own = array_values(array_filter($pool, fn ($r) => $r['warehouse_id'] === $history['scope']['warehouse_id']));
         $demand = array_values(array_filter($history['daily'], fn ($quantity) => $quantity !== null));
         $basis += ['own_receipt_count' => count($own), 'shared_receipt_count' => count($pool),
@@ -45,6 +54,9 @@ final class SettingsRecommendationCalculator
             return $this->unavailable($basis, '発注単位の扱いを選び直してください。');
         }
         $unit = $mode === 'PIECE' ? 1 : array_reduce($pool, fn ($u, $r) => $this->gcd($u, $r['pieces']), 0);
+        if ($registered !== null) {
+            $unit = app(ShippingQuantitySet::class)->gcd($registered);
+        }
         if ($mode === 'PALLET') {
             $unit = $options['pallet_pieces'] ?? 0;
             if (($history['scope']['channel'] ?? '') !== 'LOGISTICS' || ! is_int($unit) || $unit < 1 || $unit > 2147483647) {
@@ -68,7 +80,7 @@ final class SettingsRecommendationCalculator
             if ($mode === 'CASE' && $case < 1) {
                 return $this->unavailable($basis, 'ケース入数が未設定です。商品情報を確認するか「バラ主体」を選択してください。');
             }
-            if ($mode !== 'PALLET') {
+            if ($mode !== 'PALLET' && $registered === null) {
                 $hasLooseQuantity = $case > 0 && count(array_filter($own, fn ($r) => $r['pieces'] % $case !== 0)) > 0;
                 // A PIECE label alone can be a converted full case. Only a non-case-multiple
                 // actual quantity establishes loose ordering; sparse history never establishes a pallet.
@@ -84,6 +96,13 @@ final class SettingsRecommendationCalculator
                 };
                 $eligible = array_values(array_filter($own, fn ($r) => $r['pieces'] % $unit === 0));
             }
+        }
+        if ($registered !== null) {
+            $registered = array_values(array_filter($registered, fn ($q) => $q % $unit === 0));
+            if (! $registered) {
+                return $this->unavailable($basis, '出力単位に合う出荷数量候補がありません。数量候補を確認してください。');
+            }
+            $unitBasis = '登録済みの出荷数量候補から選択（倍数や合算は自動生成しません）';
         }
         $useSales = $salesBased && ! $historyReference;
         $counts = array_count_values(array_column($eligible, 'pieces'));
@@ -161,6 +180,17 @@ final class SettingsRecommendationCalculator
             : (int) array_search(max($counts), $counts, true);
         $min = $useSales ? $normal : (int) array_key_first($counts);
         $cap = $useSales ? $normal : (int) array_key_last($counts);
+        if ($registered !== null) {
+            $set = app(ShippingQuantitySet::class);
+            if ($useSales) {
+                $normal = $set->floor($registered, (int) ceil($mean * $reviewDays));
+                if ($normal === 0) {
+                    return $this->unavailable($basis, '売上から求めた通常量に収まる出荷数量候補がありません。補充目標を増やさず、数量候補を見直してください。');
+                }
+                $cap = $normal;
+            }
+            $min = $registered[0];
+        }
         $p95 = $this->percentile($windows, .95);
         // All lot sizes constrain order quantities, not inventory thresholds.
         $point = (int) ceil(max($p95, $mean * $protection));
@@ -201,10 +231,12 @@ final class SettingsRecommendationCalculator
         }
         $basis['steps'] = [
             '発注連携実績：この倉庫 '.count($own).'回 / 全倉庫 '.count($pool).'回',
-            $useSales ? '売上ベースの通常量：1日平均 '.round($mean, 2)." × {$reviewDays}日分を{$unit}単位に切上げ ＝ {$normal}バラ"
-                : "通常の1回量：この倉庫で最も多い発注数量 {$normal}バラ（{$counts[$normal]}回。同率の場合は小さい数量）",
-            $useSales ? "最小発注数・最大発注数：実績不足のため算定した通常量 {$normal}バラを初期値にします。"
-                : "最小発注数：実績の最小 {$min}バラ / 最大発注数：実績の最大 {$cap}バラ（{$counts[$cap]}回）",
+            $useSales && $registered !== null ? '売上からの通常量：1日平均 '.round($mean, 2)." × {$reviewDays}日分の範囲で登録候補 {$normal}バラを選択"
+                : ($useSales ? '売上ベースの通常量：1日平均 '.round($mean, 2)." × {$reviewDays}日分を{$unit}単位に切上げ ＝ {$normal}バラ"
+                : "通常の1回量：この倉庫で最も多い発注数量 {$normal}バラ（{$counts[$normal]}回。同率の場合は小さい数量）"),
+            $registered !== null ? "最小発注数：登録候補の最小 {$min}バラ / 最大発注数：この倉庫の通常量・実績から {$cap}バラ"
+                : ($useSales ? "最小発注数・最大発注数：実績不足のため算定した通常量 {$normal}バラを初期値にします。"
+                    : "最小発注数：実績の最小 {$min}バラ / 最大発注数：実績の最大 {$cap}バラ（{$counts[$cap]}回）"),
             "発注単位：{$unit}バラ（出力単位 {$packing} を含む）",
             "需要保護期間：入荷まで {$lead}日 ＋ 次の実行まで最大 {$reviewInterval}日 ＝ {$protection}日",
             "発注点：大きい方（連続{$protection}日需要P95 {$p95}、日平均 ".round($mean, 2)." × {$protection}）を総バラで切上げ ＝ {$point}",

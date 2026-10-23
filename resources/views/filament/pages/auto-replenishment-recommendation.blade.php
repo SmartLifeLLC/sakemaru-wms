@@ -27,6 +27,10 @@
     }
     $roundedMinimum=$multiple ? (intdiv($minimum,$multiple)+($minimum % $multiple > 0 ? 1 : 0))*$multiple : null;
     $example=$multiple ? intdiv(min($target,$maximum),$multiple)*$multiple : null;
+    $registeredCandidates=($this->form['shipping_unit_mode'] ?? '') === 'SHIPMENT' ? ($this->shippingProfile['quantities'] ?? []) : null;
+    if ($registeredCandidates !== null && $valid && $multiple) {
+        $example=app(\App\Services\AutoReplenishment\ShippingQuantitySet::class)->floor($registeredCandidates,min($target,$maximum),$minimum,$multiple);
+    }
 @endphp
 @php
     $receiptCount=(int)($basis['own_receipt_count'] ?? 0);
@@ -45,13 +49,14 @@
 @endif
 @if($recommended)
     <div class="ar-recommend-summary" @if($filled) role="status" @endif>
+        @if(isset($basis['shipping_profile_import']['period']))<span>通常量の実績：{{ $basis['shipping_profile_import']['period']['start'] }}〜{{ $basis['shipping_profile_import']['period']['end'] }}（{{ $basis['shipping_profile_import']['normal_source'] ?? 'この倉庫・既存の最大発注数内' }}）</span>@endif
         <span>@if($filled)<span class="ar-recommend-success">候補を入力済み</span> ／ @endif<b>{{ $salesBased ? '売上基準' : ($referenceOnly ? '過去量を参考' : '発注実績基準') }}</b> ／ 通常の1回量 {{ number_format($batch) }}バラ@if($mean > 0)（約{{ number_format($batch / $mean,1) }}日分）@endif</span>
         @if($arrivalGap !== null)<span>既存設定での入荷間隔：最大{{ number_format($arrivalGap) }}日</span>@endif
     </div>
 @endif
 @if($valid && ($adaptive || $arrivalGuard))
     @if($adaptive && $example !== null && $example >= $roundedMinimum)
-        <p class="ar-example">数量例（入数はおすすめ算定時）：補充前見込0・既発注0 → 最大 {{ number_format($maximum) }}・発注単位 {{ number_format($multiple) }}の範囲で {{ number_format($example) }}バラ。</p>
+        <p class="ar-example">数量例（入数はおすすめ算定時）：補充前見込0・既発注0 → 最大 {{ number_format($maximum) }}・{{ $registeredCandidates !== null ? '登録済み出荷数量候補' : '発注単位 '.number_format($multiple) }}の範囲で {{ number_format($example) }}バラ。</p>
     @elseif($arrivalGuard && $roundedMinimum !== null && $roundedMinimum <= min($maximum,$target))
         <p class="ar-example">数量例（入数はおすすめ算定時）：補充前見込0・既発注0 ＋ 固定 {{ number_format($roundedMinimum) }} ＝ {{ number_format($roundedMinimum) }}バラ（目標 {{ number_format($target) }}以内）。</p>
     @elseif($multiple)<p class="ar-help ar-quantity-caution">補充目標内で最小発注数・発注単位を満たせない設定です。数量条件を見直してください。</p>@endif
@@ -105,7 +110,7 @@
 
 @if(isset($basis['shipping_lots']))
     <details class="ar-editor-helper ar-lot-profile">
-        <summary>物流の出庫単位・パレット候補を確認</summary>
+        <summary>物流の出荷数量実績を確認</summary>
         <p class="ar-help">WMSの物流発注に紐づく出庫済み移動伝票を集計。ケース・バラは総バラに統一しています。</p>
         @foreach(['own'=>'この倉庫向け','source_all_warehouses'=>'移動元の全倉庫向け'] as $key=>$label)
             @php $lot=$basis['shipping_lots'][$key]; @endphp
@@ -117,6 +122,10 @@
                 <p class="ar-help">最小 {{ number_format($lot['minimum_pieces']) }} ／ 中央値 {{ number_format($lot['median_pieces']) }} ／ 共通単位 {{ number_format($lot['gcd_pieces']) }}バラ。上位5数量を表示。ケース換算はおすすめ算定時の入数です。</p>
             @else<p class="ar-help">対象期間に該当する出庫実績がありません。</p>@endif
         @endforeach
-        <p class="ar-help">共通単位＝パレット入数ではありません。@if(($basis['unit_mode'] ?? '') === 'PALLET')今回は登録済みの1パレット {{ number_format($basis['pallet_unit']['pieces_per_pallet'] ?? ($recommended['order_multiple_pieces'] ?? 0)) }}バラで算定しています。@elseパレット発注する場合は、共有パレット入数を登録して「パレット単位」を選択してください。@endif</p>
+        <p class="ar-help">共通単位＝パレット入数ではありません。@if(($basis['unit_mode'] ?? '') === 'PALLET')今回は登録済みの1パレット {{ number_format($basis['pallet_unit']['pieces_per_pallet'] ?? ($recommended['order_multiple_pieces'] ?? 0)) }}バラで算定しています。@else出荷数量候補を登録すると、実績の数量から選べます。@endif</p>
     </details>
+@endif
+
+@if(!empty($basis['shipping_quantities']))
+    <p class="ar-help"><b>出荷数量候補：</b>{{ implode('・', $basis['shipping_quantities']) }}バラ。店舗の通常量を基準に、最大発注数・入荷時の補充目標内で選択します。満載への切上げや候補の合算は行いません。</p>
 @endif

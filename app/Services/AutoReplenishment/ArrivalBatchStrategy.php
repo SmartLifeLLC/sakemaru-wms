@@ -47,6 +47,19 @@ final class ArrivalBatchStrategy
         }
         $multiple = intdiv($unit, $a) * $packing;
         $batch = (intdiv($min, $multiple) + ($min % $multiple > 0 ? 1 : 0)) * $multiple;
+        if (($snapshot['shipping_unit']['mode'] ?? '') === 'SHIPMENT') {
+            try {
+                $candidates = app(ShippingQuantitySet::class)->normalize($snapshot['shipping_unit']['quantities'] ?? []);
+            } catch (\Throwable) {
+                return $this->result('HOLD', '出荷数量候補を読み込めません。商品設定を確認してください。');
+            }
+            $eligible = array_values(array_filter($candidates, fn ($q) => $q >= $min && $q <= min($max, $target) && $q % $multiple === 0));
+            if (! $eligible || ($policy['strategy_key'] ?? '') !== 'arrival_adaptive_v1' || ($policy['channel'] ?? '') !== 'LOGISTICS') {
+                return $this->result('HOLD', '数量条件に合う物流の出荷数量候補がありません。おすすめ設定を確認してください。');
+            }
+            $batch = $eligible[0];
+            $snapshot['eligible_shipping_quantities'] = $eligible;
+        }
         if ($batch > $max || $batch > $target) {
             return $this->result('HOLD', '最小発注数を発注単位に合わせると、最大発注数または補充目標を超えます。数量条件を確認してください。');
         }
@@ -108,9 +121,12 @@ final class ArrivalBatchStrategy
         $limit = min($shortage, $maximum);
         // Round down the bounded shortage: neither the holding target nor a physical unit
         // may be exceeded, including when the item maximum is not an exact multiple.
-        $quantity = intdiv($limit, $unit) * $unit;
+        $registered = $snapshot['eligible_shipping_quantities'] ?? null;
+        $quantity = $registered === null ? intdiv($limit, $unit) * $unit
+            : app(ShippingQuantitySet::class)->floor($registered, $limit, $minimum, $unit);
         $formula[] = "数量上限：不足数 {$shortage} と最大発注数 {$maximum} の小さい方 ＝ {$limit}バラ";
-        $formula[] = "単位調整：{$limit} を発注単位 {$unit} に合わせて切下げ ＝ {$quantity}バラ";
+        $formula[] = $registered === null ? "単位調整：{$limit} を発注単位 {$unit} に合わせて切下げ ＝ {$quantity}バラ"
+            : '出荷数量候補：'.implode('・', $registered)."バラから、上限 {$limit} 以下の最大候補 {$quantity}バラを選択";
         if ($quantity < $minimum) {
             $formula[] = "発注可能数量 {$quantity} ＜ 単位調整後の最小発注数 {$minimum} のため今回は見送り";
 
@@ -124,6 +140,10 @@ final class ArrivalBatchStrategy
             intdiv($maximum, $unit) * $unit,
             intdiv($target, $unit) * $unit,
         ));
+        if ($registered !== null) {
+            $usualCandidates = array_values(array_filter($registered, fn ($q) => $q >= $normal));
+            $usual = $usualCandidates[0] ?? max($registered);
+        }
         if ($quantity < $usual) {
             try {
                 $business = CarbonImmutable::createFromFormat('!Y-m-d', $snapshot['business_date']);

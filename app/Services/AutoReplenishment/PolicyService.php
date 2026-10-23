@@ -29,7 +29,7 @@ class PolicyService
             }
         }
         throw_if($values['strategy_key'] === 'arrival_adaptive_v1' && $calculationBasis
-            && ! in_array($calculationBasis['batch_rule'] ?? '', ['observed-mode-with-historical-maximum', 'mean-demand-times-review-days'], true),
+            && ! in_array($calculationBasis['batch_rule'] ?? '', ['observed-mode-with-historical-maximum', 'mean-demand-times-review-days', 'preserved-store-normal-with-shipping-quantities'], true),
             \RuntimeException::class, '通常量をまとめて補充する方法へ変更する場合は、「おすすめ設定」で実績を再計算してください。');
         $values['calculation_basis'] = $calculationBasis;
 
@@ -81,6 +81,9 @@ class PolicyService
             $pallets = app(PalletUnitService::class);
             $palletBefore = $pallets->binding($policy->exists ? (int) $policy->id : null);
             $pallet = $pallets->prepare($clientId, $values, $selection, $policy->exists ? (int) $policy->id : null);
+            $shipping = app(ShippingQuantityService::class);
+            $shippingBefore = $shipping->binding($policy->exists ? (int) $policy->id : null);
+            $profile = $shipping->prepare($clientId, $values, $selection, $policy->exists ? (int) $policy->id : null);
             if ($values['calculation_basis']) {
                 $suggested = $values['calculation_basis']['suggested_values'] ?? [];
                 $values['calculation_basis']['applied_values'] = array_intersect_key($values, $suggested);
@@ -91,7 +94,9 @@ class PolicyService
             $policy->version = $policy->exists ? $policy->version + 1 : 1;
             $policy->save();
             $pallets->persist((int) $policy->id, $pallet);
+            $shipping->persist((int) $policy->id, $profile);
             $this->guard->event($clientId, 'POLICY_SAVED', ['before' => $before, 'after' => $policy->toArray(),
+                'shipping_before' => $shippingBefore, 'shipping_after' => $shipping->binding((int) $policy->id),
                 'pallet_before' => $palletBefore, 'pallet_after' => $pallets->binding((int) $policy->id)], actorId: $actorId);
 
             return $policy;

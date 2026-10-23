@@ -142,7 +142,7 @@ class ExecutionService
         try {
             $snapshot = $this->reader->read($policy);
             $result = app(StrategyCalculator::class)->calculate($policy->toArray(), $snapshot);
-            app(ProposalSafety::class)->validate($policy->toArray(), $result, $snapshot['packing_unit']);
+            app(ProposalSafety::class)->validate($policy->toArray(), $result, $snapshot['packing_unit'], $snapshot['shipping_unit'] ?? []);
         } catch (\Throwable $e) {
             $snapshot ??= $this->reader->lastObservation() + ['policy' => $policy->toArray()];
             $result = ['phase' => 'HOLD', 'quantity' => 0, 'reason' => mb_substr($e->getMessage(), 0, 500)];
@@ -170,7 +170,7 @@ class ExecutionService
             $s = $this->reader->read($policy, (int) $line->id);
             throw_unless($s['business_date'] === $line->proposal_snapshot['business_date'], \RuntimeException::class, '業務日が変わりました。次の実行枠で再計算してください。');
             $result = app(StrategyCalculator::class)->calculate($policy->toArray(), $s);
-            app(ProposalSafety::class)->validate($policy->toArray(), $result, $s['packing_unit']);
+            app(ProposalSafety::class)->validate($policy->toArray(), $result, $s['packing_unit'], $s['shipping_unit'] ?? []);
             throw_unless($result['phase'] === 'READY' && $result['quantity'] === (int) $line->quantity_pieces, \RuntimeException::class, '在庫・供給が変わったため再計算が必要です。');
             $actor = (int) config('replenishment.system_actor_id');
             throw_unless(DB::connection('sakemaru')->table('users')->where(['id' => $actor, 'client_id' => $line->client_id, 'is_active' => 1])->exists(), \RuntimeException::class, '有効な自動発注実行ユーザーが未設定です。');

@@ -20,10 +20,13 @@ class PolicySimulationService
             throw_unless(is_string($strategyClass) && class_exists($strategyClass), \RuntimeException::class, '計算ロジックが未設定です。管理者に商品設定を確認してください。');
             $strategy = app($strategyClass);
             $proposal = app(StrategyCalculator::class)->calculate($policy->toArray(), $snapshot);
-            $this->safety->validate($policy->toArray(), $proposal, $snapshot['packing_unit']);
+            $this->safety->validate($policy->toArray(), $proposal, $snapshot['packing_unit'], $snapshot['shipping_unit'] ?? []);
             $formula = $proposal['formula'] ?? ($strategy instanceof ThresholdStrategy || $strategy instanceof CappedThresholdStrategy ? $this->thresholdFormula($policy, $snapshot, $proposal) : ['顧客別の計算ロジックによる判定：'.$proposal['reason']]);
             if (($snapshot['shipping_unit']['mode'] ?? '') === 'PALLET') {
                 $formula[] = 'パレット単位：1パレット '.$snapshot['shipping_unit']['pieces_per_pallet'].'バラの倍数で発注します。';
+            }
+            if (($snapshot['shipping_unit']['mode'] ?? '') === 'SHIPMENT') {
+                $formula[] = '登録済み出荷数量候補から選択しています。満載パレットへの切上げ・候補の合算は行いません。';
             }
             if ($snapshot['stock'] < 0) {
                 $formula[] = '現在庫 '.$snapshot['stock'].'バラは負数のまま計算します。出荷予測で負数をさらに増やしません。';

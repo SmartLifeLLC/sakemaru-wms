@@ -83,8 +83,8 @@ class PalletUnitService
     {
         $binding = $this->binding($policyId);
         $mode = $selection['shipping_unit_mode'] ?? ($binding ? 'PALLET' : 'STANDARD');
-        throw_unless(in_array($mode, ['STANDARD', 'PALLET'], true), \RuntimeException::class, '発注単位の設定を選び直してください。');
-        if ($mode === 'STANDARD') {
+        throw_unless(in_array($mode, ['STANDARD', 'PALLET', 'SHIPMENT'], true), \RuntimeException::class, '発注単位の設定を選び直してください。');
+        if ($mode !== 'PALLET') {
             return null;
         }
         $master = $this->forRoute($client, $values, true);

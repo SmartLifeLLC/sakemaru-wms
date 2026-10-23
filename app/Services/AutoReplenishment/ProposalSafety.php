@@ -5,7 +5,7 @@ namespace App\Services\AutoReplenishment;
 /** Customer strategies cannot bypass the shared physical quantity limits. */
 final class ProposalSafety
 {
-    public function validate(array $policy, array $proposal, int $packingUnit): void
+    public function validate(array $policy, array $proposal, int $packingUnit, array $shippingUnit = []): void
     {
         throw_unless(in_array($proposal['phase'] ?? '', ['READY', 'NO_ORDER', 'HOLD'], true)
             && is_string($proposal['reason'] ?? null) && mb_strlen($proposal['reason']) <= 500
@@ -16,6 +16,10 @@ final class ProposalSafety
             return;
         }
         $quantity = $proposal['quantity'] ?? null;
+        if (($shippingUnit['mode'] ?? '') === 'SHIPMENT') {
+            throw_unless(in_array($quantity, app(ShippingQuantitySet::class)->normalize($shippingUnit['quantities'] ?? []), true),
+                \RuntimeException::class, '提案数量が登録済みの出荷数量候補にありません。');
+        }
         $min = (int) ($policy['min_order_pieces'] ?? 0);
         $max = (int) ($policy['max_order_pieces'] ?? 0);
         $multiple = (int) ($policy['order_multiple_pieces'] ?? 0);

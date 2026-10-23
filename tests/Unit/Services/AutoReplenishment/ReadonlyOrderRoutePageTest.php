@@ -109,7 +109,7 @@ class ReadonlyOrderRoutePageTest extends TestCase
         $page = $this->newItem();
         $db = DB::connection('sakemaru');
         $db->enableQueryLog();
-        foreach (['savePolicy', 'calculateSettings', 'savePalletUnit'] as $method) {
+        foreach (['savePolicy', 'calculateSettings', 'savePalletUnit', 'saveShippingQuantities', 'registerShippingHistory'] as $method) {
             $page->form['source_warehouse_id'] = 92;
             try {
                 $page->$method();

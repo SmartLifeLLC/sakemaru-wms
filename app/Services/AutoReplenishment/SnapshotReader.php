@@ -128,6 +128,16 @@ class SnapshotReader
         $pallet = $pallets->get($policy->id);
         $shippingUnit = $pallet ? $palletService->assertBinding($pallet, $policy->toArray(), (int) $item->capacity_case) : ['mode' => 'STANDARD'];
 
+        if ($policy->channel === 'LOGISTICS') {
+            $shippingService = app(ShippingQuantityService::class);
+            $shippingBindings = $this->once('shipping_quantities:'.$policy->warehouse_id, fn () => $shippingService->bindings($clientId, (int) $policy->warehouse_id,
+                $this->proposalItemIds ?: [(int) $policy->item_id], ! $readOnly && $db->transactionLevel() > 0));
+            if ($shipping = $shippingBindings->get($policy->id)) {
+                throw_if($pallet, \RuntimeException::class, '出荷数量候補とパレット単位が重複しています。商品設定を保存し直してください。');
+                $shippingUnit = $shippingService->assertBinding($shipping, $policy->toArray(), (int) $item->capacity_case);
+            }
+        }
+
         $transfer = $this->once('transfer_supply:'.$policy->warehouse_id, fn () => app(TransferSupplyReader::class)->read(
             $clientId, (int) $policy->warehouse_id, $this->proposalItemIds ?: [(int) $policy->item_id], $allocationIds,
             ! $readOnly && $db->transactionLevel() > 0,

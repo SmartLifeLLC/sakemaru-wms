@@ -27,6 +27,22 @@ class SettingsRecommendationService
             return $result;
         }
 
+        if (($route['shipping_unit_mode'] ?? '') === 'SHIPMENT') {
+            $shipping = app(ShippingQuantityService::class);
+            $profile = $shipping->find($clientId, (int) ($route['source_warehouse_id'] ?? 0), (int) $route['item_id']);
+            throw_unless($route['channel'] === 'LOGISTICS' && $profile, \RuntimeException::class, '物流の出荷数量候補を先に登録してください。');
+            $shipping->assertCapacity($profile, $history['scope']['capacity_case']);
+            $options['unit_mode'] = 'AUTO';
+            $options['shipping_quantities'] = $shipping->quantities($profile);
+            $result = $this->calculator->calculate($history, $options);
+            $result['basis']['shipping_profile'] = (array) $profile;
+            foreach ($result['candidates'] ?? [] as $key => $candidate) {
+                $result['candidates'][$key]['basis']['shipping_profile'] = (array) $profile;
+            }
+
+            return $result;
+        }
+
         return $this->calculator->calculate($history, $options);
     }
 }
