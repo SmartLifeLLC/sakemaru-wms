@@ -77,6 +77,11 @@ class SnapshotReader
         }
         $db = DB::connection('sakemaru');
         $clientId = (int) $policy->client_id;
+        $masterWarnings = app(MasterRouteWarnings::class);
+        $warnings = $masterWarnings->compare($policy->toArray(), $this->once('master_routes:'.$policy->warehouse_id,
+            fn () => $masterWarnings->context($clientId, (int) $policy->warehouse_id, $this->proposalItemIds ?: [(int) $policy->item_id])));
+        // Keep advisories even when an existing safety check stops the calculation later.
+        $this->observation['master_warnings'] = $warnings;
         $warehouse = $this->once('warehouse:'.$policy->warehouse_id, fn () => $db->table('warehouses')->where(['id' => $policy->warehouse_id, 'client_id' => $clientId, 'is_active' => 1, 'is_virtual' => 0])->first());
         $item = $this->proposalItemIds
             ? $this->once('items', fn () => Item::with('current_price')->where('client_id', $clientId)->where('is_active', true)->whereIn('id', $this->proposalItemIds)->get()->keyBy('id'))->get($policy->item_id)
@@ -160,6 +165,9 @@ class SnapshotReader
                     \RuntimeException::class, '受入数量の実在庫反映が未照合です。自動発注を保留します。');
             }
         }
+        // Count all outstanding supply, including distant dates, to avoid ordering it twice.
+        // Receipt integration moves applied quantities from incoming to current stock;
+        // dates alone must never discard an outstanding order or transfer.
         $incoming = $transfer['incoming'];
         $schedules = $this->forItem('schedules', $db->table('wms_order_incoming_schedules')->where('warehouse_id', $policy->warehouse_id)
             ->where('order_source', '!=', 'TRANSFER')->whereNull('stock_transfer_id')->whereNull('transfer_candidate_id')
@@ -278,15 +286,16 @@ class SnapshotReader
             ? $this->once('ordering_codes', fn () => $db->table('item_search_information')->whereIn('item_id', $this->proposalItemIds)->where('is_used_for_ordering', true)->where('is_active', true)->whereRaw("search_string REGEXP '[1-9]'")->orderBy('id')->get(['item_id', 'search_string'])->unique('item_id')->mapWithKeys(fn ($row) => [$row->item_id => str_pad((string) $row->search_string, 13, '0', STR_PAD_LEFT)]))->get($item->id)
             : $search->orderingCodeForItem((int) $item->id);
         $capacity = (int) $item->capacity_case;
-        $packingUnit = 1;
         throw_unless($capacity > 0 && $orderingCode, \RuntimeException::class, '入数または発注CDが未設定です。');
         $probe = new \App\Models\WmsOrderCandidate(['order_quantity' => 1, 'quantity_type' => QuantityType::PIECE, 'ordering_code' => $orderingCode]);
         $probe->setRelation('item', $item);
         $output = app(OrderOutputQuantityResolver::class)->resolve($probe);
-        if ($policy->channel === 'EOS' && $output['ordering_unit_quantity'] !== null) {
-            // Select only quantities represented exactly by the existing converter.
-            $packingUnit = $capacity;
-        }
+        $caseOutput = $policy->channel === 'EOS' && $output['ordering_unit_quantity'] !== null;
+        // Master permission and the existing EOS converter both constrain the unit.
+        $units = app(OrderUnitService::class);
+        $unitRows = $this->once('order_unit_rows', fn () => $units->rows($clientId, $this->proposalItemIds ?: [(int) $item->id]));
+        $orderUnit = $units->resolve($clientId, (int) $item->id, $capacity, $caseOutput, $unitRows);
+        $packingUnit = $orderUnit['packing_unit'];
 
         return [
             'item_id' => (int) $item->id, 'item_code' => (string) $item->code, 'item_name' => $item->name,
@@ -294,7 +303,7 @@ class SnapshotReader
             'contractor_code' => (string) $contractor->code, 'contractor_name' => $contractor->name,
             'supplier_id' => (int) $relation->supplier_id, 'stock' => $stock, 'incoming' => $incoming, 'claims' => $claims,
             'incoming_transfer' => $transfer['incoming'], 'incoming_external' => $incoming - $transfer['incoming'],
-            'packing_unit' => $packingUnit, 'quantity_type' => $packingUnit > 1 ? 'CASE' : 'PIECE', 'capacity_case' => (int) $item->capacity_case,
+            'packing_unit' => $packingUnit, 'quantity_type' => $orderUnit['quantity_type'], 'order_unit' => $orderUnit, 'capacity_case' => (int) $item->capacity_case,
             'capacity_carton' => (int) $item->capacity_carton, 'ordering_code' => $orderingCode,
             'business_date' => $businessDate, 'arrival_date' => $arrival->toDateString(),
             'next_arrival_date' => $nextArrival?->toDateString(),
@@ -304,6 +313,7 @@ class SnapshotReader
             'route_snapshot' => $pair ? (array) $pair : null, 'warehouse_config' => $config,
             'source_stock_allocation_id' => $sourceAllocationId,
             'shipping_unit' => $shippingUnit,
+            'master_warnings' => $warnings,
             'policy' => $policy->toArray(), 'observed_at' => now()->toIso8601String(),
         ];
     }

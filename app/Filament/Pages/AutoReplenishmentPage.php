@@ -938,6 +938,14 @@ abstract class AutoReplenishmentPage extends AdminPage
         $itemEligibleIds = $this->showEditor ? array_unique(array_merge($eligibleContractorIds, app(\App\Services\AutoReplenishment\OrderRouteEligibility::class)->contractorIds('EOS'), app(\App\Services\AutoReplenishment\OrderRouteEligibility::class)->contractorIds('LOGISTICS'))) : [];
         $selectedItem = $this->showEditor ? $db->table('items')->where('client_id', $clientId)
             ->where('id', $this->form['item_id'] ?? 0)->first(['id', 'code', 'name', 'capacity_case', 'capacity_carton']) : null;
+        $orderUnit = null;
+        if ($selectedItem) {
+            try {
+                $orderUnit = app(\App\Services\AutoReplenishment\OrderUnitService::class)->forEditor($clientId, $selectedItem, $this->form['channel'] ?? 'EOS');
+            } catch (\RuntimeException $e) {
+                $orderUnit = ['label' => '発注単位を要確認', 'reason' => $e->getMessage()];
+            }
+        }
         $itemOptions = collect();
         $itemSearchTerm = mb_convert_kana(trim($this->itemSearch), 'as');
         if ($this->showEditor && $this->showItemPicker && ! $this->editingId && $itemSearchTerm !== '') {
@@ -961,8 +969,10 @@ abstract class AutoReplenishmentPage extends AdminPage
             ? WmsItemReorderPolicy::where(['client_id' => $clientId, 'warehouse_id' => $scopeWarehouseId])->whereIn('id', array_keys($this->selectedVersions))->get(['id', 'is_enabled']) : collect();
         $selectedOnCount = $selection->where('is_enabled', true)->count();
         $selectedOffCount = $selection->where('is_enabled', false)->count();
+        $routeWarnings = $this->showEditor
+            ? app(\App\Services\AutoReplenishment\MasterRouteWarnings::class)->forRoute($clientId, (int) $scopeWarehouseId, $this->form) : [];
 
-        return compact('screen', 'warehouse', 'warehouses', 'control', 'rows', 'run', 'detail', 'links', 'targets', 'selectedItem', 'itemOptions', 'itemSearchTerm', 'itemSearchHasMore', 'routeOptions', 'courseOptions', 'phaseCounts', 'listLinks', 'listTargets', 'selectedOnCount', 'selectedOffCount');
+        return compact('screen', 'warehouse', 'warehouses', 'control', 'rows', 'run', 'detail', 'links', 'targets', 'selectedItem', 'orderUnit', 'itemOptions', 'itemSearchTerm', 'itemSearchHasMore', 'routeOptions', 'courseOptions', 'routeWarnings', 'phaseCounts', 'listLinks', 'listTargets', 'selectedOnCount', 'selectedOffCount');
     }
 
     private function itemSelectionQuery(int $clientId, array $contractorIds): \Illuminate\Database\Query\Builder

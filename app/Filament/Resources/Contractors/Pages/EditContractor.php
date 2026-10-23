@@ -11,6 +11,7 @@ use Filament\Resources\RelationManagers\RelationManagerConfiguration;
 use Filament\Schemas\Components\Livewire;
 use Filament\Schemas\Components\Tabs;
 use Filament\Schemas\Components\Tabs\Tab;
+use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 use Filament\Support\Enums\Width;
 
@@ -55,6 +56,9 @@ class EditContractor extends EditRecord
         return $schema
             ->columns(1)
             ->components([
+                View::make('filament.pages.auto-replenishment-master-edit-warning')
+                    ->viewData(fn () => app(\App\Services\AutoReplenishment\MasterRouteWarnings::class)
+                        ->masterEditNotice((int) auth()->user()?->client_id, 'contractor', ['contractor_id' => $ownerRecord->id])),
                 Tabs::make('contractor-tabs')
                     ->contained(false)
                     ->persistTabInQueryString('tab')

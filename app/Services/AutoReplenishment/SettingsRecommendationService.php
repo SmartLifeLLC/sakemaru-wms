@@ -8,6 +8,18 @@ class SettingsRecommendationService
 
     public function recommend(int $clientId, int $warehouseId, array $route, array $options = []): array
     {
+        $result = $this->calculate($clientId, $warehouseId, $route, $options);
+        $warnings = app(MasterRouteWarnings::class)->forRoute($clientId, $warehouseId, $route);
+        $result['basis']['master_warnings'] = $warnings;
+        foreach ($result['candidates'] ?? [] as $key => $candidate) {
+            $result['candidates'][$key]['basis']['master_warnings'] = $warnings;
+        }
+
+        return $result;
+    }
+
+    private function calculate(int $clientId, int $warehouseId, array $route, array $options): array
+    {
         $master = null;
         if (($route['shipping_unit_mode'] ?? 'STANDARD') === 'PALLET') {
             $units = app(PalletUnitService::class);

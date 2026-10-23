@@ -49,6 +49,11 @@ final class SettingsRecommendationCalculator
             $basis['shipping_lots'] = (new ShippingLotProfile)->summarize($pool, $history['scope']['warehouse_id'], (int) $history['scope']['capacity_case']);
         }
         $packing = (int) $history['scope']['packing_unit'];
+        $orderUnit = $history['scope']['order_unit'] ?? null;
+        if ($orderUnit && $registered === null && ($basis['unit_mode'] ?? '') !== 'PALLET') {
+            // Browser preferences and receipt multiples cannot override master eligibility.
+            $basis['unit_mode'] = $orderUnit['quantity_type'];
+        }
         $mode = $basis['unit_mode'];
         if (! in_array($mode, ['AUTO', 'PIECE', 'CASE', 'PALLET'], true)) {
             return $this->unavailable($basis, '発注単位の扱いを選び直してください。');
@@ -67,6 +72,9 @@ final class SettingsRecommendationCalculator
             $unit = $this->lcm(max(1, (int) $history['scope']['capacity_case']), max(1, $unit));
         }
         $unit = $this->lcm(max(1, $unit), $packing);
+        if ($orderUnit && $registered === null && $mode !== 'PALLET') {
+            $unit = $packing;
+        }
         $eligible = array_values(array_filter($own, fn ($r) => $r['pieces'] % $unit === 0));
         $salesBased = count(array_unique(array_column($eligible, 'date'))) < 5;
         $reviewDays = filter_var($options['review_days'] ?? 7, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 28]]);
@@ -103,6 +111,9 @@ final class SettingsRecommendationCalculator
                 return $this->unavailable($basis, '出力単位に合う出荷数量候補がありません。数量候補を確認してください。');
             }
             $unitBasis = '登録済みの出荷数量候補から選択（倍数や合算は自動生成しません）';
+        }
+        if ($orderUnit) {
+            $unitBasis = $orderUnit['reason'].($registered !== null ? ' 登録済みの出荷数量候補から選択します。' : ($mode === 'PALLET' ? ' 登録済みパレット入数に揃えます。' : ''));
         }
         $useSales = $salesBased && ! $historyReference;
         $counts = array_count_values(array_column($eligible, 'pieces'));

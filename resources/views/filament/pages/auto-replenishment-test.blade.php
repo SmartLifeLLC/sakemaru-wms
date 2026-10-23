@@ -13,12 +13,15 @@
         <div class="ar-notice">現在の在庫で仮計算します。保存・発注は行いません。OFFでも試せます。</div>
         <div class="ar-test-state"><span>商品 <b>{{ $context['is_enabled'] ? 'ON' : 'OFF' }}</b></span><span>倉庫 <b>{{ $warehouse?->is_auto_order_enabled ? 'ON' : 'OFF' }}</b></span><span>全体 <b>{{ $control?->enabled && config('replenishment.enabled') ? 'ON' : 'OFF' }}</b></span><small>実際の自動発注には、すべてONが必要です。</small></div>
         @if($test)
+            @include('filament.pages.auto-replenishment-route-warnings', ['masterWarnings' => $test['master_warnings'] ?? []])
+            @include('filament.pages.auto-replenishment-supply-note')
             <div class="ar-test-result" role="status"><span class="ar-badge {{ $test['phase'] === 'READY' ? 'green' : ($test['phase'] === 'HOLD' ? 'amber' : '') }}">{{ ['READY'=>'発注対象（仮計算）','NO_ORDER'=>'発注不要','HOLD'=>'保留'][$test['phase']] }}</span><strong>{{ $test['reason'] }}</strong></div>
             <div class="ar-grid {{ $logistics ? 'three' : '' }}">
                 <div class="ar-value ar-test-quantity"><small>仮発注数量</small><b>{{ number_format($test['quantity_pieces']) }}<span>バラ</span></b><small>発注データ：{{ number_format($test['order_quantity']) }} {{ \App\Enums\QuantityType::from($test['quantity_type'])->name() }}</small></div>
                 @if($logistics)<div class="ar-value"><small>出庫日{{ $test['phase'] !== 'READY' ? '（参考）' : '' }}</small><b>{{ $formatTestDate($test['picking_date']) }}</b></div>@endif
                 <div class="ar-value"><small>{{ $logistics ? '入庫日' : '入荷予定日' }}{{ $test['phase'] !== 'READY' ? '（参考）' : '' }}</small><b>{{ $formatTestDate($test['arrival_date']) }}</b></div>
             </div>
+            @if($test['order_unit'] ?? null)<p class="ar-help"><b>{{ $test['order_unit']['label'] }}</b>：{{ $test['order_unit']['reason'] }}</p>@endif
             @if(($test['shipping_unit']['mode'] ?? '') === 'PALLET')<p class="ar-help">1パレット {{ number_format($test['shipping_unit']['pieces_per_pallet']) }}バラ ／ 今回 {{ number_format($test['quantity_pieces'] / $test['shipping_unit']['pieces_per_pallet']) }}パレット</p>@endif
             @if(($test['shipping_unit']['mode'] ?? '') === 'SHIPMENT')<p class="ar-help"><b>出荷数量候補：</b>{{ implode('・', $test['shipping_unit']['quantities']) }}バラ ／ 今回 {{ number_format($test['quantity_pieces']) }}バラ。補充目標・最大発注数に収まる候補を選択します。</p>@endif
             @if(($test['stock'] ?? 0) < 0)<p class="ar-help">現在庫 {{ number_format($test['stock']) }}バラを負数のまま計算しています。</p>@endif

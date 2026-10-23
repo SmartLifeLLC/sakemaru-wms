@@ -48,6 +48,7 @@
     </div>
 @endif
 @if($recommended)
+    @if(isset($basis['scope']['order_unit']))<p class="ar-help"><b>{{ $basis['scope']['order_unit']['label'] }}</b>：{{ $basis['scope']['order_unit']['reason'] }}</p>@endif
     <div class="ar-recommend-summary" @if($filled) role="status" @endif>
         @if(isset($basis['shipping_profile_import']['period']))<span>通常量の実績：{{ $basis['shipping_profile_import']['period']['start'] }}〜{{ $basis['shipping_profile_import']['period']['end'] }}（{{ $basis['shipping_profile_import']['normal_source'] ?? 'この倉庫・既存の最大発注数内' }}）</span>@endif
         <span>@if($filled)<span class="ar-recommend-success">候補を入力済み</span> ／ @endif<b>{{ $salesBased ? '売上基準' : ($referenceOnly ? '過去量を参考' : '発注実績基準') }}</b> ／ 通常の1回量 {{ number_format($batch) }}バラ@if($mean > 0)（約{{ number_format($batch / $mean,1) }}日分）@endif</span>
@@ -68,6 +69,7 @@
     <summary>算定根拠・実績を確認 @if(isset($basis['period']))（{{ $basis['period']['start'] }}〜{{ $basis['period']['end'] }}）@endif</summary>
     <div class="ar-current-quantity-explanation">
         <p class="ar-help">数量例は入力中の設定です。現在の在庫・入荷予定での判定は、保存後の「テスト」で確認できます。</p>
+        @include('filament.pages.auto-replenishment-supply-note')
         <p><b>現在の設定</b>（入力中・保存で反映）</p>
         @if($valid)
             <p>発注点 {{ number_format($point) }} ／ 最小 {{ number_format($minimum) }} ／ 最大 {{ number_format($maximum) }} ／ 単位 {{ number_format($unit) }} ／ 補充目標 {{ number_format($target) }}バラ@if($mean > 0)（約{{ number_format($target / $mean,1) }}日分）@endif。</p>

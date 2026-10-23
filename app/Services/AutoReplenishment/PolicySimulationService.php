@@ -45,7 +45,7 @@ class PolicySimulationService
         }
 
         $quantity = $proposal['phase'] === 'READY' ? $proposal['quantity'] : 0;
-        $caseOrder = $policy->channel === 'EOS' && ($snapshot['quantity_type'] ?? '') === 'CASE';
+        $caseOrder = ($snapshot['quantity_type'] ?? '') === 'CASE';
 
         // Return only display data, not route fingerprints or full internal snapshots.
         return [
@@ -53,6 +53,8 @@ class PolicySimulationService
             'quantity_pieces' => $quantity, 'calculated_pieces' => $proposal['quantity'],
             'order_quantity' => $caseOrder ? intdiv($quantity, $snapshot['capacity_case']) : $quantity,
             'quantity_type' => $caseOrder ? 'CASE' : 'PIECE',
+            'order_unit' => $snapshot['order_unit'] ?? null,
+            'master_warnings' => $snapshot['master_warnings'] ?? [],
             'stock' => $snapshot['stock'] ?? null, 'incoming' => $snapshot['incoming'] ?? null, 'claims' => $snapshot['claims'] ?? null,
             'incoming_transfer' => $snapshot['incoming_transfer'] ?? null, 'incoming_external' => $snapshot['incoming_external'] ?? null,
             'arrival_date' => $snapshot['arrival_date'] ?? null, 'picking_date' => $picking,

@@ -62,6 +62,18 @@ class PolicySimulationServiceTest extends TestCase
         self::assertStringContainsString('96 ＞ 最大発注数 72', implode("\n", $r['formula']));
     }
 
+    public function test_logistics_preview_uses_cases_when_piece_orders_are_forbidden(): void
+    {
+        $r = $this->calculate($this->policy(['channel' => 'LOGISTICS']), $this->snapshot([
+            'route_snapshot' => ['effective_picking_lead_days' => 1],
+        ]));
+        self::assertSame('READY', $r['phase']);
+        self::assertSame(96, $r['quantity_pieces']);
+        self::assertSame(4, $r['order_quantity']);
+        self::assertSame('CASE', $r['quantity_type']);
+        self::assertNotNull($r['picking_date']);
+    }
+
     public function test_arrival_batch_preview_uses_the_same_guard_and_existing_dates(): void
     {
         $r = $this->calculate($this->policy(['strategy_key' => 'arrival_batch_v1',
