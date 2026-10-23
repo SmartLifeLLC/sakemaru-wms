@@ -1,4 +1,6 @@
-<div class="ar-pallet-settings">
+<details class="ar-pallet-settings ar-settings-details" wire:ignore.self>
+    <summary>発注単位設定</summary>
+    <div class="ar-settings-details-content">
     <div class="ar-pallet-heading">
         <label>発注単位設定<select wire:model.live="form.shipping_unit_mode"><option value="STANDARD">通常（バラ・ケース・実績単位）</option><option value="SHIPMENT">登録済みの出荷数量候補</option><option value="PALLET">満載パレット単位（従来方式）</option></select></label>
         <span>@if(($this->form['shipping_unit_mode'] ?? '') === 'SHIPMENT')出荷数量候補 {{ count($this->shippingProfile['quantities'] ?? []) }}件@elseif($this->palletUnit)登録済み：<b>1パレット {{ number_format($this->palletUnit['pieces_per_pallet']) }}バラ</b>（{{ number_format($this->palletUnit['pieces_per_pallet'] / max(1,$this->palletUnit['capacity_case'])) }}ケース）@elseパレット入数は未登録です。@endif</span>
@@ -14,4 +16,5 @@
     </details>
     @endif
     @if(($this->form['shipping_unit_mode'] ?? '') === 'PALLET')<p class="ar-help">おすすめ設定・仮計算・実際の発注をパレットの倍数に揃えます。商品上限を超えるパレット数は発注しません。</p>@endif
-</div>
+    </div>
+</details>

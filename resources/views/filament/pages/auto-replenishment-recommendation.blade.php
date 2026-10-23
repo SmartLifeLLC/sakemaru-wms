@@ -76,7 +76,7 @@
     <p class="ar-help">数量を手調整しています。日数の算定結果と異なるため、下の例と保存後のテストで確認してください。</p>
 @endif
 @if($safetyExample !== null)
-    <p class="ar-example">例：{{ $lead }}日後入荷・既発注0・現在庫 {{ number_format($exampleStock) }}バラ → @if($safetyExample['phase']==='READY'){{ number_format($safetyExample['quantity']) }}バラ発注。@else{{ $safetyExample['reason'] }}@endif</p>
+    <p class="ar-example">例：{{ $lead }}日後入荷・既発注0・現在庫 {{ number_format($exampleStock) }}バラ → @if($safetyExample['phase']==='READY')@if(($basis['scope']['order_unit']['quantity_type'] ?? '') === 'CASE'){{ number_format(intdiv($safetyExample['quantity'], $packing)) }}ケース（{{ number_format($safetyExample['quantity']) }}バラ）発注。@else{{ number_format($safetyExample['quantity']) }}バラ発注。@endif@else{{ $safetyExample['reason'] }}@endif</p>
 @elseif($valid && ($adaptive || $arrivalGuard))
     @if($adaptive && $example !== null && $example >= $roundedMinimum)
         <p class="ar-example">数量例（入数はおすすめ算定時）：補充前見込0・既発注0 → 最大 {{ number_format($maximum) }}・{{ $registeredCandidates !== null ? '登録済み出荷数量候補' : '発注単位 '.number_format($multiple) }}の範囲で {{ number_format($example) }}バラ。</p>

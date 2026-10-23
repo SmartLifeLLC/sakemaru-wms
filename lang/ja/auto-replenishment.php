@@ -10,6 +10,7 @@ return [
         'max_order_pieces' => '最大発注数',
         'min_order_pieces' => '最小発注数',
         'order_multiple_pieces' => '最小発注単位',
+        'order_unit_mode' => '発注単位',
         'target_stock_pieces' => '補充目標',
         'channel' => '発注方式',
         'contractor_id' => '発注先',

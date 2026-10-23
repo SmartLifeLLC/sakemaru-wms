@@ -60,16 +60,16 @@ class SnapshotReader
     }
 
     /** Simulation must not refresh a database-backed cache or acquire stock locks. */
-    public function readForSimulation(WmsItemReorderPolicy $policy): array
+    public function readForSimulation(WmsItemReorderPolicy $policy, bool $includeSupplyDates = false): array
     {
         $this->clear();
 
         // A receipt commits destination stock and the transfer state together.
         // Keep all simulation reads at one snapshot without locking or writing.
-        return DB::connection('sakemaru')->transaction(fn () => $this->read($policy, readOnly: true));
+        return DB::connection('sakemaru')->transaction(fn () => $this->read($policy, readOnly: true, includeSupplyDates: $includeSupplyDates));
     }
 
-    public function read(WmsItemReorderPolicy $policy, ?int $excludeLineId = null, bool $readOnly = false): array
+    public function read(WmsItemReorderPolicy $policy, ?int $excludeLineId = null, bool $readOnly = false, bool $includeSupplyDates = false): array
     {
         $this->observation = ['policy' => $policy->toArray()];
         if ($excludeLineId !== null) {
@@ -83,9 +83,9 @@ class SnapshotReader
         // Keep advisories even when an existing safety check stops the calculation later.
         $this->observation['master_warnings'] = $warnings;
         $warehouse = $this->once('warehouse:'.$policy->warehouse_id, fn () => $db->table('warehouses')->where(['id' => $policy->warehouse_id, 'client_id' => $clientId, 'is_active' => 1, 'is_virtual' => 0])->first());
-        $item = $this->proposalItemIds
-            ? $this->once('items', fn () => Item::with('current_price')->where('client_id', $clientId)->where('is_active', true)->whereIn('id', $this->proposalItemIds)->get()->keyBy('id'))->get($policy->item_id)
-            : Item::where('client_id', $clientId)->where('is_active', true)->find($policy->item_id);
+        $items = $this->proposalItemIds
+            ? $this->once('items', fn () => Item::with('current_price')->where('client_id', $clientId)->where('is_active', true)->whereIn('id', $this->proposalItemIds)->get()->keyBy('id')) : null;
+        $item = $items ? $items->get($policy->item_id) : Item::where('client_id', $clientId)->where('is_active', true)->find($policy->item_id);
         $this->observation += ['item_id' => (int) $policy->item_id, 'item_code' => $item?->code, 'item_name' => $item?->name,
             'warehouse_code' => $warehouse?->code, 'warehouse_name' => $warehouse?->name];
         throw_unless($warehouse && $item && ! $item->is_ended && $item->end_of_sale_type === 'NORMAL', \RuntimeException::class, '商品または倉庫が発注対象外です。');
@@ -146,6 +146,7 @@ class SnapshotReader
         $transfer = $this->once('transfer_supply:'.$policy->warehouse_id, fn () => app(TransferSupplyReader::class)->read(
             $clientId, (int) $policy->warehouse_id, $this->proposalItemIds ?: [(int) $policy->item_id], $allocationIds,
             ! $readOnly && $db->transactionLevel() > 0,
+            $includeSupplyDates,
         ))[$policy->item_id];
         throw_if(isset($transfer['error']), \RuntimeException::class, $transfer['error'] ?? '移動入荷予定を照合できません。');
         $effects = $this->forItem('effects', $db->table('wms_replenishment_effects')->where(['client_id' => $clientId, 'warehouse_id' => $policy->warehouse_id])->whereIn('state', ['OPEN', 'UNKNOWN', 'RECEIPT_PENDING']), 'item_id', (int) $policy->item_id);
@@ -169,6 +170,7 @@ class SnapshotReader
         // Receipt integration moves applied quantities from incoming to current stock;
         // dates alone must never discard an outstanding order or transfer.
         $incoming = $transfer['incoming'];
+        $supplyEvents = $transfer['supply_events'] ?? [];
         $schedules = $this->forItem('schedules', $db->table('wms_order_incoming_schedules')->where('warehouse_id', $policy->warehouse_id)
             ->where('order_source', '!=', 'TRANSFER')->whereNull('stock_transfer_id')->whereNull('transfer_candidate_id')
             ->whereIn('status', ['PENDING', 'PARTIAL'])->when(! $readOnly && $db->transactionLevel() > 0, fn ($q) => $q->lockForUpdate()), 'item_id', (int) $policy->item_id);
@@ -187,7 +189,11 @@ class SnapshotReader
             $received = $this->pieces((int) $s->received_quantity, (string) $s->quantity_type, $source ?? $item);
             throw_if($received > (int) ($source?->stock_applied_pieces ?? 0) && ! $this->purchaseApplied($s, $readOnly),
                 \RuntimeException::class, '外部発注の入荷数量が実在庫へ反映されていません。仕入連携の完了後に再計算してください。');
-            $incoming += $this->pieces((int) $s->expected_quantity - (int) $s->received_quantity, (string) $s->quantity_type, $source ?? $item);
+            $remaining = $this->pieces((int) $s->expected_quantity - (int) $s->received_quantity, (string) $s->quantity_type, $source ?? $item);
+            $incoming += $remaining;
+            if ($includeSupplyDates && $remaining > 0) {
+                $supplyEvents[] = ['source' => 'external', 'date' => $s->expected_arrival_date ?? null, 'pieces' => $remaining];
+            }
         }
         $orderSchedules = $this->forItem('external_order_schedules', $db->table('wms_order_candidates as c')
             ->join('wms_order_incoming_schedules as s', 's.order_candidate_id', '=', 'c.id')
@@ -294,7 +300,16 @@ class SnapshotReader
         // Master permission and the existing EOS converter both constrain the unit.
         $units = app(OrderUnitService::class);
         $unitRows = $this->once('order_unit_rows', fn () => $units->rows($clientId, $this->proposalItemIds ?: [(int) $item->id]));
-        $orderUnit = $units->resolve($clientId, (int) $item->id, $capacity, $caseOutput, $unitRows);
+        $mode = $policy->order_unit_mode ?? 'AUTO';
+        $units->assertRecommendationMode($policy->calculation_basis, $mode);
+        $unitHistory = null;
+        if ($policy->channel === 'LOGISTICS') {
+            $histories = $this->once('order_unit_history:'.$policy->source_warehouse_id, fn () => app(LogisticsOrderUnitHistory::class)->read(
+                $clientId, (int) $policy->source_warehouse_id,
+                $items ? $items->mapWithKeys(fn ($product) => [(int) $product->id => (int) $product->capacity_case])->all() : [(int) $item->id => $capacity], $businessDate));
+            $unitHistory = $histories[$item->id] ?? null;
+        }
+        $orderUnit = $units->resolve($clientId, (int) $item->id, $capacity, $caseOutput, $unitRows, $mode, $unitHistory);
         $packingUnit = $orderUnit['packing_unit'];
 
         return [
@@ -315,7 +330,7 @@ class SnapshotReader
             'shipping_unit' => $shippingUnit,
             'master_warnings' => $warnings,
             'policy' => $policy->toArray(), 'observed_at' => now()->toIso8601String(),
-        ];
+        ] + ($includeSupplyDates ? ['supply_events' => $supplyEvents] : []);
     }
 
     public function pieces(int $quantity, string $type, object $item): int

@@ -49,6 +49,7 @@ class PolicyService
             'channel' => 'required|in:EOS,LOGISTICS', 'contractor_id' => 'required|integer|min:1',
             'supplier_id' => 'nullable|integer|min:1', 'source_warehouse_id' => 'nullable|integer|min:1',
             'delivery_course_id' => 'nullable|integer|min:1',
+            'order_unit_mode' => 'sometimes|required|in:AUTO,PIECE,CASE',
             'strategy_key' => 'required|in:'.implode(',', array_keys(config('replenishment.strategies'))),
         ], trans('auto-replenishment.messages', [], 'ja'), trans('auto-replenishment.attributes', [], 'ja'))->validate();
     }
@@ -78,6 +79,17 @@ class PolicyService
             $policy = WmsItemReorderPolicy::firstOrNew(['client_id' => $clientId, 'warehouse_id' => $warehouseId, 'item_id' => $values['item_id']]);
             throw_if($policy->exists && (int) ($values['version'] ?? 0) !== (int) $policy->version, \RuntimeException::class, '他の操作で設定が変更されています。再読込してください。');
             $before = $policy->toArray();
+            $mode = $values['order_unit_mode'] ?? $policy->order_unit_mode ?? 'AUTO';
+            $units = app(OrderUnitService::class);
+            $units->assertRecommendationMode($values['calculation_basis'], $mode);
+            if ($mode !== 'AUTO' || ($values['channel'] === 'LOGISTICS' && array_key_exists('order_unit_mode', $values))) {
+                $item = $db->table('items')->where(['id' => $values['item_id'], 'client_id' => $clientId])->first();
+                $unit = $units->forEditor($clientId, $item, $values['channel'], $mode, (int) ($values['source_warehouse_id'] ?? 0));
+                $multiple = app(ShippingQuantitySet::class)->gcd([$values['order_multiple_pieces'], $unit['packing_unit']]);
+                $step = intdiv($values['order_multiple_pieces'], $multiple) * $unit['packing_unit'];
+                throw_if((int) (ceil($values['min_order_pieces'] / $step) * $step) > $values['max_order_pieces'], \RuntimeException::class,
+                    '選択した発注単位で最小発注数・最大発注数を満たせません。数量条件を見直してください。');
+            }
             $pallets = app(PalletUnitService::class);
             $palletBefore = $pallets->binding($policy->exists ? (int) $policy->id : null);
             $pallet = $pallets->prepare($clientId, $values, $selection, $policy->exists ? (int) $policy->id : null);

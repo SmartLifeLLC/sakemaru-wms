@@ -28,13 +28,15 @@ class TransferSupplyReaderTest extends TestCase
         parent::setUp();
         config(['database.connections.sakemaru' => ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '', 'foreign_key_constraints' => false]]);
         DB::purge('sakemaru');
+        config(['cache.stores.file' => ['driver' => 'array']]);
+        \Illuminate\Support\Facades\Cache::forgetDriver('file');
         $tables = [
             'warehouses' => 'id INTEGER PRIMARY KEY, client_id INTEGER DEFAULT 6, code TEXT, name TEXT, is_active INTEGER DEFAULT 1, is_virtual INTEGER DEFAULT 0',
             'items' => "id INTEGER PRIMARY KEY, client_id INTEGER DEFAULT 6, code TEXT, name TEXT, capacity_case INTEGER DEFAULT 24, capacity_carton INTEGER DEFAULT 6, is_active INTEGER DEFAULT 1, is_ended INTEGER DEFAULT 0, end_of_sale_type TEXT DEFAULT 'NORMAL', start_of_sale_date TEXT, end_of_sale_date TEXT",
             'item_quantity_information' => 'item_id INTEGER, quantity INTEGER, can_order INTEGER',
-            'stock_transfers' => 'id INTEGER PRIMARY KEY, trade_id INTEGER, client_id INTEGER DEFAULT 6, from_warehouse_id INTEGER DEFAULT 91, to_warehouse_id INTEGER DEFAULT 1, is_active INTEGER DEFAULT 1, is_delivered INTEGER DEFAULT 0, delivered_date TEXT',
+            'stock_transfers' => 'id INTEGER PRIMARY KEY, trade_id INTEGER, client_id INTEGER DEFAULT 6, from_warehouse_id INTEGER DEFAULT 91, to_warehouse_id INTEGER DEFAULT 1, is_active INTEGER DEFAULT 1, is_delivered INTEGER DEFAULT 0, delivered_date TEXT, picking_date TEXT, picking_status TEXT',
             'trades' => "id INTEGER PRIMARY KEY, client_id INTEGER DEFAULT 6, is_active INTEGER DEFAULT 1, is_latest INTEGER DEFAULT 1, trade_category TEXT DEFAULT 'STOCK_TRANSFER', trade_direction TEXT DEFAULT 'NORMAL', is_returned INTEGER DEFAULT 0",
-            'trade_items' => "id INTEGER PRIMARY KEY, trade_id INTEGER, client_id INTEGER DEFAULT 6, item_id INTEGER DEFAULT 143024, stock_allocation_id INTEGER DEFAULT 1, is_active INTEGER DEFAULT 1, quantity INTEGER DEFAULT 768, quantity_type TEXT DEFAULT 'PIECE', capacity_case INTEGER DEFAULT 24, capacity_carton INTEGER DEFAULT 6, total_piece_quantity INTEGER DEFAULT 768",
+            'trade_items' => "id INTEGER PRIMARY KEY, trade_id INTEGER, client_id INTEGER DEFAULT 6, item_id INTEGER DEFAULT 143024, stock_allocation_id INTEGER DEFAULT 1, is_active INTEGER DEFAULT 1, quantity INTEGER DEFAULT 768, quantity_type TEXT DEFAULT 'PIECE', capacity_case INTEGER DEFAULT 24, capacity_carton INTEGER DEFAULT 6, total_piece_quantity INTEGER DEFAULT 768, has_shortage INTEGER DEFAULT 0",
             'stock_transfer_lot_allocations' => 'id INTEGER PRIMARY KEY, stock_transfer_id INTEGER, trade_item_id INTEGER, quantity INTEGER, to_real_stock_lot_id INTEGER, is_set_component INTEGER DEFAULT 0',
             'wms_replenishment_effects' => "id INTEGER PRIMARY KEY, client_id INTEGER DEFAULT 6, warehouse_id INTEGER DEFAULT 1, item_id INTEGER DEFAULT 143024, source_type TEXT DEFAULT 'transfer', source_id INTEGER, stock_transfer_id INTEGER, queue_id INTEGER, state TEXT DEFAULT 'OPEN', capacity_case INTEGER DEFAULT 24, capacity_carton INTEGER DEFAULT 6, reconciliation_required INTEGER DEFAULT 0",
             'wms_replenishment_effect_sources' => 'id INTEGER PRIMARY KEY, effect_id INTEGER, incoming_schedule_id INTEGER, stock_applied_pieces INTEGER DEFAULT 0',
@@ -328,6 +330,18 @@ class TransferSupplyReaderTest extends TestCase
         return (new SnapshotReader)->readForSimulation(new WmsItemReorderPolicy($policyValues + [
             'client_id' => 6, 'warehouse_id' => 1, 'item_id' => 143024, 'contractor_id' => 10, 'supplier_id' => 10, 'channel' => 'EOS',
         ]));
+    }
+
+    #[DataProvider('masterOrderUnitChannels')]
+    public function test_actual_case_shipments_change_logistics_auto_unit_but_not_eos(array $route): void
+    {
+        $this->transfer(1, ['picking_date' => '2026-10-01', 'picking_status' => 'SHIPPED']);
+        $this->candidate();
+        $this->schedule(1, ['stock_transfer_id' => 1, 'transfer_candidate_id' => 1]);
+        $snapshot = $this->snapshot($route);
+        self::assertSame(($route['channel'] ?? 'EOS') === 'LOGISTICS' ? 'CASE' : 'PIECE', $snapshot['quantity_type']);
+        self::assertSame(($route['channel'] ?? 'EOS') === 'LOGISTICS' ? 24 : 1, $snapshot['packing_unit']);
+        self::assertSame(768, $snapshot['incoming']);
     }
 
     public function test_external_and_transfer_supply_are_combined_and_candidate_is_not_added_twice(): void
@@ -750,5 +764,41 @@ class TransferSupplyReaderTest extends TestCase
             'usual batch can use the valid current arrival' => [0, 'READY', 12],
             'small quantity cannot decide whether waiting is safe' => [16, 'HOLD', 0],
         ];
+    }
+
+    public function test_dated_projection_uses_transfer_remainder_once_and_keeps_external_supply(): void
+    {
+        $this->transfer(1, ['delivered_date' => '2026-10-20']);
+        $this->receipt(24);
+        $this->candidate();
+        $this->schedule(1, ['stock_transfer_id' => 1, 'transfer_candidate_id' => 1, 'expected_arrival_date' => '2026-10-19']);
+        $this->schedule(2, ['stock_transfer_id' => 1, 'transfer_candidate_id' => 1, 'expected_arrival_date' => '2026-10-21']);
+        $this->schedule(3, ['order_source' => 'MANUAL', 'expected_quantity' => 50, 'expected_arrival_date' => '2026-10-22']);
+        $normal = $this->snapshot();
+        self::assertArrayNotHasKey('supply_events', $normal);
+        $policy = new WmsItemReorderPolicy(['client_id' => 6, 'warehouse_id' => 1, 'item_id' => 143024,
+            'contractor_id' => 10, 'supplier_id' => 10, 'channel' => 'EOS', 'strategy_key' => 'threshold_v1']);
+        $dated = (new SnapshotReader)->readForSimulation($policy, includeSupplyDates: true);
+        self::assertSame(794, $dated['incoming']);
+        self::assertSame($normal['incoming'], array_sum(array_column($dated['supply_events'], 'pieces')));
+        self::assertSame([
+            ['source' => 'transfer', 'date' => '2026-10-20', 'pieces' => 744],
+            ['source' => 'external', 'date' => '2026-10-22', 'pieces' => 50],
+        ], $dated['supply_events']);
+        DB::connection('sakemaru')->table('stock_transfers')->where('id', 1)->update(['is_delivered' => 1]);
+        $done = (new SnapshotReader)->readForSimulation($policy, includeSupplyDates: true);
+        self::assertSame(50, $done['incoming']);
+        self::assertCount(1, $done['supply_events']);
+    }
+
+    public function test_pending_transfer_split_dates_do_not_invent_multiple_arrivals(): void
+    {
+        $this->candidate();
+        $this->queue(1, ['status' => 'BEFORE']);
+        $this->schedule(1, ['transfer_candidate_id' => 1, 'expected_arrival_date' => '2026-10-20']);
+        $this->schedule(2, ['transfer_candidate_id' => 1, 'expected_arrival_date' => '2026-10-21']);
+        $r = (new TransferSupplyReader)->read(6, 1, [143024], [1], includeDates: true)[143024];
+        self::assertSame(768, $r['incoming']);
+        self::assertSame([['source' => 'transfer', 'date' => null, 'pieces' => 768]], $r['supply_events']);
     }
 }

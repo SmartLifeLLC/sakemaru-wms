@@ -68,7 +68,10 @@ class SettingsRecommendationHistory
             throw_unless($db->table('warehouses')->where(['id' => $source, 'client_id' => $clientId, 'is_active' => 1, 'is_virtual' => 0])->exists(), \RuntimeException::class, '有効な移動元倉庫を選択してください。');
             throw_unless($source && $source !== $warehouseId && $db->table('warehouse_stock_transfer_delivery_courses')->where(['from_warehouse_id' => $source, 'to_warehouse_id' => $warehouseId, 'delivery_course_id' => $route['delivery_course_id'] ?? 0])->exists(), \RuntimeException::class, '移動元倉庫・配送コースを選択してください。');
         }
-        $orderUnit = app(OrderUnitService::class)->resolve($clientId, (int) $item->id, (int) $item->capacity_case, $caseOutput);
+        $mode = $route['order_unit_mode'] ?? 'AUTO';
+        $unitHistory = $channel === 'LOGISTICS'
+            ? (app(LogisticsOrderUnitHistory::class)->read($clientId, $source, [(int) $item->id => (int) $item->capacity_case], $asOf)[$item->id] ?? null) : null;
+        $orderUnit = app(OrderUnitService::class)->resolve($clientId, (int) $item->id, (int) $item->capacity_case, $caseOutput, mode: $mode, history: $unitHistory);
         $packing = $orderUnit['packing_unit'];
         $receipts = $channel === 'EOS'
             ? $this->once("eos:{$item->id}:{$contractor}:{$supplier}:{$start}:{$period['end']}", fn () => $this->eosReceipts($clientId, (int) $item->id, $contractor, $supplier, $allocation, $period))
@@ -87,7 +90,7 @@ class SettingsRecommendationHistory
             'item_id' => (int) $item->id, 'item_code' => (string) $item->code, 'channel' => $channel, 'contractor_id' => $contractor,
             'supplier_id' => $supplier, 'source_warehouse_id' => $channel === 'LOGISTICS' ? (int) $route['source_warehouse_id'] : null,
             'delivery_course_id' => $channel === 'LOGISTICS' ? (int) $route['delivery_course_id'] : null,
-            'capacity_case' => (int) $item->capacity_case, 'packing_unit' => $packing, 'order_unit' => $orderUnit],
+            'capacity_case' => (int) $item->capacity_case, 'packing_unit' => $packing, 'order_unit' => $orderUnit, 'order_unit_mode' => $mode],
             'period' => $period, 'receipts' => $receipts, 'daily' => $demand['daily'], 'warnings' => $demand['warnings'], 'nominal_lead_days' => $lead,
             'review_interval_days' => $schedule->maxReviewIntervalDays($scheduleConfig), 'review_weekdays' => $weekdays,
             'review_schedule_fingerprint' => $schedule->fingerprint($scheduleConfig),
@@ -235,7 +238,8 @@ class SettingsRecommendationHistory
         return $pieces;
     }
 
-    private function dailyDemand(int $client, int $warehouse, int $item, int $allocation, array $period): array
+    /** Shared read-only daily sales/consumption series for recommendations and the chart. */
+    public function dailyDemand(int $client, int $warehouse, int $item, int $allocation, array $period): array
     {
         $db = DB::connection('sakemaru');
         $coverage = $this->once('coverage:'.$warehouse.':'.implode(':', $period), fn () => $db->table('ret_pos_stock_applications')->where('warehouse_id', $warehouse)->whereBetween('business_date', array_values($period))->distinct()->pluck('business_date')->all());

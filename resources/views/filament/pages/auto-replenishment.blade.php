@@ -113,29 +113,35 @@
                 </div>
                 @if(!$this->editingId)@include('filament.pages.auto-replenishment-item-picker')@endif
                 <section class="ar-editor-section">
-                    <div class="ar-editor-section-heading"><h3>発注数量 <small>すべて総バラ</small></h3><span>ケース {{ $helperItem?->capacity_case ?? '—' }}入 ／ ボール {{ $helperItem?->capacity_carton ?? '—' }}入</span></div>
+                    <div class="ar-editor-section-heading"><h3>発注数量</h3><span>ケース {{ $helperItem?->capacity_case ?? '—' }}入 ／ ボール {{ $helperItem?->capacity_carton ?? '—' }}入</span></div>
                     @if(($this->form['channel'] ?? '') === 'LOGISTICS')@include('filament.pages.auto-replenishment-pallet')@endif
                     @include('filament.pages.auto-replenishment-recommendation-actions')
                     @if(!$recommendationReady)<p class="ar-help">商品選択後に発注先・配送を自動入力します。特定できない場合は商品発注管理・移動配送コース設定を確認してください。</p>@endif
-                    <p class="ar-loading" role="status" wire:loading wire:target="calculateSettings,selectRecommendationCandidate,recommendationUnitMode,recommendationReviewDays,recommendationSafetyDays,savePalletUnit,saveShippingQuantities,registerShippingHistory,form.shipping_unit_mode,selectItem,form.item_id,form.channel,form.contractor_id,form.supplier_id,form.source_warehouse_id,form.delivery_course_id">出荷・入荷実績を確認して、おすすめ設定を計算しています…</p>
+                    <p class="ar-loading" role="status" wire:loading wire:target="calculateSettings,selectRecommendationCandidate,recommendationUnitMode,recommendationReviewDays,recommendationSafetyDays,savePalletUnit,saveShippingQuantities,registerShippingHistory,form.shipping_unit_mode,form.order_unit_mode,selectItem,form.item_id,form.channel,form.contractor_id,form.supplier_id,form.source_warehouse_id,form.delivery_course_id">出荷・入荷実績を確認して、おすすめ設定を計算しています…</p>
                     <fieldset class="ar-quantity-input-panel">
                         <legend>数量の入力</legend>
                         <div class="ar-quantity-input-content">
-                            <div class="ar-editor-quantities">@foreach(['reorder_point_pieces'=>'発注点','max_order_pieces'=>'最大発注数','min_order_pieces'=>'最小発注数','order_multiple_pieces'=>'最小発注単位'] as $key=>$label)<label>{{ $label }}<input type="number" min="1" step="1" wire:model.blur="form.{{ $key }}" @readonly($key === 'order_multiple_pieces' && in_array($this->form['shipping_unit_mode'] ?? '', ['PALLET','SHIPMENT'], true))></label>@endforeach<label>補充目標（任意）<input type="number" min="1" wire:model.blur="form.target_stock_pieces" placeholder="未入力は発注点"></label></div>
+                            <div class="ar-editor-quantities">
+                                @foreach(['reorder_point_pieces'=>'発注点','max_order_pieces'=>'最大発注数','min_order_pieces'=>'最小発注数','order_multiple_pieces'=>'最小発注単位','target_stock_pieces'=>'補充目標（任意）'] as $key=>$label)
+                                    @include('filament.pages.auto-replenishment-quantity-input')
+                                @endforeach
+                            </div>
                             <div class="ar-quantity-help">
                                 @include('filament.pages.auto-replenishment-setting-help')
-                                <details class="ar-editor-helper" @if($errors->hasAny(['field','type','quantity'])) open @endif><summary>ケース・バラから総バラに換算</summary><div class="ar-grid four"><label>換算先<select wire:model="quantityHelper.field">@foreach(['reorder_point_pieces'=>'発注点','max_order_pieces'=>'最大発注数','min_order_pieces'=>'最小発注数','order_multiple_pieces'=>'最小発注単位'] as $key=>$label)<option value="{{ $key }}">{{ $label }}</option>@endforeach</select></label><label>数量<input type="number" min="1" wire:model="quantityHelper.quantity"></label><label>単位<select wire:model="quantityHelper.type">@foreach(\App\Enums\QuantityType::cases() as $qt)<option value="{{ $qt->value }}">{{ $qt->name() }}</option>@endforeach</select></label><button type="button" class="ar-btn" wire:click="applyQuantityHelper" @disabled(!$helperItem)>総バラに換算して入力</button></div></details>
                             </div>
                         </div>
                     </fieldset>
                     @if($this->recommendation)@include('filament.pages.auto-replenishment-candidates')@endif
+                    @if($helperItem)@include('filament.pages.auto-replenishment-projection')@endif
                     @if($this->recommendation)
                         @include('filament.pages.auto-replenishment-recommendation')
                     @endif
                     <label class="ar-strategy-label">発注方法<select wire:model.change="form.strategy_key"><option value="arrival_adaptive_v1">通常量をまとめて補充（欠品見込時は小口）</option><option value="arrival_batch_v1">まとめ発注（1回量固定）</option><option value="threshold_capped_v1">商品上限内の1回分を発注し、次回再判定</option><option value="threshold_v1">必要数が上限を超えたら全量保留</option></select></label>
                 </section>
                 <section class="ar-editor-section">
-                    <div class="ar-editor-section-heading"><h3>発注先・配送</h3></div>
+                    <details class="ar-settings-details" wire:ignore.self>
+                    <summary>発注先・配送</summary>
+                    <div class="ar-settings-details-content">
                     @include('filament.pages.auto-replenishment-route-warnings', ['masterWarnings' => $routeWarnings ?? []])
                     @php
                         $routeDisplay = $routeOptions->where('contractor_id', (int) ($this->form['contractor_id'] ?? 0))->firstWhere('supplier_id', (int) ($this->form['supplier_id'] ?? 0));
@@ -152,9 +158,11 @@
                         @endif
                     </dl>
                     <p class="ar-help">商品発注管理・移動配送コース設定に従います。この画面では変更できません。</p>
+                    </div>
+                    </details>
                 </section>
                 @foreach($errors->all() as $error)<p class="ar-error" role="alert">{{ $error }}</p>@endforeach
-            </div><footer><span class="ar-editor-save-state">保存後の自動発注：<b x-text="enabled ? 'ON' : 'OFF'"></b></span><button type="button" class="ar-btn" wire:click="$set('showEditor', false)">変更せず閉じる</button><button type="button" class="ar-btn danger" wire:click="savePolicy" wire:loading.attr="disabled" wire:target="savePolicy,calculateSettings,selectRecommendationCandidate,recommendationUnitMode,recommendationReviewDays,recommendationSafetyDays,savePalletUnit,saveShippingQuantities,registerShippingHistory,form.shipping_unit_mode,selectItem,form.item_id,form.channel,form.contractor_id,form.supplier_id,form.source_warehouse_id,form.delivery_course_id">設定を保存</button></footer>
+            </div><footer><span class="ar-editor-save-state">保存後の自動発注：<b x-text="enabled ? 'ON' : 'OFF'"></b></span><button type="button" class="ar-btn" wire:click="$set('showEditor', false)">変更せず閉じる</button><button type="button" class="ar-btn danger" wire:click="savePolicy" wire:loading.attr="disabled" wire:target="savePolicy,calculateSettings,selectRecommendationCandidate,recommendationUnitMode,recommendationReviewDays,recommendationSafetyDays,savePalletUnit,saveShippingQuantities,registerShippingHistory,form.shipping_unit_mode,form.order_unit_mode,selectItem,form.item_id,form.channel,form.contractor_id,form.supplier_id,form.source_warehouse_id,form.delivery_course_id">設定を保存</button></footer>
         </section>
     @endif
     @if($this->showWarehouseEditor)

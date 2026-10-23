@@ -252,7 +252,7 @@ class SafetyStockViewFixture extends Component
     public function render()
     {
         return <<<'BLADE'
-        <div>@include('filament.pages.auto-replenishment-recommendation-actions', ['recommendationReady'=>true,'orderUnit'=>['label'=>'ケース発注','reason'=>'ケース24入']])
+        <div>@include('filament.pages.auto-replenishment-recommendation-actions', ['recommendationReady'=>true,'helperItem'=>(object)['id'=>1],'orderUnit'=>['label'=>'ケース発注','automatic_label'=>'ケース発注','piece_orderable'=>false,'reason'=>'ケース24入']])
         @include('filament.pages.auto-replenishment-recommendation')</div>
         BLADE;
     }

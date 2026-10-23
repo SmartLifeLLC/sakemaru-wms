@@ -22,7 +22,7 @@ class ReadonlyOrderRoutePageTest extends TestCase
         DB::purge('sakemaru');
         $db = DB::connection('sakemaru');
         $db->statement('CREATE TABLE warehouses (id INTEGER, client_id INTEGER, is_active INTEGER, is_virtual INTEGER)');
-        $db->statement('CREATE TABLE wms_item_reorder_policies (id INTEGER, client_id INTEGER, warehouse_id INTEGER, item_id INTEGER, channel TEXT, contractor_id INTEGER, supplier_id INTEGER, source_warehouse_id INTEGER, delivery_course_id INTEGER, strategy_key TEXT, is_enabled INTEGER, order_multiple_pieces INTEGER, calculation_basis TEXT)');
+        $db->statement('CREATE TABLE wms_item_reorder_policies (id INTEGER, client_id INTEGER, warehouse_id INTEGER, item_id INTEGER, channel TEXT, contractor_id INTEGER, supplier_id INTEGER, source_warehouse_id INTEGER, delivery_course_id INTEGER, strategy_key TEXT, is_enabled INTEGER, order_multiple_pieces INTEGER, calculation_basis TEXT, order_unit_mode TEXT)');
         $db->statement('CREATE TABLE item_contractors (client_id INTEGER, warehouse_id INTEGER, item_id INTEGER, contractor_id INTEGER, supplier_id INTEGER)');
         $db->statement('CREATE TABLE contractors (id INTEGER, client_id INTEGER, is_active INTEGER)');
         $db->statement('CREATE TABLE wms_contractor_settings (contractor_id INTEGER, transmission_type TEXT, supply_warehouse_id INTEGER)');
@@ -142,6 +142,7 @@ class ReadonlyOrderRoutePageTest extends TestCase
         DB::connection('sakemaru')->table('wms_item_reorder_policies')->insert(['id' => 9, 'client_id' => 6, 'warehouse_id' => 10, 'item_id' => 200,
             'channel' => 'LOGISTICS', 'contractor_id' => 9012, 'supplier_id' => 8007, 'source_warehouse_id' => 91,
             'delivery_course_id' => 919210, 'strategy_key' => 'arrival_adaptive_v1', 'is_enabled' => 0,
+            'order_unit_mode' => 'CASE',
             'calculation_basis' => json_encode(['safety_stock_days' => 6])]);
         $page = new ReadonlyOrderRoutePageFixture;
         $page->warehouseId = 10;
@@ -150,6 +151,35 @@ class ReadonlyOrderRoutePageTest extends TestCase
         self::assertSame('6', $page->appliedRecommendationSafetyDays);
         self::assertFalse($page->recommendationPreferencesChanged);
         self::assertFalse($page->form['is_enabled']);
+        self::assertSame('CASE', $page->form['order_unit_mode']);
+    }
+
+    public function test_unit_change_invalidates_recommendation_without_changing_route_or_enabling(): void
+    {
+        $page = $this->newItem();
+        $route = $page->editorRoute;
+        $page->recommendation = ['available' => true, 'basis' => ['scope' => []]];
+        $page->form['order_unit_mode'] = 'CASE';
+        $page->updatedForm('CASE', 'order_unit_mode');
+        self::assertTrue($page->recommendationPreferencesChanged);
+        self::assertNull($page->recommendation);
+        self::assertSame($route, $page->editorRoute);
+        self::assertFalse($page->form['is_enabled']);
+        $this->expectExceptionMessage('算定条件が変わりました');
+        $page->savePolicy();
+    }
+
+    public function test_manual_only_policy_can_select_unit_without_requiring_unavailable_history(): void
+    {
+        $page = $this->newItem();
+        $page->form['order_unit_mode'] = 'CASE';
+        $page->form['min_order_pieces'] = 15;
+        $page->updatedForm('CASE', 'order_unit_mode');
+        self::assertFalse($page->recommendationPreferencesChanged);
+        self::assertSame(15, $page->form['min_order_pieces']);
+        $page->form['item_id'] = 100;
+        $page->updatedForm(100, 'item_id');
+        self::assertSame('AUTO', $page->form['order_unit_mode']);
     }
 
     public function test_missing_editor_snapshot_cannot_be_used_to_save_a_policy(): void

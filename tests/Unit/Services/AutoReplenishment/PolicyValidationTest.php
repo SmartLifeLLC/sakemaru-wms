@@ -92,4 +92,18 @@ class PolicyValidationTest extends TestCase
         return ['item_id' => 1, 'reorder_point_pieces' => 10, 'max_order_pieces' => 24,
             'order_multiple_pieces' => 1, 'channel' => 'EOS', 'contractor_id' => 1, 'strategy_key' => 'threshold_v1'];
     }
+
+    public function test_order_unit_selection_accepts_only_supported_single_output_units(): void
+    {
+        $service = new PolicyService(new ReplenishmentGuard);
+        foreach (['AUTO', 'CASE', 'PIECE'] as $mode) {
+            self::assertSame($mode, $service->validate($this->product() + ['min_order_pieces' => 1, 'order_unit_mode' => $mode])['order_unit_mode']);
+        }
+        try {
+            $service->validate($this->product() + ['min_order_pieces' => 1, 'order_unit_mode' => 'CARTON']);
+            self::fail('Unsupported unit was accepted.');
+        } catch (ValidationException $e) {
+            self::assertSame(['発注単位を選び直してください。'], $e->errors()['order_unit_mode']);
+        }
+    }
 }
