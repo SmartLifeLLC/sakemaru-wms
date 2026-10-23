@@ -19,6 +19,9 @@
                 @if($logistics)<div class="ar-value"><small>出庫日{{ $test['phase'] !== 'READY' ? '（参考）' : '' }}</small><b>{{ $formatTestDate($test['picking_date']) }}</b></div>@endif
                 <div class="ar-value"><small>{{ $logistics ? '入庫日' : '入荷予定日' }}{{ $test['phase'] !== 'READY' ? '（参考）' : '' }}</small><b>{{ $formatTestDate($test['arrival_date']) }}</b></div>
             </div>
+            @if(($test['shipping_unit']['mode'] ?? '') === 'PALLET')<p class="ar-help">1パレット {{ number_format($test['shipping_unit']['pieces_per_pallet']) }}バラ ／ 今回 {{ number_format($test['quantity_pieces'] / $test['shipping_unit']['pieces_per_pallet']) }}パレット</p>@endif
+            @if(($test['stock'] ?? 0) < 0)<p class="ar-help">現在庫 {{ number_format($test['stock']) }}バラを負数のまま計算しています。</p>@endif
+            @if($test['quantity_settings'] ?? null)<p class="ar-help">@if($test['quantity_settings']['normal'] !== null)通常の目安 {{ number_format($test['quantity_settings']['normal']) }} ／ @endif最小 {{ number_format($test['quantity_settings']['minimum']) }} ／ 最大 {{ number_format($test['quantity_settings']['maximum']) }} ／ 補充目標 {{ number_format($test['quantity_settings']['target']) }}バラ。通常量をまとめ、欠品見込時のみ小口で補充します。</p>@endif
             @if($test['phase'] === 'HOLD' && $test['calculated_pieces'] > 0)<p class="ar-error">計算上は {{ number_format($test['calculated_pieces']) }}バラ必要ですが、保留のため発注対象は0バラです。切り詰め・分割発注はしません。</p>@endif
             <section class="ar-test-formula"><h3>計算の要点 <small>総バラ</small></h3>
                 @php $steps=$test['formula']; $shortSteps=count($steps)>4 ? [$steps[0],$steps[1],end($steps)] : $steps; @endphp

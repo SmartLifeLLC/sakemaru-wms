@@ -5,7 +5,6 @@ namespace App\Services\AutoReplenishment;
 use App\Enums\QuantityType;
 use App\Models\Sakemaru\Item;
 use App\Models\WmsOrderCandidate;
-use App\Services\AutoOrder\JxOrderArrivalDateAdjustmentService;
 use App\Services\AutoOrder\OrderOutputQuantityResolver;
 use App\Services\AutoOrder\OrderRegistrationSearchService;
 use Carbon\CarbonImmutable;
@@ -72,25 +71,50 @@ class SettingsRecommendationHistory
             $receipts = $this->once("transfer:{$item->id}:{$contractor}:{$source}:{$start}:{$period['end']}", fn () => $this->transferReceipts($clientId, (int) $item->id, $contractor, $source, $allocation, $period));
         }
         $demand = $this->dailyDemand($clientId, $warehouseId, (int) $item->id, $allocation, $period);
-        $lead = $this->once("lead:{$warehouseId}:{$contractor}:{$asOf}", function () use ($warehouseId, $contractor, $asOf) {
-            $resolver = app(JxOrderArrivalDateAdjustmentService::class);
-            $max = 1;
-            for ($i = 0; $i < 7; $i++) {
-                $day = \Carbon\Carbon::parse($asOf)->addDays($i);
-                $arrival = $resolver->earliestArrivalDate($contractor, $warehouseId, $day);
-                throw_unless($arrival, \RuntimeException::class, '既存の配送設定から入荷可能日を算定できません。');
-                $max = max($max, (int) $day->diffInDays($arrival));
-            }
-
-            return $max;
-        });
+        $scheduleConfig = $this->warehouseScheduleConfig($warehouseId);
+        $schedule = app(GenerationSchedule::class);
+        $weekdays = $schedule->weekdays($scheduleConfig);
+        $arrivalSchedule = $this->arrivalSchedule($clientId, $warehouseId, $route, $asOf, $scheduleConfig);
+        $lead = $arrivalSchedule['nominal_lead_days'];
+        if (! isset($scheduleConfig['weekdays'])) {
+            $demand['warnings'][] = '倉庫の実行曜日が未設定のため、毎日実行として算定しています。';
+        }
 
         return ['scope' => ['client_id' => $clientId, 'warehouse_id' => $warehouseId, 'warehouse_code' => (string) $warehouse->code,
             'item_id' => (int) $item->id, 'item_code' => (string) $item->code, 'channel' => $channel, 'contractor_id' => $contractor,
             'supplier_id' => $supplier, 'source_warehouse_id' => $channel === 'LOGISTICS' ? (int) $route['source_warehouse_id'] : null,
             'delivery_course_id' => $channel === 'LOGISTICS' ? (int) $route['delivery_course_id'] : null,
             'capacity_case' => (int) $item->capacity_case, 'packing_unit' => $packing],
-            'period' => $period, 'receipts' => $receipts, 'daily' => $demand['daily'], 'warnings' => $demand['warnings'], 'nominal_lead_days' => $lead];
+            'period' => $period, 'receipts' => $receipts, 'daily' => $demand['daily'], 'warnings' => $demand['warnings'], 'nominal_lead_days' => $lead,
+            'review_interval_days' => $schedule->maxReviewIntervalDays($scheduleConfig), 'review_weekdays' => $weekdays,
+            'review_schedule_fingerprint' => $schedule->fingerprint($scheduleConfig),
+            'maximum_arrival_gap_days' => $arrivalSchedule['maximum_gap_days'], 'arrival_schedule' => $arrivalSchedule];
+    }
+
+    private function warehouseScheduleConfig(int $warehouseId): array
+    {
+        return $this->once('schedule:'.$warehouseId, function () use ($warehouseId) {
+            $json = DB::connection('sakemaru')->table('wms_warehouse_auto_order_settings')->where('warehouse_id', $warehouseId)->value('replenishment_config');
+            if ($json === null) {
+                return [];
+            }
+            $config = json_decode($json, true);
+            throw_unless(is_array($config) && json_last_error() === JSON_ERROR_NONE, \RuntimeException::class,
+                '倉庫の自動発注設定を読み込めません。倉庫の設定を保存し直してください。');
+
+            return $config;
+        });
+    }
+
+    private function arrivalSchedule(int $clientId, int $warehouseId, array $route, string $asOf, array $config): array
+    {
+        $fingerprint = app(GenerationSchedule::class)->fingerprint($config);
+        $key = 'arrival_schedule:'.json_encode([$clientId, $warehouseId, (int) $route['contractor_id'], $route['channel'],
+            (int) ($route['source_warehouse_id'] ?? 0), (int) ($route['delivery_course_id'] ?? 0), $asOf, $fingerprint], JSON_THROW_ON_ERROR);
+
+        // Shared for all products on this route during this recommendation request.
+        return $this->once($key, fn () => app(RecommendationArrivalSchedule::class)->calculate(
+            $warehouseId, (int) $route['contractor_id'], $route['channel'], $asOf, $config));
     }
 
     private function transferBase(int $client, int $item, int $allocation, array $period)
@@ -127,10 +151,11 @@ class SettingsRecommendationHistory
         foreach ($rows as $row) {
             $linksForRow = $links->get($row->id, collect());
             $order = $linksForRow->min('order_date');
-            $groups[$row->id] ??= ['warehouse_id' => (int) $row->to_warehouse_id, 'pieces' => 0, 'date' => $row->picking_date,
+            $groups[$row->id] ??= ['warehouse_id' => (int) $row->to_warehouse_id, 'pieces' => 0, 'quantity_types' => [], 'date' => $row->picking_date,
                 'lead_days' => $order && $row->delivered_date ? (int) CarbonImmutable::parse($order)->diffInDays(CarbonImmutable::parse($row->delivered_date), false) : null,
                 'source' => ['type' => 'stock_transfer', 'id' => (int) $row->id, 'candidate_ids' => $linksForRow->pluck('candidate_id')->unique()->values()->all()]];
             $groups[$row->id]['pieces'] += $this->actualPieces($row);
+            $groups[$row->id]['quantity_types'] = array_values(array_unique([...$groups[$row->id]['quantity_types'], $row->quantity_type]));
         }
 
         return array_values($groups);
@@ -182,11 +207,12 @@ class SettingsRecommendationHistory
             }
             $key = $queue.':'.$row->warehouse_id.':'.$row->receipt_date;
             $order = min(array_column($matching, 'order_date'));
-            $groups[$key] ??= ['warehouse_id' => (int) $row->warehouse_id, 'pieces' => 0, 'date' => $row->receipt_date,
+            $groups[$key] ??= ['warehouse_id' => (int) $row->warehouse_id, 'pieces' => 0, 'quantity_types' => [], 'date' => $row->receipt_date,
                 'lead_days' => (int) CarbonImmutable::parse($order)->diffInDays(CarbonImmutable::parse($row->receipt_date), false),
                 'source' => ['type' => 'purchase', 'queue_id' => $queue, 'purchase_ids' => [], 'candidate_ids' => array_values(array_unique(array_column($matching, 'candidate_id'))),
                     'jx_document_ids' => array_values(array_unique(array_filter(array_column($matching, 'wms_order_jx_document_id'))))]];
             $groups[$key]['pieces'] += $this->actualPieces($row);
+            $groups[$key]['quantity_types'] = array_values(array_unique([...$groups[$key]['quantity_types'], $row->quantity_type]));
             $groups[$key]['source']['purchase_ids'][] = (int) $row->id;
         }
 

@@ -28,14 +28,12 @@ class PolicyService
                 }
             }
         }
-        if ($calculationBasis) {
-            $suggested = $calculationBasis['suggested_values'] ?? [];
-            $calculationBasis['applied_values'] = array_intersect_key($values, $suggested);
-            $calculationBasis['manually_adjusted_fields'] = array_keys(array_filter($suggested, fn ($v, $k) => ($values[$k] ?? null) != $v, ARRAY_FILTER_USE_BOTH));
-        }
+        throw_if($values['strategy_key'] === 'arrival_adaptive_v1' && $calculationBasis
+            && ! in_array($calculationBasis['batch_rule'] ?? '', ['observed-mode-with-historical-maximum', 'mean-demand-times-review-days'], true),
+            \RuntimeException::class, '通常量をまとめて補充する方法へ変更する場合は、「おすすめ設定」で実績を再計算してください。');
         $values['calculation_basis'] = $calculationBasis;
 
-        return $this->persist($clientId, $warehouseId, $values, $actorId);
+        return $this->persist($clientId, $warehouseId, $values, $actorId, $data);
     }
 
     public function validate(array $data): array
@@ -46,7 +44,7 @@ class PolicyService
             'max_order_pieces' => 'required|integer|min:1|max:2147483647',
             'min_order_pieces' => 'required|integer|min:1|lte:max_order_pieces',
             'order_multiple_pieces' => 'required|integer|min:1|max:2147483647',
-            'target_stock_pieces' => ($data['strategy_key'] ?? '') === 'arrival_batch_v1'
+            'target_stock_pieces' => in_array($data['strategy_key'] ?? '', ['arrival_batch_v1', 'arrival_adaptive_v1'], true)
                 ? 'nullable|integer|min:1|max:2147483647' : 'nullable|integer|gte:reorder_point_pieces|max:2147483647',
             'channel' => 'required|in:EOS,LOGISTICS', 'contractor_id' => 'required|integer|min:1',
             'supplier_id' => 'nullable|integer|min:1', 'source_warehouse_id' => 'nullable|integer|min:1',
@@ -67,9 +65,9 @@ class PolicyService
         }, 3);
     }
 
-    private function persist(int $clientId, int $warehouseId, array $values, int $actorId): WmsItemReorderPolicy
+    private function persist(int $clientId, int $warehouseId, array $values, int $actorId, array $selection): WmsItemReorderPolicy
     {
-        return DB::connection('sakemaru')->transaction(function () use ($clientId, $warehouseId, $values, $actorId) {
+        return DB::connection('sakemaru')->transaction(function () use ($clientId, $warehouseId, $values, $actorId, $selection) {
             $c = $this->guard->control($clientId);
             throw_unless($c->reset_state === 'COMPLETE', \RuntimeException::class, '初期化完了後に設定してください。');
             $db = DB::connection('sakemaru');
@@ -80,11 +78,21 @@ class PolicyService
             $policy = WmsItemReorderPolicy::firstOrNew(['client_id' => $clientId, 'warehouse_id' => $warehouseId, 'item_id' => $values['item_id']]);
             throw_if($policy->exists && (int) ($values['version'] ?? 0) !== (int) $policy->version, \RuntimeException::class, '他の操作で設定が変更されています。再読込してください。');
             $before = $policy->toArray();
+            $pallets = app(PalletUnitService::class);
+            $palletBefore = $pallets->binding($policy->exists ? (int) $policy->id : null);
+            $pallet = $pallets->prepare($clientId, $values, $selection, $policy->exists ? (int) $policy->id : null);
+            if ($values['calculation_basis']) {
+                $suggested = $values['calculation_basis']['suggested_values'] ?? [];
+                $values['calculation_basis']['applied_values'] = array_intersect_key($values, $suggested);
+                $values['calculation_basis']['manually_adjusted_fields'] = array_keys(array_filter($suggested, fn ($v, $k) => ($values[$k] ?? null) != $v, ARRAY_FILTER_USE_BOTH));
+            }
             unset($values['version']);
             $policy->fill($values + ['is_configured' => true, 'is_enabled' => false, 'updated_by' => $actorId]);
             $policy->version = $policy->exists ? $policy->version + 1 : 1;
             $policy->save();
-            $this->guard->event($clientId, 'POLICY_SAVED', ['before' => $before, 'after' => $policy->toArray()], actorId: $actorId);
+            $pallets->persist((int) $policy->id, $pallet);
+            $this->guard->event($clientId, 'POLICY_SAVED', ['before' => $before, 'after' => $policy->toArray(),
+                'pallet_before' => $palletBefore, 'pallet_after' => $pallets->binding((int) $policy->id)], actorId: $actorId);
 
             return $policy;
         }, 3);
@@ -99,7 +107,7 @@ class PolicyService
             throw_if((int) $p->version !== $version || ($enabled && ! $p->is_configured), \RuntimeException::class, '再設定が必要です。');
             if ($enabled) {
                 $snapshot = app(SnapshotReader::class)->read($p);
-                if ($p->strategy_key === 'arrival_batch_v1') {
+                if (in_array($p->strategy_key, ['arrival_batch_v1', 'arrival_adaptive_v1'], true)) {
                     $result = app(StrategyCalculator::class)->calculate($p->toArray(), $snapshot);
                     throw_if($result['phase'] === 'HOLD', \RuntimeException::class, $result['reason']);
                 }

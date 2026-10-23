@@ -30,7 +30,12 @@ class ThresholdStrategyTest extends TestCase
             'other candidate' => [50, 0, 60, 12, 6, 120, 1, 'NO_ORDER', 0],
             'cap cannot clip' => [20, 0, 0, 12, 6, 60, 1, 'HOLD', 84],
             'lcm rounding' => [87, 0, 0, 1, 5, 50, 12, 'HOLD', 60],
-            'negative stock' => [-1, 0, 0, 12, 6, 120, 1, 'HOLD', 0],
+            'negative stock' => [-1, 0, 0, 12, 6, 120, 1, 'READY', 102],
+            'negative with insufficient incoming' => [-50, 100, 0, 12, 6, 120, 1, 'READY', 54],
+            'negative with sufficient incoming' => [-50, 150, 0, 12, 6, 120, 1, 'NO_ORDER', 0],
+            'negative with insufficient claims' => [-50, 0, 100, 12, 6, 120, 1, 'READY', 54],
+            'negative supply is still invalid' => [-5, -1, 0, 12, 6, 120, 1, 'HOLD', 0],
+            'out of range' => [PHP_INT_MIN, 0, 0, 12, 6, 120, 1, 'HOLD', 0],
             'unset upper bound' => [50, 0, 0, 1, 1, 0, 1, 'HOLD', 0],
             'unset unit' => [50, 0, 0, 1, 0, 120, 1, 'HOLD', 0],
             'min over max' => [50, 0, 0, 121, 1, 120, 1, 'HOLD', 0],
@@ -39,7 +44,7 @@ class ThresholdStrategyTest extends TestCase
 
     public function test_safe_quantities_obey_all_constraints_for_many_combinations(): void
     {
-        foreach ([0, 1, 20, 50, 95, 99, 100] as $stock) {
+        foreach ([-100, -6, -1, 0, 1, 20, 50, 95, 99, 100] as $stock) {
             foreach ([1, 3, 6, 12, 24] as $step) {
                 foreach ([1, 6, 12] as $pack) {
                     foreach ([1, 10, 12, 50] as $min) {

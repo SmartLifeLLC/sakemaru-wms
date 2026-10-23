@@ -2,23 +2,121 @@
     $basis=$this->recommendation['basis'];
     $recommended=$this->recommendation['values'] ?? ($basis['suggested_values'] ?? []);
     $filled=$this->recommendation['available'] && isset($this->recommendation['values']);
-    $arrivalGuard=($recommended['strategy_key'] ?? '') === 'arrival_batch_v1';
-    $batch=(int)($recommended['min_order_pieces'] ?? 0);
-    $target=(int)($recommended['target_stock_pieces'] ?? ($recommended['reorder_point_pieces'] ?? 0));
+    $strategy=$this->form['strategy_key'] ?? '';
+    $arrivalGuard=$strategy === 'arrival_batch_v1';
+    $adaptive=$strategy === 'arrival_adaptive_v1';
+    $salesBased=($basis['basis_type'] ?? '') === 'sales';
+    $batch=(int)($basis['batch_quantity_pieces'] ?? 0);
+    $historyMinimum=(int)($basis['minimum_quantity_pieces'] ?? ($recommended['min_order_pieces'] ?? 0));
+    $historyMaximum=(int)($basis['maximum_quantity_pieces'] ?? ($recommended['max_order_pieces'] ?? 0));
+    $mean=(float)($basis['mean_daily'] ?? 0);
+    $positiveInteger=fn($value) => filter_var($value,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>2147483647]]) ?: null;
+    $point=$positiveInteger($this->form['reorder_point_pieces'] ?? null);
+    $minimum=$positiveInteger($this->form['min_order_pieces'] ?? null);
+    $maximum=$positiveInteger($this->form['max_order_pieces'] ?? null);
+    $unit=$positiveInteger($this->form['order_multiple_pieces'] ?? null);
+    $targetValue=$this->form['target_stock_pieces'] ?? null;
+    $target=($targetValue === '' || $targetValue === null) ? $point : $positiveInteger($targetValue);
+    $valid=$point && $minimum && $maximum && $unit && $target && $minimum <= $maximum;
+    $packing=$positiveInteger($basis['scope']['packing_unit'] ?? null);
+    $multiple=null;
+    if ($valid && $packing) {
+        $a=$unit; $b=$packing;
+        while ($b !== 0) { [$a,$b]=[$b,$a % $b]; }
+        $multiple=intdiv($unit,$a)*$packing;
+    }
+    $roundedMinimum=$multiple ? (intdiv($minimum,$multiple)+($minimum % $multiple > 0 ? 1 : 0))*$multiple : null;
+    $example=$multiple ? intdiv(min($target,$maximum),$multiple)*$multiple : null;
 @endphp
-@if($filled)<p class="ar-recommend-success" role="status">おすすめ値を入力しました。「設定を保存」で反映します。</p>
-@elseif(!$this->recommendation['available'])<p class="ar-error" role="alert">{{ $basis['reason'] ?? 'おすすめ設定を計算できません。発注先と数量条件を確認してください。' }}</p>@endif
-<details class="ar-editor-helper ar-recommend-basis" @if($filled) open @endif>
-    <summary>{{ $filled ? '計算の要点・サンプル' : '保存時の計算' }} @if(isset($basis['period']))（{{ $basis['period']['start'] }}〜{{ $basis['period']['end'] }}）@endif</summary>
-    @if($recommended)
-        <p>発注点は入荷までの出荷分、1回量は過去実績から算定。補充目標は1回量＋出荷が多い日の1日分です。</p>
-        @if($arrivalGuard)
-            <p><b>補充目標を超える場合は見送り。</b>入荷までの出荷見込・既発注も考慮します。</p>
-            <p class="ar-example">例：在庫見込 {{ number_format(max(0,$target-$batch)) }} ＋ 1回量 {{ number_format($batch) }} ＝ {{ number_format($target) }}バラ → 発注</p>
-        @else
-            <p>「おすすめ設定」で、補充目標を超えない発注方法に再計算できます。</p>
+@php
+    $receiptCount=(int)($basis['own_receipt_count'] ?? 0);
+    $receiptDays=(int)($basis['own_receipt_days'] ?? 0);
+    $observedCounts=$basis['observed_quantity_counts'] ?? ($basis['batch_quantity_counts'] ?? []);
+    $observedMaximum=$basis['observed_maximum_quantity_pieces'] ?? (!$salesBased ? $historyMaximum : null);
+    $observedMinimum=$basis['observed_minimum_quantity_pieces'] ?? (!$salesBased ? $historyMinimum : null);
+    $arrivalGap=$basis['maximum_arrival_gap_days'] ?? null;
+    $referenceOnly=!empty($basis['reference_only']);
+@endphp
+@if(!$this->recommendation['available'])
+    <div class="ar-recommend-unavailable" role="status">
+        <p>{{ $basis['reason'] ?? 'おすすめ設定を計算できません。発注先と数量条件を確認してください。' }}</p>
+        @if(isset($basis['demand_positive_days']))<p class="ar-help">売上・出荷 {{ number_format($basis['demand_positive_days']) }}日 ／ 発注に紐づく入荷・出庫 {{ number_format($receiptCount) }}回・{{ number_format($receiptDays) }}日</p>@endif
+    </div>
+@endif
+@if($recommended)
+    <div class="ar-recommend-summary" @if($filled) role="status" @endif>
+        <span>@if($filled)<span class="ar-recommend-success">候補を入力済み</span> ／ @endif<b>{{ $salesBased ? '売上基準' : ($referenceOnly ? '過去量を参考' : '発注実績基準') }}</b> ／ 通常の1回量 {{ number_format($batch) }}バラ@if($mean > 0)（約{{ number_format($batch / $mean,1) }}日分）@endif</span>
+        @if($arrivalGap !== null)<span>既存設定での入荷間隔：最大{{ number_format($arrivalGap) }}日</span>@endif
+    </div>
+@endif
+@if($valid && ($adaptive || $arrivalGuard))
+    @if($adaptive && $example !== null && $example >= $roundedMinimum)
+        <p class="ar-example">数量例（入数はおすすめ算定時）：補充前見込0・既発注0 → 最大 {{ number_format($maximum) }}・発注単位 {{ number_format($multiple) }}の範囲で {{ number_format($example) }}バラ。</p>
+    @elseif($arrivalGuard && $roundedMinimum !== null && $roundedMinimum <= min($maximum,$target))
+        <p class="ar-example">数量例（入数はおすすめ算定時）：補充前見込0・既発注0 ＋ 固定 {{ number_format($roundedMinimum) }} ＝ {{ number_format($roundedMinimum) }}バラ（目標 {{ number_format($target) }}以内）。</p>
+    @elseif($multiple)<p class="ar-help ar-quantity-caution">補充目標内で最小発注数・発注単位を満たせない設定です。数量条件を見直してください。</p>@endif
+
+@elseif(!$valid)
+    <p class="ar-help">数量条件が未入力または不正なため、数量例は表示できません。</p>
+@endif
+<details class="ar-editor-helper ar-recommend-basis">
+    <summary>算定根拠・実績を確認 @if(isset($basis['period']))（{{ $basis['period']['start'] }}〜{{ $basis['period']['end'] }}）@endif</summary>
+    <div class="ar-current-quantity-explanation">
+        <p class="ar-help">数量例は入力中の設定です。現在の在庫・入荷予定での判定は、保存後の「テスト」で確認できます。</p>
+        <p><b>現在の設定</b>（入力中・保存で反映）</p>
+        @if($valid)
+            <p>発注点 {{ number_format($point) }} ／ 最小 {{ number_format($minimum) }} ／ 最大 {{ number_format($maximum) }} ／ 単位 {{ number_format($unit) }} ／ 補充目標 {{ number_format($target) }}バラ@if($mean > 0)（約{{ number_format($target / $mean,1) }}日分）@endif。</p>
+            @if($adaptive)
+                <p>通常量をまとめて発注。次回の入荷までに欠品が見込まれる場合のみ小口で補充します。目標・最大数・最小数・単位を守ります。</p>
+            @elseif($arrivalGuard)
+                <p>1回量は最小発注数を単位に合わせた固定数量です。補充後見込が補充目標を超える場合は見送ります。</p>
+            @elseif($strategy === 'threshold_capped_v1')
+                <p>不足数を最小数・単位に合わせ、最大発注数内の数量を発注します。残りは既発注を含めて次回再判定します。</p>
+            @elseif($strategy === 'threshold_v1')
+                <p>不足数を最小数・単位に合わせます。最大発注数を超える場合は全量を保留します。</p>
+            @endif
         @endif
-        <p class="ar-help">実績 {{ number_format($basis['own_receipt_count'] ?? 0) }}回 @if(isset($basis['mean_daily']))／ 1日平均 {{ number_format($basis['mean_daily'],2) }}バラ@endif。数量はすべて総バラ。</p>
-        @if(str_contains(implode('', $basis['warnings'] ?? []),'直近28'))<p class="ar-help">直近の実績が少ないため、期間を広げて算定しています。</p>@endif
-    @endif
+    </div>
+    @if($recommended)
+        <div class="ar-historical-quantity-explanation">
+            <p><b>{{ $salesBased ? '売上・出荷からの算定' : ($referenceOnly ? '少数実績を参考にした算定' : 'この倉庫の発注実績からの算定') }}</b></p>
+            @if($salesBased)
+                <p>通常量の目安：1日平均 {{ number_format($mean,2) }} × {{ $basis['review_days'] ?? '—' }}日分を単位に切上げ → <b>{{ number_format($batch) }}バラ</b>。最小・最大の初期値もこの数量です。</p>
+                @if($receiptDays > 0)<p class="ar-help">発注に紐づく入荷・出庫は {{ number_format($receiptCount) }}回・{{ number_format($receiptDays) }}日。{{ $receiptDays < 5 ? '実績日数が少ないため、初期候補は売上基準です。' : '選択した発注単位に合う実績が不足するため、売上基準です。' }}</p>
+                @else<p class="ar-help">発注に紐づく入荷・出庫実績がないため、過去の最大量は未確認です。</p>@endif
+            @elseif(isset($basis['batch_frequency']))
+                <p>通常の1回量 <b>{{ number_format($batch) }}バラ</b>（最多 {{ number_format($basis['batch_frequency']) }}回）／ 実績の最小 {{ number_format($historyMinimum) }} ／ 最大 {{ number_format($historyMaximum) }}バラ（{{ number_format($basis['maximum_frequency'] ?? 0) }}回）。同率は小さい数量を採用。</p>
+                @if($referenceOnly)<p class="ar-help">{{ number_format($receiptDays) }}日分の参考値です。通常の発注量と限らないため、数量条件を確認して保存してください。</p>@endif
+            @else<p class="ar-help">保存時の通常量の目安 {{ number_format($batch) }}バラ。「おすすめ設定」で再計算できます。</p>@endif
+            @if($observedCounts)
+                <p>数量別の実績（回数順・上位5件）：@foreach($observedCounts as $quantity){{ number_format($quantity['pieces']) }}バラ {{ number_format($quantity['count']) }}回{{ $loop->last ? '' : ' ／ ' }}@endforeach。</p>
+                @if($salesBased && $observedMaximum !== null)<p class="ar-help">実績の最小 {{ number_format($observedMinimum) }} ／ 最大 {{ number_format($observedMaximum) }}バラ。売上基準の初期値とは別に確認できます。</p>@endif
+            @endif
+            @if($arrivalGap !== null)
+                <p>補充目標には、既存設定での入荷間隔 最大{{ number_format($arrivalGap) }}日分の需要 ＋ 最小1回分も反映します。入荷遅延による不足を防げるとは限りません。</p>
+            @elseif(isset($basis['review_interval_days']))
+                <p>発注点は入荷まで＋次の実行まで最大{{ $basis['review_interval_days'] }}日を考慮。補充目標は「通常量＋1日分」と「次の実行までの需要＋最小1回分」の大きい方です。</p>
+            @endif
+            <p class="ar-help">売上・出荷の観測 {{ number_format($basis['observed_days'] ?? 0) }}日 ／ 1日平均 {{ number_format($mean,2) }}バラ。日数換算は目安です。{{ $basis['unit_basis'] ?? '' }}</p>
+            @if(str_contains(implode('', $basis['warnings'] ?? []),'直近28'))<p class="ar-help">直近の実績が少ないため、期間を広げて算定しています。</p>@endif
+        </div>
+    @elseif(!$this->recommendation['available'])<p class="ar-help">算定できない場合は、発注単位と数量条件を手入力してください。</p>@endif
 </details>
+
+@if(isset($basis['shipping_lots']))
+    <details class="ar-editor-helper ar-lot-profile">
+        <summary>物流の出庫単位・パレット候補を確認</summary>
+        <p class="ar-help">WMSの物流発注に紐づく出庫済み移動伝票を集計。ケース・バラは総バラに統一しています。</p>
+        @foreach(['own'=>'この倉庫向け','source_all_warehouses'=>'移動元の全倉庫向け'] as $key=>$label)
+            @php $lot=$basis['shipping_lots'][$key]; @endphp
+            <p><b>{{ $label }}</b>：{{ number_format($lot['count']) }}回・{{ number_format($lot['days']) }}日 @if($lot['count'])／ {{ number_format($lot['warehouses']) }}倉庫@endif</p>
+            @if($lot['count'])
+                <table><thead><tr><th>出庫数量（総バラ）</th><th>ケース換算</th><th>回数</th></tr></thead><tbody>
+                @foreach($lot['top'] as $quantity)<tr><td>{{ number_format($quantity['pieces']) }}</td><td>{{ $quantity['cases'] === null ? '—' : number_format($quantity['cases']) }}</td><td>{{ number_format($quantity['count']) }}</td></tr>@endforeach
+                </tbody></table>
+                <p class="ar-help">最小 {{ number_format($lot['minimum_pieces']) }} ／ 中央値 {{ number_format($lot['median_pieces']) }} ／ 共通単位 {{ number_format($lot['gcd_pieces']) }}バラ。上位5数量を表示。ケース換算はおすすめ算定時の入数です。</p>
+            @else<p class="ar-help">対象期間に該当する出庫実績がありません。</p>@endif
+        @endforeach
+        <p class="ar-help">共通単位＝パレット入数ではありません。@if(($basis['unit_mode'] ?? '') === 'PALLET')今回は登録済みの1パレット {{ number_format($basis['pallet_unit']['pieces_per_pallet'] ?? ($recommended['order_multiple_pieces'] ?? 0)) }}バラで算定しています。@elseパレット発注する場合は、共有パレット入数を登録して「パレット単位」を選択してください。@endif</p>
+    </details>
+@endif

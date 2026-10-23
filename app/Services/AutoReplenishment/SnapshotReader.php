@@ -118,9 +118,15 @@ class SnapshotReader
             ->whereIn('stock_allocation_id', $allocationIds)->when(! $readOnly && $db->transactionLevel() > 0, fn ($q) => $q->lockForUpdate())->select(['id', 'item_id', 'current_quantity', 'reserved_quantity']), 'item_id', (int) $policy->item_id);
         // No row can also mean an unimported stock feed. Never infer zero here.
         throw_if($stocks->isEmpty(), \RuntimeException::class, '在庫データが未連携です。');
-        $stock = (int) $stocks->sum('current_quantity');
+        $stock = $stocks->sum('current_quantity');
+        throw_unless(is_int($stock) && $stock >= -2147483648 && $stock <= 2147483647, \RuntimeException::class, '現在庫の数量が扱える範囲を超えています。管理者に確認してください。');
         $this->observation['stock'] = $stock;
-        throw_if($stocks->contains(fn ($s) => $s->current_quantity < 0), \RuntimeException::class, '負在庫があるため保留します。');
+
+        $palletService = app(PalletUnitService::class);
+        $pallets = $this->once('pallet_bindings:'.$policy->warehouse_id, fn () => $palletService->bindings($clientId, (int) $policy->warehouse_id,
+            $this->proposalItemIds ?: [(int) $policy->item_id], ! $readOnly && $db->transactionLevel() > 0));
+        $pallet = $pallets->get($policy->id);
+        $shippingUnit = $pallet ? $palletService->assertBinding($pallet, $policy->toArray(), (int) $item->capacity_case) : ['mode' => 'STANDARD'];
 
         $transfer = $this->once('transfer_supply:'.$policy->warehouse_id, fn () => app(TransferSupplyReader::class)->read(
             $clientId, (int) $policy->warehouse_id, $this->proposalItemIds ?: [(int) $policy->item_id], $allocationIds,
@@ -240,6 +246,23 @@ class SnapshotReader
             $arrival = $this->once('logistics-arrival:'.$policy->contractor_id.':'.$policy->warehouse_id,
                 fn () => app(LogisticsArrivalDateService::class)->resolve($policy, $businessDate));
         }
+        $nextArrival = null;
+        if ($policy->strategy_key === 'arrival_adaptive_v1') {
+            $schedule = app(GenerationSchedule::class);
+            $savedSchedule = $policy->calculation_basis['review_schedule_fingerprint'] ?? null;
+            throw_if($savedSchedule !== null && $savedSchedule !== $schedule->fingerprint($config),
+                \RuntimeException::class, '倉庫の実行曜日・時刻が変更されています。「おすすめ設定」で数量条件を再計算して保存してください。');
+            $nextDate = $schedule->nextRunDate($businessDate, $config);
+            $nextOrderDay = Carbon::parse($nextDate->toDateString());
+            if ($policy->channel === 'EOS' && ! $nextOrderDay->isSunday()
+                && (int) substr($schedule->executionTimeForDate($nextDate->toDateString(), $config), 0, 2) >= 13) {
+                $nextOrderDay->addDay();
+            }
+            $nextArrival = $this->once('next-arrival:'.$policy->channel.':'.$policy->contractor_id.':'.$policy->warehouse_id.':'.$nextOrderDay->toDateString(),
+                fn () => app(JxOrderArrivalDateAdjustmentService::class)->earliestArrivalDate((int) $policy->contractor_id, (int) $policy->warehouse_id, $nextOrderDay));
+            // A missing next date blocks only a small order that needs a waiting decision.
+            // A valid usual batch for the current arrival must remain orderable.
+        }
         $search = app(OrderRegistrationSearchService::class);
         $orderingCode = $this->proposalItemIds
             ? $this->once('ordering_codes', fn () => $db->table('item_search_information')->whereIn('item_id', $this->proposalItemIds)->where('is_used_for_ordering', true)->where('is_active', true)->whereRaw("search_string REGEXP '[1-9]'")->orderBy('id')->get(['item_id', 'search_string'])->unique('item_id')->mapWithKeys(fn ($row) => [$row->item_id => str_pad((string) $row->search_string, 13, '0', STR_PAD_LEFT)]))->get($item->id)
@@ -264,11 +287,13 @@ class SnapshotReader
             'packing_unit' => $packingUnit, 'quantity_type' => $packingUnit > 1 ? 'CASE' : 'PIECE', 'capacity_case' => (int) $item->capacity_case,
             'capacity_carton' => (int) $item->capacity_carton, 'ordering_code' => $orderingCode,
             'business_date' => $businessDate, 'arrival_date' => $arrival->toDateString(),
+            'next_arrival_date' => $nextArrival?->toDateString(),
             'jx_route_hash' => $policy->channel === 'EOS' ? $this->once('jx_route:'.$policy->contractor_id, fn () => app(JxRouteFingerprint::class)->fingerprint((int) $policy->contractor_id)) : null,
             // Price is not used by quantity/date simulation; its accessor refreshes a cache.
             'budget_unit_price' => $readOnly ? '0' : (string) ($item->current_price?->purchase_unit_price ?? '0'),
             'route_snapshot' => $pair ? (array) $pair : null, 'warehouse_config' => $config,
             'source_stock_allocation_id' => $sourceAllocationId,
+            'shipping_unit' => $shippingUnit,
             'policy' => $policy->toArray(), 'observed_at' => now()->toIso8601String(),
         ];
     }

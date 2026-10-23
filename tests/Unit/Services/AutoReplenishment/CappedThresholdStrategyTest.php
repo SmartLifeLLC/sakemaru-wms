@@ -30,6 +30,19 @@ class CappedThresholdStrategyTest extends TestCase
         self::assertSame('READY', $r['phase']);
         self::assertSame(120, $r['quantity']);
         app(ProposalSafety::class)->validate($policy, $r, 12);
-        self::assertSame('HOLD', app(CappedThresholdStrategy::class)->calculate($policy, -1, 0, 0, 12)['phase']);
+        self::assertSame(120, app(CappedThresholdStrategy::class)->calculate($policy, -1000, 0, 0, 12)['quantity']);
+    }
+
+    public function test_negative_stock_orders_whole_pallets_below_maximum_and_counts_existing_supply(): void
+    {
+        $p = ['reorder_point_pieces' => 6000, 'min_order_pieces' => 1728, 'order_multiple_pieces' => 1728, 'max_order_pieces' => 3000];
+        $s = app(CappedThresholdStrategy::class);
+        $r = $s->calculate($p, -6, 0, 0, 1);
+        self::assertSame('READY', $r['phase']);
+        self::assertSame(1728, $r['quantity']); // Never 3,000 or an inferred 1,536-piece partial pallet.
+        app(ProposalSafety::class)->validate($p, $r, 1);
+        self::assertSame('NO_ORDER', $s->calculate($p, -6, 6006, 0, 1)['phase']);
+        $p['max_order_pieces'] = 1700;
+        self::assertSame('HOLD', $s->calculate($p, -6, 0, 0, 1)['phase']);
     }
 }
