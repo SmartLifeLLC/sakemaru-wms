@@ -64,6 +64,9 @@
             "@php artisan config:clear --ansi",
             "@php artisan test"
         ],
+        "test:jx": [
+            "@php vendor/bin/phpunit --fail-on-skipped --fail-on-risky --fail-on-warning --fail-on-phpunit-deprecation tests/Unit/Support/JxTestRecordsTest.php tests/Unit/Services/AutoOrder/HanaOrderFileGeneratorTest.php tests/Unit/Services/AutoOrder/HanaOrderFileFieldComparisonTest.php tests/Unit/Services/AutoOrder/HanaOrderFileSampleValidationTest.php tests/Unit/Services/AutoOrder/JxGeneratorOutputCompatibilityTest.php tests/Feature/AutoOrder/JxGenerationFailureCleanupTest.php tests/Feature/AutoOrder/OrderCancellationJxLifecycleTest.php tests/Feature/AutoOrder/ManualJxClaimRecoveryTest.php tests/Unit/Services/AutoOrder/HanaOrderJXFileGeneratorLegacySlipNumberTest.php tests/Unit/Services/AutoOrder/HanaOrderJXFileGeneratorSlipNumberTest.php tests/Unit/Filament/WmsOrderRegistrationCandidateViewTest.php"
+        ],
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
             "@php artisan package:discover --ansi",
