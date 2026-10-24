@@ -123,6 +123,7 @@ class PolicyService
             $p = WmsItemReorderPolicy::where('client_id', $clientId)->lockForUpdate()->findOrFail($id);
             throw_if((int) $p->version !== $version || ($enabled && ! $p->is_configured), \RuntimeException::class, '再設定が必要です。');
             if ($enabled) {
+                throw_if($p->channel === 'FAX', \RuntimeException::class, 'FAX発注は参考計算のみです。自動発注はONにできません。');
                 $snapshot = app(SnapshotReader::class)->read($p);
                 if (in_array($p->strategy_key, ['arrival_batch_v1', 'arrival_adaptive_v1'], true)) {
                     $result = app(StrategyCalculator::class)->calculate($p->toArray(), $snapshot);

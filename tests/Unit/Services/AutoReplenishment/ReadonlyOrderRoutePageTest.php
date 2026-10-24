@@ -43,7 +43,7 @@ class ReadonlyOrderRoutePageTest extends TestCase
         $permissions = Mockery::mock(PermissionService::class);
         $permissions->shouldReceive('check')->andReturnTrue();
         $this->app->instance(PermissionService::class, $permissions);
-        $eligibility = Mockery::mock(OrderRouteEligibility::class);
+        $eligibility = Mockery::mock(OrderRouteEligibility::class)->makePartial();
         $eligibility->shouldReceive('contractorIds')->with('EOS')->andReturn([1021]);
         $eligibility->shouldReceive('contractorIds')->with('LOGISTICS')->andReturn([9012]);
         $this->app->instance(OrderRouteEligibility::class, $eligibility);
@@ -67,6 +67,43 @@ class ReadonlyOrderRoutePageTest extends TestCase
         $page->updatedForm($id, 'item_id');
 
         return $page;
+    }
+
+    public function test_fax_defaults_allow_reference_calculation_but_reject_save_and_forged_enable(): void
+    {
+        $db = DB::connection('sakemaru');
+        $db->table('contractors')->insert(['id' => 9999, 'client_id' => 6, 'is_active' => 1]);
+        $db->table('wms_contractor_settings')->insert(['contractor_id' => 9999, 'transmission_type' => 'MANUAL_CSV']);
+        $db->table('item_contractors')->insert(['client_id' => 6, 'warehouse_id' => 10, 'item_id' => 300, 'contractor_id' => 9999, 'supplier_id' => 300]);
+        $db->enableQueryLog();
+        $page = $this->newItem(300);
+        self::assertSame('FAX', $page->form['channel']);
+        self::assertSame(9999, $page->form['contractor_id']);
+        self::assertFalse($page->form['is_enabled']);
+        $page->calculateSettings();
+        self::assertNotNull($page->recommendation);
+        foreach ([false, true] as $enabled) {
+            $page->form['is_enabled'] = $enabled;
+            try {
+                $page->savePolicy();
+                self::fail('Reference-only FAX must not save.');
+            } catch (ValidationException $e) {
+                self::assertStringContainsString('FAX発注は参考計算のみ', $e->errors()['operation'][0]);
+            }
+        }
+        foreach ($db->getQueryLog() as $query) {
+            self::assertStringStartsWith('select', strtolower($query['query']));
+        }
+    }
+
+    public function test_adding_fax_reference_does_not_replace_existing_eos_default(): void
+    {
+        $db = DB::connection('sakemaru');
+        $db->table('contractors')->insert(['id' => 9999, 'client_id' => 6, 'is_active' => 1]);
+        $db->table('item_contractors')->insert(['client_id' => 6, 'warehouse_id' => 10, 'item_id' => 100, 'contractor_id' => 9999, 'supplier_id' => 9999]);
+        $page = $this->newItem(100);
+        self::assertSame('EOS', $page->form['channel']);
+        self::assertSame(1021, $page->form['contractor_id']);
     }
 
     public function test_product_selection_keeps_eos_and_logistics_defaults_and_clears_old_route(): void

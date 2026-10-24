@@ -87,7 +87,7 @@ class MasterRouteWarnings
         } else {
             $relation = $relations[0];
             $type = $route['channel'] === 'LOGISTICS' ? 'INTERNAL' : 'JX_FINET';
-            if (! $relation['is_active'] || $relation['transmission_type'] !== $type) {
+            if (! $relation['is_active'] || ($route['channel'] !== 'FAX' && $relation['transmission_type'] !== $type)) {
                 $warnings[] = '発注先の有効状態・送信方式が商品別設定と異なります。発注先の設定を確認してください。';
             }
             if ($route['channel'] === 'LOGISTICS' && (int) $relation['supply_warehouse_id'] !== (int) ($route['source_warehouse_id'] ?? 0)) {

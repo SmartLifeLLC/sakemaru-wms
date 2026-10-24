@@ -39,8 +39,12 @@ class SettingsRecommendationHistory
         throw_if(in_array((int) $warehouse->code, $preserved, true), \RuntimeException::class, 'この倉庫は実績からの自動設定対象外です。既存の数量設定を維持してください。');
         $channel = $route['channel'] ?? '';
         $contractor = (int) ($route['contractor_id'] ?? 0);
-        $eligible = $this->once('eligible:'.$channel, fn () => app(OrderRouteEligibility::class)->contractorIds($channel));
-        app(OrderRouteEligibility::class)->assertEligible($channel, $contractor, $eligible);
+        if ($channel === 'FAX') {
+            app(OrderRouteEligibility::class)->assertReferenceEligible($clientId, $contractor);
+        } else {
+            $eligible = $this->once('eligible:'.$channel, fn () => app(OrderRouteEligibility::class)->contractorIds($channel));
+            app(OrderRouteEligibility::class)->assertEligible($channel, $contractor, $eligible);
+        }
         $relations = $db->table('item_contractors')->where(['client_id' => $clientId, 'warehouse_id' => $warehouseId, 'item_id' => $item->id, 'contractor_id' => $contractor])
             ->when(! empty($route['supplier_id']), fn ($q) => $q->where('supplier_id', $route['supplier_id']))->get(['supplier_id']);
         throw_unless($relations->count() === 1, \RuntimeException::class, '商品の発注先・仕入先を1つ選択してください。');
@@ -63,7 +67,7 @@ class SettingsRecommendationHistory
             $probe = new WmsOrderCandidate(['order_quantity' => 1, 'quantity_type' => QuantityType::PIECE, 'ordering_code' => $code]);
             $probe->setRelation('item', $item);
             $caseOutput = app(OrderOutputQuantityResolver::class)->resolve($probe)['ordering_unit_quantity'] !== null;
-        } else {
+        } elseif ($channel === 'LOGISTICS') {
             $source = (int) ($route['source_warehouse_id'] ?? 0);
             throw_unless($db->table('warehouses')->where(['id' => $source, 'client_id' => $clientId, 'is_active' => 1, 'is_virtual' => 0])->exists(), \RuntimeException::class, '有効な移動元倉庫を選択してください。');
             throw_unless($source && $source !== $warehouseId && $db->table('warehouse_stock_transfer_delivery_courses')->where(['from_warehouse_id' => $source, 'to_warehouse_id' => $warehouseId, 'delivery_course_id' => $route['delivery_course_id'] ?? 0])->exists(), \RuntimeException::class, '移動元倉庫・配送コースを選択してください。');
@@ -73,8 +77,8 @@ class SettingsRecommendationHistory
             ? (app(LogisticsOrderUnitHistory::class)->read($clientId, $source, [(int) $item->id => (int) $item->capacity_case], $asOf)[$item->id] ?? null) : null;
         $orderUnit = app(OrderUnitService::class)->resolve($clientId, (int) $item->id, (int) $item->capacity_case, $caseOutput, mode: $mode, history: $unitHistory);
         $packing = $orderUnit['packing_unit'];
-        $receipts = $channel === 'EOS'
-            ? $this->once("eos:{$item->id}:{$contractor}:{$supplier}:{$start}:{$period['end']}", fn () => $this->eosReceipts($clientId, (int) $item->id, $contractor, $supplier, $allocation, $period))
+        $receipts = in_array($channel, ['EOS', 'FAX'], true)
+            ? $this->once("external:{$channel}:{$item->id}:{$contractor}:{$supplier}:{$start}:{$period['end']}", fn () => $this->eosReceipts($clientId, (int) $item->id, $contractor, $supplier, $allocation, $period, $channel))
             : $this->once("transfer:{$item->id}:{$contractor}:{$source}:{$start}:{$period['end']}", fn () => $this->transferReceipts($clientId, (int) $item->id, $contractor, $source, $allocation, $period));
         $demand = $this->dailyDemand($clientId, $warehouseId, (int) $item->id, $allocation, $period);
         $scheduleConfig = $this->warehouseScheduleConfig($warehouseId);
@@ -168,14 +172,15 @@ class SettingsRecommendationHistory
         return array_values($groups);
     }
 
-    private function eosReceipts(int $client, int $item, int $contractor, int $supplier, int $allocation, array $period): array
+    private function eosReceipts(int $client, int $item, int $contractor, int $supplier, int $allocation, array $period, string $channel = 'EOS'): array
     {
         $db = DB::connection('sakemaru');
         $links = $this->rows($db->table('wms_order_incoming_schedules as s')->join('wms_order_candidates as c', 'c.id', '=', 's.order_candidate_id')
             ->join('purchase_create_queue as q', 'q.id', '=', 's.purchase_queue_id')->join('warehouses as w', 'w.id', '=', 's.warehouse_id')
             ->where(['s.item_id' => $item, 'c.item_id' => $item, 'c.contractor_id' => $contractor, 'w.client_id' => $client, 'w.is_virtual' => 0, 'q.status' => 'FINISHED', 'q.is_success' => 1])
-            ->where(fn ($q) => $q->where('c.order_channel', 'EOS')->orWhere(fn ($q) => $q->whereNull('c.order_channel')
-                ->whereExists(fn ($q) => $q->selectRaw('1')->from('wms_order_jx_documents as jx')->whereColumn('jx.id', 'c.wms_order_jx_document_id')->where('jx.document_type', 'PURCHASE'))))
+            ->where(fn ($q) => $q->where('c.order_channel', $channel)
+                ->when($channel === 'EOS', fn ($q) => $q->orWhere(fn ($q) => $q->whereNull('c.order_channel')
+                    ->whereExists(fn ($q) => $q->selectRaw('1')->from('wms_order_jx_documents as jx')->whereColumn('jx.id', 'c.wms_order_jx_document_id')->where('jx.document_type', 'PURCHASE')))))
             ->whereColumn('s.contractor_id', 'c.contractor_id')
             ->where('w.code', '!=', 91)->whereColumn('c.warehouse_id', 's.warehouse_id')->whereRaw('COALESCE(s.supplier_id,c.supplier_id)=?', [$supplier])
             ->where('s.received_quantity', '>', 0)->whereBetween('s.actual_arrival_date', array_values($period))

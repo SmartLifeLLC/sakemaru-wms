@@ -2,7 +2,7 @@
 
 namespace Tests\Unit\Services\AutoReplenishment;
 
-use App\Services\AutoOrder\JxOrderArrivalDateAdjustmentService;
+use App\Services\AutoReplenishment\ArrivalCalendar;
 use App\Services\AutoReplenishment\RecommendationArrivalSchedule;
 use App\Services\AutoReplenishment\SettingsRecommendationHistory;
 use Carbon\Carbon;
@@ -14,10 +14,10 @@ class SettingsRecommendationHistoryScheduleTest extends TestCase
 {
     private function calculate(string $channel, array $config, callable $arrival, string $date = '2026-10-18'): array
     {
-        $resolver = Mockery::mock(JxOrderArrivalDateAdjustmentService::class);
+        $resolver = Mockery::mock(ArrivalCalendar::class);
         $resolver->shouldReceive('earliestArrivalDates')->once()->with(1021, 1, Mockery::type('array'))
             ->andReturnUsing(fn (int $contractor, int $warehouse, array $dates): array => array_map($arrival, $dates));
-        $this->app->instance(JxOrderArrivalDateAdjustmentService::class, $resolver);
+        $this->app->instance(ArrivalCalendar::class, $resolver);
 
         return (new RecommendationArrivalSchedule)->calculate(1, 1021, $channel, $date, $config);
     }

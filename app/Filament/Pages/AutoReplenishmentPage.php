@@ -291,7 +291,7 @@ abstract class AutoReplenishmentPage extends AdminPage
         $clientId = $this->authorizeOperation('auto-replenishment-settings', 'edit');
         abort_unless($this->showEditor && ! $this->editingId && static::$screen === 'settings', 403);
         $eligibility = app(\App\Services\AutoReplenishment\OrderRouteEligibility::class);
-        $ids = array_unique(array_merge($eligibility->contractorIds('EOS'), $eligibility->contractorIds('LOGISTICS')));
+        $ids = array_unique(array_merge($eligibility->contractorIds('EOS'), $eligibility->contractorIds('LOGISTICS'), $eligibility->referenceContractorIds($clientId)));
         abort_unless($this->itemSelectionQuery($clientId, $ids)->where('items.id', $id)->exists(), 422);
         $this->showItemPicker = false;
         if ((int) ($this->form['item_id'] ?? 0) === $id) {
@@ -369,21 +369,29 @@ abstract class AutoReplenishmentPage extends AdminPage
         }
         $db = DB::connection('sakemaru');
         $eligibility = app(\App\Services\AutoReplenishment\OrderRouteEligibility::class);
-        $ids = array_unique(array_merge($eligibility->contractorIds('EOS'), $eligibility->contractorIds('LOGISTICS')));
+        $ids = array_unique(array_merge($eligibility->contractorIds('EOS'), $eligibility->contractorIds('LOGISTICS'), $eligibility->referenceContractorIds($client)));
         $routes = $db->table('item_contractors as ic')->join('contractors as c', 'c.id', '=', 'ic.contractor_id')
             ->leftJoin('wms_contractor_settings as cs', 'cs.contractor_id', '=', 'c.id')
             ->where(['ic.client_id' => $client, 'ic.warehouse_id' => $this->warehouseId, 'ic.item_id' => $this->form['item_id'] ?? 0, 'c.client_id' => $client, 'c.is_active' => 1])
             ->whereIn('ic.contractor_id', $ids)->get(['ic.contractor_id', 'ic.supplier_id', 'cs.transmission_type', 'cs.supply_warehouse_id']);
         if ($key !== 'item_id') {
-            $channelIds = $eligibility->contractorIds($this->form['channel'] ?? 'EOS');
+            $channelIds = ($this->form['channel'] ?? '') === 'FAX' ? $eligibility->referenceContractorIds($client) : $eligibility->contractorIds($this->form['channel'] ?? 'EOS');
             $routes = $routes->filter(fn ($r) => in_array((int) $r->contractor_id, $channelIds, true));
+        } else {
+            // Adding FAX references must not change an existing EOS/logistics default.
+            $automaticIds = array_merge($eligibility->contractorIds('EOS'), $eligibility->contractorIds('LOGISTICS'));
+            $automaticRoutes = $routes->filter(fn ($r) => in_array((int) $r->contractor_id, $automaticIds, true));
+            if ($automaticRoutes->isNotEmpty()) {
+                $routes = $automaticRoutes;
+            }
         }
         if (! empty($this->form['contractor_id'])) {
             $routes = $routes->where('contractor_id', (int) $this->form['contractor_id']);
         }
         if ($routes->count() === 1) {
             $route = $routes->first();
-            $this->form['channel'] = $route->transmission_type === 'INTERNAL' ? 'LOGISTICS' : 'EOS';
+            $this->form['channel'] = $route->transmission_type === 'INTERNAL' ? 'LOGISTICS'
+                : (in_array((int) $route->contractor_id, $eligibility->contractorIds('EOS'), true) ? 'EOS' : 'FAX');
             $this->form['contractor_id'] = (int) $route->contractor_id;
             $this->form['supplier_id'] = (int) $route->supplier_id;
             if ($this->form['channel'] === 'LOGISTICS') {
@@ -410,7 +418,7 @@ abstract class AutoReplenishmentPage extends AdminPage
         $this->rememberEditorRoute();
         // Do not replace quantities of an existing policy when only changing its route.
         if (! $this->editingId && ! empty($this->form['contractor_id']) && ! empty($this->form['supplier_id'])
-            && (($this->form['channel'] ?? '') === 'EOS' || ! empty($this->form['delivery_course_id']))) {
+            && (in_array($this->form['channel'] ?? '', ['EOS', 'FAX'], true) || ! empty($this->form['delivery_course_id']))) {
             $this->calculateSettings();
         }
     }
@@ -668,6 +676,9 @@ abstract class AutoReplenishmentPage extends AdminPage
     {
         $clientId = $this->authorizeOperation('auto-replenishment-settings', 'edit');
         $this->assertEditorRoute();
+        if (($this->form['channel'] ?? '') === 'FAX') {
+            throw \Illuminate\Validation\ValidationException::withMessages(['operation' => 'FAX発注は参考計算のみです。設定の保存・自動発注ONはできません。']);
+        }
         if ($this->recommendationPreferencesChanged || $this->recommendationSafetyDays !== $this->appliedRecommendationSafetyDays
             || ($this->recommendationContext !== null && $this->recommendationContext !== $this->currentRecommendationContext())) {
             throw \Illuminate\Validation\ValidationException::withMessages(['operation' => '算定条件が変わりました。「おすすめ設定」で計算してから保存してください。']);
@@ -1019,9 +1030,11 @@ abstract class AutoReplenishmentPage extends AdminPage
             $targets[$type] = $db->table($table)->whereIn('id', $links->where('artifact_type', $type)->pluck('artifact_id'))->get()->keyBy('id');
         }
 
+        $eligibility = app(\App\Services\AutoReplenishment\OrderRouteEligibility::class);
+        $referenceIds = $this->showEditor ? $eligibility->referenceContractorIds($clientId) : [];
         $eligibleContractorIds = $this->showEditor ? $db->table('contractors')->where('client_id', $clientId)->where('is_active', true)
-            ->whereIn('id', app(\App\Services\AutoReplenishment\OrderRouteEligibility::class)->contractorIds($this->form['channel'] ?? 'EOS'))->pluck('id')->all() : [];
-        $itemEligibleIds = $this->showEditor ? array_unique(array_merge($eligibleContractorIds, app(\App\Services\AutoReplenishment\OrderRouteEligibility::class)->contractorIds('EOS'), app(\App\Services\AutoReplenishment\OrderRouteEligibility::class)->contractorIds('LOGISTICS'))) : [];
+            ->whereIn('id', ($this->form['channel'] ?? '') === 'FAX' ? $referenceIds : $eligibility->contractorIds($this->form['channel'] ?? 'EOS'))->pluck('id')->all() : [];
+        $itemEligibleIds = $this->showEditor ? array_unique(array_merge($referenceIds, $eligibility->contractorIds('EOS'), $eligibility->contractorIds('LOGISTICS'))) : [];
         $selectedItem = $this->showEditor ? $db->table('items')->where('client_id', $clientId)
             ->where('id', $this->form['item_id'] ?? 0)->first(['id', 'code', 'name', 'capacity_case', 'capacity_carton']) : null;
         $orderUnit = null;

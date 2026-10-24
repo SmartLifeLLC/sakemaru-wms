@@ -66,7 +66,7 @@
     <div class="ar-recommend-summary" @if($filled) role="status" @endif>
         @if(isset($basis['shipping_profile_import']['period']))<span>通常量の実績：{{ $basis['shipping_profile_import']['period']['start'] }}〜{{ $basis['shipping_profile_import']['period']['end'] }}（{{ $basis['shipping_profile_import']['normal_source'] ?? 'この倉庫・既存の最大発注数内' }}）</span>@endif
         <span>@if($filled)<span class="ar-recommend-success">候補を入力済み</span> ／ @endif<b>{{ $salesBased ? '売上基準' : ($referenceOnly ? '過去量を参考' : '発注実績基準') }}</b> ／ 通常の1回量 {{ number_format($batch) }}バラ@if($mean > 0)（約{{ number_format($batch / $mean,1) }}日分）@endif</span>
-        @if($arrivalGap !== null)<span>既存設定での入荷間隔：最大{{ number_format($arrivalGap) }}日</span>@endif
+        @if($arrivalGap !== null)<span>{{ ($this->form['channel'] ?? '') === 'FAX' ? '参考条件' : '既存設定' }}での入荷間隔：最大{{ number_format($arrivalGap) }}日</span>@endif
     </div>
 @endif
 @if($safetyDays !== null && $recommended)
@@ -127,7 +127,7 @@
                 @if(($recommended['reorder_point_pieces'] ?? 0)>($recommended['target_stock_pieces'] ?? 0))<p class="ar-help">入荷までの出荷見込が通常量より多いため、現在庫で判定する発注点は入荷時の補充目標より大きくなっています。</p>@endif
                 @if($point && $point < ($basis['normal_order_stock_pieces'] ?? 0)+1)<p class="ar-help ar-quantity-caution">入力中の発注点は算定した発注水準より低く、発注が遅くなる場合があります。</p>@endif
             @elseif($arrivalGap !== null)
-                <p>補充目標には、既存設定での入荷間隔 最大{{ number_format($arrivalGap) }}日分の需要 ＋ 最小1回分も反映します。入荷遅延による不足を防げるとは限りません。</p>
+                <p>補充目標には、{{ ($this->form['channel'] ?? '') === 'FAX' ? '参考条件' : '既存設定' }}での入荷間隔 最大{{ number_format($arrivalGap) }}日分の需要 ＋ 最小1回分も反映します。入荷遅延による不足を防げるとは限りません。</p>
             @elseif(isset($basis['review_interval_days']))
                 <p>発注点は入荷まで＋次の実行まで最大{{ $basis['review_interval_days'] }}日を考慮。補充目標は「通常量＋1日分」と「次の実行までの需要＋最小1回分」の大きい方です。</p>
             @endif

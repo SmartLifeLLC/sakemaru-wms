@@ -6,7 +6,6 @@ use App\Enums\QuantityType;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Item;
 use App\Models\WmsItemReorderPolicy;
-use App\Services\AutoOrder\JxOrderArrivalDateAdjustmentService;
 use App\Services\AutoOrder\OrderOutputQuantityResolver;
 use App\Services\AutoOrder\OrderRegistrationSearchService;
 use Carbon\Carbon;
@@ -71,6 +70,10 @@ class SnapshotReader
 
     public function read(WmsItemReorderPolicy $policy, ?int $excludeLineId = null, bool $readOnly = false, bool $includeSupplyDates = false): array
     {
+        // FAX preview is limited to an unsaved, disabled editor model. The batch
+        // and ON validation call read() without readOnly and always reject FAX.
+        $faxReference = $policy->channel === 'FAX' && $readOnly && ! $policy->exists && ! $policy->is_enabled;
+        throw_if($policy->channel === 'FAX' && ! $faxReference, \RuntimeException::class, 'FAX発注は参考計算のみです。自動発注はONにできません。');
         $this->observation = ['policy' => $policy->toArray()];
         if ($excludeLineId !== null) {
             $this->clear();
@@ -117,8 +120,12 @@ class SnapshotReader
         $contractor = $this->once('contractor:'.$policy->contractor_id, fn () => $db->table('contractors')->where(['id' => $policy->contractor_id, 'client_id' => $clientId, 'is_active' => 1])->first());
         $supplier = $this->once('supplier:'.$relation->supplier_id, fn () => $db->table('suppliers')->where(['id' => $relation->supplier_id, 'client_id' => $clientId])->first());
         throw_unless($contractor && $supplier, \RuntimeException::class, '発注先または仕入先が無効です。');
-        app(OrderRouteEligibility::class)->assertEligible($policy->channel, (int) $policy->contractor_id,
-            $this->once('route_targets:'.$policy->channel, fn () => app(OrderRouteEligibility::class)->contractorIds($policy->channel)));
+        if ($faxReference) {
+            app(OrderRouteEligibility::class)->assertReferenceEligible($clientId, (int) $policy->contractor_id);
+        } else {
+            app(OrderRouteEligibility::class)->assertEligible($policy->channel, (int) $policy->contractor_id,
+                $this->once('route_targets:'.$policy->channel, fn () => app(OrderRouteEligibility::class)->contractorIds($policy->channel)));
+        }
         $stocks = $this->forItem('stocks', $db->table('real_stocks')->where(['client_id' => $clientId, 'warehouse_id' => $policy->warehouse_id])
             ->whereIn('stock_allocation_id', $allocationIds)->when(! $readOnly && $db->transactionLevel() > 0, fn ($q) => $q->lockForUpdate())->select(['id', 'item_id', 'current_quantity', 'reserved_quantity']), 'item_id', (int) $policy->item_id);
         // No row can also mean an unimported stock feed. Never infer zero here.
@@ -251,12 +258,14 @@ class SnapshotReader
 
         $pair = null;
         $sourceAllocationId = null;
-        if ($policy->channel === 'EOS') {
+        if (in_array($policy->channel, ['EOS', 'FAX'], true)) {
             $orderDay = Carbon::parse($businessDate);
-            if (! $orderDay->isSunday() && now()->hour >= 13) {
+            if ($policy->channel === 'EOS' && ! $orderDay->isSunday() && now()->hour >= 13) {
                 $orderDay->addDay();
             }
-            $arrival = $this->once('arrival:'.$policy->contractor_id.':'.$policy->warehouse_id, fn () => app(JxOrderArrivalDateAdjustmentService::class)->earliestArrivalDate((int) $policy->contractor_id, (int) $policy->warehouse_id, $orderDay));
+            $arrival = $this->once('arrival:'.$policy->contractor_id.':'.$policy->warehouse_id, fn () => $faxReference
+                ? app(ArrivalCalendar::class)->referenceArrivalDates((int) $policy->contractor_id, (int) $policy->warehouse_id, ['current' => $orderDay])['current']
+                : app(ArrivalCalendar::class)->earliestArrivalDate((int) $policy->contractor_id, (int) $policy->warehouse_id, $orderDay));
             throw_unless($arrival, \RuntimeException::class, '入荷可能日がありません。');
         } else {
             throw_unless($policy->channel === 'LOGISTICS' && $policy->source_warehouse_id && $policy->source_warehouse_id != $policy->warehouse_id, \RuntimeException::class, '移動元倉庫を設定してください。');
@@ -283,19 +292,21 @@ class SnapshotReader
                 $nextOrderDay->addDay();
             }
             $nextArrival = $this->once('next-arrival:'.$policy->channel.':'.$policy->contractor_id.':'.$policy->warehouse_id.':'.$nextOrderDay->toDateString(),
-                fn () => app(JxOrderArrivalDateAdjustmentService::class)->earliestArrivalDate((int) $policy->contractor_id, (int) $policy->warehouse_id, $nextOrderDay));
+                fn () => $faxReference
+                    ? app(ArrivalCalendar::class)->referenceArrivalDates((int) $policy->contractor_id, (int) $policy->warehouse_id, ['next' => $nextOrderDay])['next']
+                    : app(ArrivalCalendar::class)->earliestArrivalDate((int) $policy->contractor_id, (int) $policy->warehouse_id, $nextOrderDay));
             // A missing next date blocks only a small order that needs a waiting decision.
             // A valid usual batch for the current arrival must remain orderable.
         }
         $search = app(OrderRegistrationSearchService::class);
-        $orderingCode = $this->proposalItemIds
+        $orderingCode = $faxReference ? null : ($this->proposalItemIds
             ? $this->once('ordering_codes', fn () => $db->table('item_search_information')->whereIn('item_id', $this->proposalItemIds)->where('is_used_for_ordering', true)->where('is_active', true)->whereRaw("search_string REGEXP '[1-9]'")->orderBy('id')->get(['item_id', 'search_string'])->unique('item_id')->mapWithKeys(fn ($row) => [$row->item_id => str_pad((string) $row->search_string, 13, '0', STR_PAD_LEFT)]))->get($item->id)
-            : $search->orderingCodeForItem((int) $item->id);
+            : $search->orderingCodeForItem((int) $item->id));
         $capacity = (int) $item->capacity_case;
-        throw_unless($capacity > 0 && $orderingCode, \RuntimeException::class, '入数または発注CDが未設定です。');
+        throw_unless($capacity > 0 && ($faxReference || $orderingCode), \RuntimeException::class, '入数または発注CDが未設定です。');
         $probe = new \App\Models\WmsOrderCandidate(['order_quantity' => 1, 'quantity_type' => QuantityType::PIECE, 'ordering_code' => $orderingCode]);
         $probe->setRelation('item', $item);
-        $output = app(OrderOutputQuantityResolver::class)->resolve($probe);
+        $output = $faxReference ? ['ordering_unit_quantity' => null] : app(OrderOutputQuantityResolver::class)->resolve($probe);
         $caseOutput = $policy->channel === 'EOS' && $output['ordering_unit_quantity'] !== null;
         // Master permission and the existing EOS converter both constrain the unit.
         $units = app(OrderUnitService::class);

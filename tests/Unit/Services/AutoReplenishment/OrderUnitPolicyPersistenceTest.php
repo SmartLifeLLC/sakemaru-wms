@@ -22,7 +22,7 @@ class OrderUnitPolicyPersistenceTest extends TestCase
         DB::purge('sakemaru');
         $db = DB::connection('sakemaru');
         $db->statement('CREATE TABLE warehouses (id INTEGER, client_id INTEGER, is_active INTEGER, is_virtual INTEGER)');
-        $db->statement('CREATE TABLE items (id INTEGER, client_id INTEGER, is_active INTEGER, capacity_case INTEGER)');
+        $db->statement('CREATE TABLE items (id INTEGER, client_id INTEGER, is_active INTEGER, capacity_case INTEGER, code TEXT)');
         $db->statement('CREATE TABLE item_quantity_information (item_id INTEGER, quantity INTEGER, can_order INTEGER)');
         Schema::connection('sakemaru')->create('wms_item_reorder_policies', function (Blueprint $table) {
             $table->id();
@@ -70,6 +70,34 @@ class OrderUnitPolicyPersistenceTest extends TestCase
         return ['item_id' => 1, 'channel' => 'LOGISTICS', 'contractor_id' => 9012,
             'strategy_key' => 'threshold_capped_v1', 'reorder_point_pieces' => 150,
             'min_order_pieces' => 30, 'max_order_pieces' => 150, 'order_multiple_pieces' => 15];
+    }
+
+    public function test_fax_cannot_be_saved_or_enabled_by_individual_or_bulk_requests(): void
+    {
+        $service = app(PolicyService::class);
+        try {
+            $service->save(6, 2, array_replace($this->data(), ['channel' => 'FAX']), 1);
+            self::fail('FAX is reference-only.');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            self::assertArrayHasKey('channel', $e->errors());
+        }
+        $policy = $service->save(6, 2, $this->data(), 1);
+        // Simulate a legacy/externally inserted FAX row; enable endpoints must fail closed.
+        $policy->update(['channel' => 'FAX']);
+        foreach (['individual', 'bulk'] as $mode) {
+            try {
+                if ($mode === 'individual') {
+                    $service->setEnabled(6, $policy->id, $policy->version, true, 1);
+                } else {
+                    $service->setSelectedEnabled(6, 2, [$policy->id => $policy->version], true, 1);
+                }
+                self::fail('FAX must never be enabled.');
+            } catch (\RuntimeException $e) {
+                self::assertStringContainsString('FAX発注は参考計算のみ', $e->getMessage());
+            }
+            self::assertFalse($policy->refresh()->is_enabled);
+            self::assertSame(1, $policy->version);
+        }
     }
 
     public function test_case_selection_is_saved_off_and_legacy_update_preserves_it(): void

@@ -98,8 +98,9 @@
     @if($this->showEditor)
         @php
             $helperItem=$selectedItem;
+            $faxReference=($this->form['channel'] ?? '') === 'FAX';
             $recommendationReady=$helperItem && !empty($this->form['contractor_id']) && !empty($this->form['supplier_id'])
-                && (($this->form['channel'] ?? 'EOS') === 'EOS' || (!empty($this->form['source_warehouse_id']) && !empty($this->form['delivery_course_id'])));
+                && (in_array($this->form['channel'] ?? 'EOS', ['EOS', 'FAX'], true) || (!empty($this->form['source_warehouse_id']) && !empty($this->form['delivery_course_id'])));
         @endphp
         <div class="ar-backdrop" wire:click="$set('showEditor', false)"></div><section class="ar-drawer ar-editor" role="dialog" aria-modal="true" aria-label="商品別発注設定" x-data="{ enabled: $wire.entangle('form.is_enabled').live }" x-trap.inert.noscroll="true" @keydown.escape.window="$wire.set('showEditor', false)">
             <header><div><b>商品別発注設定</b><small>[{{ $warehouse?->code }}] {{ $warehouse?->name }}</small></div><button type="button" wire:click="$set('showEditor', false)" aria-label="閉じる">×</button></header><div class="ar-drawer-body">
@@ -108,9 +109,10 @@
                     @if(!$this->editingId && $helperItem && !$this->showItemPicker)<button type="button" class="ar-btn" wire:click="$set('showItemPicker', true)">商品を変更</button>@endif
                     <label class="ar-product-enable ar-product-enable-inline" :class="{ 'is-on': enabled }">
                         <strong>自動発注</strong>
-                        <span class="ar-enable-control"><input type="checkbox" role="switch" aria-label="この商品の自動発注" x-model="enabled"><span class="ar-enable-track" aria-hidden="true"></span><b x-text="enabled ? 'ON' : 'OFF'" aria-hidden="true"></b></span>
+                        <span class="ar-enable-control"><input type="checkbox" role="switch" aria-label="この商品の自動発注" x-model="enabled" @disabled($faxReference)><span class="ar-enable-track" aria-hidden="true"></span><b x-text="enabled ? 'ON' : 'OFF'" aria-hidden="true"></b></span>
                     </label>
                 </div>
+                @if($faxReference)<p class="ar-help" role="status">FAX・参考計算のみ。自動発注はONにできません。表示した数量を手動発注の参考にしてください。納品曜日が未設定の場合は翌営業日（月〜土）入荷と仮定します。</p>@endif
                 @if(!$this->editingId)@include('filament.pages.auto-replenishment-item-picker')@endif
                 <section class="ar-editor-section">
                     @if(($this->form['channel'] ?? '') === 'LOGISTICS')@include('filament.pages.auto-replenishment-pallet')@endif
@@ -148,7 +150,7 @@
                         $courseDisplay = $courseOptions->firstWhere('delivery_course_id', (int) ($this->form['delivery_course_id'] ?? 0));
                     @endphp
                     <dl class="ar-route-summary" aria-label="商品の既定の発注先・配送">
-                        <div><dt>方式</dt><dd>{{ !$helperItem ? '商品選択後に表示' : (($this->form['channel'] ?? '') === 'LOGISTICS' ? '物流発注（店間）' : 'EOS発注') }}</dd></div>
+                        <div><dt>方式</dt><dd>{{ !$helperItem ? '商品選択後に表示' : (($this->form['channel'] ?? '') === 'LOGISTICS' ? '物流発注（店間）' : ($faxReference ? 'FAX・参考計算のみ' : 'EOS発注')) }}</dd></div>
                         <div><dt>発注先</dt><dd>{{ $routeDisplay ? '['.$routeDisplay->code.'] '.$routeDisplay->name : ($helperItem ? '商品発注管理の設定を確認してください' : '—') }}</dd></div>
                         <div><dt>仕入先</dt><dd>{{ $routeDisplay ? '['.$routeDisplay->supplier_code.'] '.$routeDisplay->supplier_name : '—' }}</dd></div>
                         @if(($this->form['channel'] ?? '') === 'LOGISTICS')
@@ -161,7 +163,8 @@
                     </details>
                 </section>
                 @foreach($errors->all() as $error)<p class="ar-error" role="alert">{{ $error }}</p>@endforeach
-            </div><footer><span class="ar-editor-save-state">保存後の自動発注：<b x-text="enabled ? 'ON' : 'OFF'"></b></span><button type="button" class="ar-btn" wire:click="$set('showEditor', false)">変更せず閉じる</button><button type="button" class="ar-btn danger" wire:click="savePolicy" wire:loading.attr="disabled" wire:target="savePolicy,calculateSettings,selectRecommendationCandidate,recommendationUnitMode,recommendationReviewDays,recommendationSafetyDays,savePalletUnit,saveShippingQuantities,registerShippingHistory,form.shipping_unit_mode,form.order_unit_mode,selectItem,form.item_id,form.channel,form.contractor_id,form.supplier_id,form.source_warehouse_id,form.delivery_course_id">設定を保存</button></footer>
+            </div><footer><span class="ar-editor-save-state">@if($faxReference)参考計算のみ・自動発注OFF
+                @else 保存後の自動発注：<b x-text="enabled ? 'ON' : 'OFF'"></b>@endif</span><button type="button" class="ar-btn" wire:click="$set('showEditor', false)">変更せず閉じる</button><button type="button" class="ar-btn danger" wire:click="savePolicy" @disabled($faxReference) wire:loading.attr="disabled" wire:target="savePolicy,calculateSettings,selectRecommendationCandidate,recommendationUnitMode,recommendationReviewDays,recommendationSafetyDays,savePalletUnit,saveShippingQuantities,registerShippingHistory,form.shipping_unit_mode,form.order_unit_mode,selectItem,form.item_id,form.channel,form.contractor_id,form.supplier_id,form.source_warehouse_id,form.delivery_course_id">設定を保存</button></footer>
         </section>
     @endif
     @if($this->showWarehouseEditor)

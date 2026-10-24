@@ -2,7 +2,6 @@
 
 namespace App\Services\AutoReplenishment;
 
-use App\Services\AutoOrder\JxOrderArrivalDateAdjustmentService;
 use Carbon\Carbon;
 
 /** Read-only delivery opportunities for recommendation quantities, never order creation. */
@@ -12,7 +11,7 @@ class RecommendationArrivalSchedule
 
     public function calculate(int $warehouseId, int $contractorId, string $channel, string $asOf, array $config): array
     {
-        throw_unless(in_array($channel, ['EOS', 'LOGISTICS'], true), \RuntimeException::class, '発注方式を選択してください。');
+        throw_unless(in_array($channel, ['EOS', 'LOGISTICS', 'FAX'], true), \RuntimeException::class, '発注方式を選択してください。');
         $schedule = app(GenerationSchedule::class);
         $weekdays = $schedule->weekdays($config);
         $start = Carbon::parse($asOf, 'Asia/Tokyo')->startOfDay();
@@ -29,7 +28,9 @@ class RecommendationArrivalSchedule
             $orderDates[$key] = $channel === 'EOS' && ! $day->isSunday() && $time >= '13:00'
                 ? $day->copy()->addDay() : $day->copy();
         }
-        $arrivals = app(JxOrderArrivalDateAdjustmentService::class)->earliestArrivalDates($contractorId, $warehouseId, $orderDates);
+        $calendar = app(ArrivalCalendar::class);
+        $arrivals = $channel === 'FAX' ? $calendar->referenceArrivalDates($contractorId, $warehouseId, $orderDates)
+            : $calendar->earliestArrivalDates($contractorId, $warehouseId, $orderDates);
         $opportunities = [];
         $distinct = [];
         $lead = 1;

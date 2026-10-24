@@ -1,6 +1,6 @@
 <div class="ar-projection-explanation">
     <strong>入力中の設定での試算</strong>
-    <p>業務日 {{ $chart['start'] }}から14日間、自動発注をONにした場合の動きです。日付にマウスを重ねるか、選択すると内訳を表示します。</p>
+    <p>業務日 {{ $chart['start'] }}から14日間、{{ ($this->form['channel'] ?? '') === 'FAX' ? '表示した条件で手動発注した場合の参考推移です。FAXの自動発注はONにできません。' : '自動発注をONにした場合の動きです。' }}日付にマウスを重ねるか、選択すると内訳を表示します。</p>
     <p>発注点は検討開始の目安です。下回っても、既発注・補充目標・最小数・通常量によって発注を見送る場合があります。</p>
             @if($chart['low_stock_buffer'])
                 <p class="ar-projection-warning" role="status"><strong>在庫の余裕を確認してください。</strong>
@@ -21,7 +21,7 @@
     </div>
     <p>集計：{{ $chart['demand']['period']['start'] }}〜{{ $chart['demand']['period']['end'] }} ／ 納品：{{ implode('・',array_map(fn($d)=>['日','月','火','水','木','金','土'][$d],$chart['calendar']['weekdays'])) }}（日曜なし）</p>
     @if($chart['undated_incoming']>0 || $chart['claims']>0)<p class="ar-projection-warning">日付未定・期限超過・日曜予定 {{ number_format($chart['undated_incoming']) }}バラ／未確定候補 {{ number_format($chart['claims']) }}バラ。発注判定に含め、グラフでは入荷扱いにしていません。</p>@endif
-    @if($chart['calendar']['adjusted'] || $chart['calendar']['sunday_master_enabled'])<p class="ar-projection-warning">納品設定と試算条件に差があります。グラフでは日曜・休日を避けて次の納品可能日に移します。運用前に納品曜日・休日設定を確認してください。</p>@endif
+    @if($chart['calendar']['adjusted'] || $chart['calendar']['sunday_master_enabled'])<p class="ar-projection-warning">納品設定と試算条件に差があります。おすすめ設定・グラフ・テスト・自動発注は共通で、日曜・休日を避けて次の納品可能日に移します。運用前に納品曜日・休日設定を確認してください。</p>@endif
     <strong>計算の前提</strong>
     <p>1日の順序は「入荷 → 発注判定 → 消費」。発注判定は既存の計算方式と数量条件を使用し、入荷までの消費は算定済みの1日平均、日々の在庫減少は曜日平均で計算します。</p>
     <p>既発注は登録済みの入荷予定日を使用。今回の試算分は納品可能日に全数入荷する前提です。販売・入荷時刻、移動元の欠品、納品遅れによって実際の在庫は変わります。</p>
@@ -29,3 +29,5 @@
     @foreach($chart['demand']['warnings'] as $warning)<p class="ar-projection-warning">{{ $warning }}</p>@endforeach
     <p>在庫・予定の取得：{{ $chart['observed_at'] }}。「在庫・予定を再取得」で更新できます。試算では発注・設定を保存しません。</p>
 </div>
+
+@if($chart['calendar']['reference_assumed'] ?? false)<p class="ar-projection-warning">FAXの納品曜日が未設定のため、翌営業日（月〜土）入荷と仮定した参考値です。実際の納品日を確認して手動発注してください。</p>@endif

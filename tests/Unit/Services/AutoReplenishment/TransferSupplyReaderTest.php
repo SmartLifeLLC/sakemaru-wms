@@ -3,7 +3,7 @@
 namespace Tests\Unit\Services\AutoReplenishment;
 
 use App\Models\WmsItemReorderPolicy;
-use App\Services\AutoOrder\JxOrderArrivalDateAdjustmentService;
+use App\Services\AutoReplenishment\ArrivalCalendar;
 use App\Services\AutoOrder\OrderOutputQuantityResolver;
 use App\Services\AutoOrder\OrderRegistrationSearchService;
 use App\Services\AutoReplenishment\GenerationSchedule;
@@ -309,14 +309,16 @@ class TransferSupplyReaderTest extends TestCase
         $route = Mockery::mock(OrderRouteEligibility::class);
         $route->shouldReceive('contractorIds')->andReturn([10]);
         $route->shouldReceive('assertEligible');
+        $route->shouldReceive('assertReferenceEligible')->with(6, 10);
         $this->app->instance(OrderRouteEligibility::class, $route);
-        $dates = Mockery::mock(JxOrderArrivalDateAdjustmentService::class);
+        $dates = Mockery::mock(ArrivalCalendar::class);
+        $dates->shouldReceive('referenceArrivalDates')->andReturn(['current' => Carbon::parse('2026-10-15')]);
         if ($arrivalResolver) {
             $dates->shouldReceive('earliestArrivalDate')->andReturnUsing($arrivalResolver);
         } else {
             $dates->shouldReceive('earliestArrivalDate')->andReturn(Carbon::parse('2026-10-15'));
         }
-        $this->app->instance(JxOrderArrivalDateAdjustmentService::class, $dates);
+        $this->app->instance(ArrivalCalendar::class, $dates);
         $search = Mockery::mock(OrderRegistrationSearchService::class);
         $search->shouldReceive('orderingCodeForItem')->andReturn('0123456789012');
         $this->app->instance(OrderRegistrationSearchService::class, $search);
@@ -330,6 +332,30 @@ class TransferSupplyReaderTest extends TestCase
         return (new SnapshotReader)->readForSimulation(new WmsItemReorderPolicy($policyValues + [
             'client_id' => 6, 'warehouse_id' => 1, 'item_id' => 143024, 'contractor_id' => 10, 'supplier_id' => 10, 'channel' => 'EOS',
         ]));
+    }
+
+    public function test_fax_editor_snapshot_needs_no_jx_code_and_cannot_be_used_for_execution(): void
+    {
+        $snapshot = $this->snapshot(['channel' => 'FAX', 'is_enabled' => false]);
+        self::assertSame(100, $snapshot['stock']);
+        self::assertNull($snapshot['ordering_code']);
+        self::assertNull($snapshot['jx_route_hash']);
+        $this->expectExceptionMessage('FAX発注は参考計算のみ');
+        (new SnapshotReader)->read(new WmsItemReorderPolicy(['channel' => 'FAX', 'is_enabled' => false]));
+    }
+
+    public function test_saved_or_enabled_fax_is_rejected_even_by_simulation(): void
+    {
+        foreach ([false, true] as $saved) {
+            $policy = new WmsItemReorderPolicy(['channel' => 'FAX', 'is_enabled' => ! $saved]);
+            $policy->exists = $saved;
+            try {
+                (new SnapshotReader)->readForSimulation($policy);
+                self::fail('Only an unsaved disabled FAX editor can be simulated.');
+            } catch (\RuntimeException $e) {
+                self::assertStringContainsString('FAX発注は参考計算のみ', $e->getMessage());
+            }
+        }
     }
 
     #[DataProvider('masterOrderUnitChannels')]
