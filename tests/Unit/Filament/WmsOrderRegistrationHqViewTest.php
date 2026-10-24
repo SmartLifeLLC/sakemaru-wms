@@ -141,22 +141,24 @@ class WmsOrderRegistrationHqViewTest extends TestCase
         $this->assertNotFalse($start);
         $header = substr($contents, $start, strpos($contents, '</thead>', $start) - $start);
 
-        foreach (['発注点', '理論在庫', '最終入荷予定', '最終仕入', '1週', '2週', '3週', '前月', '納入先'] as $label) {
+        foreach (['理論在庫', '最終入荷予定', '最終仕入', '1週', '2週', '3週', '前月', '納入先'] as $label) {
             $this->assertStringContainsString('>'.$label.'</th>', $header);
         }
 
         $this->assertLessThan(strpos($header, '>総バラ数</th>'), strpos($header, '>総ケース数</th>'));
-        $this->assertSame(23, substr_count($header, '<th ') + 1, '登録リストの列数が空行の colspan と合っていません。');
-        $this->assertStringContainsString('colspan="23"', $contents);
+        $this->assertSame(26, substr_count($header, '<th ') + 1, '登録リストの列数が空行の colspan と合っていません。');
+        $this->assertStringContainsString('colspan="26"', $contents);
+        $this->assertStringContainsString('棚番<br>', $header);
+        $this->assertStringContainsString('>発注点</span>', $header);
 
-        // 商品は「[商品CD] 商品名」を1列（幅固定・自動改行）で表示し、容量x入数（例: 750ml x 6）を別列で出す。
-        $this->assertStringContainsString('>[商品CD]商品名</th>', $header);
+        // 商品CDと商品名を分離し、商品名は折り返さない。
+        $this->assertStringContainsString('>商品CD</th>', $header);
+        $this->assertStringContainsString('>商品名</th>', $header);
         $this->assertStringContainsString('>容量x入数</th>', $header);
-        $this->assertStringNotContainsString('>商品CD</th>', $header);
         $this->assertStringNotContainsString('>規格</th>', $header);
         $this->assertStringNotContainsString('>入数</th>', $header);
-        $this->assertStringContainsString("[{{ \$line['item_code'] }}]", $table);
-        $this->assertStringContainsString('w-56 whitespace-normal', $table);
+        $this->assertStringContainsString("{{ \$line['item_code'] }}", $table);
+        $this->assertStringContainsString('whitespace-nowrap px-2 py-2 text-slate-900', $table);
         $this->assertStringContainsString("\$reference['volume_label']", $table);
         $this->assertStringContainsString('{{ $volumeCapacityLabel }}', $table);
 

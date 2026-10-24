@@ -6,16 +6,18 @@ use App\Models\Sakemaru\Contractor;
 use App\Models\WmsOrderCandidate;
 use App\Services\AutoOrder\Generators\HanaOrderJXFileGenerator;
 use Illuminate\Support\Collection;
+use PHPUnit\Framework\Attributes\Test;
 use Tests\Support\FakeLegacyEosSlipNumberService;
-use Tests\TestCase;
+use Tests\Support\JxGeneratorTestCase;
+use Tests\Support\JxTestRecords;
 
 /**
  * HanaOrderFileGenerator テスト
  *
- * 実DBの既存データを利用してテストを実行する。
+ * 各試験でSQLiteメモリDBに固定データを作成する。業務DBの既存データには依存しない。
  * DB:fresh, refreshなどのリセットは一切行わない。
  */
-class HanaOrderFileGeneratorTest extends TestCase
+class HanaOrderFileGeneratorTest extends JxGeneratorTestCase
 {
     private HanaOrderJXFileGenerator $generator;
 
@@ -26,9 +28,9 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * インターフェース実装の確認
      */
+    #[Test]
     public function it_implements_order_file_generator_interface(): void
     {
         $this->assertInstanceOf(
@@ -38,36 +40,36 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * エンコーディング設定の確認
      */
+    #[Test]
     public function it_returns_correct_encoding(): void
     {
         $this->assertEquals('SJIS-win', $this->generator->getEncoding());
     }
 
     /**
-     * @test
      * 改行コード設定の確認
      */
+    #[Test]
     public function it_returns_correct_line_ending(): void
     {
         $this->assertEquals("\r\n", $this->generator->getLineEnding());
     }
 
     /**
-     * @test
      * ファイル拡張子の確認
      */
+    #[Test]
     public function it_returns_correct_file_extension(): void
     {
         $this->assertEquals('dat', $this->generator->getFileExtension());
     }
 
     /**
-     * @test
      * JX送信対象発注先IDの取得
      */
+    #[Test]
     public function it_returns_jx_transmission_contractor_ids(): void
     {
         $ids = $this->generator->getJxTransmissionContractorIds();
@@ -78,16 +80,15 @@ class HanaOrderFileGeneratorTest extends TestCase
         $expectedCodes = [1106, 1017, 1202, 1330];
         foreach ($expectedCodes as $code) {
             $contractor = Contractor::where('code', $code)->first();
-            if ($contractor) {
-                $this->assertContains($contractor->id, $ids, "Contractor code {$code} should be in JX transmission list");
-            }
+            $this->assertNotNull($contractor, "Fixture contractor {$code} is missing");
+            $this->assertContains($contractor->id, $ids, "Contractor code {$code} should be in JX transmission list");
         }
     }
 
     /**
-     * @test
      * 送信先集約マッピングの取得
      */
+    #[Test]
     public function it_returns_transmission_contractor_mapping(): void
     {
         $mapping = $this->generator->getTransmissionContractorMapping();
@@ -96,25 +97,24 @@ class HanaOrderFileGeneratorTest extends TestCase
 
         // マッピング: 1021,1029,1068,1126,1127 → 1106
         $kanakan1106 = Contractor::where('code', 1106)->first();
-        if ($kanakan1106) {
-            $mappedCodes = [1021, 1029, 1068, 1126, 1127];
-            foreach ($mappedCodes as $code) {
-                $contractor = Contractor::where('code', $code)->first();
-                if ($contractor && isset($mapping[$contractor->id])) {
-                    $this->assertEquals(
-                        $kanakan1106->id,
-                        $mapping[$contractor->id],
-                        "Contractor code {$code} should map to 1106"
-                    );
-                }
-            }
+        $this->assertNotNull($kanakan1106, 'Fixture contractor 1106 is missing');
+        $mappedCodes = [1021, 1029, 1068, 1126, 1127];
+        foreach ($mappedCodes as $code) {
+            $contractor = Contractor::where('code', $code)->first();
+            $this->assertNotNull($contractor, "Fixture contractor {$code} is missing");
+            $this->assertArrayHasKey($contractor->id, $mapping);
+            $this->assertEquals(
+                $kanakan1106->id,
+                $mapping[$contractor->id],
+                "Contractor code {$code} should map to 1106"
+            );
         }
     }
 
     /**
-     * @test
      * 空のコレクションでのファイル生成
      */
+    #[Test]
     public function it_generates_empty_result_for_empty_collection(): void
     {
         $candidates = collect([]);
@@ -126,17 +126,15 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
-     * 実DBデータを使用したファイル生成
+     * 固定データを使用したファイル生成
      */
+    #[Test]
     public function it_generates_file_with_real_db_data(): void
     {
-        // 実際のデータを取得（JX対象発注先のもの）
+        // 専用メモリDBの固定候補を取得（JX対象発注先）
         $candidates = $this->getTestCandidatesFromRealData();
 
-        if ($candidates->isEmpty()) {
-            $this->markTestSkipped('No test data available in database');
-        }
+        $this->assertFalse($candidates->isEmpty(), 'No test data available in database');
 
         $result = $this->generator->generate($candidates);
 
@@ -173,16 +171,14 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * Aレコード（ヘッダ）の形式確認
      */
+    #[Test]
     public function it_generates_valid_a_record(): void
     {
         $candidates = $this->getTestCandidatesFromRealData();
 
-        if ($candidates->isEmpty()) {
-            $this->markTestSkipped('No test data available in database');
-        }
+        $this->assertFalse($candidates->isEmpty(), 'No test data available in database');
 
         $result = $this->generator->generate($candidates);
         $this->assertNotEmpty($result);
@@ -202,16 +198,14 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * Bレコード（店舗/納品先）の形式確認
      */
+    #[Test]
     public function it_generates_valid_b_record(): void
     {
         $candidates = $this->getTestCandidatesFromRealData();
 
-        if ($candidates->isEmpty()) {
-            $this->markTestSkipped('No test data available in database');
-        }
+        $this->assertFalse($candidates->isEmpty(), 'No test data available in database');
 
         $result = $this->generator->generate($candidates);
         $this->assertNotEmpty($result);
@@ -230,16 +224,14 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * Dレコード（商品明細）の形式確認
      */
+    #[Test]
     public function it_generates_valid_d_record(): void
     {
         $candidates = $this->getTestCandidatesFromRealData();
 
-        if ($candidates->isEmpty()) {
-            $this->markTestSkipped('No test data available in database');
-        }
+        $this->assertFalse($candidates->isEmpty(), 'No test data available in database');
 
         $result = $this->generator->generate($candidates);
         $this->assertNotEmpty($result);
@@ -258,27 +250,23 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * 送信先集約のグルーピング確認
      */
+    #[Test]
     public function it_groups_candidates_by_transmission_contractor(): void
     {
         // カナカングループの発注先を持つ候補を取得
         $kanakanCodes = [1021, 1029, 1068, 1126, 1127, 1106];
         $kanakanContractorIds = Contractor::whereIn('code', $kanakanCodes)->pluck('id')->toArray();
 
-        if (empty($kanakanContractorIds)) {
-            $this->markTestSkipped('Kanakan contractors not found in database');
-        }
+        $this->assertNotEmpty($kanakanContractorIds, 'Kanakan contractors not found in database');
 
         $candidates = WmsOrderCandidate::whereIn('contractor_id', $kanakanContractorIds)
             ->with(['warehouse', 'item', 'contractor'])
             ->limit(10)
             ->get();
 
-        if ($candidates->isEmpty()) {
-            $this->markTestSkipped('No Kanakan order candidates in database');
-        }
+        $this->assertFalse($candidates->isEmpty(), 'No Kanakan order candidates in database');
 
         $result = $this->generator->generate($candidates);
 
@@ -290,16 +278,14 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * レコード数のカウント確認
      */
+    #[Test]
     public function it_counts_records_correctly(): void
     {
         $candidates = $this->getTestCandidatesFromRealData(5);
 
-        if ($candidates->isEmpty()) {
-            $this->markTestSkipped('No test data available in database');
-        }
+        $this->assertFalse($candidates->isEmpty(), 'No test data available in database');
 
         $result = $this->generator->generate($candidates);
         $this->assertNotEmpty($result);
@@ -314,7 +300,7 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * 実DBからテスト用の発注候補を取得
+     * テスト用メモリDBから発注候補を取得
      */
     private function getTestCandidatesFromRealData(int $limit = 10): Collection
     {
@@ -333,19 +319,17 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * JANコードがitem_search_informationから取得され、13桁にゼロパディングされること
      *
      * 注意: 1つの商品に複数のコードが登録されている場合、サンプルファイルと
      * 異なるコードが選択される可能性があるが、選択されるコードは有効なバーコードである。
      */
+    #[Test]
     public function it_retrieves_jan_code_from_item_search_information(): void
     {
         $candidates = $this->getTestCandidatesFromRealData(3);
 
-        if ($candidates->isEmpty()) {
-            $this->markTestSkipped('No test data available in database');
-        }
+        $this->assertFalse($candidates->isEmpty(), 'No test data available in database');
 
         $result = $this->generator->generate($candidates);
         $this->assertNotEmpty($result);
@@ -402,16 +386,14 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * 候補にordering_codeが設定されている場合、そのコードが使用されること
      */
+    #[Test]
     public function it_uses_ordering_code_from_candidate_when_set(): void
     {
         $candidates = $this->getTestCandidatesFromRealData(3);
 
-        if ($candidates->isEmpty()) {
-            $this->markTestSkipped('No test data available in database');
-        }
+        $this->assertFalse($candidates->isEmpty(), 'No test data available in database');
 
         // 候補にordering_codeを設定
         $testOrderingCode = '1234567890123';
@@ -439,9 +421,9 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * 候補のordering_codeが空文字の場合、発注用コードにフォールバックすること
      */
+    #[Test]
     public function it_falls_back_to_ordering_code_master_when_candidate_ordering_code_is_blank(): void
     {
         $itemId = 999001;
@@ -490,9 +472,9 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * 候補のordering_codeが全ゼロの場合、発注用コードにフォールバックすること
      */
+    #[Test]
     public function it_falls_back_to_ordering_code_master_when_candidate_ordering_code_is_all_zero(): void
     {
         $itemId = 999004;
@@ -540,9 +522,9 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * 発注コードが全ゼロで代替コードもない候補はJX生成対象から除外されること
      */
+    #[Test]
     public function it_skips_candidate_when_ordering_code_is_all_zero_and_no_fallback_exists(): void
     {
         $itemId = 999005;
@@ -574,9 +556,9 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * JXの仕入入数は発注コードに紐づく入数、ケース数は候補の発注コード単位数で出力されること
      */
+    #[Test]
     public function it_uses_packs_per_case_and_case_cost_for_six_pack_ordering_code(): void
     {
         $itemId = 999002;
@@ -626,9 +608,9 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * 仕入入数1のケース発注は、JX原単価にバラ原価を使うこと
      */
+    #[Test]
     public function it_uses_unit_cost_for_capacity_one_case_ordering_code(): void
     {
         $itemId = 999010;
@@ -675,9 +657,9 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * ケース発注の数量はそのまま送り、6缶発注CDでも原単価はケース原価を使うこと
      */
+    #[Test]
     public function it_keeps_case_quantity_and_uses_case_cost_for_six_pack_ordering_code(): void
     {
         $itemId = 999006;
@@ -726,9 +708,9 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * 未補正のバラ数量はJX生成時に6缶パックのケース数量へ変換すること
      */
+    #[Test]
     public function it_outputs_piece_quantity_as_six_pack_case_quantity_for_jx(): void
     {
         $itemId = 999007;
@@ -777,9 +759,9 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * JXの6缶パック出力は多数のバラ数量で整数のケース数量になること
      */
+    #[Test]
     public function it_outputs_integer_six_pack_jx_quantities_for_many_piece_quantities(): void
     {
         $generatorReflection = $this->prepareSixPackJxGenerator(999009);
@@ -800,9 +782,9 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * JXの6缶パック出力は多数のケース数量で整数になり、ケース欄に出力すること
      */
+    #[Test]
     public function it_outputs_integer_six_pack_jx_quantities_for_many_case_quantities(): void
     {
         $generatorReflection = $this->prepareSixPackJxGenerator(999010);
@@ -823,9 +805,9 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * 候補に発注コードがない場合は6缶パックコードを自動選択しないこと
      */
+    #[Test]
     public function it_does_not_replace_missing_ordering_code_with_preferred_six_pack_code_for_jx(): void
     {
         $itemId = 999008;
@@ -907,9 +889,9 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * is_used_for_orderingフラグが設定されているコードが優先されること
      */
+    #[Test]
     public function it_prioritizes_is_used_for_ordering_flag(): void
     {
         // is_used_for_ordering=trueのコードが存在することを確認
@@ -919,9 +901,7 @@ class HanaOrderFileGeneratorTest extends TestCase
             ->where('is_active', true)
             ->first();
 
-        if (! $codeWithFlag) {
-            $this->markTestSkipped('No codes with is_used_for_ordering flag in database');
-        }
+        $this->assertNotEmpty($codeWithFlag, 'No codes with is_used_for_ordering flag in database');
 
         // 同じitem_idで他のコードも存在するか確認
         $otherCodes = \Illuminate\Support\Facades\DB::connection('sakemaru')
@@ -951,10 +931,10 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
-     * @test
      * 同一発注先×倉庫でも入荷予定日が異なる候補は別Bレコードに分割され、
      * 各Bレコードの納品日が各候補の入荷予定日になること（先頭候補の日付で統一されない）
      */
+    #[Test]
     public function it_splits_b_records_by_expected_arrival_date(): void
     {
         $itemId = 999111;
@@ -1024,22 +1004,6 @@ class HanaOrderFileGeneratorTest extends TestCase
      */
     private function splitRecords(string $sjisContent): array
     {
-        // 末尾のCRLFを除去
-        $content = rtrim($sjisContent, "\r\n");
-
-        $records = [];
-        $recordLength = 128;
-        $pos = 0;
-
-        while ($pos < strlen($content)) {
-            $record = substr($content, $pos, $recordLength);
-            if (strlen($record) < $recordLength) {
-                break;
-            }
-            $records[] = $record;
-            $pos += $recordLength;
-        }
-
-        return $records;
+        return JxTestRecords::generated($sjisContent);
     }
 }

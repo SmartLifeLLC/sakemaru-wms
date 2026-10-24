@@ -7,8 +7,10 @@ use App\Models\WmsOrderCandidate;
 use App\Services\AutoOrder\Generators\HanaOrderJXFileGenerator;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
+use PHPUnit\Framework\Attributes\Test;
 use Tests\Support\FakeLegacyEosSlipNumberService;
-use Tests\TestCase;
+use Tests\Support\JxGeneratorTestCase;
+use Tests\Support\JxTestRecords;
 
 /**
  * HanaOrderFileGenerator フィールド比較テスト
@@ -16,16 +18,16 @@ use Tests\TestCase;
  * サンプルファイルと生成ファイルのフィールド位置・形式を
  * 詳細に比較検証する。
  *
- * 実DBの既存データを利用してテストを実行する。
+ * 各試験でSQLiteメモリDBに固定データを作成する。業務DBの既存データには依存しない。
  * DB:fresh, refreshなどのリセットは一切行わない。
  */
-class HanaOrderFileFieldComparisonTest extends TestCase
+class HanaOrderFileFieldComparisonTest extends JxGeneratorTestCase
 {
     private const SAMPLE_FILES = [
-        1017 => 'storage/specifications/ordering/1017_sample.txt',
-        1106 => 'storage/specifications/ordering/1106_sample.txt',
-        1202 => 'storage/specifications/ordering/1202_sample.txt',
-        1330 => 'storage/specifications/ordering/1330_sample.txt',
+        1017 => __DIR__.'/../../../Fixtures/jx/1017_sample.txt',
+        1106 => __DIR__.'/../../../Fixtures/jx/1106_sample.txt',
+        1202 => __DIR__.'/../../../Fixtures/jx/1202_sample.txt',
+        1330 => __DIR__.'/../../../Fixtures/jx/1330_sample.txt',
     ];
 
     private const RECORD_LENGTH = 128;
@@ -39,22 +41,18 @@ class HanaOrderFileFieldComparisonTest extends TestCase
     }
 
     /**
-     * @test
      * Aレコードのフィールド位置比較（サンプル vs 生成）
      */
+    #[Test]
     public function it_compares_a_record_field_positions(): void
     {
         // サンプルファイルからAレコードを取得
         $sampleARecord = $this->getSampleARecord(1106);
-        if (! $sampleARecord) {
-            $this->markTestSkipped('Sample A record not available');
-        }
+        $this->assertNotEmpty($sampleARecord, 'Sample A record not available');
 
         // 生成ファイルからAレコードを取得
         $generatedARecord = $this->getGeneratedARecord();
-        if (! $generatedARecord) {
-            $this->markTestSkipped('Generated A record not available');
-        }
+        $this->assertNotEmpty($generatedARecord, 'Generated A record not available');
 
         // フィールド位置の比較（1-indexed）
         $fields = [
@@ -106,22 +104,18 @@ class HanaOrderFileFieldComparisonTest extends TestCase
     }
 
     /**
-     * @test
      * Bレコードのフィールド位置比較（サンプル vs 生成）
      */
+    #[Test]
     public function it_compares_b_record_field_positions(): void
     {
         // サンプルファイルからBレコードを取得
         $sampleBRecord = $this->getSampleBRecord(1106);
-        if (! $sampleBRecord) {
-            $this->markTestSkipped('Sample B record not available');
-        }
+        $this->assertNotEmpty($sampleBRecord, 'Sample B record not available');
 
         // 生成ファイルからBレコードを取得
         $generatedBRecord = $this->getGeneratedBRecord();
-        if (! $generatedBRecord) {
-            $this->markTestSkipped('Generated B record not available');
-        }
+        $this->assertNotEmpty($generatedBRecord, 'Generated B record not available');
 
         // フィールド位置の比較
         $fields = [
@@ -174,22 +168,18 @@ class HanaOrderFileFieldComparisonTest extends TestCase
     }
 
     /**
-     * @test
      * Dレコードのフィールド位置比較（サンプル vs 生成）
      */
+    #[Test]
     public function it_compares_d_record_field_positions(): void
     {
         // サンプルファイルからDレコードを取得
         $sampleDRecord = $this->getSampleDRecord(1106);
-        if (! $sampleDRecord) {
-            $this->markTestSkipped('Sample D record not available');
-        }
+        $this->assertNotEmpty($sampleDRecord, 'Sample D record not available');
 
         // 生成ファイルからDレコードを取得
         $generatedDRecord = $this->getGeneratedDRecord();
-        if (! $generatedDRecord) {
-            $this->markTestSkipped('Generated D record not available');
-        }
+        $this->assertNotEmpty($generatedDRecord, 'Generated D record not available');
 
         // フィールド位置の比較
         $fields = [
@@ -238,22 +228,18 @@ class HanaOrderFileFieldComparisonTest extends TestCase
     }
 
     /**
-     * @test
      * 全サンプルファイルの送信元コード検証
      */
+    #[Test]
     public function it_validates_sender_code_in_all_samples(): void
     {
         $expectedSenderCode = '01451019';
 
         foreach (self::SAMPLE_FILES as $contractorCode => $filePath) {
-            if (! file_exists($filePath)) {
-                continue;
-            }
+            $this->assertFileExists($filePath);
 
             $aRecord = $this->getSampleARecord($contractorCode);
-            if (! $aRecord) {
-                continue;
-            }
+            $this->assertNotEmpty($aRecord, "Sample A record for {$contractorCode} is missing");
 
             $senderCode = trim(substr($aRecord, 17, 8));
 
@@ -266,30 +252,29 @@ class HanaOrderFileFieldComparisonTest extends TestCase
     }
 
     /**
-     * @test
      * 生成ファイルの送信元コードが正しいこと
      */
+    #[Test]
     public function it_generates_correct_sender_code(): void
     {
         $expectedSenderCode = '01451019';
 
         $aRecord = $this->getGeneratedARecord();
-        if (! $aRecord) {
-            $this->markTestSkipped('Generated A record not available');
-        }
+        $this->assertNotEmpty($aRecord, 'Generated A record not available');
 
         $senderCode = trim(substr($aRecord, 17, 8));
         $this->assertEquals($expectedSenderCode, $senderCode, 'Generated sender code should be 01451019');
     }
 
     /**
-     * @test
      * 発注日・納品日の形式比較
      */
+    #[Test]
     public function it_compares_date_formats(): void
     {
         // サンプルのBレコードから日付を取得
         $sampleBRecord = $this->getSampleBRecord(1106);
+        $this->assertNotEmpty($sampleBRecord, 'Sample B record is missing');
         if ($sampleBRecord) {
             $sampleOrderDate = substr($sampleBRecord, 23, 6);
             $sampleDeliveryDate = substr($sampleBRecord, 29, 6);
@@ -306,6 +291,7 @@ class HanaOrderFileFieldComparisonTest extends TestCase
 
         // 生成のBレコードから日付を取得
         $generatedBRecord = $this->getGeneratedBRecord();
+        $this->assertNotEmpty($generatedBRecord, 'Generated B record is missing');
         if ($generatedBRecord) {
             $generatedOrderDate = substr($generatedBRecord, 23, 6);
             $generatedDeliveryDate = substr($generatedBRecord, 29, 6);
@@ -321,16 +307,14 @@ class HanaOrderFileFieldComparisonTest extends TestCase
     }
 
     /**
-     * @test
      * ケース数・バラ数の計算検証
      */
+    #[Test]
     public function it_calculates_cases_and_pieces_correctly(): void
     {
         // サンプルからいくつかのDレコードを取得して検証
         foreach (self::SAMPLE_FILES as $contractorCode => $filePath) {
-            if (! file_exists($filePath)) {
-                continue;
-            }
+            $this->assertFileExists($filePath);
 
             $records = $this->parseSampleFile($filePath);
             $dRecords = array_filter($records, fn ($r) => str_starts_with($r, 'D'));
@@ -357,9 +341,9 @@ class HanaOrderFileFieldComparisonTest extends TestCase
     }
 
     /**
-     * @test
      * 各発注先サンプルの取引先コード検証
      */
+    #[Test]
     public function it_validates_contractor_codes_in_samples(): void
     {
         $expectedContractorMappings = [
@@ -370,9 +354,7 @@ class HanaOrderFileFieldComparisonTest extends TestCase
         ];
 
         foreach (self::SAMPLE_FILES as $contractorCode => $filePath) {
-            if (! file_exists($filePath)) {
-                continue;
-            }
+            $this->assertFileExists($filePath);
 
             $records = $this->parseSampleFile($filePath);
             $bRecords = array_filter($records, fn ($r) => str_starts_with($r, 'B'));
@@ -390,15 +372,13 @@ class HanaOrderFileFieldComparisonTest extends TestCase
     }
 
     /**
-     * @test
      * 品名フィールドの長さ検証（64バイト）
      */
+    #[Test]
     public function it_validates_item_name_length(): void
     {
         foreach (self::SAMPLE_FILES as $contractorCode => $filePath) {
-            if (! file_exists($filePath)) {
-                continue;
-            }
+            $this->assertFileExists($filePath);
 
             $records = $this->parseSampleFile($filePath);
             $dRecords = array_filter($records, fn ($r) => str_starts_with($r, 'D'));
@@ -413,6 +393,7 @@ class HanaOrderFileFieldComparisonTest extends TestCase
 
         // 生成ファイルでも同様に検証
         $generatedDRecord = $this->getGeneratedDRecord();
+        $this->assertNotEmpty($generatedDRecord, 'Generated D record is missing');
         if ($generatedDRecord) {
             $itemName = substr($generatedDRecord, 5, 64);
             $this->assertEquals(64, strlen($itemName), 'Generated item name field should be 64 bytes');
@@ -425,30 +406,14 @@ class HanaOrderFileFieldComparisonTest extends TestCase
 
     private function parseSampleFile(string $filePath): array
     {
-        $content = file_get_contents($filePath);
-        $content = rtrim($content, "\r\n");
-
-        $records = [];
-        $pos = 0;
-
-        while ($pos < strlen($content)) {
-            $record = substr($content, $pos, self::RECORD_LENGTH);
-            if (strlen($record) < self::RECORD_LENGTH) {
-                break;
-            }
-            $records[] = $record;
-            $pos += self::RECORD_LENGTH;
-        }
-
-        return $records;
+        return JxTestRecords::sampleFile($filePath);
     }
 
     private function getSampleARecord(int $contractorCode): ?string
     {
         $filePath = self::SAMPLE_FILES[$contractorCode] ?? null;
-        if (! $filePath || ! file_exists($filePath)) {
-            return null;
-        }
+        $this->assertNotNull($filePath);
+        $this->assertFileExists($filePath);
 
         $records = $this->parseSampleFile($filePath);
         foreach ($records as $record) {
@@ -463,9 +428,8 @@ class HanaOrderFileFieldComparisonTest extends TestCase
     private function getSampleBRecord(int $contractorCode): ?string
     {
         $filePath = self::SAMPLE_FILES[$contractorCode] ?? null;
-        if (! $filePath || ! file_exists($filePath)) {
-            return null;
-        }
+        $this->assertNotNull($filePath);
+        $this->assertFileExists($filePath);
 
         $records = $this->parseSampleFile($filePath);
         foreach ($records as $record) {
@@ -480,9 +444,8 @@ class HanaOrderFileFieldComparisonTest extends TestCase
     private function getSampleDRecord(int $contractorCode): ?string
     {
         $filePath = self::SAMPLE_FILES[$contractorCode] ?? null;
-        if (! $filePath || ! file_exists($filePath)) {
-            return null;
-        }
+        $this->assertNotNull($filePath);
+        $this->assertFileExists($filePath);
 
         $records = $this->parseSampleFile($filePath);
         foreach ($records as $record) {
@@ -506,18 +469,10 @@ class HanaOrderFileFieldComparisonTest extends TestCase
             return null;
         }
 
-        $content = rtrim($result[0]['content'], "\r\n");
-        $pos = 0;
-
-        while ($pos < strlen($content)) {
-            $record = substr($content, $pos, self::RECORD_LENGTH);
-            if (strlen($record) < self::RECORD_LENGTH) {
-                break;
-            }
+        foreach (JxTestRecords::generated($result[0]['content']) as $record) {
             if (str_starts_with($record, 'A')) {
                 return $record;
             }
-            $pos += self::RECORD_LENGTH;
         }
 
         return null;
@@ -535,18 +490,10 @@ class HanaOrderFileFieldComparisonTest extends TestCase
             return null;
         }
 
-        $content = rtrim($result[0]['content'], "\r\n");
-        $pos = 0;
-
-        while ($pos < strlen($content)) {
-            $record = substr($content, $pos, self::RECORD_LENGTH);
-            if (strlen($record) < self::RECORD_LENGTH) {
-                break;
-            }
+        foreach (JxTestRecords::generated($result[0]['content']) as $record) {
             if (str_starts_with($record, 'B')) {
                 return $record;
             }
-            $pos += self::RECORD_LENGTH;
         }
 
         return null;
@@ -564,18 +511,10 @@ class HanaOrderFileFieldComparisonTest extends TestCase
             return null;
         }
 
-        $content = rtrim($result[0]['content'], "\r\n");
-        $pos = 0;
-
-        while ($pos < strlen($content)) {
-            $record = substr($content, $pos, self::RECORD_LENGTH);
-            if (strlen($record) < self::RECORD_LENGTH) {
-                break;
-            }
+        foreach (JxTestRecords::generated($result[0]['content']) as $record) {
             if (str_starts_with($record, 'D')) {
                 return $record;
             }
-            $pos += self::RECORD_LENGTH;
         }
 
         return null;

@@ -2,21 +2,24 @@
 
 namespace App\Filament\Pages;
 
+use App\Enums\AutoOrder\OrderChannel;
 use App\Enums\EMenu;
+use App\Services\AutoOrder\ContractorOrderConditions;
 use App\Services\AutoOrder\HqOrderRegistrationReferenceService;
 use App\Services\AutoOrder\OrderRegistrationSearchService;
+use App\Support\OrderArrivalDate;
 use BackedEnum;
 use Carbon\Carbon;
 use Filament\Notifications\Notification;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
 
 /**
  * 外部発注（本部） — 本部 91 番倉庫専用の発注登録画面。
  *
  * 既存の（新）外部発注（WmsOrderRegistration）を継承し、本部向けの違いだけをここに書く。
- * 親クラス・既存 Blade・既存サービスは変更しない。発注確定（登録・入荷予定・PDF 生成）は
- * 親の処理をそのまま使う。
+ * 共通の選択処理を継承し、発注確定（登録・入荷予定・PDF 生成）は親の処理を使う。
  *
  * 本部画面での違い:
  * - 倉庫は本部倉庫（config: wms_hq_order_registration.warehouse_code）に固定
@@ -37,6 +40,100 @@ class WmsOrderRegistrationHq extends WmsOrderRegistration
 
     /** 登録リストの参考データ（"倉庫ID:商品ID" => 参考データ） */
     public array $lineReferences = [];
+
+    public string $bulkOrderChannel = 'FAX';
+
+    public function applyBulkOrderChannel(): void
+    {
+        $channel = OrderChannel::tryFrom($this->bulkOrderChannel);
+        $indexes = $this->selectedVisibleRegistrationLineIndexes();
+        if (! $channel || $indexes === []) {
+            $this->warnHq('一括変更する発注区分と登録リスト行を選択してください。');
+
+            return;
+        }
+        $jxIds = array_flip(app(OrderRegistrationSearchService::class)->jxContractorIds());
+        $invalid = [];
+        foreach ($indexes as $index) {
+            $line = $this->lines[$index];
+            if ($channel === OrderChannel::EOS && (! ($line['item_contractor_linked'] ?? true) || ! isset($jxIds[(int) ($line['contractor_id'] ?? 0)]))) {
+                $invalid[] = '['.($line['item_code'] ?? '').']'.($line['item_name'] ?? '');
+            }
+        }
+        if ($invalid !== []) {
+            $this->warnHq('EOS発注できない商品があります。選択を外すかFAX発注を指定してください。'.implode('、', $invalid));
+
+            return;
+        }
+        $changed = 0;
+        foreach ($indexes as $index) {
+            if (($this->lines[$index]['order_channel'] ?? '') !== $channel->value) {
+                $this->lines[$index]['order_channel'] = $channel->value;
+                $this->lines[$index]['order_channel_label'] = $channel->label();
+                $changed++;
+            }
+        }
+        $this->clearRegistrationLineSelection();
+        Notification::make()->title('発注区分を変更しました')->body(number_format($changed).'件')->success()->send();
+    }
+
+    public function applyBulkExpectedArrivalDate(): void
+    {
+        try {
+            $this->bulkExpectedArrivalDate = OrderArrivalDate::normalizeForOrder($this->bulkExpectedArrivalDate);
+        } catch (\InvalidArgumentException $e) {
+            $this->warnHq($e->getMessage());
+
+            return;
+        }
+        parent::applyBulkExpectedArrivalDate();
+    }
+
+    public function confirmOrders(): void
+    {
+        foreach ($this->lines as $index => $line) {
+            try {
+                $date = OrderArrivalDate::normalizeForOrder((string) ($line['expected_arrival_date'] ?? ''));
+                $this->lines[$index]['expected_arrival_date'] = $date;
+            } catch (\InvalidArgumentException $e) {
+                $this->warnHq('['.($line['item_code'] ?? '').'] '.$e->getMessage());
+
+                return;
+            }
+        }
+        parent::confirmOrders();
+    }
+
+    public function registrationLineDetails(): array
+    {
+        $conditions = app(ContractorOrderConditions::class)->forContractors(array_column($this->lines, 'contractor_id'));
+        $result = [];
+        $locations = [];
+        $warehouseIds = [];
+        foreach ($this->lines as $line) {
+            $warehouseIds[] = (int) ($line['item_contractor_warehouse_id'] ?? $line['warehouse_id'] ?? 0);
+        }
+        $settings = DB::connection('sakemaru')->table('item_contractors')->whereIn('item_id', array_column($this->lines, 'item_id'))
+            ->whereIn('warehouse_id', $warehouseIds)->get(['warehouse_id', 'item_id', 'contractor_id', 'supplier_id', 'note']);
+        foreach ($this->lines as $index => $line) {
+            $warehouseId = (int) ($line['item_contractor_warehouse_id'] ?? $line['warehouse_id'] ?? 0);
+            $locations[$warehouseId] ??= $this->defaultLocationCodes($warehouseId, array_column($this->lines, 'item_id'));
+            $setting = $settings->first(fn ($row): bool => (int) $row->warehouse_id === $warehouseId && (int) $row->item_id === (int) $line['item_id']
+                && (int) $row->contractor_id === (int) $line['contractor_id'] && (int) $row->supplier_id === (int) ($line['supplier_id'] ?? 0));
+            $result[$index] = [
+                'default_location_code' => $locations[$warehouseId][(int) $line['item_id']] ?? '',
+                'item_contractor_note' => (string) ($setting?->note ?? ''),
+                'contractor_order_conditions' => $conditions[(int) $line['contractor_id']] ?? '',
+            ];
+        }
+
+        return $result;
+    }
+
+    public function searchCandidateContractorChangeOptions(int $itemId, ?string $search = null): array
+    {
+        return app(ContractorOrderConditions::class)->attach(parent::searchCandidateContractorChangeOptions($itemId, $search));
+    }
 
     protected ?HqOrderRegistrationReferenceService $hqReferenceService = null;
 
@@ -105,13 +202,11 @@ class WmsOrderRegistrationHq extends WmsOrderRegistration
     {
         $helps = parent::weeklySalesColumnHelps();
         $exclusionLabel = $this->hqService()->salesExclusionLabel();
-
-        if ($exclusionLabel === '') {
-            return $helps;
-        }
+        $scope = '売上・小売と波動由来の移動を集計し、手入力の移動は含みません。';
+        $scope .= $exclusionLabel !== '' ? "{$exclusionLabel}の卸実績（計上は本部、出荷は店舗）は含みません。" : '';
 
         return array_map(
-            fn (string $help): string => $help."{$exclusionLabel}の卸実績（計上は本部、出荷は店舗）は含みません。",
+            fn (string $help): string => $help.$scope,
             $helps,
         );
     }
@@ -180,6 +275,8 @@ class WmsOrderRegistrationHq extends WmsOrderRegistration
             ->map(fn (array $row): array => array_merge($row, $references[(int) ($row['id'] ?? 0)] ?? []))
             ->values()
             ->toArray();
+
+        $result['data'] = app(ContractorOrderConditions::class)->attach($result['data']);
 
         return $result;
     }
@@ -437,7 +534,7 @@ class WmsOrderRegistrationHq extends WmsOrderRegistration
             return;
         }
 
-        $this->salesBasedExternalOrderPreviewRows = $adjustedRows;
+        $this->salesBasedExternalOrderPreviewRows = app(ContractorOrderConditions::class)->attach($adjustedRows);
         $this->salesBasedExternalOrderPreviewConditions = array_merge($conditions, [
             'expected_arrival_date' => $this->earliestHqExpectedArrivalDate($adjustedRows)
                 ?? ($conditions['expected_arrival_date'] ?? null),

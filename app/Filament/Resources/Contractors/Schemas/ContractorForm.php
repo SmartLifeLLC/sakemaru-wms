@@ -110,6 +110,14 @@ class ContractorForm
                         ->label('有効')
                         ->default(true)
                         ->helperText('無効にすると選択できなくなります'),
+
+                    Textarea::make('wms_order_conditions')
+                        ->label('発注ロット／発注条件')
+                        ->validationAttribute('発注ロット／発注条件')
+                        ->maxLength(2000)
+                        ->rows(3)
+                        ->columnSpanFull()
+                        ->helperText('最低ロット、混載、金額、送料、締め時刻などを記入してください。発注画面に表示します。'),
                 ])
                 ->columns(3),
         ];

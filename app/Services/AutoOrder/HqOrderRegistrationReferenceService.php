@@ -156,16 +156,12 @@ class HqOrderRegistrationReferenceService
         ];
 
         $totals = $this->statsSalesQuantities($warehouseId, $itemIds, $targets);
-        $branch = $this->branchWholesaleQuantities($warehouseId, $itemIds, $targets);
 
         $result = [];
         foreach ($itemIds as $itemId) {
             $row = [];
             foreach (array_keys($targets) as $key) {
-                $row[$key] = self::subtractBranchQuantity(
-                    (int) ($totals[$itemId][$key] ?? 0),
-                    (int) ($branch[$itemId][$key] ?? 0),
-                );
+                $row[$key] = (int) ($totals[$itemId][$key] ?? 0);
             }
             $result[$itemId] = $row;
         }
@@ -647,7 +643,7 @@ class HqOrderRegistrationReferenceService
 
         foreach (array_chunk($itemIds, self::ITEM_CHUNK_SIZE) as $chunk) {
             $rows = DB::connection('sakemaru')
-                ->table('stats_item_warehouse_daily_sales')
+                ->table(OrderReviewSalesSql::VIEW)
                 ->where('warehouse_id', $warehouseId)
                 ->whereIn('item_id', $chunk)
                 ->whereBetween('business_date', [

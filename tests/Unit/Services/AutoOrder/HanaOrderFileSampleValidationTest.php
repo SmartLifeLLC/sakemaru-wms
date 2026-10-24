@@ -6,8 +6,10 @@ use App\Models\Sakemaru\Contractor;
 use App\Models\WmsOrderCandidate;
 use App\Services\AutoOrder\Generators\HanaOrderJXFileGenerator;
 use Illuminate\Support\Collection;
+use PHPUnit\Framework\Attributes\Test;
 use Tests\Support\FakeLegacyEosSlipNumberService;
-use Tests\TestCase;
+use Tests\Support\JxGeneratorTestCase;
+use Tests\Support\JxTestRecords;
 
 /**
  * HanaOrderFileGenerator サンプルファイル検証テスト
@@ -15,16 +17,16 @@ use Tests\TestCase;
  * サンプルファイルのフォーマットを解析し、
  * 生成されるファイルが同じフォーマットに準拠することを確認する。
  *
- * 実DBの既存データを利用してテストを実行する。
+ * 各試験でSQLiteメモリDBに固定データを作成する。業務DBの既存データには依存しない。
  * DB:fresh, refreshなどのリセットは一切行わない。
  */
-class HanaOrderFileSampleValidationTest extends TestCase
+class HanaOrderFileSampleValidationTest extends JxGeneratorTestCase
 {
     private const SAMPLE_FILES = [
-        1017 => 'storage/specifications/ordering/1017_sample.txt',
-        1106 => 'storage/specifications/ordering/1106_sample.txt',
-        1202 => 'storage/specifications/ordering/1202_sample.txt',
-        1330 => 'storage/specifications/ordering/1330_sample.txt',
+        1017 => __DIR__.'/../../../Fixtures/jx/1017_sample.txt',
+        1106 => __DIR__.'/../../../Fixtures/jx/1106_sample.txt',
+        1202 => __DIR__.'/../../../Fixtures/jx/1202_sample.txt',
+        1330 => __DIR__.'/../../../Fixtures/jx/1330_sample.txt',
     ];
 
     private const RECORD_LENGTH = 128;
@@ -38,51 +40,49 @@ class HanaOrderFileSampleValidationTest extends TestCase
     }
 
     /**
-     * @test
      * 1017サンプルファイルのフォーマット検証
      */
+    #[Test]
     public function it_validates_1017_sample_file_format(): void
     {
         $this->validateSampleFileFormat(1017);
     }
 
     /**
-     * @test
      * 1106サンプルファイルのフォーマット検証
      */
+    #[Test]
     public function it_validates_1106_sample_file_format(): void
     {
         $this->validateSampleFileFormat(1106);
     }
 
     /**
-     * @test
      * 1202サンプルファイルのフォーマット検証
      */
+    #[Test]
     public function it_validates_1202_sample_file_format(): void
     {
         $this->validateSampleFileFormat(1202);
     }
 
     /**
-     * @test
      * 1330サンプルファイルのフォーマット検証
      */
+    #[Test]
     public function it_validates_1330_sample_file_format(): void
     {
         $this->validateSampleFileFormat(1330);
     }
 
     /**
-     * @test
      * 全サンプルファイルのAレコード構造検証
      */
+    #[Test]
     public function it_validates_a_record_structure_in_all_samples(): void
     {
         foreach (self::SAMPLE_FILES as $contractorCode => $filePath) {
-            if (! file_exists($filePath)) {
-                continue;
-            }
+            $this->assertFileExists($filePath);
 
             $records = $this->parseSampleFile($filePath);
             $aRecords = array_filter($records, fn ($r) => str_starts_with($r, 'A'));
@@ -95,15 +95,13 @@ class HanaOrderFileSampleValidationTest extends TestCase
     }
 
     /**
-     * @test
      * 全サンプルファイルのBレコード構造検証
      */
+    #[Test]
     public function it_validates_b_record_structure_in_all_samples(): void
     {
         foreach (self::SAMPLE_FILES as $contractorCode => $filePath) {
-            if (! file_exists($filePath)) {
-                continue;
-            }
+            $this->assertFileExists($filePath);
 
             $records = $this->parseSampleFile($filePath);
             $bRecords = array_filter($records, fn ($r) => str_starts_with($r, 'B'));
@@ -117,15 +115,13 @@ class HanaOrderFileSampleValidationTest extends TestCase
     }
 
     /**
-     * @test
      * 全サンプルファイルのDレコード構造検証
      */
+    #[Test]
     public function it_validates_d_record_structure_in_all_samples(): void
     {
         foreach (self::SAMPLE_FILES as $contractorCode => $filePath) {
-            if (! file_exists($filePath)) {
-                continue;
-            }
+            $this->assertFileExists($filePath);
 
             $records = $this->parseSampleFile($filePath);
             $dRecords = array_filter($records, fn ($r) => str_starts_with($r, 'D'));
@@ -139,17 +135,15 @@ class HanaOrderFileSampleValidationTest extends TestCase
     }
 
     /**
-     * @test
      * サンプルファイルからJANコードを抽出し検証
      */
+    #[Test]
     public function it_extracts_valid_jan_codes_from_samples(): void
     {
         $allJanCodes = [];
 
         foreach (self::SAMPLE_FILES as $contractorCode => $filePath) {
-            if (! file_exists($filePath)) {
-                continue;
-            }
+            $this->assertFileExists($filePath);
 
             $records = $this->parseSampleFile($filePath);
             $dRecords = array_filter($records, fn ($r) => str_starts_with($r, 'D'));
@@ -176,15 +170,13 @@ class HanaOrderFileSampleValidationTest extends TestCase
     }
 
     /**
-     * @test
      * サンプルファイルからケース数・バラ数量を抽出し検証
      */
+    #[Test]
     public function it_extracts_valid_quantities_from_samples(): void
     {
         foreach (self::SAMPLE_FILES as $contractorCode => $filePath) {
-            if (! file_exists($filePath)) {
-                continue;
-            }
+            $this->assertFileExists($filePath);
 
             $records = $this->parseSampleFile($filePath);
             $dRecords = array_filter($records, fn ($r) => str_starts_with($r, 'D'));
@@ -211,20 +203,16 @@ class HanaOrderFileSampleValidationTest extends TestCase
     }
 
     /**
-     * @test
      * 生成ファイルのAレコードがサンプルと同じ構造
      */
+    #[Test]
     public function it_generates_a_record_matching_sample_structure(): void
     {
         $candidates = $this->getTestCandidates();
-        if ($candidates->isEmpty()) {
-            $this->markTestSkipped('No test data available');
-        }
+        $this->assertFalse($candidates->isEmpty(), 'No test data available');
 
         $result = $this->generator->generate($candidates);
-        if (empty($result)) {
-            $this->markTestSkipped('No result generated');
-        }
+        $this->assertNotEmpty($result, 'No result generated');
 
         $generatedRecords = $this->parseGeneratedContent($result[0]['content']);
         $aRecords = array_filter($generatedRecords, fn ($r) => str_starts_with($r, 'A'));
@@ -242,20 +230,16 @@ class HanaOrderFileSampleValidationTest extends TestCase
     }
 
     /**
-     * @test
      * 生成ファイルのBレコードがサンプルと同じ構造
      */
+    #[Test]
     public function it_generates_b_record_matching_sample_structure(): void
     {
         $candidates = $this->getTestCandidates();
-        if ($candidates->isEmpty()) {
-            $this->markTestSkipped('No test data available');
-        }
+        $this->assertFalse($candidates->isEmpty(), 'No test data available');
 
         $result = $this->generator->generate($candidates);
-        if (empty($result)) {
-            $this->markTestSkipped('No result generated');
-        }
+        $this->assertNotEmpty($result, 'No result generated');
 
         $generatedRecords = $this->parseGeneratedContent($result[0]['content']);
         $bRecords = array_filter($generatedRecords, fn ($r) => str_starts_with($r, 'B'));
@@ -275,20 +259,16 @@ class HanaOrderFileSampleValidationTest extends TestCase
     }
 
     /**
-     * @test
      * 生成ファイルのDレコードがサンプルと同じ構造
      */
+    #[Test]
     public function it_generates_d_record_matching_sample_structure(): void
     {
         $candidates = $this->getTestCandidates();
-        if ($candidates->isEmpty()) {
-            $this->markTestSkipped('No test data available');
-        }
+        $this->assertFalse($candidates->isEmpty(), 'No test data available');
 
         $result = $this->generator->generate($candidates);
-        if (empty($result)) {
-            $this->markTestSkipped('No result generated');
-        }
+        $this->assertNotEmpty($result, 'No result generated');
 
         $generatedRecords = $this->parseGeneratedContent($result[0]['content']);
         $dRecords = array_filter($generatedRecords, fn ($r) => str_starts_with($r, 'D'));
@@ -315,15 +295,13 @@ class HanaOrderFileSampleValidationTest extends TestCase
     }
 
     /**
-     * @test
      * レコード順序の検証（A→B→D→B→D...）
      */
+    #[Test]
     public function it_validates_record_order_matches_sample(): void
     {
         foreach (self::SAMPLE_FILES as $contractorCode => $filePath) {
-            if (! file_exists($filePath)) {
-                continue;
-            }
+            $this->assertFileExists($filePath);
 
             $records = $this->parseSampleFile($filePath);
 
@@ -353,20 +331,16 @@ class HanaOrderFileSampleValidationTest extends TestCase
     }
 
     /**
-     * @test
      * 生成ファイルのエンコーディングがSJIS
      */
+    #[Test]
     public function it_generates_file_with_sjis_encoding(): void
     {
         $candidates = $this->getTestCandidates();
-        if ($candidates->isEmpty()) {
-            $this->markTestSkipped('No test data available');
-        }
+        $this->assertFalse($candidates->isEmpty(), 'No test data available');
 
         $result = $this->generator->generate($candidates);
-        if (empty($result)) {
-            $this->markTestSkipped('No result generated');
-        }
+        $this->assertNotEmpty($result, 'No result generated');
 
         $content = $result[0]['content'];
 
@@ -375,19 +349,17 @@ class HanaOrderFileSampleValidationTest extends TestCase
         $this->assertContains($detected, ['SJIS', 'SJIS-win'], 'Content should be SJIS encoded');
 
         // エンコーディング属性の確認
-        $this->assertEquals('SJIS', $result[0]['encoding']);
+        $this->assertEquals('SJIS-win', $result[0]['encoding']);
     }
 
     /**
-     * @test
      * サンプルファイルのレコード数とAレコードの件数フィールドが一致
      */
+    #[Test]
     public function it_validates_record_count_in_a_record(): void
     {
         foreach (self::SAMPLE_FILES as $contractorCode => $filePath) {
-            if (! file_exists($filePath)) {
-                continue;
-            }
+            $this->assertFileExists($filePath);
 
             $records = $this->parseSampleFile($filePath);
             $aRecord = $records[0];
@@ -405,27 +377,23 @@ class HanaOrderFileSampleValidationTest extends TestCase
     }
 
     /**
-     * @test
      * 送信先集約の検証（カナカングループは1106に集約）
      */
+    #[Test]
     public function it_validates_kanakan_group_consolidation(): void
     {
         // カナカングループの発注先
         $kanakanCodes = [1021, 1029, 1068, 1126, 1127];
         $kanakanContractorIds = Contractor::whereIn('code', $kanakanCodes)->pluck('id')->toArray();
 
-        if (empty($kanakanContractorIds)) {
-            $this->markTestSkipped('Kanakan contractors not found');
-        }
+        $this->assertNotEmpty($kanakanContractorIds, 'Kanakan contractors not found');
 
         $candidates = WmsOrderCandidate::whereIn('contractor_id', $kanakanContractorIds)
             ->with(['warehouse', 'item', 'contractor'])
             ->limit(5)
             ->get();
 
-        if ($candidates->isEmpty()) {
-            $this->markTestSkipped('No Kanakan candidates available');
-        }
+        $this->assertFalse($candidates->isEmpty(), 'No Kanakan candidates available');
 
         $result = $this->generator->generate($candidates);
 
@@ -435,18 +403,17 @@ class HanaOrderFileSampleValidationTest extends TestCase
     }
 
     /**
-     * @test
      * 各発注先別にファイル生成
      */
+    #[Test]
     public function it_generates_separate_files_for_each_contractor(): void
     {
         // 異なる発注先の候補を取得
         $contractor1202 = Contractor::where('code', 1202)->first();
         $contractor1330 = Contractor::where('code', 1330)->first();
 
-        if (! $contractor1202 || ! $contractor1330) {
-            $this->markTestSkipped('Contractors not found');
-        }
+        $this->assertNotNull($contractor1202, 'Contractor 1202 not found');
+        $this->assertNotNull($contractor1330, 'Contractor 1330 not found');
 
         $candidates1202 = WmsOrderCandidate::where('contractor_id', $contractor1202->id)
             ->with(['warehouse', 'item', 'contractor'])
@@ -458,15 +425,11 @@ class HanaOrderFileSampleValidationTest extends TestCase
             ->limit(3)
             ->get();
 
-        if ($candidates1202->isEmpty() && $candidates1330->isEmpty()) {
-            $this->markTestSkipped('No candidates available');
-        }
+        $this->assertFalse($candidates1202->isEmpty() && $candidates1330->isEmpty(), 'No candidates available');
 
         $combined = $candidates1202->merge($candidates1330);
 
-        if ($combined->groupBy('contractor_id')->count() < 2) {
-            $this->markTestSkipped('Not enough different contractors');
-        }
+        $this->assertGreaterThanOrEqual(2, $combined->groupBy('contractor_id')->count(), 'Not enough different contractors');
 
         $result = $this->generator->generate($combined);
 
@@ -489,9 +452,8 @@ class HanaOrderFileSampleValidationTest extends TestCase
     {
         $filePath = self::SAMPLE_FILES[$contractorCode] ?? null;
 
-        if (! $filePath || ! file_exists($filePath)) {
-            $this->markTestSkipped("Sample file for {$contractorCode} not found");
-        }
+        $this->assertNotNull($filePath);
+        $this->assertFileExists($filePath, "Sample file for {$contractorCode} not found");
 
         $records = $this->parseSampleFile($filePath);
 
@@ -598,22 +560,7 @@ class HanaOrderFileSampleValidationTest extends TestCase
      */
     private function parseSampleFile(string $filePath): array
     {
-        $content = file_get_contents($filePath);
-        $content = rtrim($content, "\r\n");
-
-        $records = [];
-        $pos = 0;
-
-        while ($pos < strlen($content)) {
-            $record = substr($content, $pos, self::RECORD_LENGTH);
-            if (strlen($record) < self::RECORD_LENGTH) {
-                break;
-            }
-            $records[] = $record;
-            $pos += self::RECORD_LENGTH;
-        }
-
-        return $records;
+        return JxTestRecords::sampleFile($filePath);
     }
 
     /**
@@ -621,21 +568,7 @@ class HanaOrderFileSampleValidationTest extends TestCase
      */
     private function parseGeneratedContent(string $sjisContent): array
     {
-        $content = rtrim($sjisContent, "\r\n");
-
-        $records = [];
-        $pos = 0;
-
-        while ($pos < strlen($content)) {
-            $record = substr($content, $pos, self::RECORD_LENGTH);
-            if (strlen($record) < self::RECORD_LENGTH) {
-                break;
-            }
-            $records[] = $record;
-            $pos += self::RECORD_LENGTH;
-        }
-
-        return $records;
+        return JxTestRecords::generated($sjisContent);
     }
 
     /**
