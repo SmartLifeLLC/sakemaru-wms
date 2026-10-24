@@ -738,13 +738,10 @@
                             <th class="whitespace-nowrap px-2 py-2 text-right">仕入原価</th>
                             <th class="whitespace-nowrap px-2 py-2 text-right">合計金額</th>
                             <th class="whitespace-nowrap px-2 py-2 text-center">入荷予定日</th>
-                            <th class="px-2 py-2 text-left">発注先備考</th>
-                            <th class="px-2 py-2 text-left">商品備考</th>
                             <th class="whitespace-nowrap px-2 py-2 text-left" title="発注先CDをクリックすると発注先を検索して変更できます">発注先</th>
                             <th class="sticky right-0 bg-slate-50 px-2 py-2 text-center dark:bg-gray-800">操作</th>
                     </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-100 dark:divide-gray-800">
                         @forelse ($visibleLines as $index => $line)
                             @php
                                 $orderQuantity = (int) ($line['order_quantity'] ?? 0);
@@ -771,13 +768,18 @@
                                 $orderChannelSelectClass = $orderChannelValue === \App\Enums\AutoOrder\OrderChannel::FAX->value
                                     ? 'border-green-300 bg-green-100 text-green-700 dark:border-green-700 dark:bg-green-900/40 dark:text-green-200'
                                     : 'border-blue-300 bg-blue-100 text-blue-700 dark:border-blue-700 dark:bg-blue-900/40 dark:text-blue-200';
+                                $itemNote = trim((string) ($lineDetails[$index]['item_contractor_note'] ?? ''));
+                                $contractorNote = trim((string) ($lineDetails[$index]['contractor_order_conditions'] ?? ''));
+                                $hasNotes = $itemNote !== '' || $contractorNote !== '';
+                                $noteRowSpan = $hasNotes ? 2 : 1;
                                 $lineItemId = (int) ($line['item_id'] ?? 0);
                                 $reference = $lineReferences[((int) ($line['warehouse_id'] ?? 0)).':'.$lineItemId] ?? null;
                                 $safetyStock = $reference['safety_stocks'][(int) ($line['contractor_id'] ?? 0)] ?? null;
                                 // 容量x入数（例: 750ml x 6）。容量が未登録の商品は「- x 入数」。
                                 $volumeCapacityLabel = (filled($reference['volume_label'] ?? null) ? $reference['volume_label'] : '-').' x '.number_format($capacityCase);
                             @endphp
-                            <tr wire:key="registration-line-{{ $index }}" class="odd:bg-[#f5f9ff] even:bg-white dark:odd:bg-[#1e2a3b] dark:even:bg-gray-900"><td class="whitespace-nowrap px-2 py-2 text-center">
+                            <tbody wire:key="registration-line-{{ $index }}" data-hq-order-item @class(['bg-[#f5f9ff] dark:bg-[#1e2a3b]' => $loop->odd, 'bg-white dark:bg-gray-900' => $loop->even])>
+                            <tr class="bg-inherit"><td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-center">
                                     <input
                                         type="checkbox"
                                         value="{{ $index }}"
@@ -785,8 +787,8 @@
                                         class="rounded border-slate-300 text-primary-600 shadow-sm focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-900"
                                     >
                                 </td>
-                                <td class="whitespace-nowrap px-2 py-2 text-center font-mono font-semibold text-slate-500 dark:text-gray-400">{{ $loop->iteration }}</td>
-                                <td class="whitespace-nowrap px-2 py-2 text-center">
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-center font-mono font-semibold text-slate-500 dark:text-gray-400">{{ $loop->iteration }}</td>
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-center">
                                     @if ($isEosAvailable)
                                         <select
                                             wire:model.live="lines.{{ $index }}.order_channel"
@@ -799,7 +801,7 @@
                                         <span class="inline-flex items-center rounded bg-green-100 px-2 py-1 text-xs font-semibold text-green-700 dark:bg-green-900/40 dark:text-green-200">FAX固定</span>
                                     @endif
                                 </td>
-                                <td class="whitespace-nowrap px-2 py-2 text-center font-mono text-sm font-bold text-slate-800 dark:text-gray-100">
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-center font-mono text-sm font-bold text-slate-800 dark:text-gray-100">
                                     {{-- 倉庫名はマウスオーバーですぐ出す（ブラウザ標準の title は出るまでが遅く、気づきにくい） --}}
                                     <span
                                         x-tooltip="{ content: @js($warehouseName), theme: $store.theme }"
@@ -809,8 +811,8 @@
                                 <td class="whitespace-nowrap px-2 py-2 font-mono text-xs">{{ $line['item_code'] }}</td>
                                 <td class="whitespace-nowrap px-2 py-2 text-slate-900 dark:text-gray-100">{{ $line['item_name'] }}</td>
                                 <td class="whitespace-nowrap px-2 py-2 text-slate-700 dark:text-gray-200">{{ $volumeCapacityLabel }}</td>
-                                <td class="whitespace-nowrap px-2 py-2 font-mono"><div>{{ $lineDetails[$index]['default_location_code'] ?? '' }}</div><div class="text-xs text-slate-500">発注点 {{ $safetyStock === null ? '-' : number_format((int) $safetyStock) }}</div></td>
-                                <td class="whitespace-nowrap px-2 py-2 text-right">
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 font-mono"><div>{{ $lineDetails[$index]['default_location_code'] ?? '' }}</div><div class="text-xs text-slate-500">発注点 {{ $safetyStock === null ? '-' : number_format((int) $safetyStock) }}</div></td>
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-right">
                                     @if ($reference)
                                         <button
                                             type="button"
@@ -822,7 +824,7 @@
                                         -
                                     @endif
                                 </td>
-                                <td class="whitespace-nowrap border-l-2 border-slate-300 bg-amber-50 px-2 py-2 text-center dark:border-slate-600 dark:bg-amber-950/30">
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap border-l-2 border-slate-300 bg-amber-50 px-2 py-2 text-center dark:border-slate-600 dark:bg-amber-950/30">
                                     <input
                                         type="text"
                                         inputmode="numeric"
@@ -833,7 +835,7 @@
                                         class="w-[58px] rounded-md border-2 border-amber-300 bg-white px-1 py-0.5 text-right text-sm font-semibold text-slate-900 shadow-sm focus:border-amber-500 focus:ring-2 focus:ring-amber-200 dark:border-amber-700 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-amber-500 dark:focus:ring-amber-900"
                                     >
                                 </td>
-                                <td class="whitespace-nowrap bg-amber-50 px-2 py-2 text-center dark:bg-amber-950/30">
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap bg-amber-50 px-2 py-2 text-center dark:bg-amber-950/30">
                                     <input
                                         type="text"
                                         inputmode="numeric"
@@ -844,9 +846,9 @@
                                         class="w-[58px] rounded-md border-2 border-amber-300 bg-white px-1 py-0.5 text-right text-sm font-semibold text-slate-900 shadow-sm focus:border-amber-500 focus:ring-2 focus:ring-amber-200 dark:border-amber-700 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-amber-500 dark:focus:ring-amber-900"
                                     >
                                 </td>
-                                <td class="whitespace-nowrap px-2 py-2 text-right font-mono font-bold text-indigo-700 dark:text-indigo-300">{{ $totalCasesLabel }}</td>
-                                <td class="whitespace-nowrap px-2 py-2 text-right font-mono font-bold text-sky-700 dark:text-sky-300">{{ number_format($totalPieces) }}</td>
-                                <td class="whitespace-nowrap px-2 py-2 text-center font-mono text-xs">
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-right font-mono font-bold text-indigo-700 dark:text-indigo-300">{{ $totalCasesLabel }}</td>
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-right font-mono font-bold text-sky-700 dark:text-sky-300">{{ number_format($totalPieces) }}</td>
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-center font-mono text-xs">
                                     @if (filled($reference['last_incoming_date'] ?? null))
                                         <div class="font-semibold text-slate-800 dark:text-gray-100">{{ $formatReferenceDate($reference['last_incoming_date']) }}</div>
                                         <div class="text-[11px] text-slate-500 dark:text-gray-400">{{ $formatCasePiece($reference['last_incoming_case_qty'] ?? 0, $reference['last_incoming_piece_qty'] ?? 0) }}</div>
@@ -854,7 +856,7 @@
                                         -
                                     @endif
                                 </td>
-                                <td class="whitespace-nowrap px-2 py-2 text-center font-mono text-xs">
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-center font-mono text-xs">
                                     @if (filled($reference['last_purchase_date'] ?? null))
                                         <div class="font-semibold text-slate-800 dark:text-gray-100">{{ $formatReferenceDate($reference['last_purchase_date']) }}</div>
                                         <div class="text-[11px] text-slate-500 dark:text-gray-400">{{ $formatCasePiece($reference['last_purchase_case_qty'] ?? 0, $reference['last_purchase_piece_qty'] ?? 0) }}</div>
@@ -862,16 +864,14 @@
                                         -
                                     @endif
                                 </td>
-                                <td class="whitespace-nowrap px-2 py-2 text-right font-mono">{{ $reference ? number_format((int) ($reference['sales_week1_qty'] ?? 0)) : '-' }}</td>
-                                <td class="whitespace-nowrap px-2 py-2 text-right font-mono">{{ $reference ? number_format((int) ($reference['sales_week2_qty'] ?? 0)) : '-' }}</td>
-                                <td class="whitespace-nowrap px-2 py-2 text-right font-mono">{{ $reference ? number_format((int) ($reference['sales_week3_qty'] ?? 0)) : '-' }}</td>
-                                <td class="whitespace-nowrap px-2 py-2 text-right font-mono">{{ $reference ? number_format((int) ($reference['previous_month_sales_qty'] ?? 0)) : '-' }}</td>
-                                <td class="whitespace-nowrap px-2 py-2 text-right font-mono">¥{{ number_format($purchaseUnitPrice, 0) }}</td>
-                                <td class="whitespace-nowrap px-2 py-2 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300">¥{{ number_format($lineTotalAmount, 0) }}</td>
-                                <td class="whitespace-nowrap px-2 py-2"><x-order-registration.date-input :model="'lines.'.$index.'.expected_arrival_date'" :min="json_encode(now()->toDateString())" /></td>
-                                <td class="px-2 py-2"><x-order-registration.note :value="json_encode($lineDetails[$index]['contractor_order_conditions'] ?? '', JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)" /></td>
-                                <td class="px-2 py-2"><x-order-registration.note :value="json_encode($lineDetails[$index]['item_contractor_note'] ?? '', JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)" /></td>
-                                <td class="whitespace-nowrap px-2 py-2">
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-right font-mono">{{ $reference ? number_format((int) ($reference['sales_week1_qty'] ?? 0)) : '-' }}</td>
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-right font-mono">{{ $reference ? number_format((int) ($reference['sales_week2_qty'] ?? 0)) : '-' }}</td>
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-right font-mono">{{ $reference ? number_format((int) ($reference['sales_week3_qty'] ?? 0)) : '-' }}</td>
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-right font-mono">{{ $reference ? number_format((int) ($reference['previous_month_sales_qty'] ?? 0)) : '-' }}</td>
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-right font-mono">¥{{ number_format($purchaseUnitPrice, 0) }}</td>
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300">¥{{ number_format($lineTotalAmount, 0) }}</td>
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2"><x-order-registration.date-input :model="'lines.'.$index.'.expected_arrival_date'" :min="json_encode(now()->toDateString())" /></td>
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2">
                                     <button
                                         type="button"
                                         x-on:click.stop="openPicker($event, {{ $index }}, {{ $lineItemId }}, {{ (int) ($line['contractor_id'] ?? 0) }}, {{ (int) ($line['supplier_id'] ?? 0) }})"
@@ -887,7 +887,7 @@
                                         <div class="mt-0.5 text-[11px] font-semibold text-danger-700 dark:text-danger-300">商品未設定 / FAX固定</div>
                                     @endif
                                 </td>
-                                <td class="sticky right-0 whitespace-nowrap bg-inherit px-2 py-2 text-center">
+                                <td rowspan="{{ $noteRowSpan }}" class="sticky right-0 whitespace-nowrap bg-inherit px-2 py-2 text-center">
                                     <button
                                         type="button"
                                         wire:click="openLineDuplicateModal({{ $index }})"
@@ -904,12 +904,19 @@
                                     </button>
                                 </td>
                         </tr>
+                            @if ($hasNotes)
+                                <tr>
+                                    <td colspan="3" class="px-2 pb-1.5 text-left">
+                                        <x-order-registration.item-notes :item="json_encode($itemNote, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)" :contractor="json_encode($contractorNote, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)" />
+                                    </td>
+                                </tr>
+                            @endif
+                            </tbody>
                         @empty
-                            <tr>
-                                <td colspan="26" class="px-3 py-12 text-center text-sm text-slate-400 dark:text-gray-500">登録リストは空です</td>
-                            </tr>
+                            <tbody><tr>
+                                <td colspan="24" class="px-3 py-12 text-center text-sm text-slate-400 dark:text-gray-500">登録リストは空です</td>
+                            </tr></tbody>
                         @endforelse
-                    </tbody>
                 </table>
             </div>
         </div>
