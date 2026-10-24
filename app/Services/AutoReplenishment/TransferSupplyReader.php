@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\DB;
 /** Read-only projection: a transfer replaces its schedules/candidate, never adds to them. */
 class TransferSupplyReader
 {
-    public function read(int $clientId, int $warehouseId, array $itemIds, array $allocationIds, bool $lock = false, bool $includeDates = false): array
+    public function read(int $clientId, int $warehouseId, array $itemIds, array $allocationIds, bool $lock = false, bool $includeDates = false, ?string $availabilityDate = null): array
     {
         $db = DB::connection('sakemaru');
         $get = fn ($query) => ($lock ? $query->lockForUpdate() : $query)->get();
@@ -84,7 +84,7 @@ class TransferSupplyReader
             try {
                 $result[$itemId] = $this->project((int) $itemId, $warehouseId, $clientId, $transfers, $lines, $receipts,
                     $schedules->where('item_id', $itemId), $parents, $relatedCandidates->where('item_id', $itemId),
-                    $effects->where('item_id', $itemId), $maps, $queueByCandidate, $capacities->get($itemId), $includeDates);
+                    $effects->where('item_id', $itemId), $maps, $queueByCandidate, $capacities->get($itemId), $includeDates, $availabilityDate);
             } catch (\RuntimeException $e) {
                 $result[$itemId] = ['error' => $e->getMessage()];
             }
@@ -116,9 +116,11 @@ class TransferSupplyReader
     }
 
     private function project(int $itemId, int $warehouseId, int $clientId, Collection $transfers, Collection $lines, Collection $receipts,
-        Collection $schedules, Collection $parents, Collection $candidates, Collection $effects, Collection $maps, array $queues, ?object $capacity, bool $includeDates): array
+        Collection $schedules, Collection $parents, Collection $candidates, Collection $effects, Collection $maps, array $queues, ?object $capacity, bool $includeDates, ?string $availabilityDate): array
     {
         $incoming = $claims = 0;
+        $incomingToday = 0;
+        $availability = app(IncomingAvailability::class);
         $covered = $scheduleGroups = $actual = $pending = [];
         $events = [];
         foreach ($transfers as $transfer) {
@@ -139,6 +141,9 @@ class TransferSupplyReader
             }
             $actual[$transfer->id] = ['transfer' => $transfer, 'lines' => $itemLines, 'valid' => $valid, 'total' => $total, 'applied' => $applied];
             $incoming += $total - $applied;
+            if ($total > $applied && $availability->isToday($transfer->delivered_date ?? null, $availabilityDate)) {
+                $incomingToday += $total - $applied;
+            }
             if ($includeDates && $total > $applied) {
                 $events[] = ['source' => 'transfer', 'date' => $transfer->delivered_date ?? null, 'pieces' => $total - $applied];
             }
@@ -182,12 +187,18 @@ class TransferSupplyReader
                 (string) ($queue->candidate_payload['quantity_type'] ?? ''), $effect ?: $capacity);
         }
         $incoming += array_sum($pending);
-        if ($includeDates) {
+        if ($includeDates || $availabilityDate !== null) {
+            $schedulesByCandidate = $schedules->groupBy('transfer_candidate_id');
             foreach ($pending as $candidateId => $pieces) {
                 // A split schedule is not another receipt. Only an unambiguous date is plotted.
-                $dates = $schedules->filter(fn ($s) => (int) $s->transfer_candidate_id === $candidateId)
-                    ->pluck('expected_arrival_date')->unique()->values();
-                $events[] = ['source' => 'transfer', 'date' => $dates->count() === 1 ? $dates->first() : null, 'pieces' => $pieces];
+                $dates = $schedulesByCandidate->get($candidateId, collect())->pluck('expected_arrival_date')->unique()->values();
+                $date = $dates->count() === 1 ? $dates->first() : null;
+                if ($availability->isToday($date, $availabilityDate)) {
+                    $incomingToday += $pieces;
+                }
+                if ($includeDates) {
+                    $events[] = ['source' => 'transfer', 'date' => $date, 'pieces' => $pieces];
+                }
             }
         }
         foreach ($scheduleGroups as $id => $group) {
@@ -230,7 +241,7 @@ class TransferSupplyReader
             throw_unless(isset($covered[$effect->source_id]), \RuntimeException::class, '移動発注と移動伝票・入荷予定の照合が必要です。管理者に確認してください。');
         }
 
-        return ['incoming' => $incoming, 'claims' => $claims, 'covered_candidate_ids' => array_keys($covered)]
+        return ['incoming' => $incoming, 'incoming_today' => $incomingToday, 'claims' => $claims, 'covered_candidate_ids' => array_keys($covered)]
             + ($includeDates ? ['supply_events' => $events] : []);
     }
 

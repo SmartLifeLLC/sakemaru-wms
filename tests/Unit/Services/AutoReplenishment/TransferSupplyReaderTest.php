@@ -3,9 +3,9 @@
 namespace Tests\Unit\Services\AutoReplenishment;
 
 use App\Models\WmsItemReorderPolicy;
-use App\Services\AutoReplenishment\ArrivalCalendar;
 use App\Services\AutoOrder\OrderOutputQuantityResolver;
 use App\Services\AutoOrder\OrderRegistrationSearchService;
+use App\Services\AutoReplenishment\ArrivalCalendar;
 use App\Services\AutoReplenishment\GenerationSchedule;
 use App\Services\AutoReplenishment\JxRouteFingerprint;
 use App\Services\AutoReplenishment\LogisticsPickingDate;
@@ -886,5 +886,69 @@ class TransferSupplyReaderTest extends TestCase
         $r = (new TransferSupplyReader)->read(6, 1, [143024], [1], includeDates: true)[143024];
         self::assertSame(768, $r['incoming']);
         self::assertSame([['source' => 'transfer', 'date' => null, 'pieces' => 768]], $r['supply_events']);
+    }
+
+    public function test_snapshot_counts_today_transfer_remainder_and_external_supply_without_stock_updates(): void
+    {
+        $this->transfer(1, ['delivered_date' => '2026-10-14']);
+        $this->receipt(24);
+        $this->candidate();
+        $this->schedule(1, ['stock_transfer_id' => 1, 'transfer_candidate_id' => 1, 'expected_arrival_date' => '2026-10-14']);
+        $this->schedule(2, ['stock_transfer_id' => 1, 'transfer_candidate_id' => 1, 'expected_arrival_date' => '2026-10-14']);
+        $this->schedule(3, ['order_source' => 'MANUAL', 'expected_quantity' => 50, 'expected_arrival_date' => '2026-10-14']);
+        $normal = $this->snapshot();
+        self::assertSame(794, $normal['incoming']);
+        self::assertSame(794, $normal['incoming_today']);
+        self::assertSame(100, $normal['stock']);
+        self::assertArrayNotHasKey('supply_events', $normal);
+        $policy = new WmsItemReorderPolicy(['client_id' => 6, 'warehouse_id' => 1, 'item_id' => 143024,
+            'contractor_id' => 10, 'supplier_id' => 10, 'channel' => 'EOS', 'strategy_key' => 'threshold_v1']);
+        $dated = (new SnapshotReader)->readForSimulation($policy, includeSupplyDates: true);
+        self::assertSame($normal['incoming_today'], array_sum(array_column($dated['supply_events'], 'pieces')));
+        $calculated = app(\App\Services\AutoReplenishment\IncomingAvailability::class)->forCalculation($normal);
+        self::assertSame(894, $calculated['stock']);
+        self::assertSame(0, $calculated['incoming']);
+        self::assertSame(100, (int) DB::connection('sakemaru')->table('real_stocks')->value('current_quantity'));
+        self::assertSame(0, (int) DB::connection('sakemaru')->table('wms_order_incoming_schedules')->where('id', 3)->value('received_quantity'));
+    }
+
+    public function test_pending_transfer_today_is_one_supply_and_ambiguous_dates_remain_pending(): void
+    {
+        $this->candidate();
+        $this->queue(1, ['status' => 'BEFORE']);
+        $this->schedule(1, ['transfer_candidate_id' => 1, 'expected_arrival_date' => '2026-10-14']);
+        $this->schedule(2, ['transfer_candidate_id' => 1, 'expected_arrival_date' => '2026-10-14']);
+        $r = (new TransferSupplyReader)->read(6, 1, [143024], [1], availabilityDate: '2026-10-14')[143024];
+        self::assertSame(768, $r['incoming']);
+        self::assertSame(768, $r['incoming_today']);
+        self::assertArrayNotHasKey('supply_events', $r);
+        DB::connection('sakemaru')->table('wms_order_incoming_schedules')->where('id', 2)->update(['expected_arrival_date' => '2026-10-15']);
+        $r = (new TransferSupplyReader)->read(6, 1, [143024], [1], availabilityDate: '2026-10-14')[143024];
+        self::assertSame(768, $r['incoming']);
+        self::assertSame(0, $r['incoming_today']);
+    }
+
+    public function test_sunday_transfer_is_kept_incoming_instead_of_available(): void
+    {
+        $this->transfer(1, ['delivered_date' => '2026-10-18']);
+        $r = (new TransferSupplyReader)->read(6, 1, [143024], [1], availabilityDate: '2026-10-18')[143024];
+        self::assertSame(768, $r['incoming']);
+        self::assertSame(0, $r['incoming_today']);
+    }
+
+    public function test_partial_external_receipt_counts_only_today_remainder_and_preserves_real_stock(): void
+    {
+        $this->schedule(1, ['order_source' => 'MANUAL', 'expected_quantity' => 50, 'received_quantity' => 10,
+            'expected_arrival_date' => '2026-10-14', 'status' => 'PARTIAL']);
+        $this->insert('wms_replenishment_effects', ['id' => 1, 'source_type' => 'order', 'source_id' => 100]);
+        $this->insert('wms_replenishment_effect_sources', ['id' => 1, 'effect_id' => 1, 'incoming_schedule_id' => 1, 'stock_applied_pieces' => 10]);
+        $raw = $this->snapshot();
+        self::assertSame(40, $raw['incoming']);
+        self::assertSame(40, $raw['incoming_today']);
+        $calculated = app(\App\Services\AutoReplenishment\IncomingAvailability::class)->forCalculation($raw);
+        self::assertSame(140, $calculated['stock']);
+        self::assertSame(0, $calculated['incoming']);
+        self::assertSame(100, (int) DB::connection('sakemaru')->table('real_stocks')->value('current_quantity'));
+        self::assertSame(10, (int) DB::connection('sakemaru')->table('wms_order_incoming_schedules')->value('received_quantity'));
     }
 }

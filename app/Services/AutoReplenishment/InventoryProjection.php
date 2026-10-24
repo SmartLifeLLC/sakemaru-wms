@@ -80,7 +80,10 @@ class InventoryProjection
             $picking = null;
             if ($arrival) {
                 $index = array_search($key, $dates, true);
-                $dailySnapshot = array_replace($snapshot, ['stock' => $stock, 'incoming' => $pendingAtDecision,
+                // Pass the pre-receipt snapshot through the same adapter as the test and batch.
+                // The graph applies the receipt to its day balance exactly once above.
+                $dailySnapshot = array_replace($snapshot, ['stock' => $opening, 'incoming' => $pendingAtDecision + $received,
+                    'incoming_today' => $received,
                     'business_date' => $key, 'arrival_date' => $arrival, 'next_arrival_date' => $arrivals[$dates[$index + 1] ?? ''] ?? null]);
                 $proposal = app(StrategyCalculator::class)->calculate($policy, $dailySnapshot);
                 app(ProposalSafety::class)->validate($policy, $proposal, $snapshot['packing_unit'], $snapshot['shipping_unit']);

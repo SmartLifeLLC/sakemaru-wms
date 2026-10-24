@@ -162,6 +162,7 @@ class SnapshotReader
             $clientId, (int) $policy->warehouse_id, $this->proposalItemIds ?: [(int) $policy->item_id], $allocationIds,
             ! $readOnly && $db->transactionLevel() > 0,
             $includeSupplyDates,
+            $businessDate,
         ))[$policy->item_id];
         throw_if(isset($transfer['error']), \RuntimeException::class, $transfer['error'] ?? '移動入荷予定を照合できません。');
         $effects = $this->forItem('effects', $db->table('wms_replenishment_effects')->where(['client_id' => $clientId, 'warehouse_id' => $policy->warehouse_id])->whereIn('state', ['OPEN', 'UNKNOWN', 'RECEIPT_PENDING']), 'item_id', (int) $policy->item_id);
@@ -185,6 +186,7 @@ class SnapshotReader
         // Receipt integration moves applied quantities from incoming to current stock;
         // dates alone must never discard an outstanding order or transfer.
         $incoming = $transfer['incoming'];
+        $incomingToday = $transfer['incoming_today'];
         $supplyEvents = $transfer['supply_events'] ?? [];
         $schedules = $this->forItem('schedules', $db->table('wms_order_incoming_schedules')->where('warehouse_id', $policy->warehouse_id)
             ->where('order_source', '!=', 'TRANSFER')->whereNull('stock_transfer_id')->whereNull('transfer_candidate_id')
@@ -206,6 +208,9 @@ class SnapshotReader
                 \RuntimeException::class, '外部発注の入荷数量が実在庫へ反映されていません。仕入連携の完了後に再計算してください。');
             $remaining = $this->pieces((int) $s->expected_quantity - (int) $s->received_quantity, (string) $s->quantity_type, $source ?? $item);
             $incoming += $remaining;
+            if (app(IncomingAvailability::class)->isToday($s->expected_arrival_date ?? null, $businessDate)) {
+                $incomingToday += $remaining;
+            }
             if ($includeSupplyDates && $remaining > 0) {
                 $supplyEvents[] = ['source' => 'external', 'date' => $s->expected_arrival_date ?? null, 'pieces' => $remaining];
             }
@@ -236,6 +241,7 @@ class SnapshotReader
             ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('wms_replenishment_effects as e')->where('e.source_type', 'order')->whereColumn('e.source_id', 'c.id')->whereIn('e.state', ['COMPLETED', 'CANCELLED']))->select('c.item_id'), 'c.item_id', (int) $policy->item_id)->isNotEmpty();
         throw_if($unmatchedConfirmed, \RuntimeException::class, '確定発注と入荷予定の対応に不整合があります。');
         $this->observation['incoming'] = $incoming;
+        $this->observation['incoming_today'] = $incomingToday;
         $this->observation['incoming_transfer'] = $transfer['incoming'];
         $this->observation['incoming_external'] = $incoming - $transfer['incoming'];
         $claims = $transfer['claims'];
@@ -335,7 +341,7 @@ class SnapshotReader
             'item_id' => (int) $item->id, 'item_code' => (string) $item->code, 'item_name' => $item->name,
             'warehouse_code' => (string) $warehouse->code, 'warehouse_name' => $warehouse->name,
             'contractor_code' => (string) $contractor->code, 'contractor_name' => $contractor->name,
-            'supplier_id' => (int) $relation->supplier_id, 'stock' => $stock, 'incoming' => $incoming, 'claims' => $claims,
+            'supplier_id' => (int) $relation->supplier_id, 'stock' => $stock, 'incoming' => $incoming, 'incoming_today' => $incomingToday, 'claims' => $claims,
             'incoming_transfer' => $transfer['incoming'], 'incoming_external' => $incoming - $transfer['incoming'],
             'packing_unit' => $packingUnit, 'quantity_type' => $orderUnit['quantity_type'], 'order_unit' => $orderUnit, 'capacity_case' => (int) $item->capacity_case,
             'capacity_carton' => (int) $item->capacity_carton, 'ordering_code' => $orderingCode,
