@@ -25,7 +25,11 @@ class PolicySimulationService
             }
             $proposal = app(StrategyCalculator::class)->calculate($policy->toArray(), $snapshot);
             $this->safety->validate($policy->toArray(), $proposal, $snapshot['packing_unit'], $snapshot['shipping_unit'] ?? []);
-            $formula = $proposal['formula'] ?? ($strategy instanceof ThresholdStrategy || $strategy instanceof CappedThresholdStrategy ? $this->thresholdFormula($policy, $snapshot, $proposal) : ['顧客別の計算ロジックによる判定：'.$proposal['reason']]);
+            $calculated = app(IncomingAvailability::class)->forCalculation($snapshot);
+            $formula = $proposal['formula'] ?? ($strategy instanceof ThresholdStrategy || $strategy instanceof CappedThresholdStrategy ? $this->thresholdFormula($policy, $calculated, $proposal) : ['顧客別の計算ロジックによる判定：'.$proposal['reason']]);
+            if (($snapshot['incoming_today'] ?? 0) > 0 && ! isset($proposal['formula'])) {
+                array_unshift($formula, app(IncomingAvailability::class)->explanation($snapshot, $calculated));
+            }
             if (($snapshot['shipping_unit']['mode'] ?? '') === 'PALLET') {
                 $formula[] = 'パレット単位：1パレット '.$snapshot['shipping_unit']['pieces_per_pallet'].'バラの倍数で発注します。';
             }
@@ -33,7 +37,7 @@ class PolicySimulationService
                 $formula[] = '登録済み出荷数量候補から選択しています。満載パレットへの切上げ・候補の合算は行いません。';
             }
             if ($snapshot['stock'] < 0) {
-                $formula[] = '現在庫 '.$snapshot['stock'].'バラは負数のまま計算します。出荷予測で負数をさらに増やしません。';
+                $formula[] = '実在庫 '.$snapshot['stock'].'バラの負数に当日入荷予定を加えて計算します。出荷予測で負数をさらに増やしません。';
             }
             if ($policy->channel === 'LOGISTICS') {
                 $picking = $this->pickingDate->resolve($snapshot['arrival_date'], $snapshot['route_snapshot']['effective_picking_lead_days']);
@@ -60,6 +64,7 @@ class PolicySimulationService
             'order_unit' => $snapshot['order_unit'] ?? null,
             'master_warnings' => $snapshot['master_warnings'] ?? [],
             'stock' => $snapshot['stock'] ?? null, 'incoming' => $snapshot['incoming'] ?? null, 'claims' => $snapshot['claims'] ?? null,
+            'incoming_today' => $snapshot['incoming_today'] ?? 0,
             'incoming_transfer' => $snapshot['incoming_transfer'] ?? null, 'incoming_external' => $snapshot['incoming_external'] ?? null,
             'arrival_date' => $snapshot['arrival_date'] ?? null, 'picking_date' => $picking,
             'next_arrival_date' => $snapshot['next_arrival_date'] ?? null,

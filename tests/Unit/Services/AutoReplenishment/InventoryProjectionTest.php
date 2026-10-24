@@ -74,13 +74,14 @@ class InventoryProjectionTest extends TestCase
             $events = array_values(array_filter($events, fn ($e) => $e['date'] !== $day['date']));
             $dates = array_keys($input['calendar']['arrivals']);
             $index = array_search($day['date'], $dates, true);
-            $snapshot = array_replace($input['snapshot'], ['stock' => $day['after_receipt'], 'incoming' => array_sum(array_column($events, 'pieces')),
+            $snapshot = array_replace($input['snapshot'], ['stock' => $day['opening'], 'incoming' => array_sum(array_column($events, 'pieces')) + $day['received'],
+                'incoming_today' => $day['received'],
                 'business_date' => $day['date'], 'arrival_date' => $input['calendar']['arrivals'][$day['date']],
                 'next_arrival_date' => $input['calendar']['arrivals'][$dates[$index + 1]]]);
             $batch = app(StrategyCalculator::class)->calculate($policy, $snapshot);
             self::assertSame($batch['phase'], $day['phase']);
             self::assertSame($batch['formula'], $day['formula']);
-            self::assertSame($snapshot['incoming'], $day['pending_at_decision']);
+            self::assertSame($snapshot['incoming'] - $snapshot['incoming_today'], $day['pending_at_decision']);
             self::assertSame($day['after_receipt'] < $policy['reorder_point_pieces'], $day['below_point']);
             self::assertSame($batch['phase'] === 'READY' ? $batch['quantity'] : 0, $day['ordered']);
             self::assertSame($day['opening'] + $day['received'], $day['after_receipt']);

@@ -14,8 +14,15 @@ final class StrategyCalculator
         throw_if(($snapshot['shipping_unit']['mode'] ?? '') === 'SHIPMENT' && ! $strategy instanceof ArrivalBatchStrategy,
             \RuntimeException::class, '出荷数量候補は入荷時の補充目標を確認する計算方式で利用してください。');
 
-        return $strategy instanceof ArrivalBatchStrategy
-            ? $strategy->calculate($policy, $snapshot)
-            : $strategy->calculate($policy, $snapshot['stock'], $snapshot['incoming'], $snapshot['claims'], $snapshot['packing_unit']);
+        $availability = app(IncomingAvailability::class);
+        $calculated = $availability->forCalculation($snapshot);
+        $result = $strategy instanceof ArrivalBatchStrategy
+            ? $strategy->calculate($policy, $calculated)
+            : $strategy->calculate($policy, $calculated['stock'], $calculated['incoming'], $calculated['claims'], $calculated['packing_unit']);
+        if (($snapshot['incoming_today'] ?? 0) > 0 && isset($result['formula'])) {
+            array_unshift($result['formula'], $availability->explanation($snapshot, $calculated));
+        }
+
+        return $result;
     }
 }
