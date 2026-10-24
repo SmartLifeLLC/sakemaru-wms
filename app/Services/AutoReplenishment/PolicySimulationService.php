@@ -14,11 +14,15 @@ class PolicySimulationService
         $snapshot = [];
         $formula = [];
         $picking = null;
+        $demandProfile = null;
         try {
             $snapshot = $this->reader->readForSimulation($policy);
             $strategyClass = config('replenishment.strategies.'.$policy->strategy_key);
             throw_unless(is_string($strategyClass) && class_exists($strategyClass), \RuntimeException::class, '計算ロジックが未設定です。管理者に商品設定を確認してください。');
             $strategy = app($strategyClass);
+            if ($strategy instanceof ArrivalBatchStrategy) {
+                $demandProfile = app(DemandProfile::class)->fromBasis($policy->calculation_basis ?? []);
+            }
             $proposal = app(StrategyCalculator::class)->calculate($policy->toArray(), $snapshot);
             $this->safety->validate($policy->toArray(), $proposal, $snapshot['packing_unit'], $snapshot['shipping_unit'] ?? []);
             $formula = $proposal['formula'] ?? ($strategy instanceof ThresholdStrategy || $strategy instanceof CappedThresholdStrategy ? $this->thresholdFormula($policy, $snapshot, $proposal) : ['顧客別の計算ロジックによる判定：'.$proposal['reason']]);
@@ -63,6 +67,7 @@ class PolicySimulationService
             'business_date' => $snapshot['business_date'] ?? null, 'ordering_code' => $snapshot['ordering_code'] ?? null,
             'formula' => $formula, 'observed_at' => now()->format('Y/m/d H:i:s'), 'policy_version' => (int) $policy->version,
             'simulation_at' => $snapshot['simulation_at'] ?? null,
+            'demand_profile' => $demandProfile,
             'shipping_unit' => $snapshot['shipping_unit'] ?? ['mode' => 'STANDARD'],
             'quantity_settings' => $policy->strategy_key === 'arrival_adaptive_v1' ? [
                 'normal' => $policy->calculation_basis['batch_quantity_pieces'] ?? null,

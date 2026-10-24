@@ -12,6 +12,11 @@
     $historyMinimum=(int)($basis['minimum_quantity_pieces'] ?? ($recommended['min_order_pieces'] ?? 0));
     $historyMaximum=(int)($basis['maximum_quantity_pieces'] ?? ($recommended['max_order_pieces'] ?? 0));
     $mean=(float)($basis['mean_daily'] ?? 0);
+    $demandProfile=null;
+    if ($mean > 0) {
+        try { $demandProfile=app(\App\Services\AutoReplenishment\DemandProfile::class)->fromBasis($basis); }
+        catch (\RuntimeException) { }
+    }
     $positiveInteger=fn($value) => filter_var($value,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>2147483647]]) ?: null;
     $point=$positiveInteger($this->form['reorder_point_pieces'] ?? null);
     $minimum=$positiveInteger($this->form['min_order_pieces'] ?? null);
@@ -33,10 +38,11 @@
     if ($registeredCandidates !== null && $valid && $multiple) {
         $example=app(\App\Services\AutoReplenishment\ShippingQuantitySet::class)->floor($registeredCandidates,min($target,$maximum),$minimum,$multiple);
     }
-    if ($safetyDays !== null && $valid && $packing && $batch > 0 && $adaptive) {
+    if ($safetyDays !== null && $valid && $packing && $batch > 0 && $adaptive && $demandProfile) {
         $lead=(int)($basis['safety_lead_days'] ?? 1);
-        $exampleStock=max(0, app(\App\Services\AutoReplenishment\SafetyStockSettings::class)->normalOrderBoundary($point,$target,$batch,(int)floor($mean*$lead)));
-        $exampleDate=\Carbon\CarbonImmutable::parse($basis['period']['end'] ?? '2000-01-01')->addDay();
+        $exampleDate=\Carbon\CarbonImmutable::parse($demandProfile['period']['end'] ?? ($basis['period']['end'] ?? '2000-01-01'))->addDay();
+        $exampleConsumption=$demandProfile ? app(\App\Services\AutoReplenishment\DemandProfile::class)->quantity($demandProfile,$exampleDate->toDateString(),$lead) : 0;
+        $exampleStock=max(0, app(\App\Services\AutoReplenishment\SafetyStockSettings::class)->normalOrderBoundary($point,$target,$batch,$exampleConsumption));
         $exampleSnapshot=['stock'=>$exampleStock,'incoming'=>0,'claims'=>0,'packing_unit'=>$packing,
             'business_date'=>$exampleDate->toDateString(),'arrival_date'=>$exampleDate->addDays($lead)->toDateString(),
             'next_arrival_date'=>$exampleDate->addDays($lead+max(1,(int)($basis['review_interval_days'] ?? 1)))->toDateString()];
@@ -88,7 +94,9 @@
     <p class="ar-help">数量条件が未入力または不正なため、数量例は表示できません。</p>
 @endif
 <details class="ar-editor-helper ar-recommend-basis">
-    <summary>算定根拠・実績を確認 @if(isset($basis['period']))（{{ $basis['period']['start'] }}〜{{ $basis['period']['end'] }}）@endif</summary>
+    <summary>算定根拠・実績を確認</summary>
+    @include('filament.pages.auto-replenishment-demand-note')
+    @if(isset($basis['period']))<p class="ar-help">発注実績期間：{{ $basis['period']['start'] }}〜{{ $basis['period']['end'] }}</p>@endif
     <div class="ar-current-quantity-explanation">
         <p class="ar-help">数量例は入力中の設定です。現在の在庫・入荷予定での判定は、保存後の「テスト」で確認できます。</p>
         @include('filament.pages.auto-replenishment-supply-note')
@@ -123,7 +131,7 @@
             @endif
             @if($safetyDays !== null)
                 <p>安全在庫日数は発注間隔ではありません。通常量をまとめて発注し、既発注も考慮します。</p>
-                <p>発注点は補充目標・通常量・入荷まで{{ $basis['safety_lead_days'] }}日の出荷見込から算定。@if($basis['reorder_point_preserved'] ?? false)整合する既存の発注点を維持しました。@endif</p>
+                <p>発注点は補充目標・通常量・入荷まで{{ $basis['safety_lead_days'] }}日の消費見込@if(isset($basis['safety_lead_consumption_pieces']))（曜日別の最大 {{ number_format($basis['safety_lead_consumption_pieces']) }}バラ）@endifから算定。@if($basis['reorder_point_preserved'] ?? false)整合する既存の発注点を維持しました。@endif</p>
                 @if(($recommended['reorder_point_pieces'] ?? 0)>($recommended['target_stock_pieces'] ?? 0))<p class="ar-help">入荷までの出荷見込が通常量より多いため、現在庫で判定する発注点は入荷時の補充目標より大きくなっています。</p>@endif
                 @if($point && $point < ($basis['normal_order_stock_pieces'] ?? 0)+1)<p class="ar-help ar-quantity-caution">入力中の発注点は算定した発注水準より低く、発注が遅くなる場合があります。</p>@endif
             @elseif($arrivalGap !== null)
@@ -131,7 +139,7 @@
             @elseif(isset($basis['review_interval_days']))
                 <p>発注点は入荷まで＋次の実行まで最大{{ $basis['review_interval_days'] }}日を考慮。補充目標は「通常量＋1日分」と「次の実行までの需要＋最小1回分」の大きい方です。</p>
             @endif
-            <p class="ar-help">売上・出荷の観測 {{ number_format($basis['observed_days'] ?? 0) }}日 ／ 1日平均 {{ number_format($mean,2) }}バラ。日数換算は目安です。{{ $basis['unit_basis'] ?? '' }}</p>
+            <p class="ar-help">日数換算は目安です。{{ $basis['unit_basis'] ?? '' }}</p>
             @if(str_contains(implode('', $basis['warnings'] ?? []),'直近28'))<p class="ar-help">直近の実績が少ないため、期間を広げて算定しています。</p>@endif
         </div>
     @elseif(!$this->recommendation['available'])<p class="ar-help">算定できない場合は、発注単位と数量条件を手入力してください。</p>@endif

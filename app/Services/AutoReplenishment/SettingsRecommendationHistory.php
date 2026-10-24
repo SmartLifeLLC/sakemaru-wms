@@ -54,7 +54,7 @@ class SettingsRecommendationHistory
         throw_unless($systemDate, \RuntimeException::class, '業務日が未設定です。');
         $asOf = min($today->toDateString(), CarbonImmutable::parse($systemDate)->toDateString());
         $end = CarbonImmutable::parse($asOf)->subDay();
-        $start = max($end->subDays(89)->toDateString(), config('replenishment.recommendation_not_before', '2026-08-01'));
+        $start = app(DemandProfile::class)->historyPeriod($asOf)['start'];
         throw_if($start > $end->toDateString(), \RuntimeException::class, '算定対象期間の完了実績がありません。');
         $period = ['start' => $start, 'end' => $end->toDateString()];
         $allocation = $this->once('allocation:'.$clientId, fn () => $db->table('stock_allocations')->where(['client_id' => $clientId, 'code' => 1, 'is_active' => 1])->pluck('id')->all());

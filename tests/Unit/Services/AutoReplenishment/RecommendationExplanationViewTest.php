@@ -8,6 +8,21 @@ use Tests\TestCase;
 
 class RecommendationExplanationViewTest extends TestCase
 {
+    public function test_demand_period_and_receipt_history_period_are_displayed_separately(): void
+    {
+        $recommendation = $this->recommendation();
+        $daily = [];
+        for ($i = 0; $i < 28; $i++) {
+            $daily[\Carbon\CarbonImmutable::parse('2026-09-26')->addDays($i)->toDateString()] = 1;
+        }
+        $recommendation['basis']['period'] = ['start' => '2026-08-01', 'end' => '2026-10-23'];
+        $recommendation['basis']['demand_profile'] = app(\App\Services\AutoReplenishment\DemandProfile::class)->create($daily);
+        Livewire::test(RecommendationExplanationFixture::class, ['form' => $recommendation['values'], 'recommendation' => $recommendation])
+            ->assertSee('2026-09-26〜2026-10-23')->assertSee('観測 28日')
+            ->assertSee('平均 1.00バラ／日')->assertSee('発注実績期間：2026-08-01〜2026-10-23')
+            ->assertDontSee('算定根拠・実績を確認 （2026-08-01');
+    }
+
     private function recommendation(): array
     {
         $values = ['strategy_key' => 'arrival_adaptive_v1', 'reorder_point_pieces' => 6,

@@ -160,10 +160,14 @@ class InventoryProjectionTest extends TestCase
         $input = self::inputs();
         $input['demand']['weekdays'][0]['mean'] = 55.5;
         $input['calendar']['arrivals'] = array_filter($input['calendar']['arrivals'], fn ($d) => CarbonImmutable::parse($d)->isMonday(), ARRAY_FILTER_USE_KEY);
-        $r = (new InventoryProjection)->calculate(self::policy(), $input);
+        $policy = self::policy();
+        $policy['calculation_basis']['mean_daily'] = 16.5;
+        $policy['calculation_basis']['demand_profile'] = $input['demand'] + ['version' => 'weekday-demand-v1', 'legacy' => false, 'mean' => 16.5, 'anchor_date' => '2026-10-19'];
+        $r = (new InventoryProjection)->calculate($policy, $input);
+        self::assertSame(111, array_sum(array_column(array_filter($r['days'], fn ($day) => $day['weekday'] === 0), 'demand')));
         foreach ($r['days'] as $day) {
             if ($day['weekday'] === 0) {
-                self::assertSame(56, $day['demand']);
+                self::assertContains($day['demand'], [55, 56]);
             }
             if ($day['weekday'] !== 1) {
                 self::assertSame('SKIP', $day['phase']);

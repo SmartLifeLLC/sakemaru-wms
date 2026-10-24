@@ -64,7 +64,8 @@ class SafetyStockSettingsTest extends TestCase
         self::assertSame(5, $r['basis']['safety_stock_days']);
         self::assertSame(1344, $r['basis']['safety_stock_pieces']);
         self::assertSame(1728, $r['basis']['batch_quantity_pieces']);
-        self::assertSame(1872, $r['basis']['normal_order_stock_pieces']);
+        // The two-day weekday forecast rounds up to 529, rather than truncating the mean to 528.
+        self::assertSame(1873, $r['basis']['normal_order_stock_pieces']);
         self::assertTrue($r['basis']['reorder_point_preserved']);
     }
 
@@ -72,13 +73,13 @@ class SafetyStockSettingsTest extends TestCase
     {
         foreach ([null, 1000, 3274] as $existing) {
             $r = self::recommendation(['existing_reorder_point' => $existing]);
-            self::assertSame(1873, $r['values']['reorder_point_pieces']);
+            self::assertSame(1874, $r['values']['reorder_point_pieces']);
             self::assertSame(3072, $r['values']['target_stock_pieces']);
             self::assertFalse($r['basis']['reorder_point_preserved']);
         }
         $larger = self::recommendation(['safety_stock_days' => 6]);
         self::assertSame(3336, $larger['values']['target_stock_pieces']);
-        self::assertSame(2137, $larger['values']['reorder_point_pieces']);
+        self::assertSame(2138, $larger['values']['reorder_point_pieces']);
         self::assertSame(1728, $larger['basis']['batch_quantity_pieces']);
     }
 
@@ -104,7 +105,7 @@ class SafetyStockSettingsTest extends TestCase
         $h['nominal_lead_days'] = 10;
         $r = self::recommendation([], $h);
         self::assertSame(3072, $r['values']['target_stock_pieces']);
-        self::assertSame(3989, $r['values']['reorder_point_pieces']);
+        self::assertSame(3990, $r['values']['reorder_point_pieces']);
         self::assertStringContainsString('入荷までの出荷見込が通常量より多い', implode('', $r['basis']['warnings']));
         $r = app(SettingsRecommendationCalculator::class)->calculate(self::history(), ['safety_stock_days' => 5, 'unit_mode' => 'PALLET', 'pallet_pieces' => 576]);
         self::assertSame(3072, $r['values']['target_stock_pieces']);
@@ -131,7 +132,7 @@ class SafetyStockSettingsTest extends TestCase
     {
         $r = self::recommendation();
         $policy = $this->policy($r);
-        foreach ([[1872, 0, 0, 1728], [1873, 0, 0, 0], [3000, 0, 0, 0], [1872, 1728, 0, 0], [1872, 0, 1728, 0], [-6, 0, 0, 1728]] as [$stock, $incoming, $claims, $expected]) {
+        foreach ([[1872, 0, 0, 1728], [1873, 0, 0, 1728], [1874, 0, 0, 0], [3000, 0, 0, 0], [1872, 1728, 0, 0], [1872, 0, 1728, 0], [-6, 0, 0, 1728]] as [$stock, $incoming, $claims, $expected]) {
             $snapshot = $this->snapshot($stock, $incoming, $claims);
             $batch = app(StrategyCalculator::class)->calculate($policy, $snapshot);
             $reader = Mockery::mock(SnapshotReader::class);
@@ -227,7 +228,7 @@ class SafetyStockSettingsTest extends TestCase
         DB::connection('sakemaru')->beforeExecuting(fn () => throw new \RuntimeException('No DB queries allowed for recommendation rendering'));
         Livewire::test(SafetyStockViewFixture::class, ['form' => $form, 'recommendation' => $recommendation])
             ->assertSee('安全在庫日数')->assertSee('安全在庫 5日分 1,344バラ')
-            ->assertSee('現在庫 1,872バラ')->assertSee('1,728バラ発注')
+            ->assertSee('現在庫 1,873バラ')->assertSee('1,728バラ発注')
             ->set('form.max_order_pieces', 1152)->assertSee('1,152バラ発注')
             ->set('form.max_order_pieces', '')->assertSee('数量例は表示できません');
     }
