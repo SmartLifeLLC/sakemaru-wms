@@ -3,7 +3,7 @@ import '../../public/js/hq-order-inputs.js';
 
 const { parseDate, totals, dateInput } = globalThis.HqOrderInputs;
 const basis = new Date(2026, 9, 24);
-for (const [input, output] of [['25', '2026-10-25'], ['１', '2026-10-01'], ['1105', '2026-11-05'], ['20261105', '2026-11-05'], ['2028/02/29', '2028-02-29']]) assert.equal(parseDate(input, basis), output);
+for (const [input, output] of [['12', '2026-10-12'], ['25', '2026-10-25'], ['１', '2026-10-01'], ['1105', '2026-11-05'], ['20261105', '2026-11-05'], ['2028/02/29', '2028-02-29']]) assert.equal(parseDate(input, basis), output);
 for (const input of ['20260229', '2026/04/31', '202610/20/日', '2026', '12345', '00']) assert.throws(() => parseDate(input, basis));
 const lines = [
     { contractor_id: 1, contractor_code: 'A', contractor_name: '問屋A', case_qty: 3, piece_qty: 0 },
@@ -24,6 +24,7 @@ input.$dispatch = () => {};
 input.init();
 input.display = '20260229';
 assert.equal(input.commit(), false);
+assert.equal(input.display, '2026/02/29');
 valueWatcher('');
 assert.match(input.error, /存在しない日付/);
 valueWatcher('2026-11-07');
@@ -32,6 +33,15 @@ assert.equal(input.display, '2026/11/07');
 input.error = 'エラー';
 input.syncExternal('2026-11-07', 1);
 assert.equal(input.error, '');
+for (const [raw, display] of [['20260431', '2026/04/31'], ['20261301', '2026/13/01'], ['20261000', '2026/10/00'], ['12345', '12345']]) {
+    input.display = raw;
+    input.edit();
+    assert.equal(input.commit(), false);
+    valueWatcher('');
+    assert.equal(input.display, display);
+    assert.equal(input.value, '');
+    assert.match(input.error, /存在しない日付/);
+}
 const limited = dateInput('2026-11-05', '2026-10-24', '2027-04-23');
 let limitedWatcher;
 const events = [];
@@ -41,6 +51,10 @@ limited.init();
 limited.display = '20261012';
 assert.equal(limited.commit(), false);
 assert.match(limited.error, /過去日/);
+assert.equal(limited.display, '2026/10/12');
+limitedWatcher('');
+assert.equal(limited.display, '2026/10/12');
+assert.equal(limited.value, '');
 limited.display = '20270424';
 limited.edit();
 limitedWatcher('');
@@ -50,6 +64,10 @@ assert.equal(limited.display, '20270424');
 assert.equal(events.at(-1).name, 'hq-date-invalid');
 assert.equal(limited.commit(), false);
 assert.match(limited.error, /6か月以上/);
+assert.equal(limited.display, '2027/04/24');
+limitedWatcher('');
+assert.equal(limited.display, '2027/04/24');
+assert.equal(limited.value, '');
 limited.display = '20270423';
 limited.edit();
 assert.equal(limited.error, '');
