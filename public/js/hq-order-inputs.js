@@ -1,5 +1,5 @@
 (function (root) {
-    function parseDate(input, basis = new Date()) {
+    function normalizeDateInput(input, basis = new Date()) {
         const text = String(input ?? '').normalize('NFKC').trim();
         if (!text) return '';
         let year = basis.getFullYear(), month = basis.getMonth() + 1, day;
@@ -15,11 +15,21 @@
                 month = Number(text.slice(-4, -2)); day = Number(text.slice(-2));
             }
         }
+        if (day === undefined) {
+            throw new Error('入荷予定日に存在しない日付が入力されています。年月日を確認してください。');
+        }
+        return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+
+    function parseDate(input, basis = new Date()) {
+        const normalized = normalizeDateInput(input, basis);
+        if (!normalized) return '';
+        const [year, month, day] = normalized.split('-').map(Number);
         const date = new Date(year, month - 1, day);
         if (!day || date.getFullYear() !== year || date.getMonth() + 1 !== month || date.getDate() !== day || year < 1000 || year > 9999) {
             throw new Error('入荷予定日に存在しない日付が入力されています。年月日を確認してください。');
         }
-        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        return normalized;
     }
 
     function totals(lines) {
@@ -61,10 +71,12 @@
             commit() {
                 this.isEditing = false;
                 try {
-                    const parsed = parseDate(this.display);
+                    const normalized = normalizeDateInput(this.display);
+                    this.display = normalized.replaceAll('-', '/');
+                    const parsed = parseDate(normalized);
                     if (parsed && this.min && parsed < this.min) throw new Error('入荷予定日に過去日は指定できません。');
                     if (parsed && this.max && parsed > this.max) throw new Error('入荷予定日は6か月以上先にできません。');
-                    this.error = ''; this.value = parsed; this.display = parsed.replaceAll('-', '/');
+                    this.error = ''; this.value = parsed;
                     this.$dispatch('hq-date-valid', { value: parsed });
                     return true;
                 } catch (error) {
