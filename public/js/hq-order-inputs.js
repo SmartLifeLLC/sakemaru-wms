@@ -91,16 +91,30 @@
                 this.justComposed = true;
                 this.edit(event);
                 setTimeout(() => { this.justComposed = false; }, 100);
-                if (this.commitAfterComposition) {
-                    this.commitAfterComposition = false;
-                    this.commit();
-                }
+                if (this.commitAfterComposition) this.queueCompositionCommit();
+            },
+            queueCompositionCommit() {
+                this.commitAfterComposition = false;
+                const display = this.display;
+                this.$nextTick(() => {
+                    if (!this.composing && this.isEditing && this.display === display) this.commit();
+                });
             },
             commitOnEnter(event) {
                 event.stopPropagation();
-                if (this.composing || event.isComposing || event.keyCode === 229) return false;
+                if (this.composing || event.isComposing || event.keyCode === 229) {
+                    this.commitAfterComposition = true;
+                    if (!this.composing && this.justComposed) {
+                        event.preventDefault();
+                        this.queueCompositionCommit();
+                    }
+                    return false;
+                }
                 event.preventDefault();
-                if (this.justComposed) return false;
+                if (this.justComposed) {
+                    this.queueCompositionCommit();
+                    return false;
+                }
                 return this.commit(event);
             },
             commit(event) {
