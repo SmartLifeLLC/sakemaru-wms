@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\DistributionProductController;
 use App\Http\Controllers\Api\FloorPlanController;
 use App\Http\Controllers\Api\PickingRouteController;
 use App\Http\Controllers\ErrorInquiryController;
@@ -16,6 +17,20 @@ Route::post('/admin/error-inquiries', ErrorInquiryController::class)
 
 // Floor plan API routes (accessible from admin panel without API key)
 Route::prefix('api')->middleware(['web', 'auth:web'])->group(function () {
+    Route::get('/distribution/products', DistributionProductController::class);
+    Route::post('/distribution/products/batch', [DistributionProductController::class, 'resolveProductsBatch']);
+    Route::get('/distribution/arrival-schedules', [DistributionProductController::class, 'arrivalSchedules']);
+    Route::get('/distribution/destinations', [DistributionProductController::class, 'destinations']);
+    Route::get('/distribution/delivery-courses', [DistributionProductController::class, 'deliveryCourses']);
+    Route::get('/distribution/item-contractor-note', [DistributionProductController::class, 'itemContractorNote']);
+    Route::get('/distribution/hq-transfer-requests', [DistributionProductController::class, 'hqTransferRequests']);
+    Route::get('/distribution/rows', [DistributionProductController::class, 'distributionRows']);
+    Route::put('/distribution/rows', [DistributionProductController::class, 'saveDistributionRows']);
+    Route::post('/distribution/rows/direct-request-printed', [DistributionProductController::class, 'markDirectRequestPrinted']);
+    Route::post('/distribution/order-candidates', [DistributionProductController::class, 'createOrderCandidates']);
+    Route::post('/distribution/stock-transfer-slips', [DistributionProductController::class, 'createStockTransferSlips']);
+    Route::post('/distribution/warehouse-transfers', [DistributionProductController::class, 'createWarehouseTransfers']);
+
     Route::middleware('sakemaru-permission:wms.floor-plan.view')->group(function () {
         Route::get('/warehouses', [FloorPlanController::class, 'getWarehouses']);
         Route::get('/warehouses/{warehouseId}/floors', [FloorPlanController::class, 'getFloors']);

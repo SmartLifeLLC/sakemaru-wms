@@ -104,6 +104,7 @@ class WmsIncomingImportErrorsTable
                     ->options([
                         'ITEM_NOT_FOUND' => '商品不明',
                         'PRICE_MISMATCH' => '単価不一致',
+                        'PRICE_UNIT_UNCONFIRMED' => '単位要確認',
                         'SLIP_NOT_FOUND' => '伝票不明',
                     ]),
             ])

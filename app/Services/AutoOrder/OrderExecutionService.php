@@ -4,12 +4,15 @@ namespace App\Services\AutoOrder;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
+use App\Enums\AutoOrder\OrderEntrySource;
 use App\Enums\AutoOrder\OrderSource;
+use App\Enums\AutoOrder\OriginType;
 use App\Enums\QuantityType;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Item;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderIncomingSchedule;
+use App\Models\WmsOrderSlipNumberAssignment;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -24,6 +27,8 @@ use Illuminate\Support\Facades\Log;
  */
 class OrderExecutionService
 {
+    private array $supplierPartnerIdCache = [];
+
     public function __construct(
         private readonly OrderAuditService $auditService,
         private readonly PurchasePriceService $purchasePriceService = new PurchasePriceService,
@@ -48,6 +53,27 @@ class OrderExecutionService
         }
 
         return DB::connection('sakemaru')->transaction(function () use ($candidate, $confirmedBy) {
+            $guard = app(\App\Services\AutoReplenishment\ReplenishmentGuard::class);
+            $guard->lockScope((int) config('app.client_id'), (int) $candidate->warehouse_id, (int) $candidate->item_id);
+            $candidate = WmsOrderCandidate::lockForUpdate()->findOrFail($candidate->id);
+            if ($guard->installed() && \App\Models\WmsAutoOrderRunLine::where('order_candidate_id', $candidate->id)->whereNotNull('generated_at')->exists()) {
+                throw new \RuntimeException('自動発注は再確定できません。残工程から再開してください。');
+            }
+            if ($candidate->status === CandidateStatus::CONFIRMED && $this->hasJxSlipNumberAssignment($candidate)) {
+                $existingSchedules = WmsOrderIncomingSchedule::query()
+                    ->where('order_candidate_id', $candidate->id)
+                    ->get();
+
+                if ($existingSchedules->isNotEmpty()) {
+                    Log::info('Skip reconfirming JX generated order candidate', [
+                        'candidate_id' => $candidate->id,
+                        'wms_order_jx_document_id' => $candidate->wms_order_jx_document_id,
+                    ]);
+
+                    return $existingSchedules;
+                }
+            }
+
             if ($candidate->status === CandidateStatus::APPROVED && (int) $candidate->order_quantity <= 0) {
                 $candidate->delete();
 
@@ -73,6 +99,7 @@ class OrderExecutionService
 
             // 4. 入庫予定を作成（demand_breakdownの有無で分岐）
             $incomingSchedules = $this->createIncomingSchedulesFromCandidate($candidate);
+            app(\App\Services\AutoReplenishment\SupplyRecorder::class)->record('order', $candidate, $incomingSchedules);
 
             return $incomingSchedules;
         });
@@ -174,14 +201,20 @@ class OrderExecutionService
     private function createIncomingSchedulesFromCandidate(WmsOrderCandidate $candidate): Collection
     {
         $incomingSchedules = collect();
+        $distributionOrderDate = $candidate->origin_type === OriginType::DIST && $candidate->entry_source === OrderEntrySource::DISTRIBUTION
+            ? ($candidate->calculation_log?->calculation_details['order_date'] ?? null)
+            : null;
         $supplierId = $this->getSupplierIdFromCandidate($candidate);
+        $supplierPartnerId = $this->getSupplierPartnerId($supplierId);
         $searchCode = $this->getSearchCodeForItem($candidate->item_id);
         $expirationDate = $this->calculateExpirationDate($candidate->item_id, $candidate->expected_arrival_date);
-        $prices = $this->purchasePriceService->getPrice(
+        $prices = $this->purchasePriceService->getIncomingPrice(
             $candidate->item_id,
-            $supplierId,
+            $supplierPartnerId,
             $candidate->warehouse_id,
-            now()->toDateString()
+            config('wms.client') === 'hana'
+                ? ($candidate->expected_arrival_date?->toDateString() ?? now()->toDateString())
+                : now()->toDateString()
         );
 
         // demand_breakdownがある場合は各倉庫ごとに入庫予定を作成
@@ -215,7 +248,8 @@ class OrderExecutionService
                     continue;
                 }
 
-                $orderDate = ClientSetting::systemDateYMD();
+                $orderDate = $distributionOrderDate ?? ClientSetting::freshSystemDateYMD('order_incoming_schedule:auto:demand_breakdown');
+                $slipNumber = $this->resolveIncomingSlipNumber($candidate, $orderDate);
                 $schedule = WmsOrderIncomingSchedule::create([
                     'warehouse_id' => $warehouseId,
                     'item_id' => $candidate->item_id,
@@ -225,7 +259,8 @@ class OrderExecutionService
                     'supplier_id' => $supplierId,
                     'order_candidate_id' => $candidate->id,
                     'order_source' => OrderSource::AUTO,
-                    'slip_number' => WmsOrderIncomingSchedule::generateSlipNumber($orderDate),
+                    'order_channel' => $candidate->order_channel,
+                    'slip_number' => $slipNumber,
                     'expected_quantity' => $quantity,
                     'received_quantity' => 0,
                     'quantity_type' => $incomingQuantityType,
@@ -242,7 +277,8 @@ class OrderExecutionService
             }
         } else {
             // demand_breakdownがない場合は従来通り発注元倉庫に入庫予定を作成
-            $orderDate = ClientSetting::systemDateYMD();
+            $orderDate = $distributionOrderDate ?? ClientSetting::freshSystemDateYMD('order_incoming_schedule:auto');
+            $slipNumber = $this->resolveIncomingSlipNumber($candidate, $orderDate);
             $schedule = WmsOrderIncomingSchedule::create([
                 'warehouse_id' => $candidate->warehouse_id,
                 'item_id' => $candidate->item_id,
@@ -252,7 +288,8 @@ class OrderExecutionService
                 'supplier_id' => $supplierId,
                 'order_candidate_id' => $candidate->id,
                 'order_source' => OrderSource::AUTO,
-                'slip_number' => WmsOrderIncomingSchedule::generateSlipNumber($orderDate),
+                'order_channel' => $candidate->order_channel,
+                'slip_number' => $slipNumber,
                 'expected_quantity' => $incomingExpectedQuantity,
                 'received_quantity' => 0,
                 'quantity_type' => $incomingQuantityType,
@@ -269,6 +306,38 @@ class OrderExecutionService
         }
 
         return $incomingSchedules;
+    }
+
+    private function resolveIncomingSlipNumber(WmsOrderCandidate $candidate, string $orderDate): string
+    {
+        return $this->resolveAssignedSlipNumber($candidate)
+            ?? WmsOrderIncomingSchedule::generateSlipNumber($orderDate);
+    }
+
+    private function hasJxSlipNumberAssignment(WmsOrderCandidate $candidate): bool
+    {
+        return filled($candidate->wms_order_jx_document_id)
+            || $this->resolveAssignedSlipNumber($candidate) !== null;
+    }
+
+    private function resolveAssignedSlipNumber(WmsOrderCandidate $candidate): ?string
+    {
+        if (! $candidate->id) {
+            return null;
+        }
+
+        $slipNumber = WmsOrderSlipNumberAssignment::query()
+            ->whereIn('status', [
+                WmsOrderSlipNumberAssignment::STATUS_ACTIVE,
+                WmsOrderSlipNumberAssignment::STATUS_TRANSMITTED,
+            ])
+            ->whereJsonContains('order_candidate_ids', (int) $candidate->id)
+            ->latest('id')
+            ->value('slip_number');
+
+        $slipNumber = trim((string) $slipNumber);
+
+        return $slipNumber !== '' ? $slipNumber : null;
     }
 
     /**
@@ -332,11 +401,14 @@ class OrderExecutionService
 
         $orderDate = $data['order_date'] ?? now()->format('Y-m-d');
         $supplierId = $data['supplier_id'] ?? null;
-        $prices = $this->purchasePriceService->getPrice(
+        $supplierPartnerId = $this->getSupplierPartnerId($supplierId ? (int) $supplierId : null);
+        $prices = $this->purchasePriceService->getIncomingPrice(
             $data['item_id'],
-            $supplierId,
+            $supplierPartnerId,
             $data['warehouse_id'],
-            $orderDate
+            config('wms.client') === 'hana'
+                ? Carbon::parse($data['expected_arrival_date'] ?? $orderDate)->toDateString()
+                : $orderDate
         );
 
         $itemCode = Item::where('id', $data['item_id'])->value('code');
@@ -371,7 +443,10 @@ class OrderExecutionService
      */
     private function getSupplierIdFromCandidate(WmsOrderCandidate $candidate): ?int
     {
-        // item_contractors から supplier_id を取得
+        if ($candidate->supplier_id) {
+            return (int) $candidate->supplier_id;
+        }
+
         $itemContractor = DB::connection('sakemaru')
             ->table('item_contractors')
             ->where('warehouse_id', $candidate->warehouse_id)
@@ -380,6 +455,27 @@ class OrderExecutionService
             ->first();
 
         return $itemContractor?->supplier_id;
+    }
+
+    /**
+     * PurchasePriceService は suppliers.id ではなく suppliers.partner_id を要求する。
+     */
+    private function getSupplierPartnerId(?int $supplierId): ?int
+    {
+        if (! $supplierId) {
+            return null;
+        }
+
+        if (! array_key_exists($supplierId, $this->supplierPartnerIdCache)) {
+            $partnerId = DB::connection('sakemaru')
+                ->table('suppliers')
+                ->where('id', $supplierId)
+                ->value('partner_id');
+
+            $this->supplierPartnerIdCache[$supplierId] = $partnerId ? (int) $partnerId : null;
+        }
+
+        return $this->supplierPartnerIdCache[$supplierId];
     }
 
     /**

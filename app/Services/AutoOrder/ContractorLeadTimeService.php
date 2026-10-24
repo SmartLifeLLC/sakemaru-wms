@@ -20,6 +20,7 @@ class ContractorLeadTimeService
      *
      * @param  Contractor  $contractor  発注先
      * @param  Carbon  $orderDate  発注日
+     * @param  array<string, bool>|null  $holidayDates  一括試算用。null は従来どおりDBから確認
      * @return array{
      *     arrival_date: Carbon,
      *     original_date: Carbon,
@@ -28,7 +29,7 @@ class ContractorLeadTimeService
      *     shift_reason: string|null
      * }
      */
-    public function calculateArrivalDate(Contractor $contractor, Carbon $orderDate): array
+    public function calculateArrivalDate(Contractor $contractor, Carbon $orderDate, ?array $holidayDates = null): array
     {
         $leadTime = $contractor->leadTime;
 
@@ -48,7 +49,10 @@ class ContractorLeadTimeService
 
         // 発注先の臨時休業をスキップ（最大30日まで）
         for ($i = 0; $i < 30; $i++) {
-            if (! WmsContractorHoliday::isHoliday($contractor->id, $arrivalDate)) {
+            $isHoliday = $holidayDates === null
+                ? WmsContractorHoliday::isHoliday($contractor->id, $arrivalDate)
+                : ($holidayDates[$arrivalDate->toDateString()] ?? false);
+            if (! $isHoliday) {
                 break;
             }
             $arrivalDate->addDay();

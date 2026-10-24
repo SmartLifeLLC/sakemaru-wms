@@ -5,6 +5,7 @@ namespace App\Filament\Resources\ItemContractors\Tables;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\Contractor;
+use App\Models\Sakemaru\ItemContractor;
 use App\Models\Sakemaru\Supplier;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
@@ -76,10 +77,17 @@ class ItemContractorsTable
                     ->label('仕入先名')
                     ->sortable(),
 
+                TextColumn::make('note')
+                    ->label('備考')
+                    ->limit(40)
+                    ->tooltip(fn (?string $state): ?string => filled($state) ? $state : null)
+                    ->toggleable(isToggledHiddenByDefault: true),
+
                 TextInputColumn::make('safety_stock')
                     ->label('発注点')
                     ->type('number')
                     ->rules(['integer', 'min:0'])
+                    ->updateStateUsing(fn (ItemContractor $record, $state) => static::updateStockQuantity($record, 'safety_stock', $state))
                     ->sortable()
                     ->alignEnd()
                     ->width('100px'),
@@ -88,6 +96,7 @@ class ItemContractorsTable
                     ->label('最大在庫')
                     ->type('number')
                     ->rules(['integer', 'min:0'])
+                    ->updateStateUsing(fn (ItemContractor $record, $state) => static::updateStockQuantity($record, 'max_stock', $state))
                     ->sortable()
                     ->alignEnd()
                     ->width('100px'),
@@ -96,6 +105,7 @@ class ItemContractorsTable
                     ->label('最低在庫')
                     ->type('number')
                     ->rules(['integer', 'min:0'])
+                    ->updateStateUsing(fn (ItemContractor $record, $state) => static::updateStockQuantity($record, 'min_stock', $state))
                     ->sortable()
                     ->alignEnd()
                     ->toggleable(isToggledHiddenByDefault: true)
@@ -105,6 +115,7 @@ class ItemContractorsTable
                     ->label('自動発注数')
                     ->type('number')
                     ->rules(['integer', 'min:0'])
+                    ->updateStateUsing(fn (ItemContractor $record, $state) => static::updateStockQuantity($record, 'auto_order_quantity', $state))
                     ->sortable()
                     ->alignEnd()
                     ->width('110px'),
@@ -164,5 +175,13 @@ class ItemContractorsTable
                 ]),
             ])
             ->defaultSort('item_id', 'asc');
+    }
+
+    private static function updateStockQuantity(ItemContractor $record, string $column, mixed $state): int
+    {
+        $quantity = (int) ($state ?? 0);
+        $record->update([$column => $quantity]);
+
+        return $quantity;
     }
 }

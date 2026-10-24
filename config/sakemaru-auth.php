@@ -13,7 +13,7 @@ $scan = static function (string $directory, string $suffix) use ($toKebab): arra
     $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($directory));
 
     foreach ($iterator as $file) {
-        if (! $file->isFile() || ! str_ends_with($file->getFilename(), $suffix . '.php')) {
+        if (! $file->isFile() || ! str_ends_with($file->getFilename(), $suffix.'.php')) {
             continue;
         }
 
@@ -54,11 +54,15 @@ $resourcePermissions = $buildPermissions(
 
 $pagePermissions = $buildPermissions([
     'dashboard',
+    'direct-distribution',
+    'distribution-adjustment',
     'auto-order-guide',
     'floor-plan-editor',
     'jx-test-data',
+    'lot-adjustment',
     'modal-showcase',
     'picking-route-visualization',
+    'store-distribution-management',
     'test-data-generator',
     'wms-inbound',
     'wms-outbound',
@@ -79,6 +83,9 @@ return [
     ],
 
     'permissions' => array_merge(
+        $buildPermissions(['auto-replenishment-settings'], ['view', 'edit', 'enable', 'enable-warehouse', 'enable-global'], '発注', '自動発注'),
+        $buildPermissions(['auto-replenishment-checklist'], ['view', 'preview'], '発注', '自動発注'),
+        $buildPermissions(['auto-replenishment-history'], ['view', 'resume', 'abort'], '発注', '自動発注'),
         [
             [
                 'name' => 'wms.access',
@@ -159,6 +166,26 @@ return [
                 'menu' => 'Admin',
                 'sub_menu' => 'Order History',
                 'screen_name' => 'Warehouse Stock Transfer Delivery Course',
+            ],
+            [
+                'name' => 'wms.wms-warehouse-transfer-candidate.confirm',
+                'system' => 'wms',
+                'resource' => 'wms-warehouse-transfer-candidate',
+                'action' => 'confirm',
+                'display_name' => 'Wms Warehouse Transfer Candidate confirm',
+                'menu' => 'Admin',
+                'sub_menu' => 'Resources',
+                'screen_name' => 'Wms Warehouse Transfer Candidate',
+            ],
+            [
+                'name' => 'wms.wms-warehouse-transfer-candidate.cancel',
+                'system' => 'wms',
+                'resource' => 'wms-warehouse-transfer-candidate',
+                'action' => 'cancel',
+                'display_name' => 'Wms Warehouse Transfer Candidate cancel',
+                'menu' => 'Admin',
+                'sub_menu' => 'Resources',
+                'screen_name' => 'Wms Warehouse Transfer Candidate',
             ],
         ],
         $resourcePermissions,
