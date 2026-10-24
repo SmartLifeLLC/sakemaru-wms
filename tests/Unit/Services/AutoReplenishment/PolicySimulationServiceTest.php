@@ -62,6 +62,18 @@ class PolicySimulationServiceTest extends TestCase
         self::assertStringContainsString('96 ＞ 最大発注数 72', implode("\n", $r['formula']));
     }
 
+    public function test_logistics_preview_uses_cases_when_piece_orders_are_forbidden(): void
+    {
+        $r = $this->calculate($this->policy(['channel' => 'LOGISTICS']), $this->snapshot([
+            'route_snapshot' => ['effective_picking_lead_days' => 1],
+        ]));
+        self::assertSame('READY', $r['phase']);
+        self::assertSame(96, $r['quantity_pieces']);
+        self::assertSame(4, $r['order_quantity']);
+        self::assertSame('CASE', $r['quantity_type']);
+        self::assertNotNull($r['picking_date']);
+    }
+
     public function test_arrival_batch_preview_uses_the_same_guard_and_existing_dates(): void
     {
         $r = $this->calculate($this->policy(['strategy_key' => 'arrival_batch_v1',
@@ -73,6 +85,23 @@ class PolicySimulationServiceTest extends TestCase
         self::assertSame('NO_ORDER', $r['phase']);
         self::assertSame(0, $r['quantity_pieces']);
         self::assertStringContainsString('3774 ＞ 補充目標 2688', implode("\n", $r['formula']));
+    }
+
+    public function test_adaptive_preview_shows_target_shortage_cap_and_existing_logistics_dates(): void
+    {
+        $r = $this->calculate($this->policy(['strategy_key' => 'arrival_adaptive_v1', 'channel' => 'LOGISTICS',
+            'reorder_point_pieces' => 6, 'target_stock_pieces' => 10, 'min_order_pieces' => 6,
+            'max_order_pieces' => 12, 'order_multiple_pieces' => 1,
+            'calculation_basis' => ['mean_daily' => .7143, 'batch_quantity_pieces' => 6]]), $this->snapshot([
+                'stock' => -6, 'packing_unit' => 1, 'quantity_type' => 'PIECE', 'route_snapshot' => ['effective_picking_lead_days' => 1],
+            ]));
+        self::assertSame('READY', $r['phase']);
+        self::assertSame(12, $r['quantity_pieces']);
+        self::assertSame(12, $r['order_quantity']);
+        self::assertSame('2026-10-19', $r['arrival_date']);
+        self::assertSame('2026-10-19', $r['picking_date']);
+        self::assertStringContainsString('不足数 16 と最大発注数 12', implode('', $r['formula']));
+        self::assertStringContainsString('残りの不足 4バラ', implode('', $r['formula']));
     }
 
     public function test_threshold_equality_does_not_order_even_with_higher_target(): void

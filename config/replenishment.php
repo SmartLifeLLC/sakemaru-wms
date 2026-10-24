@@ -11,5 +11,6 @@ return [
     'recommendation_not_before' => '2026-08-01',
     'strategies' => ['threshold_v1' => App\Services\AutoReplenishment\ThresholdStrategy::class,
         'threshold_capped_v1' => App\Services\AutoReplenishment\CappedThresholdStrategy::class,
-        'arrival_batch_v1' => App\Services\AutoReplenishment\ArrivalBatchStrategy::class],
+        'arrival_batch_v1' => App\Services\AutoReplenishment\ArrivalBatchStrategy::class,
+        'arrival_adaptive_v1' => App\Services\AutoReplenishment\ArrivalBatchStrategy::class],
 ];

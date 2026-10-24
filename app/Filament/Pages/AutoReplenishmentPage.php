@@ -10,10 +10,13 @@ use App\Models\WmsAutoOrderRunLine;
 use App\Models\WmsItemReorderPolicy;
 use App\Services\AutoReplenishment\ExecutionService;
 use App\Services\AutoReplenishment\HistoryService;
+use App\Services\AutoReplenishment\PalletUnitService;
 use App\Services\AutoReplenishment\PolicyService;
 use App\Services\AutoReplenishment\PolicySimulationService;
 use App\Services\AutoReplenishment\ReplenishmentGuard;
 use App\Services\AutoReplenishment\SettingsRecommendationService;
+use App\Services\AutoReplenishment\ShippingQuantityService;
+use App\Services\AutoReplenishment\ShippingQuantitySet;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Locked;
@@ -25,6 +28,8 @@ abstract class AutoReplenishmentPage extends AdminPage
 {
     use \Livewire\WithFileUploads;
     use WithPagination;
+
+    private const EDITOR_ROUTE_FIELDS = ['item_id', 'channel', 'contractor_id', 'supplier_id', 'source_warehouse_id', 'delivery_course_id'];
 
     protected string $view = 'filament.pages.auto-replenishment';
 
@@ -65,13 +70,16 @@ abstract class AutoReplenishmentPage extends AdminPage
 
     public array $form = [];
 
+    #[Locked]
+    public array $editorRoute = [];
+
     public array $warehouseForm = [];
 
     public string $abortReason = '';
 
     public string $itemSearch = '';
 
-    public array $quantityHelper = ['field' => 'reorder_point_pieces', 'type' => 'CASE', 'quantity' => 1];
+    public bool $showItemPicker = false;
 
     public $csvFile;
 
@@ -98,7 +106,42 @@ abstract class AutoReplenishmentPage extends AdminPage
     #[Locked]
     public ?array $recommendation = null;
 
+    #[Locked]
+    public ?array $recommendationContext = null;
+
+    #[Locked]
+    public ?array $inventoryProjectionInputs = null;
+
+    #[Locked]
+    public ?array $inventoryProjection = null;
+
+    #[Locked]
+    public ?array $inventoryProjectionContext = null;
+
+    #[Locked]
+    public ?string $inventoryProjectionError = null;
+
     public string $recommendationUnitMode = 'AUTO';
+
+    public string $recommendationReviewDays = '7';
+
+    public string $recommendationSafetyDays = '5';
+
+    #[Locked]
+    public string $appliedRecommendationSafetyDays = '5';
+
+    #[Locked]
+    public bool $recommendationPreferencesChanged = false;
+
+    #[Locked]
+    public ?array $palletUnit = null;
+
+    public string $palletPieces = '';
+
+    #[Locked]
+    public ?array $shippingProfile = null;
+
+    public string $shippingQuantities = '[]';
 
     public function getTitle(): string
     {
@@ -195,26 +238,105 @@ abstract class AutoReplenishmentPage extends AdminPage
 
     public function editPolicy(?int $id = null): void
     {
+        $this->clearInventoryProjection();
         $clientId = $this->authorizeOperation('auto-replenishment-settings', 'edit');
         $this->resetValidation();
         $this->editingId = $id;
         $policy = $id ? WmsItemReorderPolicy::where(['client_id' => $clientId, 'warehouse_id' => $this->warehouseId])->findOrFail($id) : null;
         $this->form = $policy?->toArray() ?? ['channel' => 'EOS', 'strategy_key' => 'threshold_capped_v1'];
         $this->form['is_enabled'] = (bool) ($policy?->is_enabled ?? false);
+        $this->form['order_unit_mode'] = $policy?->order_unit_mode ?? 'AUTO';
+        $this->form['shipping_unit_mode'] = app(PalletUnitService::class)->binding($policy ? (int) $policy->id : null) ? 'PALLET' : 'STANDARD';
+        if ($policy?->channel === 'LOGISTICS' && app(ShippingQuantityService::class)->binding((int) $policy->id)) {
+            $this->form['shipping_unit_mode'] = 'SHIPMENT';
+        }
         $this->recommendationUnitMode = $policy?->calculation_basis['unit_mode'] ?? ((int) $policy?->order_multiple_pieces === 1 ? 'PIECE' : 'AUTO');
+        if ($this->recommendationUnitMode === 'PALLET') {
+            $this->recommendationUnitMode = 'AUTO';
+        }
+        $this->recommendationReviewDays = (string) ($policy?->calculation_basis['review_days'] ?? 7);
+        $this->recommendationSafetyDays = $this->appliedRecommendationSafetyDays = (string) ($policy?->calculation_basis['safety_stock_days'] ?? 5);
+        $this->recommendationPreferencesChanged = false;
         $this->recommendation = $policy?->calculation_basis ? ['available' => empty($policy->calculation_basis['reason']), 'basis' => $policy->calculation_basis] : null;
+        $this->recommendationContext = null;
+        $this->itemSearch = '';
+        $this->showItemPicker = ! $policy;
         $this->showEditor = true;
+        $this->loadPalletEditor();
+        $this->rememberEditorRoute();
+    }
+
+    private function rememberEditorRoute(): void
+    {
+        $this->editorRoute = array_intersect_key($this->form, array_flip(self::EDITOR_ROUTE_FIELDS));
+    }
+
+    private function assertEditorRoute(): void
+    {
+        if ($this->showEditor && $this->editorRoute !== []) {
+            foreach (self::EDITOR_ROUTE_FIELDS as $field) {
+                if ((string) ($this->form[$field] ?? '') !== (string) ($this->editorRoute[$field] ?? '')) {
+                    throw \Illuminate\Validation\ValidationException::withMessages(['operation' => '発注先・配送はこの画面では変更できません。商品設定を開き直してください。']);
+                }
+            }
+
+            return;
+        }
+
+        throw \Illuminate\Validation\ValidationException::withMessages(['operation' => '商品設定を開き直してください。']);
+    }
+
+    public function selectItem(int $id): void
+    {
+        $clientId = $this->authorizeOperation('auto-replenishment-settings', 'edit');
+        abort_unless($this->showEditor && ! $this->editingId && static::$screen === 'settings', 403);
+        $eligibility = app(\App\Services\AutoReplenishment\OrderRouteEligibility::class);
+        $ids = array_unique(array_merge($eligibility->contractorIds('EOS'), $eligibility->contractorIds('LOGISTICS'), $eligibility->referenceContractorIds($clientId)));
+        abort_unless($this->itemSelectionQuery($clientId, $ids)->where('items.id', $id)->exists(), 422);
+        $this->showItemPicker = false;
+        if ((int) ($this->form['item_id'] ?? 0) === $id) {
+            return;
+        }
+        $this->form['item_id'] = $id;
+        $this->updatedForm($id, 'item_id');
     }
 
     public function updatedForm(mixed $value, string $key): void
     {
-        if (! in_array($key, ['item_id', 'channel', 'contractor_id', 'supplier_id', 'source_warehouse_id', 'delivery_course_id'], true)) {
+        if ($key === 'strategy_key' && $this->inventoryProjectionInputs !== null) {
+            $this->refreshInventoryProjection();
+        }
+        if ($key === 'order_unit_mode') {
+            $this->authorizeOperation('auto-replenishment-settings', 'edit');
+            $this->assertEditorRoute();
+            // Previously calculated quantities need a fresh basis. A manual-only
+            // policy can keep its quantities; the selected unit is checked on save.
+            if ($this->recommendation['available'] ?? false) {
+                $this->invalidateRecommendationPreferences();
+            } else {
+                $this->clearInventoryProjection();
+                $this->recommendation = null;
+                $this->recommendationContext = null;
+            }
+
+            return;
+        }
+        if (! in_array($key, ['item_id', 'channel', 'contractor_id', 'supplier_id', 'source_warehouse_id', 'delivery_course_id', 'shipping_unit_mode'], true)) {
             return;
         }
         $client = $this->authorizeOperation('auto-replenishment-settings', 'edit');
         abort_unless($this->showEditor, 403);
+        if (in_array($key, self::EDITOR_ROUTE_FIELDS, true) && $key !== 'item_id') {
+            $this->form = array_replace(array_diff_key($this->form, array_flip(self::EDITOR_ROUTE_FIELDS)), $this->editorRoute);
+            throw \Illuminate\Validation\ValidationException::withMessages(['operation' => '発注先・配送はこの画面では変更できません。商品発注管理・移動配送コース設定を確認してください。']);
+        }
+        if ($key !== 'item_id') {
+            $this->assertEditorRoute();
+        }
         $hadRecommendation = $this->recommendation !== null;
+        $this->clearInventoryProjection();
         $this->recommendation = null;
+        $this->recommendationContext = null;
         if (! $this->editingId && $hadRecommendation) {
             foreach (['reorder_point_pieces', 'max_order_pieces', 'min_order_pieces', 'order_multiple_pieces', 'target_stock_pieces'] as $field) {
                 unset($this->form[$field]);
@@ -228,8 +350,11 @@ abstract class AutoReplenishmentPage extends AdminPage
 
                 return;
             }
-            $this->form = ['item_id' => $value, 'channel' => 'EOS', 'strategy_key' => 'threshold_capped_v1', 'is_enabled' => false];
+            $this->form = ['item_id' => $value, 'channel' => 'EOS', 'strategy_key' => 'threshold_capped_v1', 'is_enabled' => false, 'shipping_unit_mode' => 'STANDARD', 'order_unit_mode' => 'AUTO'];
             $this->recommendationUnitMode = 'AUTO';
+            $this->recommendationReviewDays = '7';
+            $this->recommendationSafetyDays = $this->appliedRecommendationSafetyDays = '5';
+            $this->recommendationPreferencesChanged = false;
         } elseif ($key === 'channel') {
             foreach (['contractor_id', 'supplier_id', 'source_warehouse_id', 'delivery_course_id'] as $field) {
                 unset($this->form[$field]);
@@ -239,23 +364,34 @@ abstract class AutoReplenishmentPage extends AdminPage
         } elseif ($key === 'source_warehouse_id') {
             unset($this->form['delivery_course_id']);
         }
+        if (in_array($key, ['channel', 'source_warehouse_id'], true)) {
+            $this->form['shipping_unit_mode'] = 'STANDARD';
+        }
         $db = DB::connection('sakemaru');
         $eligibility = app(\App\Services\AutoReplenishment\OrderRouteEligibility::class);
-        $ids = array_unique(array_merge($eligibility->contractorIds('EOS'), $eligibility->contractorIds('LOGISTICS')));
+        $ids = array_unique(array_merge($eligibility->contractorIds('EOS'), $eligibility->contractorIds('LOGISTICS'), $eligibility->referenceContractorIds($client)));
         $routes = $db->table('item_contractors as ic')->join('contractors as c', 'c.id', '=', 'ic.contractor_id')
             ->leftJoin('wms_contractor_settings as cs', 'cs.contractor_id', '=', 'c.id')
             ->where(['ic.client_id' => $client, 'ic.warehouse_id' => $this->warehouseId, 'ic.item_id' => $this->form['item_id'] ?? 0, 'c.client_id' => $client, 'c.is_active' => 1])
             ->whereIn('ic.contractor_id', $ids)->get(['ic.contractor_id', 'ic.supplier_id', 'cs.transmission_type', 'cs.supply_warehouse_id']);
         if ($key !== 'item_id') {
-            $channelIds = $eligibility->contractorIds($this->form['channel'] ?? 'EOS');
+            $channelIds = ($this->form['channel'] ?? '') === 'FAX' ? $eligibility->referenceContractorIds($client) : $eligibility->contractorIds($this->form['channel'] ?? 'EOS');
             $routes = $routes->filter(fn ($r) => in_array((int) $r->contractor_id, $channelIds, true));
+        } else {
+            // Adding FAX references must not change an existing EOS/logistics default.
+            $automaticIds = array_merge($eligibility->contractorIds('EOS'), $eligibility->contractorIds('LOGISTICS'));
+            $automaticRoutes = $routes->filter(fn ($r) => in_array((int) $r->contractor_id, $automaticIds, true));
+            if ($automaticRoutes->isNotEmpty()) {
+                $routes = $automaticRoutes;
+            }
         }
         if (! empty($this->form['contractor_id'])) {
             $routes = $routes->where('contractor_id', (int) $this->form['contractor_id']);
         }
         if ($routes->count() === 1) {
             $route = $routes->first();
-            $this->form['channel'] = $route->transmission_type === 'INTERNAL' ? 'LOGISTICS' : 'EOS';
+            $this->form['channel'] = $route->transmission_type === 'INTERNAL' ? 'LOGISTICS'
+                : (in_array((int) $route->contractor_id, $eligibility->contractorIds('EOS'), true) ? 'EOS' : 'FAX');
             $this->form['contractor_id'] = (int) $route->contractor_id;
             $this->form['supplier_id'] = (int) $route->supplier_id;
             if ($this->form['channel'] === 'LOGISTICS') {
@@ -266,9 +402,23 @@ abstract class AutoReplenishmentPage extends AdminPage
                 }
             }
         }
+        $this->loadPalletEditor();
+        if ($key === 'item_id' && $this->shippingProfile && $this->form['channel'] === 'LOGISTICS') {
+            $this->form['shipping_unit_mode'] = 'SHIPMENT';
+        }
+        if (($this->form['shipping_unit_mode'] ?? '') === 'SHIPMENT') {
+            $this->form['strategy_key'] = 'arrival_adaptive_v1';
+            if ($this->shippingProfile) {
+                $this->form['order_multiple_pieces'] = app(ShippingQuantitySet::class)->gcd($this->shippingProfile['quantities']);
+            }
+        }
+        if (($this->form['shipping_unit_mode'] ?? '') === 'PALLET' && $this->palletUnit) {
+            $this->form['order_multiple_pieces'] = $this->palletUnit['pieces_per_pallet'];
+        }
+        $this->rememberEditorRoute();
         // Do not replace quantities of an existing policy when only changing its route.
         if (! $this->editingId && ! empty($this->form['contractor_id']) && ! empty($this->form['supplier_id'])
-            && (($this->form['channel'] ?? '') === 'EOS' || ! empty($this->form['delivery_course_id']))) {
+            && (in_array($this->form['channel'] ?? '', ['EOS', 'FAX'], true) || ! empty($this->form['delivery_course_id']))) {
             $this->calculateSettings();
         }
     }
@@ -277,11 +427,15 @@ abstract class AutoReplenishmentPage extends AdminPage
     {
         $client = $this->authorizeOperation('auto-replenishment-settings', 'edit');
         abort_unless($this->showEditor && static::$screen === 'settings', 403);
+        $this->assertEditorRoute();
         $this->resetValidation();
+        $this->clearInventoryProjection();
         $this->recommendation = null;
+        $this->recommendationContext = null;
         try {
             $this->recommendation = app(SettingsRecommendationService::class)->recommend($client, (int) $this->warehouseId, $this->form,
-                ['unit_mode' => $this->recommendationUnitMode]);
+                ['unit_mode' => $this->recommendationUnitMode, 'review_days' => $this->recommendationReviewDays,
+                    'safety_stock_days' => $this->recommendationSafetyDays, 'existing_reorder_point' => $this->form['reorder_point_pieces'] ?? null]);
         } catch (\Throwable $e) {
             $business = get_class($e) === \RuntimeException::class || get_class($e) === \InvalidArgumentException::class;
             if (! $business) {
@@ -289,9 +443,191 @@ abstract class AutoReplenishmentPage extends AdminPage
             }
             throw \Illuminate\Validation\ValidationException::withMessages(['operation' => $business ? $e->getMessage() : '実績からの算定に失敗しました。管理者に確認してください。']);
         }
+        $this->recommendationContext = $this->currentRecommendationContext();
         if ($this->recommendation['available']) {
             $this->form = array_replace($this->form, $this->recommendation['values']);
+            $this->appliedRecommendationSafetyDays = $this->recommendationSafetyDays;
+            $this->recommendationPreferencesChanged = false;
         }
+        if (isset($this->recommendation['basis']['shipping_profile'])) {
+            $this->shippingProfile = $this->recommendation['basis']['shipping_profile'];
+            $this->shippingProfile['quantities'] = app(ShippingQuantitySet::class)->normalize($this->shippingProfile['quantities']);
+            $this->shippingQuantities = json_encode($this->shippingProfile['quantities']);
+        }
+        if (isset($this->recommendation['basis']['pallet_unit'])) {
+            $this->palletUnit = $this->recommendation['basis']['pallet_unit'];
+            $this->palletPieces = (string) $this->palletUnit['pieces_per_pallet'];
+        }
+        $this->refreshInventoryProjection(true);
+    }
+
+    public function updatedRecommendationUnitMode(): void
+    {
+        $this->invalidateRecommendationPreferences();
+    }
+
+    public function updatedRecommendationSafetyDays(): void
+    {
+        $this->invalidateRecommendationPreferences();
+    }
+
+    public function updatedRecommendationReviewDays(): void
+    {
+        $this->invalidateRecommendationPreferences();
+    }
+
+    private function invalidateRecommendationPreferences(): void
+    {
+        $this->recommendationPreferencesChanged = true;
+        $this->authorizeOperation('auto-replenishment-settings', 'edit');
+        abort_unless($this->showEditor && static::$screen === 'settings', 403);
+        $this->clearInventoryProjection();
+        $this->recommendation = null;
+        $this->recommendationContext = null;
+    }
+
+    private function currentRecommendationContext(): array
+    {
+        $context = ['warehouse_id' => (string) $this->warehouseId,
+            'unit_mode' => $this->recommendationUnitMode, 'review_days' => $this->recommendationReviewDays,
+            'safety_stock_days' => $this->recommendationSafetyDays];
+        foreach (['item_id', 'channel', 'contractor_id', 'supplier_id', 'source_warehouse_id', 'delivery_course_id', 'shipping_unit_mode', 'order_unit_mode'] as $field) {
+            $context[$field] = (string) ($this->form[$field] ?? '');
+        }
+
+        return $context;
+    }
+
+    public function selectRecommendationCandidate(string $key): void
+    {
+        $this->authorizeOperation('auto-replenishment-settings', 'edit');
+        abort_unless($this->showEditor && static::$screen === 'settings', 403);
+        $this->resetValidation();
+        if ($this->recommendationContext === null || $this->recommendationContext !== $this->currentRecommendationContext()) {
+            $this->clearInventoryProjection();
+            $this->recommendation = null;
+            $this->recommendationContext = null;
+            throw \Illuminate\Validation\ValidationException::withMessages(['operation' => '算定条件が変わりました。「おすすめ設定」で計算し直してください。']);
+        }
+        // Candidates are kept in Locked state; the browser sends only the selected key.
+        $candidate = in_array($key, ['sales', 'history'], true) ? ($this->recommendation['candidates'][$key] ?? null) : null;
+        if (! $candidate || empty($candidate['available']) || empty($candidate['values']) || empty($candidate['basis'])) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['operation' => $candidate['basis']['reason'] ?? 'この候補は入力できません。「おすすめ設定」で計算し直してください。']);
+        }
+        $fields = array_flip(['strategy_key', 'reorder_point_pieces', 'min_order_pieces', 'max_order_pieces', 'order_multiple_pieces', 'target_stock_pieces']);
+        $this->form = array_replace($this->form, array_intersect_key($candidate['values'], $fields));
+        $this->recommendation = array_replace($this->recommendation, $candidate);
+        $this->refreshInventoryProjection();
+    }
+
+    private function clearInventoryProjection(): void
+    {
+        $this->inventoryProjectionInputs = $this->inventoryProjection = $this->inventoryProjectionContext = null;
+        $this->inventoryProjectionError = null;
+    }
+
+    public function refreshInventoryProjection(bool $reload = false): void
+    {
+        $client = $this->authorizeOperation('auto-replenishment-settings', 'edit');
+        abort_unless(static::$screen === 'settings', 403);
+        // Livewire may bundle a pending refresh with the editor's close update.
+        if (! $this->showEditor) {
+            return;
+        }
+        $this->assertEditorRoute();
+        $this->inventoryProjection = null;
+        $this->inventoryProjectionError = null;
+        try {
+            throw_if($this->recommendationPreferencesChanged, \RuntimeException::class, '算定条件が変わりました。「おすすめ設定」で計算し直してください。');
+            $context = $this->currentRecommendationContext();
+            if ($reload || $this->inventoryProjectionInputs === null || $this->inventoryProjectionContext !== $context) {
+                $this->inventoryProjectionInputs = null;
+                $this->inventoryProjectionInputs = app(\App\Services\AutoReplenishment\InventoryProjectionInputs::class)
+                    ->read($client, (int) $this->warehouseId, $this->form, $this->recommendation['basis'] ?? null);
+                $this->inventoryProjectionContext = $context;
+            }
+            $this->inventoryProjection = app(\App\Services\AutoReplenishment\InventoryProjection::class)->calculate(
+                array_replace($this->form, ['calculation_basis' => $this->recommendation['basis'] ?? null]), $this->inventoryProjectionInputs);
+        } catch (\Throwable $e) {
+            $business = get_class($e) === \RuntimeException::class || get_class($e) === \InvalidArgumentException::class;
+            if (! $business) {
+                report($e);
+            }
+            $this->inventoryProjectionError = $business ? $e->getMessage() : '在庫推移を計算できませんでした。再取得しても解消しない場合は管理者に連絡してください。';
+        }
+    }
+
+    private function loadPalletEditor(): void
+    {
+        $this->palletUnit = ($this->form['channel'] ?? '') === 'LOGISTICS' && ! empty($this->form['source_warehouse_id']) && ! empty($this->form['item_id'])
+            ? (array) app(PalletUnitService::class)->find($this->clientId(), (int) $this->form['source_warehouse_id'], (int) $this->form['item_id']) : null;
+        $this->palletUnit = $this->palletUnit ?: null;
+        $this->palletPieces = (string) ($this->palletUnit['pieces_per_pallet'] ?? '');
+        $service = app(ShippingQuantityService::class);
+        $profile = ($this->form['channel'] ?? '') === 'LOGISTICS' && ! empty($this->form['source_warehouse_id']) && ! empty($this->form['item_id'])
+            ? $service->find($this->clientId(), (int) $this->form['source_warehouse_id'], (int) $this->form['item_id']) : null;
+        $this->shippingProfile = $profile ? (array) $profile : null;
+        if ($profile) {
+            $this->shippingProfile['quantities'] = $service->quantities($profile);
+        }
+        $this->shippingQuantities = json_encode($this->shippingProfile['quantities'] ?? []);
+    }
+
+    public function saveShippingQuantities(): void
+    {
+        $client = $this->authorizeOperation('auto-replenishment-settings', 'edit');
+        abort_unless($this->showEditor && static::$screen === 'settings' && ($this->form['channel'] ?? '') === 'LOGISTICS', 403);
+        $this->assertEditorRoute();
+        $this->resetValidation();
+        $this->checked(fn () => app(ShippingQuantityService::class)->save($client,
+            (int) ($this->form['source_warehouse_id'] ?? 0), (int) ($this->form['item_id'] ?? 0), $this->shippingQuantities,
+            (int) ($this->shippingProfile['version'] ?? 0), (int) auth()->id()));
+        $this->loadPalletEditor();
+        $this->form['shipping_unit_mode'] = 'SHIPMENT';
+        $this->form['strategy_key'] = 'arrival_adaptive_v1';
+        $this->form['order_multiple_pieces'] = app(ShippingQuantitySet::class)->gcd($this->shippingProfile['quantities']);
+        $this->clearInventoryProjection();
+        $this->recommendation = $this->recommendationContext = null;
+        Notification::make()->success()->title('共有の出荷数量候補を保存しました。商品設定は「おすすめ設定」で確認して保存してください。')->send();
+    }
+
+    public function registerShippingHistory(): void
+    {
+        $client = $this->authorizeOperation('auto-replenishment-settings', 'edit');
+        abort_unless($this->showEditor && static::$screen === 'settings' && ($this->form['channel'] ?? '') === 'LOGISTICS', 403);
+        $this->assertEditorRoute();
+        $this->resetValidation();
+        $this->checked(function () use ($client) {
+            $history = app(\App\Services\AutoReplenishment\SettingsRecommendationHistory::class)->read($client, (int) $this->warehouseId, $this->form);
+            $profile = app(ShippingQuantitySet::class)->fromReceipts($history['receipts'], $history['period']);
+            app(ShippingQuantityService::class)->save($client, (int) $this->form['source_warehouse_id'], (int) $this->form['item_id'],
+                $profile['quantities'], (int) ($this->shippingProfile['version'] ?? 0), (int) auth()->id(), $profile['basis']);
+        });
+        $this->loadPalletEditor();
+        $this->form['shipping_unit_mode'] = 'SHIPMENT';
+        $this->form['strategy_key'] = 'arrival_adaptive_v1';
+        $this->clearInventoryProjection();
+        $this->recommendation = $this->recommendationContext = null;
+        Notification::make()->success()->title('実出庫から共有候補を登録しました。「おすすめ設定」で店舗の数量条件を確認してください。')->send();
+    }
+
+    public function savePalletUnit(): void
+    {
+        $client = $this->authorizeOperation('auto-replenishment-settings', 'edit');
+        abort_unless($this->showEditor && static::$screen === 'settings' && ($this->form['channel'] ?? '') === 'LOGISTICS', 403);
+        $this->assertEditorRoute();
+        $this->resetValidation();
+        $this->palletUnit = (array) $this->checked(fn () => app(PalletUnitService::class)->save($client,
+            (int) ($this->form['source_warehouse_id'] ?? 0), (int) ($this->form['item_id'] ?? 0), $this->palletPieces,
+            (int) ($this->palletUnit['version'] ?? 0), (int) auth()->id()));
+        $this->palletPieces = (string) $this->palletUnit['pieces_per_pallet'];
+        if (($this->form['shipping_unit_mode'] ?? '') === 'PALLET') {
+            $this->form['order_multiple_pieces'] = $this->palletUnit['pieces_per_pallet'];
+        }
+        $this->clearInventoryProjection();
+        $this->recommendation = null;
+        $this->recommendationContext = null;
+        Notification::make()->success()->title('共有パレット入数を保存しました。商品設定は「設定を保存」で反映します。')->send();
     }
 
     public function openPolicyTest(int $id): void
@@ -339,6 +675,14 @@ abstract class AutoReplenishmentPage extends AdminPage
     public function savePolicy(): void
     {
         $clientId = $this->authorizeOperation('auto-replenishment-settings', 'edit');
+        $this->assertEditorRoute();
+        if (($this->form['channel'] ?? '') === 'FAX') {
+            throw \Illuminate\Validation\ValidationException::withMessages(['operation' => 'FAX発注は参考計算のみです。設定の保存・自動発注ONはできません。']);
+        }
+        if ($this->recommendationPreferencesChanged || $this->recommendationSafetyDays !== $this->appliedRecommendationSafetyDays
+            || ($this->recommendationContext !== null && $this->recommendationContext !== $this->currentRecommendationContext())) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['operation' => '算定条件が変わりました。「おすすめ設定」で計算してから保存してください。']);
+        }
         $this->validate(['form.is_enabled' => 'required|boolean'], trans('auto-replenishment.messages', [], 'ja'), trans('auto-replenishment.attributes', [], 'ja'));
         $enabled = (bool) $this->form['is_enabled'];
         $policy = $this->checked(fn () => DB::connection('sakemaru')->transaction(function () use ($clientId, $enabled) {
@@ -352,24 +696,14 @@ abstract class AutoReplenishmentPage extends AdminPage
                 $this->authorizeOperation('auto-replenishment-settings', 'enable');
             }
 
-            return app(PolicyService::class)->saveWithState($clientId, (int) $this->warehouseId, $this->form, $enabled, (int) auth()->id(), $this->recommendation['basis'] ?? null);
+            return app(PolicyService::class)->saveWithState($clientId, (int) $this->warehouseId,
+                array_replace($this->form, ['pallet_unit_version' => (int) ($this->palletUnit['version'] ?? 0),
+                    'shipping_profile_version' => (int) ($this->shippingProfile['version'] ?? 0)]),
+                $enabled, (int) auth()->id(), $this->recommendation['basis'] ?? null);
         }, 3));
         unset($this->selectedVersions[(string) $policy->id]);
         $this->showEditor = false;
         Notification::make()->success()->title('商品設定を'.($enabled ? 'ON' : 'OFF').'で保存しました。')->send();
-    }
-
-    public function applyQuantityHelper(): void
-    {
-        $clientId = $this->authorizeOperation('auto-replenishment-settings', 'edit');
-        $values = \Illuminate\Support\Facades\Validator::make($this->quantityHelper, [
-            'field' => 'required|in:reorder_point_pieces,max_order_pieces,min_order_pieces,order_multiple_pieces',
-            'type' => 'required|in:CASE,CARTON,PIECE', 'quantity' => 'required|integer|min:1|max:2147483647',
-        ], trans('auto-replenishment.messages', [], 'ja'), trans('auto-replenishment.attributes', [], 'ja'))->validate();
-        $item = \App\Models\Sakemaru\Item::where('client_id', $clientId)->findOrFail($this->form['item_id'] ?? 0);
-        $total = $this->checked(fn () => app(\App\Services\AutoReplenishment\SnapshotReader::class)->pieces((int) $values['quantity'], $values['type'], $item));
-        abort_if($total > 2147483647, 422, '数量上限を超えています。');
-        $this->form[$values['field']] = $total;
     }
 
     public function editWarehouse(): void
@@ -696,16 +1030,33 @@ abstract class AutoReplenishmentPage extends AdminPage
             $targets[$type] = $db->table($table)->whereIn('id', $links->where('artifact_type', $type)->pluck('artifact_id'))->get()->keyBy('id');
         }
 
+        $eligibility = app(\App\Services\AutoReplenishment\OrderRouteEligibility::class);
+        $referenceIds = $this->showEditor ? $eligibility->referenceContractorIds($clientId) : [];
         $eligibleContractorIds = $this->showEditor ? $db->table('contractors')->where('client_id', $clientId)->where('is_active', true)
-            ->whereIn('id', app(\App\Services\AutoReplenishment\OrderRouteEligibility::class)->contractorIds($this->form['channel'] ?? 'EOS'))->pluck('id')->all() : [];
-        $itemEligibleIds = $this->showEditor ? array_unique(array_merge($eligibleContractorIds, app(\App\Services\AutoReplenishment\OrderRouteEligibility::class)->contractorIds('EOS'), app(\App\Services\AutoReplenishment\OrderRouteEligibility::class)->contractorIds('LOGISTICS'))) : [];
-        $itemOptions = $this->showEditor ? $db->table('items')->where('client_id', $clientId)->where('is_active', true)
-            ->whereExists(fn ($q) => $q->selectRaw('1')->from('item_contractors as eligible_route')
-                ->whereColumn('eligible_route.item_id', 'items.id')->where('eligible_route.client_id', $clientId)
-                ->where('eligible_route.warehouse_id', $this->warehouseId)
-                ->whereIn('eligible_route.contractor_id', $itemEligibleIds))
-            ->when($this->itemSearch !== '', fn ($q) => $q->where(fn ($q) => $q->where('code', 'like', $this->itemSearch.'%')->orWhere('name', 'like', '%'.$this->itemSearch.'%')))
-            ->when($this->editingId, fn ($q) => $q->where('id', $this->form['item_id'] ?? 0))->orderBy('code')->limit(30)->get(['id', 'code', 'name', 'capacity_case', 'capacity_carton']) : collect();
+            ->whereIn('id', ($this->form['channel'] ?? '') === 'FAX' ? $referenceIds : $eligibility->contractorIds($this->form['channel'] ?? 'EOS'))->pluck('id')->all() : [];
+        $itemEligibleIds = $this->showEditor ? array_unique(array_merge($referenceIds, $eligibility->contractorIds('EOS'), $eligibility->contractorIds('LOGISTICS'))) : [];
+        $selectedItem = $this->showEditor ? $db->table('items')->where('client_id', $clientId)
+            ->where('id', $this->form['item_id'] ?? 0)->first(['id', 'code', 'name', 'capacity_case', 'capacity_carton']) : null;
+        $orderUnit = null;
+        if ($selectedItem) {
+            try {
+                $orderUnit = app(\App\Services\AutoReplenishment\OrderUnitService::class)->forEditor($clientId, $selectedItem, $this->form['channel'] ?? 'EOS', source: (int) ($this->form['source_warehouse_id'] ?? 0));
+                $orderUnit = app(\App\Services\AutoReplenishment\OrderUnitService::class)->select($orderUnit, $this->form['order_unit_mode'] ?? 'AUTO');
+            } catch (\RuntimeException $e) {
+                $orderUnit = array_replace($orderUnit ?? [], ['label' => '発注単位を要確認', 'reason' => $e->getMessage()]);
+            }
+        }
+        $itemOptions = collect();
+        $itemSearchTerm = mb_convert_kana(trim($this->itemSearch), 'as');
+        if ($this->showEditor && $this->showItemPicker && ! $this->editingId && $itemSearchTerm !== '') {
+            $query = $this->itemSelectionQuery($clientId, $itemEligibleIds);
+            foreach (preg_split('/\s+/u', $itemSearchTerm, -1, PREG_SPLIT_NO_EMPTY) as $term) {
+                $query->where(fn ($q) => $q->where('code', 'like', $term.'%')->orWhere('name', 'like', '%'.$term.'%'));
+            }
+            $itemOptions = $query->orderBy('code')->limit(31)->get(['id', 'code', 'name', 'capacity_case', 'capacity_carton']);
+        }
+        $itemSearchHasMore = $itemOptions->count() > 30;
+        $itemOptions = $itemOptions->take(30);
         $routeOptions = $this->showEditor ? $db->table('item_contractors as ic')->join('contractors as c', 'c.id', '=', 'ic.contractor_id')
             ->join('suppliers as s', 's.id', '=', 'ic.supplier_id')->join('partners as sp', 'sp.id', '=', 's.partner_id')
             ->where('ic.client_id', $clientId)->where('ic.warehouse_id', $this->warehouseId)->where('ic.item_id', $this->form['item_id'] ?? 0)
@@ -718,7 +1069,20 @@ abstract class AutoReplenishmentPage extends AdminPage
             ? WmsItemReorderPolicy::where(['client_id' => $clientId, 'warehouse_id' => $scopeWarehouseId])->whereIn('id', array_keys($this->selectedVersions))->get(['id', 'is_enabled']) : collect();
         $selectedOnCount = $selection->where('is_enabled', true)->count();
         $selectedOffCount = $selection->where('is_enabled', false)->count();
+        $routeWarnings = $this->showEditor
+            ? app(\App\Services\AutoReplenishment\MasterRouteWarnings::class)->forRoute($clientId, (int) $scopeWarehouseId, $this->form) : [];
 
-        return compact('screen', 'warehouse', 'warehouses', 'control', 'rows', 'run', 'detail', 'links', 'targets', 'itemOptions', 'routeOptions', 'courseOptions', 'phaseCounts', 'listLinks', 'listTargets', 'selectedOnCount', 'selectedOffCount');
+        return compact('screen', 'warehouse', 'warehouses', 'control', 'rows', 'run', 'detail', 'links', 'targets', 'selectedItem', 'orderUnit', 'itemOptions', 'itemSearchTerm', 'itemSearchHasMore', 'routeOptions', 'courseOptions', 'routeWarnings', 'phaseCounts', 'listLinks', 'listTargets', 'selectedOnCount', 'selectedOffCount');
+    }
+
+    private function itemSelectionQuery(int $clientId, array $contractorIds): \Illuminate\Database\Query\Builder
+    {
+        return DB::connection('sakemaru')->table('items')->where(['client_id' => $clientId, 'is_active' => true, 'is_ended' => false])
+            ->whereExists(fn ($q) => $q->selectRaw('1')->from('item_contractors as eligible_route')
+                ->join('contractors as eligible_contractor', 'eligible_contractor.id', '=', 'eligible_route.contractor_id')
+                ->whereColumn('eligible_route.item_id', 'items.id')->where('eligible_route.client_id', $clientId)
+                ->where('eligible_contractor.client_id', $clientId)->where('eligible_contractor.is_active', true)
+                ->where('eligible_route.warehouse_id', $this->warehouseId)
+                ->whereIn('eligible_route.contractor_id', $contractorIds));
     }
 }

@@ -5,7 +5,6 @@ namespace App\Services\AutoReplenishment;
 use App\Enums\QuantityType;
 use App\Models\Sakemaru\Item;
 use App\Models\WmsOrderCandidate;
-use App\Services\AutoOrder\JxOrderArrivalDateAdjustmentService;
 use App\Services\AutoOrder\OrderOutputQuantityResolver;
 use App\Services\AutoOrder\OrderRegistrationSearchService;
 use Carbon\CarbonImmutable;
@@ -40,8 +39,12 @@ class SettingsRecommendationHistory
         throw_if(in_array((int) $warehouse->code, $preserved, true), \RuntimeException::class, 'この倉庫は実績からの自動設定対象外です。既存の数量設定を維持してください。');
         $channel = $route['channel'] ?? '';
         $contractor = (int) ($route['contractor_id'] ?? 0);
-        $eligible = $this->once('eligible:'.$channel, fn () => app(OrderRouteEligibility::class)->contractorIds($channel));
-        app(OrderRouteEligibility::class)->assertEligible($channel, $contractor, $eligible);
+        if ($channel === 'FAX') {
+            app(OrderRouteEligibility::class)->assertReferenceEligible($clientId, $contractor);
+        } else {
+            $eligible = $this->once('eligible:'.$channel, fn () => app(OrderRouteEligibility::class)->contractorIds($channel));
+            app(OrderRouteEligibility::class)->assertEligible($channel, $contractor, $eligible);
+        }
         $relations = $db->table('item_contractors')->where(['client_id' => $clientId, 'warehouse_id' => $warehouseId, 'item_id' => $item->id, 'contractor_id' => $contractor])
             ->when(! empty($route['supplier_id']), fn ($q) => $q->where('supplier_id', $route['supplier_id']))->get(['supplier_id']);
         throw_unless($relations->count() === 1, \RuntimeException::class, '商品の発注先・仕入先を1つ選択してください。');
@@ -57,40 +60,71 @@ class SettingsRecommendationHistory
         $allocation = $this->once('allocation:'.$clientId, fn () => $db->table('stock_allocations')->where(['client_id' => $clientId, 'code' => 1, 'is_active' => 1])->pluck('id')->all());
         throw_unless(count($allocation) === 1, \RuntimeException::class, '在庫区分「正常品」を特定できません。');
         $allocation = (int) $allocation[0];
-        $packing = 1;
+        $caseOutput = false;
         if ($channel === 'EOS') {
             $code = $this->once('ordering_code:'.$itemId, fn () => app(OrderRegistrationSearchService::class)->orderingCodeForItem($itemId));
             throw_unless($code && $item->capacity_case > 0, \RuntimeException::class, '発注CDまたはケース入数が未設定です。');
             $probe = new WmsOrderCandidate(['order_quantity' => 1, 'quantity_type' => QuantityType::PIECE, 'ordering_code' => $code]);
             $probe->setRelation('item', $item);
-            $packing = app(OrderOutputQuantityResolver::class)->resolve($probe)['ordering_unit_quantity'] !== null ? (int) $item->capacity_case : 1;
-            $receipts = $this->once("eos:{$item->id}:{$contractor}:{$supplier}:{$start}:{$period['end']}", fn () => $this->eosReceipts($clientId, (int) $item->id, $contractor, $supplier, $allocation, $period));
-        } else {
+            $caseOutput = app(OrderOutputQuantityResolver::class)->resolve($probe)['ordering_unit_quantity'] !== null;
+        } elseif ($channel === 'LOGISTICS') {
             $source = (int) ($route['source_warehouse_id'] ?? 0);
             throw_unless($db->table('warehouses')->where(['id' => $source, 'client_id' => $clientId, 'is_active' => 1, 'is_virtual' => 0])->exists(), \RuntimeException::class, '有効な移動元倉庫を選択してください。');
             throw_unless($source && $source !== $warehouseId && $db->table('warehouse_stock_transfer_delivery_courses')->where(['from_warehouse_id' => $source, 'to_warehouse_id' => $warehouseId, 'delivery_course_id' => $route['delivery_course_id'] ?? 0])->exists(), \RuntimeException::class, '移動元倉庫・配送コースを選択してください。');
-            $receipts = $this->once("transfer:{$item->id}:{$contractor}:{$source}:{$start}:{$period['end']}", fn () => $this->transferReceipts($clientId, (int) $item->id, $contractor, $source, $allocation, $period));
         }
+        $mode = $route['order_unit_mode'] ?? 'AUTO';
+        $unitHistory = $channel === 'LOGISTICS'
+            ? (app(LogisticsOrderUnitHistory::class)->read($clientId, $source, [(int) $item->id => (int) $item->capacity_case], $asOf)[$item->id] ?? null) : null;
+        $orderUnit = app(OrderUnitService::class)->resolve($clientId, (int) $item->id, (int) $item->capacity_case, $caseOutput, mode: $mode, history: $unitHistory);
+        $packing = $orderUnit['packing_unit'];
+        $receipts = in_array($channel, ['EOS', 'FAX'], true)
+            ? $this->once("external:{$channel}:{$item->id}:{$contractor}:{$supplier}:{$start}:{$period['end']}", fn () => $this->eosReceipts($clientId, (int) $item->id, $contractor, $supplier, $allocation, $period, $channel))
+            : $this->once("transfer:{$item->id}:{$contractor}:{$source}:{$start}:{$period['end']}", fn () => $this->transferReceipts($clientId, (int) $item->id, $contractor, $source, $allocation, $period));
         $demand = $this->dailyDemand($clientId, $warehouseId, (int) $item->id, $allocation, $period);
-        $lead = $this->once("lead:{$warehouseId}:{$contractor}:{$asOf}", function () use ($warehouseId, $contractor, $asOf) {
-            $resolver = app(JxOrderArrivalDateAdjustmentService::class);
-            $max = 1;
-            for ($i = 0; $i < 7; $i++) {
-                $day = \Carbon\Carbon::parse($asOf)->addDays($i);
-                $arrival = $resolver->earliestArrivalDate($contractor, $warehouseId, $day);
-                throw_unless($arrival, \RuntimeException::class, '既存の配送設定から入荷可能日を算定できません。');
-                $max = max($max, (int) $day->diffInDays($arrival));
-            }
-
-            return $max;
-        });
+        $scheduleConfig = $this->warehouseScheduleConfig($warehouseId);
+        $schedule = app(GenerationSchedule::class);
+        $weekdays = $schedule->weekdays($scheduleConfig);
+        $arrivalSchedule = $this->arrivalSchedule($clientId, $warehouseId, $route, $asOf, $scheduleConfig);
+        $lead = $arrivalSchedule['nominal_lead_days'];
+        if (! isset($scheduleConfig['weekdays'])) {
+            $demand['warnings'][] = '倉庫の実行曜日が未設定のため、毎日実行として算定しています。';
+        }
 
         return ['scope' => ['client_id' => $clientId, 'warehouse_id' => $warehouseId, 'warehouse_code' => (string) $warehouse->code,
             'item_id' => (int) $item->id, 'item_code' => (string) $item->code, 'channel' => $channel, 'contractor_id' => $contractor,
             'supplier_id' => $supplier, 'source_warehouse_id' => $channel === 'LOGISTICS' ? (int) $route['source_warehouse_id'] : null,
             'delivery_course_id' => $channel === 'LOGISTICS' ? (int) $route['delivery_course_id'] : null,
-            'capacity_case' => (int) $item->capacity_case, 'packing_unit' => $packing],
-            'period' => $period, 'receipts' => $receipts, 'daily' => $demand['daily'], 'warnings' => $demand['warnings'], 'nominal_lead_days' => $lead];
+            'capacity_case' => (int) $item->capacity_case, 'packing_unit' => $packing, 'order_unit' => $orderUnit, 'order_unit_mode' => $mode],
+            'period' => $period, 'receipts' => $receipts, 'daily' => $demand['daily'], 'warnings' => $demand['warnings'], 'nominal_lead_days' => $lead,
+            'review_interval_days' => $schedule->maxReviewIntervalDays($scheduleConfig), 'review_weekdays' => $weekdays,
+            'review_schedule_fingerprint' => $schedule->fingerprint($scheduleConfig),
+            'maximum_arrival_gap_days' => $arrivalSchedule['maximum_gap_days'], 'arrival_schedule' => $arrivalSchedule];
+    }
+
+    private function warehouseScheduleConfig(int $warehouseId): array
+    {
+        return $this->once('schedule:'.$warehouseId, function () use ($warehouseId) {
+            $json = DB::connection('sakemaru')->table('wms_warehouse_auto_order_settings')->where('warehouse_id', $warehouseId)->value('replenishment_config');
+            if ($json === null) {
+                return [];
+            }
+            $config = json_decode($json, true);
+            throw_unless(is_array($config) && json_last_error() === JSON_ERROR_NONE, \RuntimeException::class,
+                '倉庫の自動発注設定を読み込めません。倉庫の設定を保存し直してください。');
+
+            return $config;
+        });
+    }
+
+    private function arrivalSchedule(int $clientId, int $warehouseId, array $route, string $asOf, array $config): array
+    {
+        $fingerprint = app(GenerationSchedule::class)->fingerprint($config);
+        $key = 'arrival_schedule:'.json_encode([$clientId, $warehouseId, (int) $route['contractor_id'], $route['channel'],
+            (int) ($route['source_warehouse_id'] ?? 0), (int) ($route['delivery_course_id'] ?? 0), $asOf, $fingerprint], JSON_THROW_ON_ERROR);
+
+        // Shared for all products on this route during this recommendation request.
+        return $this->once($key, fn () => app(RecommendationArrivalSchedule::class)->calculate(
+            $warehouseId, (int) $route['contractor_id'], $route['channel'], $asOf, $config));
     }
 
     private function transferBase(int $client, int $item, int $allocation, array $period)
@@ -116,7 +150,7 @@ class SettingsRecommendationHistory
     {
         $rows = $this->rows($this->transferBase($client, $item, $allocation, $period)->where('st.from_warehouse_id', $source)
             ->whereExists(fn ($q) => $this->transferLink($q, $contractor))
-            ->select(['st.id', 'st.to_warehouse_id', 'st.picking_date', 'st.delivered_date', 'ti.id as line_id', 'ti.quantity', 'ti.quantity_type', 'ti.capacity_case', 'ti.capacity_carton', 'ti.total_piece_quantity'])->orderBy('st.id'));
+            ->select(['st.id', 'st.to_warehouse_id', 'st.picking_date', 'st.delivered_date', 'ti.id as line_id', 'ti.quantity', 'ti.quantity_type', 'ti.capacity_case', 'ti.capacity_carton', 'ti.total_piece_quantity', 'ti.has_shortage'])->orderBy('st.id'));
         $links = DB::connection('sakemaru')->table('wms_order_incoming_schedules as s')->join('wms_stock_transfer_candidates as c', 'c.id', '=', 's.transfer_candidate_id')
             ->join('stock_transfers as st', 'st.id', '=', 's.stock_transfer_id')
             ->where('s.order_source', 'TRANSFER')->whereColumn('s.warehouse_id', 'st.to_warehouse_id')
@@ -127,23 +161,26 @@ class SettingsRecommendationHistory
         foreach ($rows as $row) {
             $linksForRow = $links->get($row->id, collect());
             $order = $linksForRow->min('order_date');
-            $groups[$row->id] ??= ['warehouse_id' => (int) $row->to_warehouse_id, 'pieces' => 0, 'date' => $row->picking_date,
+            $groups[$row->id] ??= ['warehouse_id' => (int) $row->to_warehouse_id, 'pieces' => 0, 'quantity_types' => [], 'date' => $row->picking_date,
                 'lead_days' => $order && $row->delivered_date ? (int) CarbonImmutable::parse($order)->diffInDays(CarbonImmutable::parse($row->delivered_date), false) : null,
-                'source' => ['type' => 'stock_transfer', 'id' => (int) $row->id, 'candidate_ids' => $linksForRow->pluck('candidate_id')->unique()->values()->all()]];
+                'has_shortage' => false, 'source' => ['type' => 'stock_transfer', 'id' => (int) $row->id, 'candidate_ids' => $linksForRow->pluck('candidate_id')->unique()->values()->all()]];
             $groups[$row->id]['pieces'] += $this->actualPieces($row);
+            $groups[$row->id]['has_shortage'] = $groups[$row->id]['has_shortage'] || (bool) $row->has_shortage;
+            $groups[$row->id]['quantity_types'] = array_values(array_unique([...$groups[$row->id]['quantity_types'], $row->quantity_type]));
         }
 
         return array_values($groups);
     }
 
-    private function eosReceipts(int $client, int $item, int $contractor, int $supplier, int $allocation, array $period): array
+    private function eosReceipts(int $client, int $item, int $contractor, int $supplier, int $allocation, array $period, string $channel = 'EOS'): array
     {
         $db = DB::connection('sakemaru');
         $links = $this->rows($db->table('wms_order_incoming_schedules as s')->join('wms_order_candidates as c', 'c.id', '=', 's.order_candidate_id')
             ->join('purchase_create_queue as q', 'q.id', '=', 's.purchase_queue_id')->join('warehouses as w', 'w.id', '=', 's.warehouse_id')
             ->where(['s.item_id' => $item, 'c.item_id' => $item, 'c.contractor_id' => $contractor, 'w.client_id' => $client, 'w.is_virtual' => 0, 'q.status' => 'FINISHED', 'q.is_success' => 1])
-            ->where(fn ($q) => $q->where('c.order_channel', 'EOS')->orWhere(fn ($q) => $q->whereNull('c.order_channel')
-                ->whereExists(fn ($q) => $q->selectRaw('1')->from('wms_order_jx_documents as jx')->whereColumn('jx.id', 'c.wms_order_jx_document_id')->where('jx.document_type', 'PURCHASE'))))
+            ->where(fn ($q) => $q->where('c.order_channel', $channel)
+                ->when($channel === 'EOS', fn ($q) => $q->orWhere(fn ($q) => $q->whereNull('c.order_channel')
+                    ->whereExists(fn ($q) => $q->selectRaw('1')->from('wms_order_jx_documents as jx')->whereColumn('jx.id', 'c.wms_order_jx_document_id')->where('jx.document_type', 'PURCHASE')))))
             ->whereColumn('s.contractor_id', 'c.contractor_id')
             ->where('w.code', '!=', 91)->whereColumn('c.warehouse_id', 's.warehouse_id')->whereRaw('COALESCE(s.supplier_id,c.supplier_id)=?', [$supplier])
             ->where('s.received_quantity', '>', 0)->whereBetween('s.actual_arrival_date', array_values($period))
@@ -182,11 +219,12 @@ class SettingsRecommendationHistory
             }
             $key = $queue.':'.$row->warehouse_id.':'.$row->receipt_date;
             $order = min(array_column($matching, 'order_date'));
-            $groups[$key] ??= ['warehouse_id' => (int) $row->warehouse_id, 'pieces' => 0, 'date' => $row->receipt_date,
+            $groups[$key] ??= ['warehouse_id' => (int) $row->warehouse_id, 'pieces' => 0, 'quantity_types' => [], 'date' => $row->receipt_date,
                 'lead_days' => (int) CarbonImmutable::parse($order)->diffInDays(CarbonImmutable::parse($row->receipt_date), false),
                 'source' => ['type' => 'purchase', 'queue_id' => $queue, 'purchase_ids' => [], 'candidate_ids' => array_values(array_unique(array_column($matching, 'candidate_id'))),
                     'jx_document_ids' => array_values(array_unique(array_filter(array_column($matching, 'wms_order_jx_document_id'))))]];
             $groups[$key]['pieces'] += $this->actualPieces($row);
+            $groups[$key]['quantity_types'] = array_values(array_unique([...$groups[$key]['quantity_types'], $row->quantity_type]));
             $groups[$key]['source']['purchase_ids'][] = (int) $row->id;
         }
 
@@ -205,7 +243,8 @@ class SettingsRecommendationHistory
         return $pieces;
     }
 
-    private function dailyDemand(int $client, int $warehouse, int $item, int $allocation, array $period): array
+    /** Shared read-only daily sales/consumption series for recommendations and the chart. */
+    public function dailyDemand(int $client, int $warehouse, int $item, int $allocation, array $period): array
     {
         $db = DB::connection('sakemaru');
         $coverage = $this->once('coverage:'.$warehouse.':'.implode(':', $period), fn () => $db->table('ret_pos_stock_applications')->where('warehouse_id', $warehouse)->whereBetween('business_date', array_values($period))->distinct()->pluck('business_date')->all());

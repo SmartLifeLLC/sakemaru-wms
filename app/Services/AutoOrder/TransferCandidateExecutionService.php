@@ -549,8 +549,17 @@ class TransferCandidateExecutionService
             foreach ($lines->sortBy('id') as $line) {
                 $guard->assertLine($line);
                 $candidate = $candidates->firstWhere('id', $line->transfer_candidate_id);
-                throw_unless($candidate->quantity_type === \App\Enums\QuantityType::PIECE
-                    && (int) $candidate->transfer_quantity === (int) $line->quantity_pieces
+                $snapshot = $line->confirmation_snapshot;
+                $type = $snapshot['quantity_type'] ?? 'PIECE';
+                $capacity = match ($type) {
+                    'CASE' => (int) ($snapshot['capacity_case'] ?? 0),
+                    'PIECE' => 1,
+                    default => 0,
+                };
+                throw_unless($capacity > 0 && $candidate->quantity_type === \App\Enums\QuantityType::tryFrom($type)
+                    && ($type !== 'CASE' || (int) $candidate->item?->capacity_case === $capacity)
+                    && (int) $line->quantity_pieces % $capacity === 0
+                    && (int) $candidate->transfer_quantity === intdiv((int) $line->quantity_pieces, max(1, $capacity))
                     && (int) $candidate->hub_warehouse_id === (int) $line->confirmation_snapshot['policy']['source_warehouse_id']
                     && (int) $candidate->satellite_warehouse_id === (int) $line->warehouse_id
                     && $candidate->expected_arrival_date?->toDateString() === $line->confirmation_snapshot['arrival_date'],

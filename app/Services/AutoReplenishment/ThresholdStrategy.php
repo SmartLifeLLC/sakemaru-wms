@@ -14,10 +14,11 @@ final class ThresholdStrategy
         if (min($r, $m, $max, $u, $packingUnit) < 1 || $m > $max || $target < $r) {
             return ['phase' => 'HOLD', 'quantity' => 0, 'reason' => '数量設定・入数が未設定または不整合です。'];
         }
-        if ($stock < 0 || $incoming < 0 || $claims < 0) {
+        if ($stock < -2147483648 || $stock > 2147483647 || $incoming < 0 || $claims < 0 || max($incoming, $claims) > 2147483647) {
             return ['phase' => 'HOLD', 'quantity' => 0, 'reason' => '在庫または供給数量に異常があります。'];
         }
-        if ($stock >= $r || $incoming >= $target || $claims >= $target || $stock + $incoming + $claims >= $target) {
+        // Negative on-hand is real demand; an incoming quantity alone does not cancel that debt.
+        if ($stock >= $r || $stock + $incoming + $claims >= $target) {
             return ['phase' => 'NO_ORDER', 'quantity' => 0, 'reason' => '現在庫・既発注で充足しています。'];
         }
         $a = $u;
