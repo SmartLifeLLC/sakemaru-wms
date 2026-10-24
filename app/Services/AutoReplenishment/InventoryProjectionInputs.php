@@ -30,7 +30,10 @@ class InventoryProjectionInputs
             }
             $snapshot['shipping_unit'] = $shipping;
             $calendar = app(InventoryProjectionCalendar::class)->read($warehouse, (int) $form['contractor_id'], $form['channel'], $snapshot['business_date'], $snapshot['warehouse_config']);
-            $demand = app(WeekdayDemand::class)->read($client, $warehouse, (int) $form['item_id'], $snapshot['business_date']);
+            $usesForecast = in_array($form['strategy_key'] ?? '', ['arrival_batch_v1', 'arrival_adaptive_v1'], true);
+            $demand = $usesForecast || array_key_exists('demand_profile', $basis ?? []) || isset($basis['mean_daily'])
+                ? app(DemandProfile::class)->fromBasis($basis ?? [])
+                : app(WeekdayDemand::class)->read($client, $warehouse, (int) $form['item_id'], $snapshot['business_date']);
 
             return ['snapshot' => array_intersect_key($snapshot, array_flip(['stock', 'incoming', 'claims', 'supply_events', 'packing_unit',
                 'quantity_type', 'capacity_case', 'business_date', 'shipping_unit', 'simulation_at'])),

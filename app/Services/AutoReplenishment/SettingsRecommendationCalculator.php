@@ -25,7 +25,7 @@ final class SettingsRecommendationCalculator
 
     private function calculateCandidate(array $history, array $options, bool $historyReference = false): array
     {
-        $basis = ['method' => 'receipts-or-sales-adaptive-batch-v7', 'period' => $history['period'],
+        $basis = ['method' => 'receipts-or-sales-adaptive-batch-v8', 'period' => $history['period'],
             'scope' => $history['scope'], 'unit_mode' => $options['unit_mode'] ?? 'AUTO',
             'warnings' => $history['warnings'] ?? [], 'calculated_at' => now()->toIso8601String()];
         $safetyDays = null;
@@ -169,15 +169,18 @@ final class SettingsRecommendationCalculator
             $basis['review_schedule_fingerprint'] = $history['review_schedule_fingerprint'];
         }
         $protection = $lead + $reviewInterval;
-        $end = \Carbon\CarbonImmutable::parse($history['period']['end']);
-        $recentStart = $end->subDays(27)->toDateString();
-        $daily = array_filter($history['daily'], fn ($date) => $date >= $recentStart, ARRAY_FILTER_USE_KEY);
-        $values = array_values(array_filter($daily, fn ($v) => $v !== null));
-        if (count($values) < 14 || count(array_filter($values, fn ($v) => $v > 0)) < 3) {
+        $demand = app(DemandProfile::class);
+        $selection = $demand->select($history['daily'], $history['period']);
+        $daily = $selection['daily'];
+        if ($selection['fallback']) {
             $basis['warnings'][] = '直近28日の観測日が14日未満、または出荷のある日が3日未満のため、対象期間全体の観測値で算定しました。欠損日は0で補完していません。';
-            $daily = $history['daily'];
-            $values = array_values(array_filter($daily, fn ($v) => $v !== null));
         }
+        $values = array_values(array_filter($daily, fn ($v) => $v !== null));
+        $basis['history_demand_total_pieces'] = $basis['demand_total_pieces'];
+        $basis['history_demand_positive_days'] = $basis['demand_positive_days'];
+        $basis['demand_total_pieces'] = array_sum($values);
+        $basis['demand_positive_days'] = count(array_filter($values, fn ($v) => $v > 0));
+        $basis['demand_period'] = ['start' => array_key_first($daily), 'end' => $history['period']['end']];
         $windows = [];
         $days = array_values($daily);
         for ($i = 0; $i <= count($days) - $protection; $i++) {
@@ -191,7 +194,11 @@ final class SettingsRecommendationCalculator
         if (count($values) < 14 || count($windows) < 3 || count(array_filter($values, fn ($v) => $v > 0)) < 3) {
             return $this->unavailable($basis, '需要の観測日数または連続実績が不足しています。欠損日を0として算定せず、数量条件は手入力してください。');
         }
-        $mean = array_sum($values) / count($values);
+        $profile = $demand->create($daily, $selection['fallback']);
+        $profile['warnings'] = array_values(array_unique(array_merge($profile['warnings'], $history['warnings'] ?? [])));
+        $basis['demand_profile'] = $profile;
+        $basis['demand_period'] = $profile['period'];
+        $mean = $profile['mean'];
         // Pick the most frequent observed quantity; tied modes use the smaller quantity.
         // Minimum and maximum are separate observed values, never both the typical batch.
         $normal = $useSales ? $this->roundUp((int) ceil($mean * $reviewDays), $unit)
@@ -219,7 +226,11 @@ final class SettingsRecommendationCalculator
         // Leave room for one minimum lot before the next generation date; otherwise a
         // valid case/pallet can be blocked by the target until stock is already exhausted.
         $originalTarget = max($normal + $buffer, $intervalDemand + $min);
-        $arrivalGapDemand = (int) ceil($mean * $arrivalGap);
+        try {
+            $arrivalGapDemand = $demand->maximum($profile, $arrivalGap);
+        } catch (\RuntimeException) {
+            return $this->unavailable($basis, '算定数量が保存できる上限を超えています。管理者に確認してください。');
+        }
         $arrivalGapFloor = $arrivalGapDemand + $this->roundUp($min, $unit);
         $target = max($originalTarget, $arrivalGapFloor);
         if ($safetyDays !== null) {
@@ -227,7 +238,8 @@ final class SettingsRecommendationCalculator
                 ['options' => ['min_range' => 1, 'max_range' => 2147483647]]) ?: null;
             try {
                 $settings = (new SafetyStockSettings)->calculate($mean, $safetyDays, $normal, $this->roundUp($min, $unit),
-                    $packing, $lead, $arrivalGap, $reviewInterval, $existingPoint);
+                    $packing, $lead, $arrivalGap, $reviewInterval, $existingPoint,
+                    $demand->maximum($profile, $lead), $arrivalGapDemand);
             } catch (\RuntimeException $e) {
                 return $this->unavailable($basis, $e->getMessage());
             }
@@ -279,14 +291,14 @@ final class SettingsRecommendationCalculator
             "発注単位：{$unit}バラ（出力単位 {$packing} を含む）",
             "需要保護期間：入荷まで {$lead}日 ＋ 次の実行まで最大 {$reviewInterval}日 ＝ {$protection}日",
             "発注点：大きい方（連続{$protection}日需要P95 {$p95}、日平均 ".round($mean, 2)." × {$protection}）を総バラで切上げ ＝ {$point}",
-            "補充目標：大きい方（通常量・実行間隔からの目標 {$originalTarget}、入荷間隔 {$arrivalGap}日分の平均需要 {$arrivalGapDemand} ＋ 最小発注数 {$min}） ＝ {$target}バラ",
+            "補充目標：大きい方（通常量・実行間隔からの目標 {$originalTarget}、入荷間隔 {$arrivalGap}日分の曜日別需要の最大 {$arrivalGapDemand} ＋ 最小発注数 {$min}） ＝ {$target}バラ",
             '入荷までの出荷見込・既発注を考慮し、補充目標までの不足を最大発注数内で補います。目標内で最小数・単位を満たせない場合は見送ります。',
         ];
         if ($safetyDays !== null) {
             array_splice($basis['steps'], 4, 3, [
                 '安全在庫：1日平均 '.round($mean, 2)." × {$safetyDays}日を出力単位 {$packing} で切上げ ＝ {$buffer}バラ",
                 "補充目標：安全在庫 {$buffer} ＋ 通常量 {$normal}（入荷間隔の補正を含む）＝ {$target}バラ",
-                "通常量の発注目安：既発注なし・{$lead}日後入荷なら現在庫 {$basis['normal_order_stock_pieces']}バラ以下。発注点 {$point}バラ",
+                "発注点：入荷まで{$lead}日分の曜日別消費の最大値を考慮して {$point}バラ。通常量を発注するかは実際の入荷日で再判定",
             ]);
         }
         $values = ['reorder_point_pieces' => $point, 'target_stock_pieces' => $target, 'min_order_pieces' => $min,

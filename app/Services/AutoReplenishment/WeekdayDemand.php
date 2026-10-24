@@ -12,16 +12,20 @@ class WeekdayDemand
     public function read(int $client, int $warehouse, int $item, string $businessDate): array
     {
         $asOf = CarbonImmutable::parse(min($businessDate, CarbonImmutable::now('Asia/Tokyo')->toDateString()));
-        $period = ['start' => $asOf->subMonthsNoOverflow(3)->toDateString(), 'end' => $asOf->subDay()->toDateString()];
+        $period = app(DemandProfile::class)->historyPeriod($asOf->toDateString());
         $db = DB::connection('sakemaru');
-        $key = 'auto-order-weekday-demand:v1:'.hash('sha256', json_encode([$db->getDatabaseName(), $client, $warehouse, $item, $period]));
+        $key = 'auto-order-weekday-demand:v2:'.hash('sha256', json_encode([$db->getDatabaseName(), $client, $warehouse, $item, $period]));
 
         return Cache::store('file')->remember($key, 900, function () use ($db, $client, $warehouse, $item, $period) {
             $ids = $db->table('stock_allocations')->where(['client_id' => $client, 'code' => 1, 'is_active' => 1])->pluck('id');
             throw_unless($ids->count() === 1, \RuntimeException::class, '在庫区分「正常品」を特定できません。');
             $demand = app(SettingsRecommendationHistory::class)->dailyDemand($client, $warehouse, $item, (int) $ids->first(), $period);
 
-            return $this->summarize($demand['daily']) + ['period' => $period, 'warnings' => $demand['warnings']];
+            $selection = app(DemandProfile::class)->select($demand['daily'], $period);
+            $profile = app(DemandProfile::class)->create($selection['daily'], $selection['fallback']);
+            $profile['warnings'] = array_merge($profile['warnings'], $demand['warnings']);
+
+            return $profile;
         });
     }
 
@@ -41,7 +45,7 @@ class WeekdayDemand
             $weekdays[$day]['days']++;
         }
         $days = array_sum(array_column($weekdays, 'days'));
-        throw_unless($days > 0, \RuntimeException::class, '直近3か月の販売・出荷実績が未連携のため、在庫推移を計算できません。');
+        throw_unless($days > 0, \RuntimeException::class, '対象期間の販売・出荷実績が未連携のため、在庫推移を計算できません。');
         $mean = array_sum(array_column($weekdays, 'total')) / $days;
         foreach ($weekdays as &$day) {
             $day['mean'] = $day['days'] ? $day['total'] / $day['days'] : $mean;
