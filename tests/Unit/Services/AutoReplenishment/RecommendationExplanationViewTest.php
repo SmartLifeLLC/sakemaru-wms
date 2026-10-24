@@ -20,6 +20,7 @@ class RecommendationExplanationViewTest extends TestCase
         Livewire::test(RecommendationExplanationFixture::class, ['form' => $recommendation['values'], 'recommendation' => $recommendation])
             ->assertSee('2026-09-26〜2026-10-23')->assertSee('観測 28日')
             ->assertSee('平均 1.00バラ／日')->assertSee('発注実績期間：2026-08-01〜2026-10-23')
+            ->assertSee('当日入荷予定は計算上の在庫に加算し、未入荷残から差し引きます。')
             ->assertDontSee('算定根拠・実績を確認 （2026-08-01');
     }
 
