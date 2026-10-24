@@ -17,6 +17,9 @@
             width: max-content !important;
             min-width: 100%;
         }
+        .hq-order-candidate-table thead button {
+            white-space: nowrap;
+        }
         .sales-based-transfer-preview-modal .hq-order-candidate-table :is(th, td):is(:nth-child(2), :nth-child(3)) {
             width: auto !important;
             min-width: 0 !important;
