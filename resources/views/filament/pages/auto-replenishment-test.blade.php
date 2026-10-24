@@ -33,8 +33,8 @@
                 @forelse($shortSteps as $step)<p>{{ $step }}</p>@empty<p>表示された保留理由を確認してください。</p>@endforelse
                 @if(count($steps)>4)<details><summary>計算の詳細</summary>@foreach($steps as $step)<p>{{ $step }}</p>@endforeach</details>@endif
             </section>
-            @if($test['arrival_date'])<p class="ar-help">日付は業務日 {{ $formatTestDate($test['business_date']) }} と既存の納品曜日・休日・配送コースから算定します。</p>@endif
-            <p class="ar-help">{{ $test['observed_at'] }} ／ 設定版 {{ $test['policy_version'] }}。確定時に在庫・既発注を再確認します。</p>
+            @if($test['simulation_at'] ?? null)<p class="ar-help">試算基準：{{ \Carbon\Carbon::parse($test['simulation_at'])->format('Y/m/d H:i') }}（倉庫の設定時刻）。グラフと同じ基準です。実際の発注は実行時刻で再判定します。</p>@endif
+            <p class="ar-help">在庫・予定の取得：{{ $test['observed_at'] }} ／ 設定版 {{ $test['policy_version'] }}。確定時に在庫・既発注を再確認します。</p>
         @else
             <div class="ar-test-empty">「仮計算を実行」で、発注数量・{{ $logistics ? '出庫日・入庫日' : '入荷予定日' }}・計算式を確認できます。</div>
         @endif

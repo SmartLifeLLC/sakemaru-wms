@@ -334,6 +334,66 @@ class TransferSupplyReaderTest extends TestCase
         ]));
     }
 
+    #[DataProvider('simulationCutoffCases')]
+    public function test_simulation_uses_graph_schedule_while_execution_keeps_actual_cutoff(string $businessDate, string $clock, array $config, string $expectedSimulation, string $expectedExecution): void
+    {
+        config(['app.timezone' => 'Asia/Tokyo']);
+        $values = [
+            'client_id' => 6, 'warehouse_id' => 1, 'item_id' => 143024, 'contractor_id' => 10,
+            'supplier_id' => 10, 'channel' => 'EOS', 'strategy_key' => 'arrival_batch_v1',
+            'calculation_basis' => ['mean_daily' => 28.61],
+            'reorder_point_pieces' => 264, 'target_stock_pieces' => 288,
+            'min_order_pieces' => 192, 'max_order_pieces' => 192, 'order_multiple_pieces' => 24,
+        ];
+        $this->snapshot($values, $config, fn (int $contractor, int $warehouse, Carbon $day) => $day->copy()->addDay());
+        DB::connection('sakemaru')->table('client_settings')->update(['system_date' => $businessDate]);
+        DB::connection('sakemaru')->table('real_stocks')->update(['current_quantity' => 127]);
+        $this->travelTo(Carbon::parse($clock, 'Asia/Tokyo'));
+        $calendar = app(ArrivalCalendar::class);
+        $calendar->shouldReceive('earliestArrivalDates')->andReturnUsing(fn ($contractor, $warehouse, $days) => array_map(fn ($day) => $day->copy()->addDay(), $days));
+        $calendar->shouldReceive('deliveryDays')->andReturn(['weekdays' => range(1, 6), 'holidays' => [], 'sunday_master_enabled' => false]);
+        $graph = app(\App\Services\AutoReplenishment\InventoryProjectionCalendar::class)->read(1, 10, 'EOS', $businessDate, $config);
+        $policy = new WmsItemReorderPolicy($values);
+        $reader = new SnapshotReader;
+        $test = (new PolicySimulationService($reader, new ProposalSafety, new LogisticsPickingDate))->simulate($policy);
+        self::assertSame($expectedSimulation, $test['arrival_date']);
+        self::assertSame($graph['arrivals'][$businessDate], $test['arrival_date']);
+        self::assertSame($businessDate.' '.app(GenerationSchedule::class)->executionTimeForDate($businessDate, $config).':00', $test['simulation_at']);
+        $snapshot = $reader->readForSimulation($policy, includeSupplyDates: true);
+        $projection = app(\App\Services\AutoReplenishment\InventoryProjection::class)->calculate($values, [
+            'snapshot' => $snapshot, 'calendar' => $graph,
+            'demand' => ['weekdays' => array_fill(0, 7, ['mean' => 28.61])],
+            'picking_lead_days' => 0, 'observed_at' => $clock,
+        ]);
+        self::assertSame($test['simulation_at'], $projection['simulation_at']);
+        self::assertSame($test['phase'], $projection['days'][0]['phase']);
+        self::assertSame($test['quantity_pieces'], $projection['days'][0]['ordered']);
+        self::assertSame($expectedSimulation === Carbon::parse($businessDate)->addDay()->toDateString() ? 0 : 192, $test['quantity_pieces']);
+        // readOnly avoids cache/lock side effects but must not opt execution into simulation timing.
+        $execution = $reader->read($policy, readOnly: true);
+        self::assertSame($expectedExecution, $execution['arrival_date']);
+        self::assertArrayNotHasKey('simulation_at', $execution);
+        DB::connection('sakemaru')->statement('CREATE TABLE item_prices (id INTEGER, item_id INTEGER, is_active INTEGER, start_date TEXT)');
+        $execution = $reader->read($policy);
+        self::assertSame($expectedExecution, $execution['arrival_date']);
+        self::assertArrayNotHasKey('simulation_at', $execution);
+        self::assertSame(Carbon::parse($clock, 'Asia/Tokyo')->toIso8601String(), now()->toIso8601String());
+        self::assertSame(0, DB::connection('sakemaru')->table('wms_order_candidates')->count());
+        self::assertSame(0, DB::connection('sakemaru')->table('wms_auto_order_run_lines')->count());
+    }
+
+    public static function simulationCutoffCases(): array
+    {
+        return [
+            'morning schedule viewed after cutoff' => ['2026-10-14', '2026-10-14 13:30:00', ['execution_time' => '10:00'], '2026-10-15', '2026-10-16'],
+            'cutoff schedule viewed before cutoff' => ['2026-10-14', '2026-10-14 12:59:59', ['execution_time' => '13:00'], '2026-10-16', '2026-10-15'],
+            'just before configured cutoff' => ['2026-10-14', '2026-10-14 13:00:00', ['execution_time' => '12:59'], '2026-10-15', '2026-10-16'],
+            'both after cutoff' => ['2026-10-14', '2026-10-14 13:00:00', ['execution_time' => '13:00'], '2026-10-16', '2026-10-16'],
+            'Sunday uses separate time without weekday cutoff' => ['2026-10-18', '2026-10-18 23:30:00', ['execution_time' => '10:00', 'sunday_execution_time' => '22:00'], '2026-10-19', '2026-10-19'],
+            'business date differs from wall date' => ['2026-10-14', '2026-10-24 23:30:00', ['execution_time' => '10:00'], '2026-10-15', '2026-10-16'],
+        ];
+    }
+
     public function test_fax_editor_snapshot_needs_no_jx_code_and_cannot_be_used_for_execution(): void
     {
         $snapshot = $this->snapshot(['channel' => 'FAX', 'is_enabled' => false]);
@@ -655,11 +715,11 @@ class TransferSupplyReaderTest extends TestCase
         return [
             'next scheduled afternoon passes the existing weekday cutoff' => [
                 '2026-10-14 10:00:00', ['weekdays' => [3, 4], 'execution_time' => '14:00', 'sunday_execution_time' => '22:00'],
-                ['2026-10-14', '2026-10-16'], '2026-10-17',
+                ['2026-10-15', '2026-10-16'], '2026-10-17',
             ],
             'current afternoon does not move the next morning order' => [
                 '2026-10-14 14:00:00', ['weekdays' => [3, 4], 'execution_time' => '10:00', 'sunday_execution_time' => '22:00'],
-                ['2026-10-15', '2026-10-15'], '2026-10-16',
+                ['2026-10-14', '2026-10-15'], '2026-10-16',
             ],
             'Sunday evening retains the existing Sunday exception' => [
                 '2026-10-14 10:00:00', ['weekdays' => [3, 0], 'execution_time' => '10:00', 'sunday_execution_time' => '22:00'],

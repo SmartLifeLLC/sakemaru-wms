@@ -117,6 +117,7 @@ class InventoryProjection
             'incoming' => $snapshot['incoming'], 'claims' => $snapshot['claims'], 'undated_incoming' => $unknown,
             'outstanding_after_period' => array_sum(array_column($events, 'pieces')), 'demand' => $input['demand'],
             'calendar' => $input['calendar'], 'capacity_case' => $snapshot['capacity_case'], 'quantity_type' => $snapshot['quantity_type'],
-            'point' => $policy['reorder_point_pieces'], 'target' => $policy['target_stock_pieces'], 'observed_at' => $input['observed_at']];
+            'point' => $policy['reorder_point_pieces'], 'target' => $policy['target_stock_pieces'], 'observed_at' => $input['observed_at'],
+            'simulation_at' => $snapshot['simulation_at'] ?? null];
     }
 }

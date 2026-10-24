@@ -65,10 +65,10 @@ class SnapshotReader
 
         // A receipt commits destination stock and the transfer state together.
         // Keep all simulation reads at one snapshot without locking or writing.
-        return DB::connection('sakemaru')->transaction(fn () => $this->read($policy, readOnly: true, includeSupplyDates: $includeSupplyDates));
+        return DB::connection('sakemaru')->transaction(fn () => $this->read($policy, readOnly: true, includeSupplyDates: $includeSupplyDates, scheduledSimulation: true));
     }
 
-    public function read(WmsItemReorderPolicy $policy, ?int $excludeLineId = null, bool $readOnly = false, bool $includeSupplyDates = false): array
+    public function read(WmsItemReorderPolicy $policy, ?int $excludeLineId = null, bool $readOnly = false, bool $includeSupplyDates = false, bool $scheduledSimulation = false): array
     {
         // FAX preview is limited to an unsaved, disabled editor model. The batch
         // and ON validation call read() without readOnly and always reject FAX.
@@ -108,6 +108,14 @@ class SnapshotReader
         throw_if(($item->start_of_sale_date && Carbon::parse($item->start_of_sale_date)->gt(Carbon::parse($businessDate))) || ($item->end_of_sale_date && Carbon::parse($item->end_of_sale_date)->lt(Carbon::parse($businessDate))), \RuntimeException::class, '商品が販売期間外です。');
         $setting = $this->once('setting:'.$policy->warehouse_id, fn () => $db->table('wms_warehouse_auto_order_settings')->where('warehouse_id', $policy->warehouse_id)->first());
         $config = json_decode($setting?->replenishment_config ?? '{}', true, 512, JSON_THROW_ON_ERROR);
+        // Match the graph's business-date schedule only for display simulations.
+        // Execution (including read-only batch probes) keeps the actual clock.
+        $simulationAt = $scheduledSimulation && $readOnly
+            ? Carbon::parse($businessDate, 'Asia/Tokyo')->setTimeFromTimeString(app(GenerationSchedule::class)->executionTimeForDate($businessDate, $config))
+            : null;
+        if ($simulationAt) {
+            $this->observation['simulation_at'] = $simulationAt->format('Y-m-d H:i:s');
+        }
         $allocationIds = $this->once('normal_allocation_ids:'.$clientId, fn () => $db->table('stock_allocations')
             ->where(['client_id' => $clientId, 'is_active' => true, 'code' => 1])->pluck('id')->map(fn ($id) => (int) $id)->all());
         throw_unless(count($allocationIds) === 1, \RuntimeException::class, '在庫区分「正常品」を特定できません。管理者に在庫区分の設定を確認してください。');
@@ -260,7 +268,7 @@ class SnapshotReader
         $sourceAllocationId = null;
         if (in_array($policy->channel, ['EOS', 'FAX'], true)) {
             $orderDay = Carbon::parse($businessDate);
-            if ($policy->channel === 'EOS' && ! $orderDay->isSunday() && now()->hour >= 13) {
+            if ($policy->channel === 'EOS' && ! $orderDay->isSunday() && ($simulationAt?->hour ?? now()->hour) >= 13) {
                 $orderDay->addDay();
             }
             $arrival = $this->once('arrival:'.$policy->contractor_id.':'.$policy->warehouse_id, fn () => $faxReference
@@ -341,7 +349,8 @@ class SnapshotReader
             'shipping_unit' => $shippingUnit,
             'master_warnings' => $warnings,
             'policy' => $policy->toArray(), 'observed_at' => now()->toIso8601String(),
-        ] + ($includeSupplyDates ? ['supply_events' => $supplyEvents] : []);
+        ] + ($includeSupplyDates ? ['supply_events' => $supplyEvents] : [])
+            + ($simulationAt ? ['simulation_at' => $simulationAt->format('Y-m-d H:i:s')] : []);
     }
 
     public function pieces(int $quantity, string $type, object $item): int

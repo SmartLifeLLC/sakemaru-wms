@@ -62,6 +62,7 @@ class PolicySimulationService
             'picking_lead_days' => $snapshot['route_snapshot']['effective_picking_lead_days'] ?? null,
             'business_date' => $snapshot['business_date'] ?? null, 'ordering_code' => $snapshot['ordering_code'] ?? null,
             'formula' => $formula, 'observed_at' => now()->format('Y/m/d H:i:s'), 'policy_version' => (int) $policy->version,
+            'simulation_at' => $snapshot['simulation_at'] ?? null,
             'shipping_unit' => $snapshot['shipping_unit'] ?? ['mode' => 'STANDARD'],
             'quantity_settings' => $policy->strategy_key === 'arrival_adaptive_v1' ? [
                 'normal' => $policy->calculation_basis['batch_quantity_pieces'] ?? null,

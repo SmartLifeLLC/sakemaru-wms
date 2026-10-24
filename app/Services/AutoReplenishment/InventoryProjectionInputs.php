@@ -33,7 +33,7 @@ class InventoryProjectionInputs
             $demand = app(WeekdayDemand::class)->read($client, $warehouse, (int) $form['item_id'], $snapshot['business_date']);
 
             return ['snapshot' => array_intersect_key($snapshot, array_flip(['stock', 'incoming', 'claims', 'supply_events', 'packing_unit',
-                'quantity_type', 'capacity_case', 'business_date', 'shipping_unit'])),
+                'quantity_type', 'capacity_case', 'business_date', 'shipping_unit', 'simulation_at'])),
                 'demand' => $demand, 'calendar' => $calendar, 'picking_lead_days' => (int) ($snapshot['route_snapshot']['effective_picking_lead_days'] ?? 0),
                 'observed_at' => now('Asia/Tokyo')->format('m/d H:i')];
         });
