@@ -6,6 +6,9 @@ use App\Enums\EMenu;
 use App\Enums\EMenuCategory;
 use App\Filament\Pages\WmsOrderRegistration;
 use App\Filament\Pages\WmsOrderRegistrationHq;
+use DOMDocument;
+use DOMXPath;
+use Illuminate\Support\Facades\Blade;
 use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionClass;
 use Tests\TestCase;
@@ -146,8 +149,9 @@ class WmsOrderRegistrationHqViewTest extends TestCase
         }
 
         $this->assertLessThan(strpos($header, '>総バラ数</th>'), strpos($header, '>総ケース数</th>'));
-        $this->assertSame(26, substr_count($header, '<th ') + 1, '登録リストの列数が空行の colspan と合っていません。');
-        $this->assertStringContainsString('colspan="26"', $contents);
+        // 備考2列は商品名の下へ移動したため、選択列を含む見出しは24列。
+        $this->assertSame(24, substr_count($header, '<th ') + 1, '登録リストの列数が空行の colspan と合っていません。');
+        $this->assertStringContainsString('colspan="24"', $contents);
         $this->assertStringContainsString('棚番<br>', $header);
         $this->assertStringContainsString('>発注点</span>', $header);
 
@@ -173,6 +177,73 @@ class WmsOrderRegistrationHqViewTest extends TestCase
         $this->assertStringContainsString('x-tooltip="{ content: @js($warehouseName), theme: $store.theme }"', $table);
         $this->assertStringContainsString('>{{ $warehouseCode }}</span>', $table);
         $this->assertStringNotContainsString('{{ $warehouseName }}</div>', $table);
+    }
+
+    #[DataProvider('registrationNotes')]
+    public function test_rendered_registration_rows_keep_notes_within_the_24_columns(string $itemNote, string $contractorNote, int $rowCount): void
+    {
+        $line = ['item_id' => 1, 'item_code' => '100001', 'item_name' => 'テスト商品', 'capacity_case' => 24,
+            'order_quantity' => 2, 'quantity_type' => 'CASE', 'warehouse_id' => 2, 'contractor_id' => 10,
+            'supplier_id' => 20, 'contractor_code' => '0010', 'contractor_name' => 'テスト発注先',
+            'is_eos_available' => true, 'order_channel' => 'EOS'];
+        $xpath = $this->renderRegistrationRows([$line, array_replace($line, ['quantity_type' => 'PIECE', 'order_quantity' => 7,
+            'is_eos_available' => false, 'order_channel' => 'FAX'])], [
+                ['item_contractor_note' => $itemNote, 'contractor_order_conditions' => $contractorNote],
+            ]);
+        $groups = $xpath->query('//tbody[@data-hq-order-item]');
+        $this->assertCount(2, $groups);
+        foreach ($groups as $index => $group) {
+            $expectedRows = $index === 0 ? $rowCount : 1;
+            $this->assertCount($expectedRows, $xpath->query('./tr', $group));
+            $cells = $xpath->query('./tr[1]/td', $group);
+            $this->assertCount(24, $cells);
+            $this->assertSame('100001', trim($cells->item(4)->textContent));
+            $this->assertSame($index === 0 ? '2' : '0.29', trim($cells->item(11)->textContent));
+            $this->assertSame($index === 0 ? '48' : '7', trim($cells->item(12)->textContent));
+            // 商品CD・商品名・容量の3列だけが備考の下段を使用する。
+            $this->assertCount(21, $xpath->query('./tr[1]/td[@rowspan="'.$expectedRows.'"]', $group));
+            if ($expectedRows === 2) {
+                $notes = $xpath->query('./tr[2]/td', $group);
+                $this->assertCount(1, $notes);
+                $this->assertSame(24, (int) $notes->item(0)->getAttribute('colspan')
+                    + $xpath->query('./tr[1]/td[@rowspan="2"]', $group)->length);
+            }
+        }
+    }
+
+    public function test_rendered_empty_registration_row_spans_all_24_columns(): void
+    {
+        $xpath = $this->renderRegistrationRows([]);
+        $this->assertCount(0, $xpath->query('//tbody[@data-hq-order-item]'));
+        $cells = $xpath->query('//tbody/tr/td');
+        $this->assertCount(1, $cells);
+        $this->assertSame('24', $cells->item(0)->getAttribute('colspan'));
+        $this->assertSame('登録リストは空です', trim($cells->item(0)->textContent));
+    }
+
+    public static function registrationNotes(): array
+    {
+        return [
+            'no notes' => ['', '', 1],
+            'item note only' => ['商品備考', '', 2],
+            'contractor note only' => ['', '発注先備考', 2],
+            'both notes' => ['商品備考', '発注先備考', 2],
+        ];
+    }
+
+    private function renderRegistrationRows(array $lines, array $details = []): DOMXPath
+    {
+        $contents = file_get_contents(resource_path(self::PAGE_VIEW));
+        $rows = $this->between($contents, '@forelse ($visibleLines as $index => $line)', '@endforelse').'@endforelse';
+        $html = Blade::render('<table>'.$rows.'</table>', [
+            'visibleLines' => collect($lines), 'lineDetails' => $details, 'lineReferences' => [],
+            'formatWarehouseCode' => fn ($id) => (string) $id,
+            'warehouseNameForLine' => fn ($line) => 'テスト店',
+        ]);
+        $document = new DOMDocument;
+        $document->loadHTML('<?xml encoding="UTF-8">'.$html, LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_NONET);
+
+        return new DOMXPath($document);
     }
 
     public function test_hq_page_uses_hq_components_only_for_changed_parts(): void
