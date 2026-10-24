@@ -19,6 +19,10 @@ class InventoryProjection
             $policy[$key] = (int) $value;
         }
         throw_if($policy['min_order_pieces'] > $policy['max_order_pieces'], \RuntimeException::class, '最小発注数は最大発注数以下で入力してください。');
+        $forecast = app(DemandProfile::class);
+        $basis = $policy['calculation_basis'] ?? [];
+        $usesForecast = in_array($policy['strategy_key'] ?? '', ['arrival_batch_v1', 'arrival_adaptive_v1'], true);
+        $profile = $usesForecast || array_key_exists('demand_profile', $basis) || isset($basis['mean_daily']) ? $forecast->fromBasis($basis) : $input['demand'];
         $snapshot = $input['snapshot'];
         if (($snapshot['shipping_unit']['mode'] ?? '') === 'PALLET') {
             $pallet = (int) $snapshot['shipping_unit']['pieces_per_pallet'];
@@ -87,7 +91,7 @@ class InventoryProjection
                     $events[] = ['date' => $arrival, 'pieces' => $proposal['quantity'], 'new' => true];
                 }
             }
-            $demand = (int) round($input['demand']['weekdays'][$date->dayOfWeek]['mean']);
+            $demand = $forecast->quantity($profile, $key, 1);
             // Missing sales do not create fictitious inventory debt. Actual negatives remain visible.
             $unmet = max(0, $demand - max(0, $stock));
             $stock = $stock < 0 ? $stock : max(0, $stock - $demand);
@@ -115,7 +119,7 @@ class InventoryProjection
             'minimum_day_demand' => $minimumDayDemand, 'safety_stock_pieces' => $safetyStock,
             'low_stock_buffer' => $minimumStock <= 0 || $minimumStock < max($minimumDayDemand, $safetyStock),
             'incoming' => $snapshot['incoming'], 'claims' => $snapshot['claims'], 'undated_incoming' => $unknown,
-            'outstanding_after_period' => array_sum(array_column($events, 'pieces')), 'demand' => $input['demand'],
+            'outstanding_after_period' => array_sum(array_column($events, 'pieces')), 'demand' => $profile,
             'calendar' => $input['calendar'], 'capacity_case' => $snapshot['capacity_case'], 'quantity_type' => $snapshot['quantity_type'],
             'point' => $policy['reorder_point_pieces'], 'target' => $policy['target_stock_pieces'], 'observed_at' => $input['observed_at'],
             'simulation_at' => $snapshot['simulation_at'] ?? null];

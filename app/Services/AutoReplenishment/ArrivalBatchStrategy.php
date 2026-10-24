@@ -64,16 +64,22 @@ final class ArrivalBatchStrategy
             return $this->result('HOLD', '最小発注数を発注単位に合わせると、最大発注数または補充目標を超えます。数量条件を確認してください。');
         }
         // Do not spend future receipts/claims before they arrive. Keep all of them in the position.
-        $outgoing = (int) floor((float) $mean * $days);
+        try {
+            $forecast = app(DemandProfile::class);
+            $profile = $forecast->fromBasis($policy['calculation_basis']);
+            $outgoing = $forecast->quantity($profile, $snapshot['business_date'], $days);
+        } catch (\RuntimeException $e) {
+            return $this->result('HOLD', $e->getMessage());
+        }
         // Retain actual negative stock. Forecast demand must not manufacture additional debt.
         $remaining = $stock < 0 ? $stock : max(0, $stock - $outgoing);
         $position = $remaining + $incoming + $claims;
         if (($policy['strategy_key'] ?? '') === 'arrival_adaptive_v1') {
-            return $this->adaptive($policy, $snapshot, $remaining, $batch, $multiple, $days, $outgoing);
+            return $this->adaptive($policy, $snapshot, $remaining, $batch, $multiple, $days, $outgoing, $profile);
         }
         $after = $position + $batch;
         $formula = [
-            '入荷までの出荷見込：1日平均 '.round((float) $mean, 2)." × {$days}日 ＝ {$outgoing}バラ",
+            $forecast->formula($profile, $snapshot['business_date'], $days),
             "補充後見込：在庫残 {$remaining} ＋ 入荷予定 {$incoming} ＋ 発注候補 {$claims} ＋ 今回 {$batch} ＝ {$after}バラ",
         ];
         if ($stock >= $r) {
@@ -91,7 +97,7 @@ final class ArrivalBatchStrategy
         return $this->result('READY', '補充目標内の1回分を発注します。', $formula, $batch);
     }
 
-    private function adaptive(array $policy, array $snapshot, int $remaining, int $minimum, int $unit, int $days, int $outgoing): array
+    private function adaptive(array $policy, array $snapshot, int $remaining, int $minimum, int $unit, int $days, int $outgoing, array $profile): array
     {
         $point = (int) $policy['reorder_point_pieces'];
         $target = (int) ($policy['target_stock_pieces'] ?? $point);
@@ -100,7 +106,7 @@ final class ArrivalBatchStrategy
         $claims = $snapshot['claims'];
         $position = $remaining + $incoming + $claims;
         $formula = [
-            '入荷までの出荷見込：1日平均 '.round((float) $policy['calculation_basis']['mean_daily'], 2)." × {$days}日 ＝ {$outgoing}バラ",
+            app(DemandProfile::class)->formula($profile, $snapshot['business_date'], $days),
             "補充前見込：在庫残 {$remaining} ＋ 入荷予定 {$incoming} ＋ 発注候補 {$claims} ＝ {$position}バラ",
         ];
         if (isset($policy['calculation_basis']['safety_stock_days'])) {
@@ -164,7 +170,11 @@ final class ArrivalBatchStrategy
             }
             // Undated/unconfirmed supply must not be assumed available before the next arrival.
             // All such supply remains counted above, so this exception never increases the stock cap.
-            $untilNext = (int) ceil((float) $policy['calculation_basis']['mean_daily'] * $nextDays);
+            try {
+                $untilNext = app(DemandProfile::class)->quantity($profile, $snapshot['business_date'], $nextDays);
+            } catch (\RuntimeException $e) {
+                return $this->result('HOLD', $e->getMessage(), $formula);
+            }
             $risk = $stock - $untilNext <= 0 && $nextDays > $days;
             $formula[] = "通常量の判定：今回 {$quantity} ＜ まとめ発注の目安 {$usual}バラ";
             $formula[] = "次回入荷 {$next->format('Y/m/d')} までの出荷見込 {$untilNext}バラ（現在庫 {$stock}バラ・未入荷分の到着は未保証）";

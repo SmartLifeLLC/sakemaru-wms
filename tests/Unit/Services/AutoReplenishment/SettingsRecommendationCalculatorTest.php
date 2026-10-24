@@ -425,7 +425,7 @@ class SettingsRecommendationCalculatorTest extends TestCase
         self::assertSame(1500, $r['values']['reorder_point_pieces']);
         self::assertSame(600, $r['basis']['review_interval_demand_pieces']);
         self::assertSame(2028, $r['values']['target_stock_pieces']);
-        self::assertSame('receipts-or-sales-adaptive-batch-v7', $r['basis']['method']);
+        self::assertSame('receipts-or-sales-adaptive-batch-v8', $r['basis']['method']);
         $h['review_interval_days'] = 0;
         self::assertFalse(app(SettingsRecommendationCalculator::class)->calculate($h)['available']);
     }
