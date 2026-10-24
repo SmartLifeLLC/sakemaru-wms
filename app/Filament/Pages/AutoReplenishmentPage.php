@@ -521,7 +521,11 @@ abstract class AutoReplenishmentPage extends AdminPage
     public function refreshInventoryProjection(bool $reload = false): void
     {
         $client = $this->authorizeOperation('auto-replenishment-settings', 'edit');
-        abort_unless($this->showEditor && static::$screen === 'settings', 403);
+        abort_unless(static::$screen === 'settings', 403);
+        // Livewire may bundle a pending refresh with the editor's close update.
+        if (! $this->showEditor) {
+            return;
+        }
         $this->assertEditorRoute();
         $this->inventoryProjection = null;
         $this->inventoryProjectionError = null;

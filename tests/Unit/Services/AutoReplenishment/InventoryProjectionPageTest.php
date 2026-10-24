@@ -90,10 +90,28 @@ class InventoryProjectionPageTest extends TestCase
         $page->refreshInventoryProjection();
     }
 
-    public function test_closed_editor_cannot_be_used_to_load_stock(): void
+    public function test_late_refresh_after_closing_editor_is_ignored_without_loading_stock(): void
+    {
+        $reader = Mockery::mock(InventoryProjectionInputs::class);
+        $reader->shouldNotReceive('read');
+        $this->app->instance(InventoryProjectionInputs::class, $reader);
+        $page = $this->page();
+        $page->inventoryProjectionInputs = InventoryProjectionTest::inputs();
+        $page->showEditor = false;
+
+        $page->refreshInventoryProjection();
+        $page->refreshInventoryProjection(true);
+
+        self::assertNull($page->inventoryProjection);
+        self::assertNull($page->inventoryProjectionError);
+        self::assertFalse($page->form['is_enabled']);
+    }
+
+    public function test_closed_editor_still_requires_edit_permission(): void
     {
         $page = $this->page();
         $page->showEditor = false;
+        $this->allowEdit = false;
         $this->expectException(HttpException::class);
         $page->refreshInventoryProjection();
     }
