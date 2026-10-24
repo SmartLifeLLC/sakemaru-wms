@@ -1102,8 +1102,6 @@
                 <col class="logistics-candidate-number-col" style="width: 54px !important;">
                 <col class="logistics-candidate-number-col" style="width: 54px !important;">
                 <col class="logistics-candidate-date-col" style="width: 136px !important;">
-                <col style="width: 240px;">
-                <col style="width: 240px;">
                 <col class="logistics-candidate-contractor-col" style="width: 180px !important;">
                 </colgroup>
                 <thead class="sticky top-0 z-10 bg-slate-100 text-slate-700 shadow-sm dark:bg-slate-800 dark:text-slate-200">
@@ -1133,17 +1131,15 @@
                             <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="3週" align="right" /></th>
                             <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="前月" align="right" /></th>
                             <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold"><x-order-registration.column-help-heading label="予定日" align="center" /></th>
-                            <th class="px-2 py-1.5 text-left"><x-order-registration.column-help-heading label="発注先備考" /></th>
-                            <th class="px-2 py-1.5 text-left"><x-order-registration.column-help-heading label="商品備考" /></th>
                             <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold" style="width: 180px !important; min-width: 180px !important; max-width: 180px !important;"><x-order-registration.column-help-heading label="発注先" /></th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
                     <template x-for="(item, index) in results" :key="item.id">
-                        <tr
+                        <tbody data-hq-order-item
                             :class="index % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-[#f5f9ff] dark:bg-[#1e2a3b]'"
-                            class="hover:bg-amber-50 dark:hover:bg-amber-950/30"
-                        ><td class="whitespace-nowrap px-2 py-1.5 font-mono text-slate-700 dark:text-slate-200" x-text="item.code"></td>
+                            class="border-b border-slate-100 hover:bg-amber-50 dark:border-slate-800 dark:hover:bg-amber-950/30"
+                        >
+                        <tr><td class="whitespace-nowrap px-2 py-1.5 font-mono text-slate-700 dark:text-slate-200" x-text="item.code"></td>
                                 <td
                                 class="logistics-candidate-item-name px-2 py-1.5 font-medium text-slate-900 dark:text-white"
 
@@ -1158,8 +1154,8 @@
                                 ></span>
                             </td>
                                 <td class="whitespace-nowrap px-2 py-1.5 text-slate-600 dark:text-slate-300" x-text="formatPackaging(item)"></td>
-                                <td class="whitespace-nowrap px-2 py-1.5 font-mono"><div x-text="item.default_location_code || ''"></div><div class="text-xs text-slate-500">発注点 <span x-text="formatNumber(item.safety_stock)"></span></div></td>
-                                <td class="logistics-candidate-order-qty whitespace-nowrap border-l-2 border-slate-300 bg-amber-50 px-1 py-1.5 text-center dark:border-slate-600 dark:bg-amber-950/30">
+                                <td x-bind:rowspan="[item.item_contractor_note, item.contractor_order_conditions].some(note => String(note || '').trim()) ? 2 : 1" class="whitespace-nowrap px-2 py-1.5 font-mono"><div x-text="item.default_location_code || ''"></div><div class="text-xs text-slate-500">発注点 <span x-text="formatNumber(item.safety_stock)"></span></div></td>
+                                <td x-bind:rowspan="[item.item_contractor_note, item.contractor_order_conditions].some(note => String(note || '').trim()) ? 2 : 1" class="logistics-candidate-order-qty whitespace-nowrap border-l-2 border-slate-300 bg-amber-50 px-1 py-1.5 text-center dark:border-slate-600 dark:bg-amber-950/30">
                                 <input
                                     type="text"
                                     inputmode="numeric"
@@ -1181,7 +1177,7 @@
                                     class="w-[58px] rounded-md border-2 border-amber-300 bg-white px-1 py-0.5 text-right text-sm font-semibold text-slate-900 shadow-sm focus:border-amber-500 focus:ring-2 focus:ring-amber-200 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 dark:border-amber-700 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-amber-500 dark:focus:ring-amber-900 dark:disabled:border-slate-700 dark:disabled:bg-slate-800"
                                 >
                             </td>
-                                <td class="logistics-candidate-order-qty whitespace-nowrap bg-amber-50 px-1 py-1.5 text-center dark:bg-amber-950/30">
+                                <td x-bind:rowspan="[item.item_contractor_note, item.contractor_order_conditions].some(note => String(note || '').trim()) ? 2 : 1" class="logistics-candidate-order-qty whitespace-nowrap bg-amber-50 px-1 py-1.5 text-center dark:bg-amber-950/30">
                                 <input
                                     type="text"
                                     inputmode="numeric"
@@ -1203,8 +1199,8 @@
                                     class="w-[58px] rounded-md border-2 border-amber-300 bg-white px-1 py-0.5 text-right text-sm font-semibold text-slate-900 shadow-sm focus:border-amber-500 focus:ring-2 focus:ring-amber-200 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 dark:border-amber-700 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-amber-500 dark:focus:ring-amber-900 dark:disabled:border-slate-700 dark:disabled:bg-slate-800"
                                 >
                             </td>
-                                <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono font-bold text-sky-700 dark:text-sky-300" style="width: 74px !important; min-width: 74px !important; max-width: 74px !important;" x-text="formatNumber(orderTotalPieces(item))"></td>
-                                <td class="whitespace-nowrap px-2 py-1.5" style="width: 92px !important; min-width: 92px !important; max-width: 92px !important;">
+                                <td x-bind:rowspan="[item.item_contractor_note, item.contractor_order_conditions].some(note => String(note || '').trim()) ? 2 : 1" class="whitespace-nowrap px-2 py-1.5 text-right font-mono font-bold text-sky-700 dark:text-sky-300" style="width: 74px !important; min-width: 74px !important; max-width: 74px !important;" x-text="formatNumber(orderTotalPieces(item))"></td>
+                                <td x-bind:rowspan="[item.item_contractor_note, item.contractor_order_conditions].some(note => String(note || '').trim()) ? 2 : 1" class="whitespace-nowrap px-2 py-1.5" style="width: 92px !important; min-width: 92px !important; max-width: 92px !important;">
                                 <div class="flex justify-end">
                                     <button
                                         type="button"
@@ -1215,28 +1211,26 @@
                                     ></button>
                                 </div>
                             </td>
-                                <td class="whitespace-nowrap px-2 py-1.5 text-center font-mono text-slate-700 dark:text-slate-200">
+                                <td x-bind:rowspan="[item.item_contractor_note, item.contractor_order_conditions].some(note => String(note || '').trim()) ? 2 : 1" class="whitespace-nowrap px-2 py-1.5 text-center font-mono text-slate-700 dark:text-slate-200">
                                 <div class="space-y-0.5 leading-4">
                                     <div x-text="formatShortDate(item.last_incoming_date)"></div>
                                     <div x-show="item.last_incoming_date" class="text-[11px] text-slate-500 dark:text-slate-400" x-text="formatCasePiece(item.last_incoming_date, item.last_incoming_case_qty, item.last_incoming_piece_qty)"></div>
                                 </div>
                             </td>
-                                <td class="whitespace-nowrap px-2 py-1.5 text-center font-mono text-slate-700 dark:text-slate-200">
+                                <td x-bind:rowspan="[item.item_contractor_note, item.contractor_order_conditions].some(note => String(note || '').trim()) ? 2 : 1" class="whitespace-nowrap px-2 py-1.5 text-center font-mono text-slate-700 dark:text-slate-200">
                                 <div class="space-y-0.5 leading-4">
                                     <div x-text="formatShortDate(item.last_purchase_date)"></div>
                                     <div x-show="item.last_purchase_date" class="text-[11px] text-slate-500 dark:text-slate-400" x-text="formatCasePiece(item.last_purchase_date, item.last_purchase_case_qty, item.last_purchase_piece_qty)"></div>
                                 </div>
                             </td>
-                                <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week1_qty)"></td>
-                                <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week2_qty)"></td>
-                                <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week3_qty)"></td>
-                                <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.previous_month_sales_qty)"></td>
-                                <td class="whitespace-nowrap px-1 py-1.5 text-center">
+                                <td x-bind:rowspan="[item.item_contractor_note, item.contractor_order_conditions].some(note => String(note || '').trim()) ? 2 : 1" class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week1_qty)"></td>
+                                <td x-bind:rowspan="[item.item_contractor_note, item.contractor_order_conditions].some(note => String(note || '').trim()) ? 2 : 1" class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week2_qty)"></td>
+                                <td x-bind:rowspan="[item.item_contractor_note, item.contractor_order_conditions].some(note => String(note || '').trim()) ? 2 : 1" class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week3_qty)"></td>
+                                <td x-bind:rowspan="[item.item_contractor_note, item.contractor_order_conditions].some(note => String(note || '').trim()) ? 2 : 1" class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.previous_month_sales_qty)"></td>
+                                <td x-bind:rowspan="[item.item_contractor_note, item.contractor_order_conditions].some(note => String(note || '').trim()) ? 2 : 1" class="whitespace-nowrap px-1 py-1.5 text-center">
                                 <x-order-registration.date-input value="plannedDateFor(item)" min="today" x-on:hq-date-valid.stop="dateErrors[itemKey(item)] = false; setPlannedDate(item, $event.detail.value); syncToWire()" x-on:hq-date-invalid.stop="dateErrors[itemKey(item)] = true; syncToWire()" />
                             </td>
-                                <td class="px-2 py-1.5"><x-order-registration.note value="item.contractor_order_conditions" /></td>
-                                <td class="px-2 py-1.5"><x-order-registration.note value="item.item_contractor_note" /></td>
-                                <td class="px-2 py-1.5 text-slate-700 dark:text-slate-200" style="width: 180px !important; min-width: 180px !important; max-width: 180px !important;">
+                                <td x-bind:rowspan="[item.item_contractor_note, item.contractor_order_conditions].some(note => String(note || '').trim()) ? 2 : 1" class="px-2 py-1.5 text-slate-700 dark:text-slate-200" style="width: 180px !important; min-width: 180px !important; max-width: 180px !important;">
                                 <span x-show="String(item.contractor_code) === '9012'" class="block text-[10px] font-bold text-red-600 dark:text-red-400">移動発注対象</span>
                                 <span x-show="isUnhandledItem(item)" class="inline-flex rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-900/40 dark:text-red-200">取扱なし</span>
                                 <span x-show="!isUnhandledItem(item) && item.is_eos_available === false" class="inline-flex rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-bold text-green-700 dark:bg-green-900/40 dark:text-green-200">FAX専用</span>
@@ -1252,15 +1246,22 @@
                                 </button>
                             </td>
                         </tr>
+                            <template x-if="[item.item_contractor_note, item.contractor_order_conditions].some(note => String(note || '').trim())">
+                                <tr>
+                                    <td colspan="3" class="px-2 pb-1.5 text-left">
+                                        <x-order-registration.item-notes item="item.item_contractor_note" contractor="item.contractor_order_conditions" />
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
                     </template>
                     <template x-if="results.length === 0">
-                        <tr>
-                            <td colspan="18" class="px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">
+                <tbody><tr>
+                            <td colspan="16" class="px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">
                                 検索結果がありません
                             </td>
-                        </tr>
+                        </tr></tbody>
                     </template>
-                </tbody>
             </table>
         </div>
 
