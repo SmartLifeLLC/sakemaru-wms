@@ -1,4 +1,7 @@
 <x-filament-panels::page>
+    @once
+        <script src="{{ asset('js/hq-order-inputs.js') }}?v={{ filemtime(public_path('js/hq-order-inputs.js')) }}"></script>
+    @endonce
     {{--
         全画面モーダルを上部メニュー（z-index: 100）より前面に出す。
         ページ本体は .fi-page-header-main-ctn（theme.css で z-index: 60）の中にあり、モーダル側の z-index を
@@ -8,6 +11,29 @@
     <style>
         .fi-page-header-main-ctn:has([data-hq-modal]) {
             z-index: 9999 !important;
+        }
+        .sales-based-transfer-preview-modal .hq-order-candidate-table {
+            table-layout: auto !important;
+            width: max-content !important;
+            min-width: 100%;
+        }
+        .sales-based-transfer-preview-modal .hq-order-candidate-table :is(th, td):is(:nth-child(2), :nth-child(3)) {
+            width: auto !important;
+            min-width: 0 !important;
+            max-width: none !important;
+            overflow: visible !important;
+        }
+        .sales-based-transfer-preview-modal .hq-order-candidate-table .logistics-candidate-item-name {
+            width: auto !important;
+            min-width: 0 !important;
+            max-width: none !important;
+            white-space: nowrap !important;
+        }
+        @media (min-width: 1024px) {
+            [data-hq-registration-toolbar] .hq-bulk-arrival-date [role="alert"] {
+                max-width: none;
+                white-space: nowrap;
+            }
         }
     </style>
 
@@ -375,6 +401,7 @@
         };
         // 本部画面: 登録リストに表示する参考データ（発注点・理論在庫・最終入荷予定・最終仕入・週実績）
         $lineReferences = $this->registrationLineReferences();
+        $lineDetails = $this->registrationLineDetails();
         $weeklySalesHelps = $this->weeklySalesColumnHelps();
         $caseLabel = \App\Enums\QuantityType::CASE->name();
         $pieceLabel = \App\Enums\QuantityType::PIECE->name();
@@ -435,91 +462,101 @@
         </div>
 
         <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
-            <div class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-3 py-2 dark:border-gray-700">
-                <div>
-                    <div class="text-sm font-semibold text-slate-800 dark:text-gray-100">登録リスト</div>
-                    <div class="text-xs text-slate-500 dark:text-gray-400">確定時に発注確定済みデータ・入荷予定・PDFを作成</div>
-                </div>
-                <div class="flex flex-wrap items-center justify-end gap-3">
-                    <div class="flex flex-wrap items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700 dark:bg-gray-800 dark:text-gray-200">
+            <div data-hq-registration-toolbar class="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 dark:border-gray-700">
+                <div data-hq-toolbar-summary class="contents">
+                    <div class="shrink-0">
+                        <div class="text-sm font-semibold text-slate-800 dark:text-gray-100">登録リスト</div>
+                        <div title="確定時に発注確定済みデータ・入荷予定・PDFを作成" class="text-xs text-slate-500 dark:text-gray-400">確定時に発注・入荷予定・PDFを作成</div>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2 rounded-md bg-slate-50 px-2 py-1.5 text-xs font-bold text-slate-700 dark:bg-gray-800 dark:text-gray-200">
                         <span>
                             表示
-                            <span class="font-mono text-base text-slate-950 dark:text-white">{{ number_format($visibleLines->count()) }}</span>
+                            <span class="font-mono text-sm text-slate-950 dark:text-white">{{ number_format($visibleLines->count()) }}</span>
                             件 / 全
-                            <span class="font-mono text-base text-slate-950 dark:text-white">{{ number_format(count($lines)) }}</span>
+                            <span class="font-mono text-sm text-slate-950 dark:text-white">{{ number_format(count($lines)) }}</span>
                             件
                         </span>
                         <span class="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200">
                             総ケース数
-                            <span class="font-mono text-lg font-bold text-indigo-950 dark:text-indigo-100">{{ $visibleLineTotalCasesLabel }}</span>
+                            <span class="font-mono text-base font-bold text-indigo-950 dark:text-indigo-100">{{ $visibleLineTotalCasesLabel }}</span>
                             ケース
                         </span>
-                        <span class="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
-                            表示合計数量（総バラ合計）
-                            <span class="font-mono text-lg font-bold text-sky-950 dark:text-sky-100">{{ number_format($visibleLineTotalPieces) }}</span>
+                        <span title="表示中の明細の合計数量（総バラ合計）" class="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+                            総バラ数
+                            <span class="font-mono text-base font-bold text-sky-950 dark:text-sky-100">{{ number_format($visibleLineTotalPieces) }}</span>
                             バラ
                         </span>
                         <span class="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
                             表示合計
-                            <span class="font-mono text-lg font-bold text-emerald-950 dark:text-emerald-100">¥{{ number_format($visibleLineTotalAmount, 0) }}</span>
+                            <span class="font-mono text-base font-bold text-emerald-950 dark:text-emerald-100">¥{{ number_format($visibleLineTotalAmount, 0) }}</span>
                         </span>
                     </div>
-                    <form wire:submit.prevent="applyBulkExpectedArrivalDate" class="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-                        <span class="whitespace-nowrap text-xs font-semibold text-slate-600 dark:text-gray-300">
-                            選択 {{ number_format($selectedVisibleLineCount) }}件
-                        </span>
-                        <input
-                            type="date"
-                            min="{{ now()->toDateString() }}"
-                            wire:model.live="bulkExpectedArrivalDate"
-                            class="w-36 rounded-md border-slate-300 text-sm font-semibold dark:border-gray-600 dark:bg-gray-900"
-                        >
+                </div>
+                <div data-hq-toolbar-actions class="contents">
+                    <div class="flex max-w-full flex-wrap items-center gap-2">
+                        <form wire:submit.prevent="applyBulkExpectedArrivalDate" class="flex max-w-full flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+                            <span class="whitespace-nowrap text-xs font-semibold text-slate-600 dark:text-gray-300">
+                                選択 {{ number_format($selectedVisibleLineCount) }}件
+                            </span>
+                            <x-order-registration.date-input model="bulkExpectedArrivalDate" :min="json_encode(now()->toDateString())" label="一括入荷予定日" class="hq-bulk-arrival-date" />
+                            <button
+                                type="submit"
+                                wire:loading.attr="disabled"
+                                wire:target="applyBulkExpectedArrivalDate"
+                                @disabled($selectedVisibleLineCount === 0 || blank($this->bulkExpectedArrivalDate ?? ''))
+                                class="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-slate-800 px-2 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-gray-700"
+                            >
+                                <span wire:loading.remove wire:target="applyBulkExpectedArrivalDate">入荷予定日反映</span>
+                                <span wire:loading wire:target="applyBulkExpectedArrivalDate">反映中</span>
+                            </button>
+                        </form>
+                        <form wire:submit.prevent="applyBulkOrderChannel" class="flex max-w-full flex-wrap items-center gap-2 rounded-md border border-slate-200 px-2 py-1.5 dark:border-gray-700">
+                            <label class="inline-flex items-center gap-2 whitespace-nowrap text-xs font-semibold">一括発注区分
+                                <select wire:model="bulkOrderChannel" class="rounded-md border-slate-300 text-xs dark:border-gray-600 dark:bg-gray-900">
+                                    <option value="FAX">FAX発注</option><option value="EOS">EOS発注</option>
+                                </select>
+                            </label>
+                            <button type="submit" @disabled($selectedVisibleLineCount === 0) wire:loading.attr="disabled" wire:target="applyBulkOrderChannel" class="whitespace-nowrap rounded-md bg-slate-800 px-2 py-1.5 text-xs font-semibold text-white disabled:opacity-40">反映</button>
+                        </form>
+                    </div>
+                    <div class="flex max-w-full flex-wrap items-center gap-2">
                         <button
-                            type="submit"
+                            type="button"
+                            wire:click="refreshLineReferences"
                             wire:loading.attr="disabled"
-                            wire:target="applyBulkExpectedArrivalDate"
-                            @disabled($selectedVisibleLineCount === 0 || blank($this->bulkExpectedArrivalDate ?? ''))
-                            class="inline-flex items-center gap-1 rounded-md bg-slate-800 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-gray-700"
+                            wire:target="refreshLineReferences"
+                            @disabled($visibleLines->isEmpty())
+                            title="理論在庫・最終入荷予定・最終仕入・週実績を取得し直します"
+                            class="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800 dark:disabled:bg-gray-800 dark:disabled:text-gray-500"
                         >
-                            <span wire:loading.remove wire:target="applyBulkExpectedArrivalDate">入荷予定日反映</span>
-                            <span wire:loading wire:target="applyBulkExpectedArrivalDate">反映中</span>
+                            <x-heroicon-o-arrow-path class="h-4 w-4" />
+                            参考データ更新
                         </button>
-                    </form>
-                    <button
-                        type="button"
-                        wire:click="refreshLineReferences"
-                        wire:loading.attr="disabled"
-                        wire:target="refreshLineReferences"
-                        @disabled($visibleLines->isEmpty())
-                        title="理論在庫・最終入荷予定・最終仕入・週実績を取得し直します"
-                        class="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800 dark:disabled:bg-gray-800 dark:disabled:text-gray-500"
-                    >
-                        <x-heroicon-o-arrow-path class="h-4 w-4" />
-                        参考データ更新
-                    </button>
-                    <button
-                        type="button"
-                        wire:click="downloadRegistrationListPdf"
-                        wire:loading.attr="disabled"
-                        wire:target="downloadRegistrationListPdf"
-                        @disabled($visibleLines->isEmpty())
-                        class="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800 dark:disabled:bg-gray-800 dark:disabled:text-gray-500"
-                    >
-                        <x-heroicon-o-arrow-down-tray wire:loading.remove wire:target="downloadRegistrationListPdf" class="h-4 w-4" />
-                        <span wire:loading wire:target="downloadRegistrationListPdf" class="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700 dark:border-gray-600 dark:border-t-gray-200"></span>
-                        <span wire:loading.remove wire:target="downloadRegistrationListPdf">PDF出力</span>
-                        <span wire:loading wire:target="downloadRegistrationListPdf">出力中</span>
-                    </button>
-                    <div>
-                        <select
-                            wire:model.live="lineContractorFilter"
-                            class="w-72 rounded-md border-slate-300 px-3 py-2 text-sm font-semibold shadow-sm dark:border-gray-600 dark:bg-gray-900"
+                        <button
+                            type="button"
+                            wire:click="downloadRegistrationListPdf"
+                            wire:loading.attr="disabled"
+                            wire:target="downloadRegistrationListPdf"
+                            @disabled($visibleLines->isEmpty())
+                            class="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800 dark:disabled:bg-gray-800 dark:disabled:text-gray-500"
                         >
-                            <option value="">発注先すべて</option>
-                            @foreach ($contractorFilterOptions as $contractor)
-                                <option value="{{ $contractor['id'] }}">[{{ $contractor['code'] }}]{{ $contractor['name'] }}</option>
-                            @endforeach
-                        </select>
+                            <x-heroicon-o-arrow-down-tray wire:loading.remove wire:target="downloadRegistrationListPdf" class="h-4 w-4" />
+                            <span wire:loading wire:target="downloadRegistrationListPdf" class="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700 dark:border-gray-600 dark:border-t-gray-200"></span>
+                            <span wire:loading.remove wire:target="downloadRegistrationListPdf">PDF出力</span>
+                            <span wire:loading wire:target="downloadRegistrationListPdf">出力中</span>
+                        </button>
+                        <div>
+                            <select
+                                wire:model.live="lineContractorFilter"
+                                aria-label="発注先で絞り込み"
+                                class="w-48 max-w-full rounded-md border-slate-300 px-2 py-1.5 text-xs font-semibold shadow-sm dark:border-gray-600 dark:bg-gray-900"
+                            >
+                                <option value="">発注先すべて</option>
+                                @foreach ($contractorFilterOptions as $contractor)
+                                    <option value="{{ $contractor['id'] }}">[{{ $contractor['code'] }}]{{ $contractor['name'] }}</option>
+                                @endforeach
+                            </select>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -682,12 +719,11 @@
                             </th>
                             <th class="whitespace-nowrap px-2 py-2 text-center">行</th>
                             <th class="whitespace-nowrap px-2 py-2 text-center">発注区分</th>
-                            <th class="whitespace-nowrap px-2 py-2 text-center">入荷予定日</th>
                             <th class="whitespace-nowrap px-2 py-2 text-center">納入先</th>
-                            <th class="whitespace-nowrap px-2 py-2 text-left" title="発注先CDをクリックすると発注先を検索して変更できます">発注先</th>
-                            <th class="whitespace-nowrap px-2 py-2 text-left">[商品CD]商品名</th>
+                            <th class="whitespace-nowrap px-2 py-2 text-left">商品CD</th>
+                            <th class="whitespace-nowrap px-2 py-2 text-left">商品名</th>
                             <th class="whitespace-nowrap px-2 py-2 text-left" title="商品の容量とケース入数">容量x入数</th>
-                            <th class="whitespace-nowrap px-2 py-2 text-right" title="納入先倉庫・発注先・商品に設定されている発注点">発注点</th>
+                            <th class="whitespace-nowrap px-2 py-2 text-left">棚番<br><span class="text-xs">発注点</span></th>
                             <th class="whitespace-nowrap px-2 py-2 text-right" title="納入先倉庫の理論在庫。クリックすると他倉庫の在庫を確認できます">理論在庫</th>
                             <th class="whitespace-nowrap border-l-2 border-slate-300 bg-amber-100 px-2 py-2 text-right text-amber-900 dark:border-slate-600 dark:bg-amber-900/40 dark:text-amber-100">{{ $caseLabel }}</th>
                             <th class="whitespace-nowrap bg-amber-100 px-2 py-2 text-right text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">{{ $pieceLabel }}</th>
@@ -701,8 +737,12 @@
                             <th class="whitespace-nowrap px-2 py-2 text-right" title="{{ $weeklySalesHelps['前月'] ?? '' }}">前月</th>
                             <th class="whitespace-nowrap px-2 py-2 text-right">仕入原価</th>
                             <th class="whitespace-nowrap px-2 py-2 text-right">合計金額</th>
+                            <th class="whitespace-nowrap px-2 py-2 text-center">入荷予定日</th>
+                            <th class="px-2 py-2 text-left">発注先備考</th>
+                            <th class="px-2 py-2 text-left">商品備考</th>
+                            <th class="whitespace-nowrap px-2 py-2 text-left" title="発注先CDをクリックすると発注先を検索して変更できます">発注先</th>
                             <th class="sticky right-0 bg-slate-50 px-2 py-2 text-center dark:bg-gray-800">操作</th>
-                        </tr>
+                    </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100 dark:divide-gray-800">
                         @forelse ($visibleLines as $index => $line)
@@ -737,8 +777,7 @@
                                 // 容量x入数（例: 750ml x 6）。容量が未登録の商品は「- x 入数」。
                                 $volumeCapacityLabel = (filled($reference['volume_label'] ?? null) ? $reference['volume_label'] : '-').' x '.number_format($capacityCase);
                             @endphp
-                            <tr wire:key="registration-line-{{ $index }}" class="odd:bg-[#f5f9ff] even:bg-white dark:odd:bg-[#1e2a3b] dark:even:bg-gray-900">
-                                <td class="whitespace-nowrap px-2 py-2 text-center">
+                            <tr wire:key="registration-line-{{ $index }}" class="odd:bg-[#f5f9ff] even:bg-white dark:odd:bg-[#1e2a3b] dark:even:bg-gray-900"><td class="whitespace-nowrap px-2 py-2 text-center">
                                     <input
                                         type="checkbox"
                                         value="{{ $index }}"
@@ -760,14 +799,6 @@
                                         <span class="inline-flex items-center rounded bg-green-100 px-2 py-1 text-xs font-semibold text-green-700 dark:bg-green-900/40 dark:text-green-200">FAX固定</span>
                                     @endif
                                 </td>
-                                <td class="whitespace-nowrap px-2 py-2 text-center">
-                                    <input
-                                        type="date"
-                                        min="{{ now()->toDateString() }}"
-                                        wire:model.live="lines.{{ $index }}.expected_arrival_date"
-                                        class="w-32 rounded-md border-slate-300 text-sm dark:border-gray-600 dark:bg-gray-900"
-                                    >
-                                </td>
                                 <td class="whitespace-nowrap px-2 py-2 text-center font-mono text-sm font-bold text-slate-800 dark:text-gray-100">
                                     {{-- 倉庫名はマウスオーバーですぐ出す（ブラウザ標準の title は出るまでが遅く、気づきにくい） --}}
                                     <span
@@ -775,30 +806,10 @@
                                         class="cursor-help border-b border-dotted border-slate-400 dark:border-gray-500"
                                     >{{ $warehouseCode }}</span>
                                 </td>
-                                <td class="whitespace-nowrap px-2 py-2">
-                                    <button
-                                        type="button"
-                                        x-on:click.stop="openPicker($event, {{ $index }}, {{ $lineItemId }}, {{ (int) ($line['contractor_id'] ?? 0) }}, {{ (int) ($line['supplier_id'] ?? 0) }})"
-                                        title="発注先を検索して変更"
-                                        data-hq-contractor-picker-trigger
-                                        class="inline-flex w-28 items-center justify-between gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 font-mono text-sm font-bold text-slate-800 shadow-sm hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
-                                    >
-                                        <span>{{ $line['contractor_code'] ?: '-' }}</span>
-                                        <x-heroicon-o-magnifying-glass class="h-4 w-4 text-slate-400" />
-                                    </button>
-                                    <div class="mt-1 text-xs font-semibold text-slate-800 dark:text-gray-100">{{ $line['contractor_name'] }}</div>
-                                    @if (! ($line['item_contractor_linked'] ?? true))
-                                        <div class="mt-0.5 text-[11px] font-semibold text-danger-700 dark:text-danger-300">商品未設定 / FAX固定</div>
-                                    @endif
-                                </td>
-                                <td class="px-2 py-2">
-                                    <div class="w-56 whitespace-normal leading-5">
-                                        <span class="font-mono text-xs text-slate-500 dark:text-gray-400">[{{ $line['item_code'] }}]</span>
-                                        <span class="text-slate-900 dark:text-gray-100">{{ $line['item_name'] }}</span>
-                                    </div>
-                                </td>
+                                <td class="whitespace-nowrap px-2 py-2 font-mono text-xs">{{ $line['item_code'] }}</td>
+                                <td class="whitespace-nowrap px-2 py-2 text-slate-900 dark:text-gray-100">{{ $line['item_name'] }}</td>
                                 <td class="whitespace-nowrap px-2 py-2 text-slate-700 dark:text-gray-200">{{ $volumeCapacityLabel }}</td>
-                                <td class="whitespace-nowrap px-2 py-2 text-right font-mono">{{ $safetyStock === null ? '-' : number_format((int) $safetyStock) }}</td>
+                                <td class="whitespace-nowrap px-2 py-2 font-mono"><div>{{ $lineDetails[$index]['default_location_code'] ?? '' }}</div><div class="text-xs text-slate-500">発注点 {{ $safetyStock === null ? '-' : number_format((int) $safetyStock) }}</div></td>
                                 <td class="whitespace-nowrap px-2 py-2 text-right">
                                     @if ($reference)
                                         <button
@@ -857,6 +868,25 @@
                                 <td class="whitespace-nowrap px-2 py-2 text-right font-mono">{{ $reference ? number_format((int) ($reference['previous_month_sales_qty'] ?? 0)) : '-' }}</td>
                                 <td class="whitespace-nowrap px-2 py-2 text-right font-mono">¥{{ number_format($purchaseUnitPrice, 0) }}</td>
                                 <td class="whitespace-nowrap px-2 py-2 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300">¥{{ number_format($lineTotalAmount, 0) }}</td>
+                                <td class="whitespace-nowrap px-2 py-2"><x-order-registration.date-input :model="'lines.'.$index.'.expected_arrival_date'" :min="json_encode(now()->toDateString())" /></td>
+                                <td class="px-2 py-2"><x-order-registration.note :value="json_encode($lineDetails[$index]['contractor_order_conditions'] ?? '', JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)" /></td>
+                                <td class="px-2 py-2"><x-order-registration.note :value="json_encode($lineDetails[$index]['item_contractor_note'] ?? '', JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)" /></td>
+                                <td class="whitespace-nowrap px-2 py-2">
+                                    <button
+                                        type="button"
+                                        x-on:click.stop="openPicker($event, {{ $index }}, {{ $lineItemId }}, {{ (int) ($line['contractor_id'] ?? 0) }}, {{ (int) ($line['supplier_id'] ?? 0) }})"
+                                        title="発注先を検索して変更"
+                                        data-hq-contractor-picker-trigger
+                                        class="inline-flex w-28 items-center justify-between gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 font-mono text-sm font-bold text-slate-800 shadow-sm hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
+                                    >
+                                        <span>{{ $line['contractor_code'] ?: '-' }}</span>
+                                        <x-heroicon-o-magnifying-glass class="h-4 w-4 text-slate-400" />
+                                    </button>
+                                    <div class="mt-1 text-xs font-semibold text-slate-800 dark:text-gray-100">{{ $line['contractor_name'] }}</div>
+                                    @if (! ($line['item_contractor_linked'] ?? true))
+                                        <div class="mt-0.5 text-[11px] font-semibold text-danger-700 dark:text-danger-300">商品未設定 / FAX固定</div>
+                                    @endif
+                                </td>
                                 <td class="sticky right-0 whitespace-nowrap bg-inherit px-2 py-2 text-center">
                                     <button
                                         type="button"
@@ -873,10 +903,10 @@
                                         <x-heroicon-o-trash class="h-4 w-4" />
                                     </button>
                                 </td>
-                            </tr>
+                        </tr>
                         @empty
                             <tr>
-                                <td colspan="23" class="px-3 py-12 text-center text-sm text-slate-400 dark:text-gray-500">登録リストは空です</td>
+                                <td colspan="26" class="px-3 py-12 text-center text-sm text-slate-400 dark:text-gray-500">登録リストは空です</td>
                             </tr>
                         @endforelse
                     </tbody>
