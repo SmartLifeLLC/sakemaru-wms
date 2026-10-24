@@ -1,9 +1,20 @@
 <section class="ar-projection" aria-label="2週間の在庫推移" x-data="{ changed: false }"
     @ar-quantity-change.window="changed = true"
     @ar-quantity-change.window.debounce.700ms="if ($wire.inventoryProjectionInputs) { $wire.refreshInventoryProjection().then(() => changed = false) }">
+    @php $chart = $this->inventoryProjection; @endphp
     <div class="ar-projection-heading">
-        <div><strong>2週間の在庫推移</strong><small>@if($this->inventoryProjection)業務日 {{ $this->inventoryProjection['start'] }}から14日間 ／ @endif入力中の数量で試算・自動発注をONにした場合</small></div>
+        <strong>2週間の在庫推移</strong>
+        <div class="ar-projection-actions">
+        @if($chart)
+            <div x-data wire:key="projection-help-{{ hash('sha256',json_encode($chart)) }}">
+                <button type="button" class="ar-btn ar-projection-help" aria-label="在庫推移の解説"
+                    x-tooltip="{ content: '', onShow: tip => tip.setContent($refs.explanation.innerHTML), allowHTML: true, interactive: true, hideOnClick: false, theme: 'auto-order', duration: 0, maxWidth: 'min(560px, calc(100vw - 40px))', placement: 'left', appendTo: () => $el.closest('.ar-editor'), popperOptions: { modifiers: [{ name: 'preventOverflow', options: { altAxis: true, tether: false, padding: 12, boundary: $el.closest('.ar-editor') } }] }, trigger: 'mouseenter focus', aria: { content: 'describedby', expanded: false } }"
+                    @touchend.prevent="$el._tippy.show()" @click="$el._tippy.show()" @click.outside="if (!$el._tippy?.popper.contains($event.target)) $el._tippy?.hide()" @keydown.escape.window.capture="if ($el._tippy?.state.isVisible) { $el._tippy.hide(); $event.stopImmediatePropagation() }">ⓘ 解説</button>
+                <div hidden x-ref="explanation">@include('filament.pages.auto-replenishment-projection-help')</div>
+            </div>
+        @endif
         <button type="button" class="ar-btn" wire:click="refreshInventoryProjection(true)" wire:loading.attr="disabled" wire:target="refreshInventoryProjection,calculateSettings">{{ $this->inventoryProjection ? '在庫・予定を再取得' : '在庫推移を表示' }}</button>
+        </div>
     </div>
     <p class="ar-help" wire:loading wire:target="refreshInventoryProjection,calculateSettings">在庫推移を計算しています…</p>
     @if($this->inventoryProjectionError)<p class="ar-projection-warning" role="status">{{ $this->inventoryProjectionError }}</p>@endif
@@ -28,7 +39,7 @@
             $minimumX=$chart['minimum_stock_timing']==='日末' ? $x(array_search($chart['minimum_stock_date'],array_column($days,'date'),true))+56 : $x(0);
             $chartKey=hash('sha256',json_encode($chart));
         @endphp
-        <div class="ar-projection-result" :class="{ 'is-updating': changed }" wire:key="projection-{{ $chartKey }}" x-data="{ selected: 0 }">
+        <div class="ar-projection-result" :class="{ 'is-updating': changed }" wire:key="projection-{{ $chartKey }}" x-data="{ selected: null }">
             <div class="ar-projection-totals">
                 <span>現在庫 <b>{{ number_format($chart['initial_stock']) }}</b> バラ</span>
                 <span>発注見込 <b>{{ $chart['order_count'] }}</b> 回</span>
@@ -36,17 +47,7 @@
                 <span>2週間後 <b>{{ number_format($chart['end_stock']) }}</b> バラ</span>
                 <span @class(['ar-projection-risk'=>$chart['shortage_days']>0])>不足見込 <b>{{ $chart['shortage_days'] }}</b> 日</span>
             </div>
-            @if($chart['low_stock_buffer'])
-                <p class="ar-projection-warning" role="status"><strong>在庫の余裕を確認してください。</strong>
-                    @if($chart['minimum_stock'] <= 0)在庫がゼロ以下になる見込みです。
-                    @elseif($chart['minimum_stock'] < $chart['minimum_day_demand'])最低在庫 {{ number_format($chart['minimum_stock']) }}バラは、その日の消費見込 {{ number_format($chart['minimum_day_demand']) }}バラの1日分に満たしません。
-                    @endif
-                    @if($chart['safety_stock_pieces'] > 0 && $chart['minimum_stock'] < $chart['safety_stock_pieces'])おすすめ算定時の安全在庫目安 {{ number_format($chart['safety_stock_pieces']) }}バラを下回ります。@endif
-                    @if($chart['shortage_days']===0)不足見込0日でも、在庫に余裕があるとは限りません。@endif
-                </p>
-            @endif
             <div class="ar-projection-legend"><span class="stock">━ 在庫</span><span class="demand">■ 消費</span><span class="receipt">■ 入荷</span><span class="order">◆ 発注</span><span class="deferred">○ 発注点未満・発注なし</span><span class="point">┄ 発注点</span><span class="target">━ 補充目標</span><small>数量：総バラ</small></div>
-            <p class="ar-projection-caption">発注点は検討開始の目安です。下回っても、既発注・補充目標・最小数・通常量を確認して判断します。日付を選ぶと理由を表示します。</p>
             <div class="ar-projection-scroll">
                 <svg class="ar-projection-chart" viewBox="0 0 980 250" role="img" aria-label="{{ $chart['start'] }}から{{ $chart['end'] }}までの在庫・消費・入荷・発注の試算。各日を選択すると内訳を表示します。">
                     @for($tick=0;$tick<=4;$tick++)
@@ -69,7 +70,10 @@
                         @elseif($day['below_point'])<circle class="ar-projection-deferred" cx="{{ $x($i)+12 }}" cy="{{ $y($day['after_receipt']) }}" r="4" stroke-width="2"><title>{{ $day['reason'] }}</title></circle>@endif
                         <rect x="{{ $x($i) }}" y="14" width="62" height="232" fill="transparent" class="ar-projection-hit" tabindex="0" role="button"
                             aria-label="{{ $day['label'] }}：在庫{{ $day['stock'] }}、消費{{ $day['demand'] }}、入荷{{ $day['received'] }}、発注{{ $day['ordered'] }}バラ"
-                            :class="{ selected: selected === {{ $i }} }" @mousemove="selected={{ $i }}" @focus="selected={{ $i }}" @click="selected={{ $i }}" @keydown.enter.prevent="selected={{ $i }}" @keydown.space.prevent="selected={{ $i }}"/>
+                            :class="{ selected: selected === {{ $i }} }"
+                            x-tooltip="{ content: '', onShow: tip => { selected = {{ $i }}; tip.setContent($refs.dayTip{{ $i }}.innerHTML) }, onHidden: () => { if (selected === {{ $i }}) selected = null }, allowHTML: true, interactive: true, hideOnClick: false, theme: 'auto-order', duration: 0, maxWidth: 'min(440px, calc(100vw - 40px))', appendTo: () => $el.closest('.ar-editor'), popperOptions: { modifiers: [{ name: 'preventOverflow', options: { altAxis: true, tether: false, padding: 12, boundary: $el.closest('.ar-editor') } }] }, trigger: 'mouseenter focus', aria: { content: 'describedby', expanded: false } }"
+                            @keydown.enter.prevent="$el._tippy.show()" @keydown.space.prevent="$el._tippy.show()"
+                            @touchend.prevent="$el._tippy.show()" @click="$el._tippy.show()" @click.outside="if (!$el._tippy?.popper.contains($event.target)) $el._tippy?.hide()" @keydown.escape.window.capture="if ($el._tippy?.state.isVisible) { $el._tippy.hide(); $event.stopImmediatePropagation() }"/>
                     @endforeach
                     <circle class="ar-projection-minimum" cx="{{ $minimumX }}" cy="{{ $y($chart['minimum_stock']) }}" r="4" fill="{{ $chart['low_stock_buffer'] ? '#b91c1c' : '#2563eb' }}" stroke="white" stroke-width="1.5"><title>最低在庫 {{ number_format($chart['minimum_stock']) }}バラ（{{ $chart['minimum_stock_date'] }} {{ $chart['minimum_stock_timing'] }}）</title></circle>
                     <text x="{{ $minimumX }}" y="{{ $y($chart['minimum_stock'])-9 }}" text-anchor="{{ $minimumX > 900 ? 'end' : 'start' }}" class="ar-projection-line-label {{ $chart['low_stock_buffer'] ? 'ar-projection-risk' : 'stock' }}">最低 {{ number_format($chart['minimum_stock']) }}</text>
@@ -81,9 +85,9 @@
                     @endif
                 </svg>
             </div>
-            <div class="ar-projection-day" aria-live="polite">
+            <div hidden class="ar-projection-day">
                 @foreach($days as $i=>$day)
-                    <div x-show="selected === {{ $i }}" @if($i>0) x-cloak @endif>
+                    <div x-ref="dayTip{{ $i }}">
                         <b>{{ $day['label'] }}</b>　{{ number_format($day['opening']) }} ＋ 入荷 <b class="receipt">{{ number_format($day['received']) }}</b> − 消費 {{ number_format(min($day['demand'],max(0,$day['after_receipt']))) }} ＝ <b>{{ number_format($day['stock']) }}バラ</b>
                         @if($day['received'])<small>入荷内訳：既発注 {{ number_format($day['existing_receipt']) }} ／ 今回の試算 {{ number_format($day['new_receipt']) }}バラ</small>@endif
                         @if($day['ordered'])<small class="order"><b>{{ $orderText($day['ordered']) }}発注</b> → {{ $day['arrival_date'] }}入荷 @if($day['picking_date'])（出庫 {{ $day['picking_date'] }}）@endif</small>
@@ -97,23 +101,6 @@
                     </div>
                 @endforeach
             </div>
-            <div class="ar-projection-weekdays" aria-label="曜日別の平均消費量">
-                @foreach([1,2,3,4,5,6,0] as $weekday)
-                    @php $average=$chart['demand']['weekdays'][$weekday]; @endphp
-                    <div><small>{{ ['日','月','火','水','木','金','土'][$weekday] }}@if($average['fallback'])※@endif</small><b>{{ number_format($average['mean'],1) }}</b><small>バラ／日</small></div>
-                @endforeach
-            </div>
-            <p class="ar-projection-caption">曜日平均：{{ $chart['demand']['period']['start'] }}〜{{ $chart['demand']['period']['end'] }} ／ 納品曜日：{{ implode('・',array_map(fn($d)=>['日','月','火','水','木','金','土'][$d],$chart['calendar']['weekdays'])) }}（日曜入荷なし）</p>
-            @if($chart['undated_incoming']>0 || $chart['claims']>0)<p class="ar-projection-warning">日付未定・期限超過・日曜予定 {{ number_format($chart['undated_incoming']) }}バラ／未確定候補 {{ number_format($chart['claims']) }}バラ。発注判定には含め、グラフ上では入荷扱いにしていません。</p>@endif
-            @if($chart['calendar']['adjusted'] || $chart['calendar']['sunday_master_enabled'])<p class="ar-projection-warning">現在の納品設定と日曜・休日を除く試算条件に差があります。このグラフでは次の納品可能日へ移しています。実運用の前に納品曜日・休日設定を確認してください。</p>@endif
-            <details class="ar-editor-helper"><summary>試算の前提・日別一覧</summary>
-                <p class="ar-help">業務日 {{ $chart['start'] }}から14日間。日単位で「入荷 → 発注判定 → 消費」の順に計算。発注判定は現在の計算方式・最小数・最大数・単位・出荷数量候補に従います。入荷までは算定済みの1日平均で判断し、毎日の在庫減少には上記の曜日平均を使います。実際の販売・欠品・入荷時刻で変わります。</p>
-                <p class="ar-help">既発注分は登録済みの入荷予定日を使用します。今回の試算による発注は納品可能日に全数入荷する前提です。移動元の欠品や納品の遅れは含みません。</p>
-                <p class="ar-help">消費はPOS販売・セット商品の消費・確定売上出荷・WMS連携の物流出庫を集計。観測 {{ $chart['demand']['observed_days'] }}日、未連携 {{ $chart['demand']['missing_days'] }}日は除外。※曜日の実績がない場合は観測日の全体平均。販売ゼロ日は平均に含めます。</p>
-                @foreach($chart['demand']['warnings'] as $warning)<p class="ar-help">{{ $warning }}</p>@endforeach
-                <p class="ar-help">在庫・入荷予定の取得 {{ $chart['observed_at'] }}。数量変更は取得時点のデータで再計算。「在庫・予定を再取得」で更新できます。発注・設定は保存しません。</p>
-                <div class="ar-projection-table"><table><thead><tr><th>日付</th><th>消費見込</th><th>入荷</th><th>日末在庫</th><th>発注</th><th>入荷予定日</th></tr></thead><tbody>@foreach($days as $day)<tr><td>{{ $day['label'] }}</td><td>{{ number_format($day['demand']) }}</td><td>{{ number_format($day['received']) }}</td><td>{{ number_format($day['stock']) }}</td><td>{{ $day['ordered'] ? $orderText($day['ordered']) : '—' }}</td><td>{{ $day['arrival_date'] ?? '—' }}</td></tr>@endforeach</tbody></table></div>
-            </details>
         </div>
     @elseif(!$this->inventoryProjectionError)
         <p class="ar-help">「おすすめ設定」と一緒に表示します。数量の変更に合わせて、発注・入荷後の在庫を確認できます。</p>

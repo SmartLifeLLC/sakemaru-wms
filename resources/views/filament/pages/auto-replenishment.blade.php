@@ -104,7 +104,7 @@
         <div class="ar-backdrop" wire:click="$set('showEditor', false)"></div><section class="ar-drawer ar-editor" role="dialog" aria-modal="true" aria-label="商品別発注設定" x-data="{ enabled: $wire.entangle('form.is_enabled').live }" x-trap.inert.noscroll="true" @keydown.escape.window="$wire.set('showEditor', false)">
             <header><div><b>商品別発注設定</b><small>[{{ $warehouse?->code }}] {{ $warehouse?->name }}</small></div><button type="button" wire:click="$set('showEditor', false)" aria-label="閉じる">×</button></header><div class="ar-drawer-body">
                 <div class="ar-editor-product-row">
-                    <div class="ar-editor-product"><span class="ar-code">{{ $helperItem?->code }}</span><strong>{{ $helperItem?->name ?? '商品を選択してください' }}</strong></div>
+                    <div class="ar-editor-product"><span class="ar-code">{{ $helperItem?->code }}</span><strong>{{ $helperItem?->name ?? '商品を選択してください' }}</strong>@if($helperItem)<span class="ar-product-capacity">ケース {{ $helperItem->capacity_case }}入</span>@endif</div>
                     @if(!$this->editingId && $helperItem && !$this->showItemPicker)<button type="button" class="ar-btn" wire:click="$set('showItemPicker', true)">商品を変更</button>@endif
                     <label class="ar-product-enable ar-product-enable-inline" :class="{ 'is-on': enabled }">
                         <strong>自動発注</strong>
@@ -113,7 +113,6 @@
                 </div>
                 @if(!$this->editingId)@include('filament.pages.auto-replenishment-item-picker')@endif
                 <section class="ar-editor-section">
-                    <div class="ar-editor-section-heading"><h3>発注数量</h3><span>ケース {{ $helperItem?->capacity_case ?? '—' }}入 ／ ボール {{ $helperItem?->capacity_carton ?? '—' }}入</span></div>
                     @if(($this->form['channel'] ?? '') === 'LOGISTICS')@include('filament.pages.auto-replenishment-pallet')@endif
                     @include('filament.pages.auto-replenishment-recommendation-actions')
                     @if(!$recommendationReady)<p class="ar-help">商品選択後に発注先・配送を自動入力します。特定できない場合は商品発注管理・移動配送コース設定を確認してください。</p>@endif
