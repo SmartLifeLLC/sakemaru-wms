@@ -50,6 +50,7 @@
             @foreach($errors->get('operation') as $error)<div class="ar-notice warn">{{ $error }}</div>@endforeach
             <div class="ar-filters">
                 <label>商品CD・商品名<input type="search" wire:model.live.debounce.400ms="search" placeholder="CDまたは商品名"></label>
+                @if($screen === 'settings')<label>JAN・自社CD<input type="search" wire:model.live.debounce.400ms="janSearch" placeholder="部分一致・複数可（スペース／カンマ区切り）"></label>@endif
                 <label>発注方式<select wire:model.live="channel"><option value="">すべて</option><option value="EOS">EOS発注</option><option value="LOGISTICS">物流発注（店間）</option></select></label>
                 <label>状態<select wire:model.live="status"><option value="">すべて</option>
                     @if($screen === 'settings')<option value="ON">商品ON</option><option value="OFF">商品OFF</option>@else @foreach($labels as $key=>$name)<option value="{{ $key }}">{{ $name }}</option>@endforeach @endif

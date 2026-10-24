@@ -79,6 +79,11 @@ abstract class AutoReplenishmentPage extends AdminPage
 
     public string $itemSearch = '';
 
+    public string $itemJanSearch = '';
+
+    #[Url]
+    public string $janSearch = '';
+
     public bool $showItemPicker = false;
 
     public $csvFile;
@@ -178,6 +183,11 @@ abstract class AutoReplenishmentPage extends AdminPage
         $this->selectedVersions = [];
     }
 
+    public function updatedJanSearch(): void
+    {
+        $this->updatedSearch();
+    }
+
     public function updatedChannel(): void
     {
         $this->resetPage();
@@ -260,6 +270,7 @@ abstract class AutoReplenishmentPage extends AdminPage
         $this->recommendation = $policy?->calculation_basis ? ['available' => empty($policy->calculation_basis['reason']), 'basis' => $policy->calculation_basis] : null;
         $this->recommendationContext = null;
         $this->itemSearch = '';
+        $this->itemJanSearch = '';
         $this->showItemPicker = ! $policy;
         $this->showEditor = true;
         $this->loadPalletEditor();
@@ -988,6 +999,7 @@ abstract class AutoReplenishmentPage extends AdminPage
                 $term = mb_convert_kana($this->search, 'as');
                 $q->where(fn ($q) => $q->where('i.code', 'like', $term.'%')->orWhere('i.name', 'like', '%'.$term.'%'));
             }
+            app(\App\Services\AutoReplenishment\ItemSearchCodes::class)->apply($q, $clientId, $this->janSearch, 'wms_item_reorder_policies.item_id');
             if (in_array($this->status, ['ON', 'OFF'])) {
                 $q->where('is_enabled', $this->status === 'ON');
             }
@@ -1048,11 +1060,14 @@ abstract class AutoReplenishmentPage extends AdminPage
         }
         $itemOptions = collect();
         $itemSearchTerm = mb_convert_kana(trim($this->itemSearch), 'as');
-        if ($this->showEditor && $this->showItemPicker && ! $this->editingId && $itemSearchTerm !== '') {
+        $codeSearch = app(\App\Services\AutoReplenishment\ItemSearchCodes::class);
+        $itemJanSearchTerm = implode(' ', $codeSearch->terms($this->itemJanSearch));
+        if ($this->showEditor && $this->showItemPicker && ! $this->editingId && ($itemSearchTerm !== '' || $itemJanSearchTerm !== '')) {
             $query = $this->itemSelectionQuery($clientId, $itemEligibleIds);
             foreach (preg_split('/\s+/u', $itemSearchTerm, -1, PREG_SPLIT_NO_EMPTY) as $term) {
                 $query->where(fn ($q) => $q->where('code', 'like', $term.'%')->orWhere('name', 'like', '%'.$term.'%'));
             }
+            $codeSearch->apply($query, $clientId, $this->itemJanSearch, 'items.id');
             $itemOptions = $query->orderBy('code')->limit(31)->get(['id', 'code', 'name', 'capacity_case', 'capacity_carton']);
         }
         $itemSearchHasMore = $itemOptions->count() > 30;
@@ -1072,7 +1087,7 @@ abstract class AutoReplenishmentPage extends AdminPage
         $routeWarnings = $this->showEditor
             ? app(\App\Services\AutoReplenishment\MasterRouteWarnings::class)->forRoute($clientId, (int) $scopeWarehouseId, $this->form) : [];
 
-        return compact('screen', 'warehouse', 'warehouses', 'control', 'rows', 'run', 'detail', 'links', 'targets', 'selectedItem', 'orderUnit', 'itemOptions', 'itemSearchTerm', 'itemSearchHasMore', 'routeOptions', 'courseOptions', 'routeWarnings', 'phaseCounts', 'listLinks', 'listTargets', 'selectedOnCount', 'selectedOffCount');
+        return compact('screen', 'warehouse', 'warehouses', 'control', 'rows', 'run', 'detail', 'links', 'targets', 'selectedItem', 'orderUnit', 'itemOptions', 'itemSearchTerm', 'itemJanSearchTerm', 'itemSearchHasMore', 'routeOptions', 'courseOptions', 'routeWarnings', 'phaseCounts', 'listLinks', 'listTargets', 'selectedOnCount', 'selectedOffCount');
     }
 
     private function itemSelectionQuery(int $clientId, array $contractorIds): \Illuminate\Database\Query\Builder
