@@ -83,7 +83,7 @@ class ArrivalBatchStrategyTest extends TestCase
     {
         $s = app(ArrivalBatchStrategy::class);
         self::assertSame('HOLD', $s->calculate($this->policy(['max_order_pieces' => 100]), $this->snapshot())['phase']);
-        self::assertSame('HOLD', $s->calculate($this->policy(), $this->snapshot(['stock' => -1]))['phase']);
+        self::assertSame('READY', $s->calculate($this->policy(), $this->snapshot(['stock' => -1]))['phase']);
         self::assertSame('HOLD', $s->calculate($this->policy(), $this->snapshot(['packing_unit' => 1000]))['phase']);
         self::assertSame('NO_ORDER', $s->calculate($this->policy(), $this->snapshot(['stock' => 2688]))['phase']);
         self::assertSame('READY', $s->calculate($this->policy(), $this->snapshot(['stock' => 0, 'incoming' => 0, 'packing_unit' => 24]))['phase']);
@@ -94,5 +94,23 @@ class ArrivalBatchStrategyTest extends TestCase
         $r = app(ArrivalBatchStrategy::class)->calculate($this->policy(['reorder_point_pieces' => 5760]), $this->snapshot());
         self::assertSame('NO_ORDER', $r['phase']);
         self::assertSame(0, $r['quantity']);
+    }
+
+    public function test_negative_stock_keeps_actual_debt_without_spending_future_supply_or_forecasting_more_debt(): void
+    {
+        $strategy = app(ArrivalBatchStrategy::class);
+        $p = $this->policy(['reorder_point_pieces' => 100, 'target_stock_pieces' => 120, 'min_order_pieces' => 24,
+            'max_order_pieces' => 24, 'order_multiple_pieces' => 24, 'calculation_basis' => ['mean_daily' => 100]]);
+        $snapshot = $this->snapshot(['stock' => -6, 'incoming' => 0]);
+        $r = $strategy->calculate($p, $snapshot);
+        self::assertSame('READY', $r['phase']);
+        self::assertSame(24, $r['quantity']);
+        self::assertStringContainsString('在庫残 -6', implode('', $r['formula']));
+        foreach (['incoming', 'claims'] as $key) {
+            self::assertSame('NO_ORDER', $strategy->calculate($p, array_replace($snapshot, [$key => 120]))['phase']);
+        }
+        foreach ([null, 'unknown', PHP_INT_MIN] as $stock) {
+            self::assertSame('HOLD', $strategy->calculate($p, array_replace($snapshot, ['stock' => $stock]))['phase']);
+        }
     }
 }

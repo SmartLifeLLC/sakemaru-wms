@@ -142,7 +142,7 @@ class ExecutionService
         try {
             $snapshot = $this->reader->read($policy);
             $result = app(StrategyCalculator::class)->calculate($policy->toArray(), $snapshot);
-            app(ProposalSafety::class)->validate($policy->toArray(), $result, $snapshot['packing_unit']);
+            app(ProposalSafety::class)->validate($policy->toArray(), $result, $snapshot['packing_unit'], $snapshot['shipping_unit'] ?? []);
         } catch (\Throwable $e) {
             $snapshot ??= $this->reader->lastObservation() + ['policy' => $policy->toArray()];
             $result = ['phase' => 'HOLD', 'quantity' => 0, 'reason' => mb_substr($e->getMessage(), 0, 500)];
@@ -170,13 +170,13 @@ class ExecutionService
             $s = $this->reader->read($policy, (int) $line->id);
             throw_unless($s['business_date'] === $line->proposal_snapshot['business_date'], \RuntimeException::class, '業務日が変わりました。次の実行枠で再計算してください。');
             $result = app(StrategyCalculator::class)->calculate($policy->toArray(), $s);
-            app(ProposalSafety::class)->validate($policy->toArray(), $result, $s['packing_unit']);
+            app(ProposalSafety::class)->validate($policy->toArray(), $result, $s['packing_unit'], $s['shipping_unit'] ?? []);
             throw_unless($result['phase'] === 'READY' && $result['quantity'] === (int) $line->quantity_pieces, \RuntimeException::class, '在庫・供給が変わったため再計算が必要です。');
             $actor = (int) config('replenishment.system_actor_id');
             throw_unless(DB::connection('sakemaru')->table('users')->where(['id' => $actor, 'client_id' => $line->client_id, 'is_active' => 1])->exists(), \RuntimeException::class, '有効な自動発注実行ユーザーが未設定です。');
             $line->update(['confirmation_snapshot' => $s]);
+            $quantity = $s['quantity_type'] === 'CASE' ? intdiv((int) $line->quantity_pieces, $s['capacity_case']) : (int) $line->quantity_pieces;
             if ($line->channel === 'EOS') {
-                $quantity = $s['quantity_type'] === 'CASE' ? intdiv((int) $line->quantity_pieces, $s['capacity_case']) : (int) $line->quantity_pieces;
                 app(OrderRegistrationService::class)->register((int) $line->warehouse_id, [[
                     'item_id' => $line->item_id, 'contractor_id' => $policy->contractor_id, 'supplier_id' => $s['supplier_id'],
                     'order_quantity' => $quantity, 'quantity_type' => $s['quantity_type'], 'purchase_unit' => $policy->order_multiple_pieces,
@@ -198,8 +198,8 @@ class ExecutionService
                     'batch_code' => 'A'.str_replace('-', '', substr($line->effect_key, 0, 18)),
                     'satellite_warehouse_id' => $line->warehouse_id, 'hub_warehouse_id' => $policy->source_warehouse_id,
                     'item_id' => $line->item_id, 'item_code' => $s['item_code'], 'contractor_id' => $policy->contractor_id,
-                    'delivery_course_id' => $policy->delivery_course_id, 'suggested_quantity' => $line->quantity_pieces,
-                    'transfer_quantity' => $line->quantity_pieces, 'quantity_type' => QuantityType::PIECE,
+                    'delivery_course_id' => $policy->delivery_course_id, 'suggested_quantity' => $quantity,
+                    'transfer_quantity' => $quantity, 'quantity_type' => QuantityType::from($s['quantity_type']),
                     'purchase_unit' => $policy->order_multiple_pieces, 'safety_stock' => $policy->reorder_point_pieces,
                     'expected_arrival_date' => $s['arrival_date'], 'original_arrival_date' => $s['arrival_date'],
                     'status' => CandidateStatus::APPROVED, 'lot_status' => LotStatus::RAW,

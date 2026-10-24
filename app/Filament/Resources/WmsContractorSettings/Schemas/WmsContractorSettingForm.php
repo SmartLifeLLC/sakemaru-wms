@@ -13,6 +13,7 @@ use Filament\Forms\Components\TimePicker;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Fieldset;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 
 class WmsContractorSettingForm
@@ -20,6 +21,10 @@ class WmsContractorSettingForm
     public static function configure(Schema $schema): Schema
     {
         return $schema->components([
+            View::make('filament.pages.auto-replenishment-master-edit-warning')
+                ->viewData(fn ($record) => app(\App\Services\AutoReplenishment\MasterRouteWarnings::class)
+                    ->masterEditNotice((int) auth()->user()?->client_id, 'contractor', $record?->getAttributes() ?? []))
+                ->columnSpanFull(),
             Section::make('基本設定')
                 ->schema([
                     Select::make('contractor_id')

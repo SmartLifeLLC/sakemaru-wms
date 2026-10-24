@@ -71,14 +71,39 @@ class PolicyValidationTest extends TestCase
         $service = new PolicyService(new ReplenishmentGuard);
         $data = array_replace($this->product(), ['min_order_pieces' => 1, 'target_stock_pieces' => 5, 'strategy_key' => 'arrival_batch_v1']);
         self::assertSame(5, $service->validate($data)['target_stock_pieces']);
+        $data['strategy_key'] = 'arrival_adaptive_v1';
+        self::assertSame(5, $service->validate($data)['target_stock_pieces']);
         $data['strategy_key'] = 'threshold_v1';
         $this->expectException(ValidationException::class);
         $service->validate($data);
+    }
+
+    public function test_switching_from_legacy_median_to_adaptive_requires_new_recommendation(): void
+    {
+        $data = array_replace($this->product(), ['min_order_pieces' => 1, 'strategy_key' => 'arrival_adaptive_v1']);
+        $basis = ['scope' => ['client_id' => 6, 'warehouse_id' => 1, 'item_id' => 1, 'channel' => 'EOS',
+            'contractor_id' => 1], 'batch_rule' => 'median', 'mean_daily' => 1, 'batch_quantity_pieces' => 12];
+        $this->expectExceptionMessage('「おすすめ設定」で実績を再計算');
+        (new PolicyService(new ReplenishmentGuard))->save(6, 1, $data, 1, $basis);
     }
 
     private function product(): array
     {
         return ['item_id' => 1, 'reorder_point_pieces' => 10, 'max_order_pieces' => 24,
             'order_multiple_pieces' => 1, 'channel' => 'EOS', 'contractor_id' => 1, 'strategy_key' => 'threshold_v1'];
+    }
+
+    public function test_order_unit_selection_accepts_only_supported_single_output_units(): void
+    {
+        $service = new PolicyService(new ReplenishmentGuard);
+        foreach (['AUTO', 'CASE', 'PIECE'] as $mode) {
+            self::assertSame($mode, $service->validate($this->product() + ['min_order_pieces' => 1, 'order_unit_mode' => $mode])['order_unit_mode']);
+        }
+        try {
+            $service->validate($this->product() + ['min_order_pieces' => 1, 'order_unit_mode' => 'CARTON']);
+            self::fail('Unsupported unit was accepted.');
+        } catch (ValidationException $e) {
+            self::assertSame(['発注単位を選び直してください。'], $e->errors()['order_unit_mode']);
+        }
     }
 }

@@ -51,16 +51,76 @@ class JxOrderArrivalDateAdjustmentService
 
         $warehouseHolidays = $this->loadWarehouseHolidaysForWarehouse($warehouseId, $orderDay, $arrivalDate);
 
+        return $this->resolveAllowedArrivalDate($arrivalDate, $warehouseId, $deliveryDays, $warehouseHolidays);
+    }
+
+    /**
+     * Recommendation-only bounded batch. Master/holiday rows are read once, and the
+     * same lead-time and delivery-day rules as earliestArrivalDate run in memory.
+     * No persistent cache is used: the next request sees changed delivery settings.
+     *
+     * @param  array<string, Carbon>  $orderDates  Caller keys are preserved.
+     * @return array<string, Carbon|null>
+     */
+    public function earliestArrivalDates(int $contractorId, int $warehouseId, array $orderDates): array
+    {
+        throw_if(count($orderDates) > 56, \InvalidArgumentException::class, '入荷日試算は56回以内で実施してください。');
+        if ($orderDates === []) {
+            return [];
+        }
+        $orderDays = [];
+        foreach ($orderDates as $key => $date) {
+            throw_unless($date instanceof Carbon, \InvalidArgumentException::class, '入荷日試算の発注日が不正です。');
+            $orderDays[$key] = $date->copy()->startOfDay();
+        }
+        $dates = array_map(fn (Carbon $date): string => $date->toDateString(), $orderDays);
+        throw_if(Carbon::parse(min($dates))->diffInDays(Carbon::parse(max($dates))) > 56, \InvalidArgumentException::class,
+            '入荷日試算の対象期間は56日以内にしてください。');
+        $contractor = Contractor::with('leadTime')->find($contractorId);
+        if (! $contractor) {
+            return array_map(fn (Carbon $day): Carbon => $day->copy()->addDay(), $orderDays);
+        }
+
+        $leadService = app(ContractorLeadTimeService::class);
+        // An empty lookup obtains the unshifted lead dates without per-day SQL.
+        $baseArrivals = array_map(fn (Carbon $day): Carbon => $leadService
+            ->calculateArrivalDate($contractor, $day, [])['arrival_date']->copy()->startOfDay(), $orderDays);
+        $baseDates = array_map(fn (Carbon $date): string => $date->toDateString(), $baseArrivals);
+        $holidayDates = $contractor->leadTime === null ? [] : DB::connection('sakemaru')
+            ->table('wms_contractor_holidays')
+            ->where('contractor_id', $contractorId)
+            ->whereBetween('holiday_date', [min($baseDates), Carbon::parse(max($baseDates))->addDays(30)->toDateString()])
+            ->pluck('holiday_date')->mapWithKeys(fn ($date): array => [(string) $date => true])->all();
+        $arrivals = [];
+        foreach ($orderDays as $key => $day) {
+            $arrival = $leadService->calculateArrivalDate($contractor, $day, $holidayDates)['arrival_date']->copy()->startOfDay();
+            $arrivals[$key] = $arrival->lte($day) ? $day->copy()->addDay() : $arrival;
+        }
+        $deliveryDays = $this->loadDeliveryDaySetting($contractorId, $warehouseId);
+        if ($deliveryDays === null) {
+            return $arrivals;
+        }
+        if (! in_array(true, $deliveryDays, true)) {
+            return array_fill_keys(array_keys($orderDays), null);
+        }
+        $arrivalDates = array_map(fn (Carbon $date): string => $date->toDateString(), $arrivals);
+        $warehouseHolidays = [$warehouseId => DB::connection('sakemaru')
+            ->table('wms_warehouse_calendars')
+            ->where('warehouse_id', $warehouseId)->where('is_holiday', true)
+            ->whereBetween('target_date', [min($arrivalDates), Carbon::parse(max($arrivalDates))->addDays(self::MAX_LOOKAHEAD_DAYS)->toDateString()])
+            ->pluck('target_date')->mapWithKeys(fn ($date): array => [(string) $date => true])->all()];
+
+        return array_map(fn (Carbon $arrival): ?Carbon => $this->resolveAllowedArrivalDate(
+            $arrival, $warehouseId, $deliveryDays, $warehouseHolidays), $arrivals);
+    }
+
+    private function resolveAllowedArrivalDate(Carbon $arrivalDate, int $warehouseId, array $deliveryDays, array $warehouseHolidays): ?Carbon
+    {
         if ($this->isArrivalDateAllowed($arrivalDate, $warehouseId, $deliveryDays, $warehouseHolidays)) {
             return $arrivalDate;
         }
 
-        return $this->findNextArrivalDate(
-            $arrivalDate->copy()->subDay(),
-            $warehouseId,
-            $deliveryDays,
-            $warehouseHolidays
-        );
+        return $this->findNextArrivalDate($arrivalDate->copy()->subDay(), $warehouseId, $deliveryDays, $warehouseHolidays);
     }
 
     /**

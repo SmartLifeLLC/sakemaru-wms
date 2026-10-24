@@ -11,6 +11,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 
 class ItemContractorForm
@@ -19,6 +20,10 @@ class ItemContractorForm
     {
         return $schema
             ->components([
+                View::make('filament.pages.auto-replenishment-master-edit-warning')
+                    ->viewData(fn ($record) => app(\App\Services\AutoReplenishment\MasterRouteWarnings::class)
+                        ->masterEditNotice((int) auth()->user()?->client_id, 'item', $record?->getAttributes() ?? []))
+                    ->columnSpanFull(),
                 Section::make('基本情報')
                     ->schema([
                         Select::make('item_id')

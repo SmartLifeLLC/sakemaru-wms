@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\DB;
 /** Read-only projection: a transfer replaces its schedules/candidate, never adds to them. */
 class TransferSupplyReader
 {
-    public function read(int $clientId, int $warehouseId, array $itemIds, array $allocationIds, bool $lock = false): array
+    public function read(int $clientId, int $warehouseId, array $itemIds, array $allocationIds, bool $lock = false, bool $includeDates = false): array
     {
         $db = DB::connection('sakemaru');
         $get = fn ($query) => ($lock ? $query->lockForUpdate() : $query)->get();
@@ -84,7 +84,7 @@ class TransferSupplyReader
             try {
                 $result[$itemId] = $this->project((int) $itemId, $warehouseId, $clientId, $transfers, $lines, $receipts,
                     $schedules->where('item_id', $itemId), $parents, $relatedCandidates->where('item_id', $itemId),
-                    $effects->where('item_id', $itemId), $maps, $queueByCandidate, $capacities->get($itemId));
+                    $effects->where('item_id', $itemId), $maps, $queueByCandidate, $capacities->get($itemId), $includeDates);
             } catch (\RuntimeException $e) {
                 $result[$itemId] = ['error' => $e->getMessage()];
             }
@@ -116,10 +116,11 @@ class TransferSupplyReader
     }
 
     private function project(int $itemId, int $warehouseId, int $clientId, Collection $transfers, Collection $lines, Collection $receipts,
-        Collection $schedules, Collection $parents, Collection $candidates, Collection $effects, Collection $maps, array $queues, ?object $capacity): array
+        Collection $schedules, Collection $parents, Collection $candidates, Collection $effects, Collection $maps, array $queues, ?object $capacity, bool $includeDates): array
     {
         $incoming = $claims = 0;
         $covered = $scheduleGroups = $actual = $pending = [];
+        $events = [];
         foreach ($transfers as $transfer) {
             $itemLines = $lines->get($transfer->trade_id, collect())->where('item_id', $itemId);
             $valid = $transfer->is_active && $transfer->trade_active && $transfer->is_latest && ! $transfer->is_returned
@@ -138,6 +139,9 @@ class TransferSupplyReader
             }
             $actual[$transfer->id] = ['transfer' => $transfer, 'lines' => $itemLines, 'valid' => $valid, 'total' => $total, 'applied' => $applied];
             $incoming += $total - $applied;
+            if ($includeDates && $total > $applied) {
+                $events[] = ['source' => 'transfer', 'date' => $transfer->delivered_date ?? null, 'pieces' => $total - $applied];
+            }
         }
         $effectsByCandidate = $effects->keyBy('source_id');
         foreach ($schedules as $schedule) {
@@ -178,6 +182,14 @@ class TransferSupplyReader
                 (string) ($queue->candidate_payload['quantity_type'] ?? ''), $effect ?: $capacity);
         }
         $incoming += array_sum($pending);
+        if ($includeDates) {
+            foreach ($pending as $candidateId => $pieces) {
+                // A split schedule is not another receipt. Only an unambiguous date is plotted.
+                $dates = $schedules->filter(fn ($s) => (int) $s->transfer_candidate_id === $candidateId)
+                    ->pluck('expected_arrival_date')->unique()->values();
+                $events[] = ['source' => 'transfer', 'date' => $dates->count() === 1 ? $dates->first() : null, 'pieces' => $pieces];
+            }
+        }
         foreach ($scheduleGroups as $id => $group) {
             $a = $actual[$id];
             // Core confirms current stock and is_delivered together; stale/deleted WMS schedules must not add it again.
@@ -218,7 +230,8 @@ class TransferSupplyReader
             throw_unless(isset($covered[$effect->source_id]), \RuntimeException::class, '移動発注と移動伝票・入荷予定の照合が必要です。管理者に確認してください。');
         }
 
-        return ['incoming' => $incoming, 'claims' => $claims, 'covered_candidate_ids' => array_keys($covered)];
+        return ['incoming' => $incoming, 'claims' => $claims, 'covered_candidate_ids' => array_keys($covered)]
+            + ($includeDates ? ['supply_events' => $events] : []);
     }
 
     private function capacityOf(Collection $lines): ?object

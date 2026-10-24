@@ -97,46 +97,74 @@
     @endif
     @if($this->showEditor)
         @php
-            $helperItem=$itemOptions->firstWhere('id',(int)($this->form['item_id'] ?? 0));
+            $helperItem=$selectedItem;
+            $faxReference=($this->form['channel'] ?? '') === 'FAX';
             $recommendationReady=$helperItem && !empty($this->form['contractor_id']) && !empty($this->form['supplier_id'])
-                && (($this->form['channel'] ?? 'EOS') === 'EOS' || (!empty($this->form['source_warehouse_id']) && !empty($this->form['delivery_course_id'])));
+                && (in_array($this->form['channel'] ?? 'EOS', ['EOS', 'FAX'], true) || (!empty($this->form['source_warehouse_id']) && !empty($this->form['delivery_course_id'])));
         @endphp
         <div class="ar-backdrop" wire:click="$set('showEditor', false)"></div><section class="ar-drawer ar-editor" role="dialog" aria-modal="true" aria-label="商品別発注設定" x-data="{ enabled: $wire.entangle('form.is_enabled').live }" x-trap.inert.noscroll="true" @keydown.escape.window="$wire.set('showEditor', false)">
             <header><div><b>商品別発注設定</b><small>[{{ $warehouse?->code }}] {{ $warehouse?->name }}</small></div><button type="button" wire:click="$set('showEditor', false)" aria-label="閉じる">×</button></header><div class="ar-drawer-body">
-                <label class="ar-product-enable" :class="{ 'is-on': enabled }">
-                    <span><strong>この商品の自動発注</strong><small>数量条件とON／OFFを「設定を保存」で反映します。</small></span>
-                    <span class="ar-enable-control"><input type="checkbox" role="switch" aria-label="この商品の自動発注" x-model="enabled"><span class="ar-enable-track" aria-hidden="true"></span><b x-text="enabled ? 'ON' : 'OFF'" aria-hidden="true"></b></span>
-                </label>
-                @if($this->editingId)
-                    <div class="ar-editor-product"><span class="ar-code">{{ $helperItem?->code }}</span><strong>{{ $helperItem?->name ?? '商品を確認してください' }}</strong></div>
-                @else
-                    <div class="ar-editor-search"><label>商品を検索<input wire:model.live.debounce.400ms="itemSearch" placeholder="商品CD・商品名"></label><label>商品<select wire:model.live="form.item_id"><option value="">商品を選択</option>@foreach($itemOptions as $i)<option value="{{ $i->id }}">[{{ $i->code }}]{{ $i->name }}</option>@endforeach</select></label></div>
-                @endif
+                <div class="ar-editor-product-row">
+                    <div class="ar-editor-product"><span class="ar-code">{{ $helperItem?->code }}</span><strong>{{ $helperItem?->name ?? '商品を選択してください' }}</strong>@if($helperItem)<span class="ar-product-capacity">ケース {{ $helperItem->capacity_case }}入</span>@endif</div>
+                    @if(!$this->editingId && $helperItem && !$this->showItemPicker)<button type="button" class="ar-btn" wire:click="$set('showItemPicker', true)">商品を変更</button>@endif
+                    <label class="ar-product-enable ar-product-enable-inline" :class="{ 'is-on': enabled }">
+                        <strong>自動発注</strong>
+                        <span class="ar-enable-control"><input type="checkbox" role="switch" aria-label="この商品の自動発注" x-model="enabled" @disabled($faxReference)><span class="ar-enable-track" aria-hidden="true"></span><b x-text="enabled ? 'ON' : 'OFF'" aria-hidden="true"></b></span>
+                    </label>
+                </div>
+                @if($faxReference)<p class="ar-help" role="status">FAX・参考計算のみ。自動発注はONにできません。表示した数量を手動発注の参考にしてください。納品曜日が未設定の場合は翌営業日（月〜土）入荷と仮定します。</p>@endif
+                @if(!$this->editingId)@include('filament.pages.auto-replenishment-item-picker')@endif
                 <section class="ar-editor-section">
-                    <div class="ar-editor-section-heading"><h3>発注数量 <small>すべて総バラ</small></h3><span>ケース {{ $helperItem?->capacity_case ?? '—' }}入 ／ ボール {{ $helperItem?->capacity_carton ?? '—' }}入</span></div>
-                    <div class="ar-recommend-actions">
-                        <div class="ar-recommend-copy"><strong>実績からおすすめ値を入力</strong><small>保存前は設定を変更しません。</small></div>
-                        <label>発注単位の選び方<select wire:model="recommendationUnitMode"><option value="AUTO">実績に合わせる</option><option value="PIECE">バラ主体</option><option value="CASE">ケース単位</option></select></label>
-                        <button type="button" class="ar-btn primary ar-recommend-button" wire:click="calculateSettings" wire:loading.attr="disabled" wire:target="calculateSettings,form.item_id,form.channel,form.contractor_id,form.supplier_id,form.source_warehouse_id,form.delivery_course_id" @disabled(!$recommendationReady)><x-heroicon-o-sparkles aria-hidden="true" />おすすめ設定</button>
-                    </div>
-                    @if(!$recommendationReady)<p class="ar-help">商品・発注先・仕入先を選ぶと、おすすめ設定を使えます。物流発注（店間）は移動元倉庫・配送コースも選択してください。</p>@endif
-                    <p class="ar-loading" role="status" wire:loading wire:target="calculateSettings,form.item_id,form.channel,form.contractor_id,form.supplier_id,form.source_warehouse_id,form.delivery_course_id">出荷・入荷実績を確認して、おすすめ設定を計算しています…</p>
-                    <div class="ar-editor-quantities">@foreach(['reorder_point_pieces'=>'発注点','max_order_pieces'=>'最大発注数','min_order_pieces'=>'最小発注数','order_multiple_pieces'=>'最小発注単位'] as $key=>$label)<label>{{ $label }}<input type="number" min="1" step="1" wire:model="form.{{ $key }}"></label>@endforeach<label>補充目標（任意）<input type="number" min="1" wire:model="form.target_stock_pieces" placeholder="未入力は発注点"></label></div>
-                    @include('filament.pages.auto-replenishment-setting-help')
-                    <details class="ar-editor-helper" @if($errors->hasAny(['field','type','quantity'])) open @endif><summary>ケース・バラから総バラに換算</summary><div class="ar-grid four"><label>換算先<select wire:model="quantityHelper.field">@foreach(['reorder_point_pieces'=>'発注点','max_order_pieces'=>'最大発注数','min_order_pieces'=>'最小発注数','order_multiple_pieces'=>'最小発注単位'] as $key=>$label)<option value="{{ $key }}">{{ $label }}</option>@endforeach</select></label><label>数量<input type="number" min="1" wire:model="quantityHelper.quantity"></label><label>単位<select wire:model="quantityHelper.type">@foreach(\App\Enums\QuantityType::cases() as $qt)<option value="{{ $qt->value }}">{{ $qt->name() }}</option>@endforeach</select></label><button type="button" class="ar-btn" wire:click="applyQuantityHelper" @disabled(!$helperItem)>総バラに換算して入力</button></div></details>
+                    @if(($this->form['channel'] ?? '') === 'LOGISTICS')@include('filament.pages.auto-replenishment-pallet')@endif
+                    @include('filament.pages.auto-replenishment-recommendation-actions')
+                    @if(!$recommendationReady)<p class="ar-help">商品選択後に発注先・配送を自動入力します。特定できない場合は商品発注管理・移動配送コース設定を確認してください。</p>@endif
+                    <p class="ar-loading" role="status" wire:loading wire:target="calculateSettings,selectRecommendationCandidate,recommendationUnitMode,recommendationReviewDays,recommendationSafetyDays,savePalletUnit,saveShippingQuantities,registerShippingHistory,form.shipping_unit_mode,form.order_unit_mode,selectItem,form.item_id,form.channel,form.contractor_id,form.supplier_id,form.source_warehouse_id,form.delivery_course_id">出荷・入荷実績を確認して、おすすめ設定を計算しています…</p>
+                    <details class="ar-quantity-input-panel" wire:ignore.self wire:key="quantity-settings-{{ $this->form['item_id'] ?? 'new' }}">
+                        <summary>発注数量設定</summary>
+                        <div class="ar-quantity-input-content">
+                            <div class="ar-editor-quantities">
+                                @foreach(['reorder_point_pieces'=>'発注点','max_order_pieces'=>'最大発注数','min_order_pieces'=>'最小発注数','order_multiple_pieces'=>'最小発注単位','target_stock_pieces'=>'補充目標（任意）'] as $key=>$label)
+                                    @include('filament.pages.auto-replenishment-quantity-input')
+                                @endforeach
+                            </div>
+                            <div class="ar-quantity-help">
+                                @include('filament.pages.auto-replenishment-setting-help')
+                            </div>
+                        </div>
+                    </details>
+                    @if($this->recommendation)@include('filament.pages.auto-replenishment-candidates')@endif
+                    @if($helperItem)@include('filament.pages.auto-replenishment-projection')@endif
                     @if($this->recommendation)
                         @include('filament.pages.auto-replenishment-recommendation')
                     @endif
-                    <label class="ar-strategy-label">発注方法<select wire:model="form.strategy_key"><option value="arrival_batch_v1">まとめ発注（補充見込が目標内）</option><option value="threshold_capped_v1">商品上限内の1回分を発注し、次回再判定</option><option value="threshold_v1">必要数が上限を超えたら全量保留</option></select></label>
+                    <label class="ar-strategy-label">発注方法<select wire:model.change="form.strategy_key"><option value="arrival_adaptive_v1">通常量をまとめて補充（欠品見込時は小口）</option><option value="arrival_batch_v1">まとめ発注（1回量固定）</option><option value="threshold_capped_v1">商品上限内の1回分を発注し、次回再判定</option><option value="threshold_v1">必要数が上限を超えたら全量保留</option></select></label>
                 </section>
                 <section class="ar-editor-section">
-                    <div class="ar-editor-section-heading"><h3>発注先・配送</h3></div>
-                    <div class="ar-editor-routes"><label>方式<select wire:model.live="form.channel"><option value="EOS">EOS発注</option><option value="LOGISTICS">物流発注（店間）</option></select></label><label>発注先<select wire:key="ar-contractor-{{ $this->form['item_id'] ?? 0 }}-{{ $this->form['channel'] ?? 'EOS' }}-{{ $this->form['contractor_id'] ?? 0 }}" wire:model.live="form.contractor_id"><option value="">発注先を選択</option>@foreach($routeOptions->unique('contractor_id') as $r)<option value="{{ $r->contractor_id }}" @selected((int)($this->form['contractor_id'] ?? 0) === (int)$r->contractor_id)>[{{ $r->code }}]{{ $r->name }}</option>@endforeach</select></label><label>仕入先<select wire:key="ar-supplier-{{ $this->form['item_id'] ?? 0 }}-{{ $this->form['contractor_id'] ?? 0 }}-{{ $this->form['supplier_id'] ?? 0 }}" wire:model.live="form.supplier_id"><option value="">仕入先を選択</option>@foreach($routeOptions->where('contractor_id', $this->form['contractor_id'] ?? 0) as $r)<option value="{{ $r->supplier_id }}" @selected((int)($this->form['supplier_id'] ?? 0) === (int)$r->supplier_id)>[{{ $r->supplier_code }}]{{ $r->supplier_name }}</option>@endforeach</select></label></div>
-                    @if(($this->form['channel'] ?? '') === 'LOGISTICS')<div class="ar-grid"><label>移動元倉庫<select wire:model.live="form.source_warehouse_id"><option value="">移動元を選択</option>@foreach($warehouses->where('id','!=',$this->warehouseId) as $w)<option value="{{ $w->id }}">[{{ $w->code }}]{{ $w->name }}</option>@endforeach</select></label><label>配送コース<select wire:model.live="form.delivery_course_id"><option value="">コースを選択</option>@foreach($courseOptions as $c)<option value="{{ $c->delivery_course_id }}">[{{ $c->code }}]{{ $c->name }} / 出庫LT {{ $c->picking_lead_days ?? '顧客既定' }}日</option>@endforeach</select></label></div>@endif
-                    <p class="ar-help">外部発注はEOS対象の問屋のみ（FAX対象外）。入荷日・出庫日は既存設定に従います。</p>
+                    <details class="ar-settings-details" wire:ignore.self>
+                    <summary>発注先・配送</summary>
+                    <div class="ar-settings-details-content">
+                    @include('filament.pages.auto-replenishment-route-warnings', ['masterWarnings' => $routeWarnings ?? []])
+                    @php
+                        $routeDisplay = $routeOptions->where('contractor_id', (int) ($this->form['contractor_id'] ?? 0))->firstWhere('supplier_id', (int) ($this->form['supplier_id'] ?? 0));
+                        $sourceDisplay = $warehouses->firstWhere('id', (int) ($this->form['source_warehouse_id'] ?? 0));
+                        $courseDisplay = $courseOptions->firstWhere('delivery_course_id', (int) ($this->form['delivery_course_id'] ?? 0));
+                    @endphp
+                    <dl class="ar-route-summary" aria-label="商品の既定の発注先・配送">
+                        <div><dt>方式</dt><dd>{{ !$helperItem ? '商品選択後に表示' : (($this->form['channel'] ?? '') === 'LOGISTICS' ? '物流発注（店間）' : ($faxReference ? 'FAX・参考計算のみ' : 'EOS発注')) }}</dd></div>
+                        <div><dt>発注先</dt><dd>{{ $routeDisplay ? '['.$routeDisplay->code.'] '.$routeDisplay->name : ($helperItem ? '商品発注管理の設定を確認してください' : '—') }}</dd></div>
+                        <div><dt>仕入先</dt><dd>{{ $routeDisplay ? '['.$routeDisplay->supplier_code.'] '.$routeDisplay->supplier_name : '—' }}</dd></div>
+                        @if(($this->form['channel'] ?? '') === 'LOGISTICS')
+                            <div><dt>移動元倉庫</dt><dd>{{ $sourceDisplay ? '['.$sourceDisplay->code.'] '.$sourceDisplay->name : '移動元の設定を確認してください' }}</dd></div>
+                            <div class="ar-route-course"><dt>配送コース</dt><dd>{{ $courseDisplay ? '['.$courseDisplay->code.'] '.$courseDisplay->name : '移動配送コース設定を確認してください' }}@if($courseDisplay)<small>出庫リード日数：{{ $courseDisplay->picking_lead_days ?? '顧客既定' }}日</small>@endif</dd></div>
+                        @endif
+                    </dl>
+                    <p class="ar-help">商品発注管理・移動配送コース設定に従います。この画面では変更できません。</p>
+                    </div>
+                    </details>
                 </section>
                 @foreach($errors->all() as $error)<p class="ar-error" role="alert">{{ $error }}</p>@endforeach
-            </div><footer><span class="ar-editor-save-state">保存後：<b x-text="enabled ? 'ON' : 'OFF'"></b></span><button type="button" class="ar-btn" wire:click="$set('showEditor', false)">変更せず閉じる</button><button type="button" class="ar-btn danger" wire:click="savePolicy" wire:loading.attr="disabled" wire:target="savePolicy,calculateSettings,form.item_id,form.channel,form.contractor_id,form.supplier_id,form.source_warehouse_id,form.delivery_course_id">設定を保存</button></footer>
+            </div><footer><span class="ar-editor-save-state">@if($faxReference)参考計算のみ・自動発注OFF
+                @else 保存後の自動発注：<b x-text="enabled ? 'ON' : 'OFF'"></b>@endif</span><button type="button" class="ar-btn" wire:click="$set('showEditor', false)">変更せず閉じる</button><button type="button" class="ar-btn danger" wire:click="savePolicy" @disabled($faxReference) wire:loading.attr="disabled" wire:target="savePolicy,calculateSettings,selectRecommendationCandidate,recommendationUnitMode,recommendationReviewDays,recommendationSafetyDays,savePalletUnit,saveShippingQuantities,registerShippingHistory,form.shipping_unit_mode,form.order_unit_mode,selectItem,form.item_id,form.channel,form.contractor_id,form.supplier_id,form.source_warehouse_id,form.delivery_course_id">設定を保存</button></footer>
         </section>
     @endif
     @if($this->showWarehouseEditor)
@@ -147,6 +175,7 @@
             </label>
             <h3>自動発注データの生成時刻（日本時間）</h3>
             <div class="ar-grid"><label>月〜土の生成時刻<input type="time" wire:model="warehouseForm.execution_time"></label><label>日曜日の生成時刻<input type="time" wire:model="warehouseForm.sunday_execution_time"></label></div>
+            <p class="ar-help">実行曜日・時刻を変更した場合、新方式の商品は「おすすめ設定」で再計算・保存するまで自動発注を保留します。</p>
             <div class="ar-days">実行曜日 @foreach(['日','月','火','水','木','金','土'] as $day=>$name)<label><input type="checkbox" value="{{ $day }}" wire:model="warehouseForm.weekdays">{{ $name }}</label>@endforeach</div>
             <p class="ar-help">推奨：月〜土10:00・日曜22:00。EOS・物流発注ともにこの時刻に生成します。EOSの送信は発注先の送信設定、物流の入荷日・出庫日は既存の倉庫別ルールに従います。</p>
             <p class="ar-help">発注数量は、商品別発注設定の最大発注数で制限します。</p>
@@ -163,6 +192,7 @@
     @if($detail)
         @php $s=$detail->confirmation_snapshot ?: $detail->proposal_snapshot; $p=$s['policy'] ?? []; @endphp
         <div class="ar-backdrop" wire:click="$set('detailId', null)"></div><section class="ar-drawer" role="dialog" aria-modal="true" aria-label="発注内容の詳細"><header><b>{{ $screen === 'history' ? '自動発注履歴' : '試算の根拠' }}</b><button wire:click="$set('detailId', null)" aria-label="閉じる">×</button></header><div class="ar-drawer-body">
+            @include('filament.pages.auto-replenishment-route-warnings', ['masterWarnings' => $s['master_warnings'] ?? []])
             <h2>[{{ $s['item_code'] ?? '' }}] {{ $s['item_name'] ?? '設定確認が必要です' }}</h2><span class="ar-badge">{{ $labels[$detail->phase] ?? $detail->phase }}</span><p>{{ $detail->reason }}</p>
             <div class="ar-grid three">@foreach(['stock'=>'現在庫','incoming'=>'未入荷残','claims'=>'他の候補確保','arrival_date'=>'入荷予定日','business_date'=>'業務発注日','observed_at'=>'確認時刻'] as $key=>$name)<div class="ar-value"><small>{{ $name }}</small><b>{{ $s[$key] ?? '—' }}</b></div>@endforeach</div>
             <div class="ar-grid four">@foreach(['reorder_point_pieces'=>'発注点','max_order_pieces'=>'最大発注数','min_order_pieces'=>'最小発注数','order_multiple_pieces'=>'最小単位'] as $key=>$name)<div class="ar-value"><small>{{ $name }}（総バラ）</small><b>{{ $p[$key] ?? '—' }}</b></div>@endforeach</div>

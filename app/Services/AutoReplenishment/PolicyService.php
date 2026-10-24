@@ -28,14 +28,12 @@ class PolicyService
                 }
             }
         }
-        if ($calculationBasis) {
-            $suggested = $calculationBasis['suggested_values'] ?? [];
-            $calculationBasis['applied_values'] = array_intersect_key($values, $suggested);
-            $calculationBasis['manually_adjusted_fields'] = array_keys(array_filter($suggested, fn ($v, $k) => ($values[$k] ?? null) != $v, ARRAY_FILTER_USE_BOTH));
-        }
+        throw_if($values['strategy_key'] === 'arrival_adaptive_v1' && $calculationBasis
+            && ! in_array($calculationBasis['batch_rule'] ?? '', ['observed-mode-with-historical-maximum', 'mean-demand-times-review-days', 'preserved-store-normal-with-shipping-quantities'], true),
+            \RuntimeException::class, '通常量をまとめて補充する方法へ変更する場合は、「おすすめ設定」で実績を再計算してください。');
         $values['calculation_basis'] = $calculationBasis;
 
-        return $this->persist($clientId, $warehouseId, $values, $actorId);
+        return $this->persist($clientId, $warehouseId, $values, $actorId, $data);
     }
 
     public function validate(array $data): array
@@ -46,11 +44,12 @@ class PolicyService
             'max_order_pieces' => 'required|integer|min:1|max:2147483647',
             'min_order_pieces' => 'required|integer|min:1|lte:max_order_pieces',
             'order_multiple_pieces' => 'required|integer|min:1|max:2147483647',
-            'target_stock_pieces' => ($data['strategy_key'] ?? '') === 'arrival_batch_v1'
+            'target_stock_pieces' => in_array($data['strategy_key'] ?? '', ['arrival_batch_v1', 'arrival_adaptive_v1'], true)
                 ? 'nullable|integer|min:1|max:2147483647' : 'nullable|integer|gte:reorder_point_pieces|max:2147483647',
             'channel' => 'required|in:EOS,LOGISTICS', 'contractor_id' => 'required|integer|min:1',
             'supplier_id' => 'nullable|integer|min:1', 'source_warehouse_id' => 'nullable|integer|min:1',
             'delivery_course_id' => 'nullable|integer|min:1',
+            'order_unit_mode' => 'sometimes|required|in:AUTO,PIECE,CASE',
             'strategy_key' => 'required|in:'.implode(',', array_keys(config('replenishment.strategies'))),
         ], trans('auto-replenishment.messages', [], 'ja'), trans('auto-replenishment.attributes', [], 'ja'))->validate();
     }
@@ -67,9 +66,9 @@ class PolicyService
         }, 3);
     }
 
-    private function persist(int $clientId, int $warehouseId, array $values, int $actorId): WmsItemReorderPolicy
+    private function persist(int $clientId, int $warehouseId, array $values, int $actorId, array $selection): WmsItemReorderPolicy
     {
-        return DB::connection('sakemaru')->transaction(function () use ($clientId, $warehouseId, $values, $actorId) {
+        return DB::connection('sakemaru')->transaction(function () use ($clientId, $warehouseId, $values, $actorId, $selection) {
             $c = $this->guard->control($clientId);
             throw_unless($c->reset_state === 'COMPLETE', \RuntimeException::class, '初期化完了後に設定してください。');
             $db = DB::connection('sakemaru');
@@ -80,11 +79,37 @@ class PolicyService
             $policy = WmsItemReorderPolicy::firstOrNew(['client_id' => $clientId, 'warehouse_id' => $warehouseId, 'item_id' => $values['item_id']]);
             throw_if($policy->exists && (int) ($values['version'] ?? 0) !== (int) $policy->version, \RuntimeException::class, '他の操作で設定が変更されています。再読込してください。');
             $before = $policy->toArray();
+            $mode = $values['order_unit_mode'] ?? $policy->order_unit_mode ?? 'AUTO';
+            $units = app(OrderUnitService::class);
+            $units->assertRecommendationMode($values['calculation_basis'], $mode);
+            if ($mode !== 'AUTO' || ($values['channel'] === 'LOGISTICS' && array_key_exists('order_unit_mode', $values))) {
+                $item = $db->table('items')->where(['id' => $values['item_id'], 'client_id' => $clientId])->first();
+                $unit = $units->forEditor($clientId, $item, $values['channel'], $mode, (int) ($values['source_warehouse_id'] ?? 0));
+                $multiple = app(ShippingQuantitySet::class)->gcd([$values['order_multiple_pieces'], $unit['packing_unit']]);
+                $step = intdiv($values['order_multiple_pieces'], $multiple) * $unit['packing_unit'];
+                throw_if((int) (ceil($values['min_order_pieces'] / $step) * $step) > $values['max_order_pieces'], \RuntimeException::class,
+                    '選択した発注単位で最小発注数・最大発注数を満たせません。数量条件を見直してください。');
+            }
+            $pallets = app(PalletUnitService::class);
+            $palletBefore = $pallets->binding($policy->exists ? (int) $policy->id : null);
+            $pallet = $pallets->prepare($clientId, $values, $selection, $policy->exists ? (int) $policy->id : null);
+            $shipping = app(ShippingQuantityService::class);
+            $shippingBefore = $shipping->binding($policy->exists ? (int) $policy->id : null);
+            $profile = $shipping->prepare($clientId, $values, $selection, $policy->exists ? (int) $policy->id : null);
+            if ($values['calculation_basis']) {
+                $suggested = $values['calculation_basis']['suggested_values'] ?? [];
+                $values['calculation_basis']['applied_values'] = array_intersect_key($values, $suggested);
+                $values['calculation_basis']['manually_adjusted_fields'] = array_keys(array_filter($suggested, fn ($v, $k) => ($values[$k] ?? null) != $v, ARRAY_FILTER_USE_BOTH));
+            }
             unset($values['version']);
             $policy->fill($values + ['is_configured' => true, 'is_enabled' => false, 'updated_by' => $actorId]);
             $policy->version = $policy->exists ? $policy->version + 1 : 1;
             $policy->save();
-            $this->guard->event($clientId, 'POLICY_SAVED', ['before' => $before, 'after' => $policy->toArray()], actorId: $actorId);
+            $pallets->persist((int) $policy->id, $pallet);
+            $shipping->persist((int) $policy->id, $profile);
+            $this->guard->event($clientId, 'POLICY_SAVED', ['before' => $before, 'after' => $policy->toArray(),
+                'shipping_before' => $shippingBefore, 'shipping_after' => $shipping->binding((int) $policy->id),
+                'pallet_before' => $palletBefore, 'pallet_after' => $pallets->binding((int) $policy->id)], actorId: $actorId);
 
             return $policy;
         }, 3);
@@ -98,8 +123,9 @@ class PolicyService
             $p = WmsItemReorderPolicy::where('client_id', $clientId)->lockForUpdate()->findOrFail($id);
             throw_if((int) $p->version !== $version || ($enabled && ! $p->is_configured), \RuntimeException::class, '再設定が必要です。');
             if ($enabled) {
+                throw_if($p->channel === 'FAX', \RuntimeException::class, 'FAX発注は参考計算のみです。自動発注はONにできません。');
                 $snapshot = app(SnapshotReader::class)->read($p);
-                if ($p->strategy_key === 'arrival_batch_v1') {
+                if (in_array($p->strategy_key, ['arrival_batch_v1', 'arrival_adaptive_v1'], true)) {
                     $result = app(StrategyCalculator::class)->calculate($p->toArray(), $snapshot);
                     throw_if($result['phase'] === 'HOLD', \RuntimeException::class, $result['reason']);
                 }

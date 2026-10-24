@@ -9,6 +9,33 @@ use Tests\TestCase;
 
 class OrderRouteEligibilityTest extends TestCase
 {
+    public function test_reference_routes_exclude_eos_aggregation_logistics_and_other_clients(): void
+    {
+        config(['database.connections.sakemaru' => ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']]);
+        \Illuminate\Support\Facades\DB::purge('sakemaru');
+        try {
+            $db = \Illuminate\Support\Facades\DB::connection('sakemaru');
+            $db->statement('CREATE TABLE contractors (id INTEGER, client_id INTEGER, is_active INTEGER)');
+            $db->statement('CREATE TABLE wms_contractor_settings (contractor_id INTEGER, transmission_type TEXT)');
+            foreach ([1021, 1022, 9012, 9999] as $id) {
+                $db->table('contractors')->insert(['id' => $id, 'client_id' => 6, 'is_active' => 1]);
+            }
+            $db->table('contractors')->insert([['id' => 8888, 'client_id' => 7, 'is_active' => 1], ['id' => 7777, 'client_id' => 6, 'is_active' => 0]]);
+            $db->table('wms_contractor_settings')->insert(['contractor_id' => 9012, 'transmission_type' => 'INTERNAL']);
+            $transmission = Mockery::mock(OrderTransmissionService::class);
+            $transmission->shouldReceive('jxOrderTargetContractorIds')->andReturn([1021, 1022]);
+            app()->instance(OrderTransmissionService::class, $transmission);
+            $routes = new OrderRouteEligibility;
+            self::assertSame([9999], $routes->referenceContractorIds(6));
+            $routes->assertReferenceEligible(6, 9999);
+            self::assertSame([], $routes->contractorIds('FAX'));
+            $this->expectExceptionMessage('参考計算の発注先が変更されています');
+            $routes->assertReferenceEligible(6, 1022);
+        } finally {
+            \Illuminate\Support\Facades\DB::disconnect('sakemaru');
+        }
+    }
+
     public function test_eos_uses_the_existing_jx_generation_targets_including_aggregated_routes(): void
     {
         $transmission = Mockery::mock(OrderTransmissionService::class);
