@@ -26,6 +26,7 @@ class CreateContractor extends CreateRecord
         $data = $this->form->getState();
 
         $wmsFields = [
+            'order_conditions' => $data['wms_order_conditions'] ?? null,
             'order_mail' => $data['wms_order_mail'] ?? null,
             'order_mail_from' => $data['wms_order_mail_from'] ?? null,
             'order_mail_title' => $data['wms_order_mail_title'] ?? null,

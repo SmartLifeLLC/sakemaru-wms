@@ -18,6 +18,7 @@ class WmsContractorSetting extends WmsModel
     protected $table = 'wms_contractor_settings';
 
     protected $fillable = [
+        'order_conditions',
         'contractor_id',
         'transmission_contractor_id',
         'transmission_type',

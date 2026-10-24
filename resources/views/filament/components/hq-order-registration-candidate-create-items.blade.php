@@ -30,7 +30,8 @@
         '2週' => '1週の前の7日間の販売数量です。',
         '3週' => '2週の前の7日間の販売数量です。',
         '前月' => '基準日の前月1か月分の販売数量です。',
-        '備考' => '商品発注先マスタの備考です。ボタンで内容を確認できます。',
+        '商品備考' => '商品発注先マスタの備考です。',
+        '発注先備考' => '発注先マスタの発注ロット・発注条件です。',
     ];
     $candidateColumnHelps = array_replace($candidateColumnHelps, $lw?->weeklySalesColumnHelps() ?? []);
 @endphp
@@ -39,6 +40,9 @@
     columnHelpDescriptions: @js($candidateColumnHelps),
     columnHelpLabel: null,
     noteModalText: null,
+        dateErrors: {},
+        candidateSubmitting: false,
+        candidateSubmitError: '',
     filters: {
         itemCode: '',
         janCode: '',
@@ -167,6 +171,7 @@
         item.purchase_unit = Math.max(1, Number(option.purchase_unit || 1));
         item.safety_stock = Number(option.safety_stock || 0);
         item.item_contractor_note = option.item_contractor_note || '';
+        item.contractor_order_conditions = option.contractor_order_conditions || '';
         item.is_eos_available = !!option.is_eos_available;
         item.item_contractor_linked = !!option.is_item_linked;
         item.order_channel = option.order_channel || (item.is_eos_available ? 'EOS' : 'FAX');
@@ -629,13 +634,13 @@
         });
     },
 
-    syncToWire() {
+    additionLines() {
         const items = [];
         for (const [key, qty] of Object.entries(this.quantities)) {
             const itemId = key;
             const item = this.results.find(r => String(r.id) === itemId);
             if (!item) continue;
-            if (!this.canAddItem(item)) continue;
+            if (!this.canAddItem(item) || this.dateErrors[key]) continue;
             const channel = item.order_channel || (item.is_eos_available ? 'EOS' : 'FAX');
             if ((qty.caseQty > 0) || (qty.pieceQty > 0)) {
                 if (qty.caseQty > 0) {
@@ -698,18 +703,39 @@
                 }
             }
         }
-        $wire.set('orderCandidateItems', items);
+        return items;
     },
 
-    get validCount() {
-        let count = 0;
-        for (const [key, qty] of Object.entries(this.quantities)) {
-            const item = this.results.find(r => String(r.id) === key);
-            if (item && !this.canAddItem(item)) continue;
-            if ((qty.caseQty > 0) || (qty.pieceQty > 0)) count++;
-        }
-        return count;
+    syncToWire() {
+        return $wire.set('orderCandidateItems', this.additionLines());
     },
+    get hasDateErrors() {
+        return Object.entries(this.quantities).some(([key, qty]) => this.dateErrors[key] && (Number(qty.caseQty) > 0 || Number(qty.pieceQty) > 0));
+    },
+    async addCandidates() {
+        if (this.candidateSubmitting || this.hasDateErrors) return;
+        this.candidateSubmitting = true;
+        this.candidateSubmitError = '';
+        let unhook = () => {};
+        unhook = Livewire.hook('request', ({ fail }) => {
+            fail(() => {
+                unhook();
+                this.candidateSubmitting = false;
+                this.candidateSubmitError = '通信エラーのため追加できませんでした。もう一度「追加する」を押してください。';
+            });
+        });
+        try {
+            await this.syncToWire();
+            await $wire.addOrderCandidateItems();
+        } catch (error) {
+            this.candidateSubmitError = '登録リストに追加できませんでした。もう一度お試しください。';
+        } finally {
+            unhook();
+            this.candidateSubmitting = false;
+        }
+    },
+    get additionTotals() { return HqOrderInputs.totals(this.additionLines()); },
+    get validCount() { return new Set(this.additionLines().map(line => line.item_id)).size; },
 
     get eosUnavailableCount() {
         return this.results.filter(item => this.isEosUnavailable(item)).length;
@@ -884,7 +910,9 @@
             @endif
             <div class="ml-auto flex items-center gap-2">
                 <button type="button" wire:click="closeCandidateSearchModal" class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800">追加せず閉じる</button>
-                <button type="button" wire:click="addOrderCandidateItems" class="rounded-md bg-danger-600 px-4 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-danger-500">
+                <span x-cloak x-show="hasDateErrors" class="text-danger-600">入荷予定日の入力エラーを修正してください。</span>
+                <span x-cloak x-show="candidateSubmitError" x-text="candidateSubmitError" class="text-danger-600"></span>
+                <button type="button" x-on:click="addCandidates()" x-bind:disabled="candidateSubmitting || hasDateErrors || validCount === 0" class="rounded-md bg-danger-600 px-4 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-danger-500 disabled:opacity-40">
                     追加する
                 </button>
             </div>
@@ -1054,59 +1082,60 @@
     </div>
 
     {{-- 検索結果テーブル --}}
+    <x-order-registration.quantity-totals />
     <div x-show="searched && !loading" x-cloak class="flex min-h-0 flex-1 flex-col">
         <div class="min-h-0 flex-1 overflow-x-scroll overflow-y-auto rounded-md border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-            <table class="logistics-candidate-table divide-y divide-slate-200 text-xs dark:divide-slate-700" style="table-layout: fixed; width: 1714px; min-width: 1714px;">
+            <table class="logistics-candidate-table hq-order-candidate-table divide-y divide-slate-200 text-xs dark:divide-slate-700">
                 <colgroup>
-                    <col class="logistics-candidate-contractor-col" style="width: 180px !important;">
-                    <col class="logistics-candidate-code-col" style="width: 64px !important;">
-                    <col class="logistics-candidate-item-name-col" style="width: 220px !important;">
-                    <col class="logistics-candidate-packaging-col" style="width: 82px !important;">
-                    <col class="logistics-candidate-location-col" style="width: 78px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
-                    <col class="logistics-candidate-order-qty-col" style="width: 74px !important;">
-                    <col class="logistics-candidate-order-qty-col" style="width: 74px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 74px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 92px !important;">
-                    <col class="logistics-candidate-date-col" style="width: 150px !important;">
-                    <col class="logistics-candidate-date-col" style="width: 150px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
-                    <col class="logistics-candidate-date-col" style="width: 136px !important;">
-                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
+                <col class="logistics-candidate-code-col" style="width: 64px !important;">
+                <col style="width: 240px;">
+                <col class="logistics-candidate-packaging-col" style="width: 82px !important;">
+                <col class="logistics-candidate-location-col" style="width: 78px !important;">
+                <col class="logistics-candidate-order-qty-col" style="width: 74px !important;">
+                <col class="logistics-candidate-order-qty-col" style="width: 74px !important;">
+                <col class="logistics-candidate-number-col" style="width: 74px !important;">
+                <col class="logistics-candidate-number-col" style="width: 92px !important;">
+                <col class="logistics-candidate-date-col" style="width: 150px !important;">
+                <col class="logistics-candidate-date-col" style="width: 150px !important;">
+                <col class="logistics-candidate-number-col" style="width: 54px !important;">
+                <col class="logistics-candidate-number-col" style="width: 54px !important;">
+                <col class="logistics-candidate-number-col" style="width: 54px !important;">
+                <col class="logistics-candidate-number-col" style="width: 54px !important;">
+                <col class="logistics-candidate-date-col" style="width: 136px !important;">
+                <col style="width: 240px;">
+                <col style="width: 240px;">
+                <col class="logistics-candidate-contractor-col" style="width: 180px !important;">
                 </colgroup>
                 <thead class="sticky top-0 z-10 bg-slate-100 text-slate-700 shadow-sm dark:bg-slate-800 dark:text-slate-200">
                     <tr>
-                        <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold" style="width: 180px !important; min-width: 180px !important; max-width: 180px !important;"><x-order-registration.column-help-heading label="発注先" /></th>
-                        <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold"><x-order-registration.column-help-heading label="商品CD" /></th>
-                        <th class="logistics-candidate-item-name px-2 py-1.5 text-left font-semibold" style="width: 220px !important; min-width: 220px !important; max-width: 220px !important;"><x-order-registration.column-help-heading label="商品名" /></th>
-                        <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold"><x-order-registration.column-help-heading label="規格" /></th>
-                        <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold"><x-order-registration.column-help-heading label="棚番" /></th>
-                        <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="発注点" align="right" /></th>
-                        <th class="logistics-candidate-order-qty whitespace-nowrap border-l-2 border-slate-300 bg-amber-100 px-1 py-1.5 text-right font-semibold text-amber-900 dark:border-slate-600 dark:bg-amber-900/40 dark:text-amber-100"><x-order-registration.column-help-heading label="ケース" align="right" /></th>
-                        <th class="logistics-candidate-order-qty whitespace-nowrap bg-amber-100 px-1 py-1.5 text-right font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-100"><x-order-registration.column-help-heading label="バラ" align="right" /></th>
-                        <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold" style="width: 74px !important; min-width: 74px !important; max-width: 74px !important;"><x-order-registration.column-help-heading label="総バラ" align="right" /></th>
-                        <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold" style="width: 92px !important; min-width: 92px !important; max-width: 92px !important;"><x-order-registration.column-help-heading label="理論在庫" align="right" /></th>
-                        <th class="px-2 py-1.5 text-center font-semibold">
+                            <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold"><x-order-registration.column-help-heading label="商品CD" /></th>
+                            <th class="logistics-candidate-item-name px-2 py-1.5 text-left font-semibold"><x-order-registration.column-help-heading label="商品名" /></th>
+                            <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold"><x-order-registration.column-help-heading label="規格" /></th>
+                            <th class="px-2 py-1.5 text-left"><x-order-registration.column-help-heading label="棚番" /><br><x-order-registration.column-help-heading label="発注点" /></th>
+                            <th class="logistics-candidate-order-qty whitespace-nowrap border-l-2 border-slate-300 bg-amber-100 px-1 py-1.5 text-right font-semibold text-amber-900 dark:border-slate-600 dark:bg-amber-900/40 dark:text-amber-100"><x-order-registration.column-help-heading label="ケース" align="right" /></th>
+                            <th class="logistics-candidate-order-qty whitespace-nowrap bg-amber-100 px-1 py-1.5 text-right font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-100"><x-order-registration.column-help-heading label="バラ" align="right" /></th>
+                            <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold" style="width: 74px !important; min-width: 74px !important; max-width: 74px !important;"><x-order-registration.column-help-heading label="総バラ" align="right" /></th>
+                            <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold" style="width: 92px !important; min-width: 92px !important; max-width: 92px !important;"><x-order-registration.column-help-heading label="理論在庫" align="right" /></th>
+                            <th class="px-2 py-1.5 text-center font-semibold">
                             <div class="space-y-0.5 leading-4">
                                 <x-order-registration.column-help-heading label="最終入荷予定日" align="center" />
                                 <x-order-registration.column-help-heading label="最終入荷予定数" align="center" />
                             </div>
                         </th>
-                        <th class="px-2 py-1.5 text-center font-semibold">
+                            <th class="px-2 py-1.5 text-center font-semibold">
                             <div class="space-y-0.5 leading-4">
                                 <x-order-registration.column-help-heading label="最終仕入日" align="center" />
                                 <x-order-registration.column-help-heading label="最終仕入数" align="center" />
                             </div>
                         </th>
-                        <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="1週" align="right" /></th>
-                        <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="2週" align="right" /></th>
-                        <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="3週" align="right" /></th>
-                        <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="前月" align="right" /></th>
-                        <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold"><x-order-registration.column-help-heading label="予定日" align="center" /></th>
-                        <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold"><x-order-registration.column-help-heading label="備考" align="center" /></th>
+                            <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="1週" align="right" /></th>
+                            <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="2週" align="right" /></th>
+                            <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="3週" align="right" /></th>
+                            <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="前月" align="right" /></th>
+                            <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold"><x-order-registration.column-help-heading label="予定日" align="center" /></th>
+                            <th class="px-2 py-1.5 text-left"><x-order-registration.column-help-heading label="発注先備考" /></th>
+                            <th class="px-2 py-1.5 text-left"><x-order-registration.column-help-heading label="商品備考" /></th>
+                            <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold" style="width: 180px !important; min-width: 180px !important; max-width: 180px !important;"><x-order-registration.column-help-heading label="発注先" /></th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1114,40 +1143,23 @@
                         <tr
                             :class="index % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-[#f5f9ff] dark:bg-[#1e2a3b]'"
                             class="hover:bg-amber-50 dark:hover:bg-amber-950/30"
-                        >
-                            <td class="px-2 py-1.5 text-slate-700 dark:text-slate-200" style="width: 180px !important; min-width: 180px !important; max-width: 180px !important;">
-                                <span x-show="String(item.contractor_code) === '9012'" class="block text-[10px] font-bold text-red-600 dark:text-red-400">移動発注対象</span>
-                                <span x-show="isUnhandledItem(item)" class="inline-flex rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-900/40 dark:text-red-200">取扱なし</span>
-                                <span x-show="!isUnhandledItem(item) && item.is_eos_available === false" class="inline-flex rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-bold text-green-700 dark:bg-green-900/40 dark:text-green-200">FAX専用</span>
-                                <span x-show="!isUnhandledItem(item) && item.is_eos_available === true" class="inline-flex rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">EOS可</span>
-                                <span class="block whitespace-normal break-words leading-4" x-text="item.contractor_name || item.supplier_name || '-'"></span>
-                                <button
-                                    type="button"
-                                    x-show="isTransferOrderItem(item)"
-                                    x-on:click.stop="openCandidateContractorChange(item)"
-                                    class="mt-1 rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 shadow-sm hover:border-slate-400 hover:bg-slate-50 dark:border-slate-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
-                                >
-                                    発注先変更
-                                </button>
-                            </td>
-                            <td class="whitespace-nowrap px-2 py-1.5 font-mono text-slate-700 dark:text-slate-200" x-text="item.code"></td>
-                            <td
+                        ><td class="whitespace-nowrap px-2 py-1.5 font-mono text-slate-700 dark:text-slate-200" x-text="item.code"></td>
+                                <td
                                 class="logistics-candidate-item-name px-2 py-1.5 font-medium text-slate-900 dark:text-white"
-                                style="width: 220px !important; min-width: 220px !important; max-width: 220px !important;"
+
                             >
                                 <span
-                                    class="block cursor-help whitespace-normal leading-4"
-                                    style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;"
+                                    class="block cursor-help whitespace-nowrap leading-4"
+
                                     x-text="item.name"
                                     x-on:mouseenter="showItemNameTooltip($event, item.name)"
                                     x-on:mousemove="updateItemNameTooltipPosition($event)"
                                     x-on:mouseleave="hoveredItemName = null"
                                 ></span>
                             </td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-slate-600 dark:text-slate-300" x-text="formatPackaging(item)"></td>
-                            <td class="whitespace-nowrap px-2 py-1.5 font-mono text-slate-700 dark:text-slate-200" x-text="item.default_location_code || '-'"></td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.safety_stock)"></td>
-                            <td class="logistics-candidate-order-qty whitespace-nowrap border-l-2 border-slate-300 bg-amber-50 px-1 py-1.5 text-center dark:border-slate-600 dark:bg-amber-950/30">
+                                <td class="whitespace-nowrap px-2 py-1.5 text-slate-600 dark:text-slate-300" x-text="formatPackaging(item)"></td>
+                                <td class="whitespace-nowrap px-2 py-1.5 font-mono"><div x-text="item.default_location_code || ''"></div><div class="text-xs text-slate-500">発注点 <span x-text="formatNumber(item.safety_stock)"></span></div></td>
+                                <td class="logistics-candidate-order-qty whitespace-nowrap border-l-2 border-slate-300 bg-amber-50 px-1 py-1.5 text-center dark:border-slate-600 dark:bg-amber-950/30">
                                 <input
                                     type="text"
                                     inputmode="numeric"
@@ -1169,7 +1181,7 @@
                                     class="w-[58px] rounded-md border-2 border-amber-300 bg-white px-1 py-0.5 text-right text-sm font-semibold text-slate-900 shadow-sm focus:border-amber-500 focus:ring-2 focus:ring-amber-200 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 dark:border-amber-700 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-amber-500 dark:focus:ring-amber-900 dark:disabled:border-slate-700 dark:disabled:bg-slate-800"
                                 >
                             </td>
-                            <td class="logistics-candidate-order-qty whitespace-nowrap bg-amber-50 px-1 py-1.5 text-center dark:bg-amber-950/30">
+                                <td class="logistics-candidate-order-qty whitespace-nowrap bg-amber-50 px-1 py-1.5 text-center dark:bg-amber-950/30">
                                 <input
                                     type="text"
                                     inputmode="numeric"
@@ -1191,8 +1203,8 @@
                                     class="w-[58px] rounded-md border-2 border-amber-300 bg-white px-1 py-0.5 text-right text-sm font-semibold text-slate-900 shadow-sm focus:border-amber-500 focus:ring-2 focus:ring-amber-200 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 dark:border-amber-700 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-amber-500 dark:focus:ring-amber-900 dark:disabled:border-slate-700 dark:disabled:bg-slate-800"
                                 >
                             </td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono font-bold text-sky-700 dark:text-sky-300" style="width: 74px !important; min-width: 74px !important; max-width: 74px !important;" x-text="formatNumber(orderTotalPieces(item))"></td>
-                            <td class="whitespace-nowrap px-2 py-1.5" style="width: 92px !important; min-width: 92px !important; max-width: 92px !important;">
+                                <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono font-bold text-sky-700 dark:text-sky-300" style="width: 74px !important; min-width: 74px !important; max-width: 74px !important;" x-text="formatNumber(orderTotalPieces(item))"></td>
+                                <td class="whitespace-nowrap px-2 py-1.5" style="width: 92px !important; min-width: 92px !important; max-width: 92px !important;">
                                 <div class="flex justify-end">
                                     <button
                                         type="button"
@@ -1203,34 +1215,41 @@
                                     ></button>
                                 </div>
                             </td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-center font-mono text-slate-700 dark:text-slate-200">
+                                <td class="whitespace-nowrap px-2 py-1.5 text-center font-mono text-slate-700 dark:text-slate-200">
                                 <div class="space-y-0.5 leading-4">
                                     <div x-text="formatShortDate(item.last_incoming_date)"></div>
                                     <div x-show="item.last_incoming_date" class="text-[11px] text-slate-500 dark:text-slate-400" x-text="formatCasePiece(item.last_incoming_date, item.last_incoming_case_qty, item.last_incoming_piece_qty)"></div>
                                 </div>
                             </td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-center font-mono text-slate-700 dark:text-slate-200">
+                                <td class="whitespace-nowrap px-2 py-1.5 text-center font-mono text-slate-700 dark:text-slate-200">
                                 <div class="space-y-0.5 leading-4">
                                     <div x-text="formatShortDate(item.last_purchase_date)"></div>
                                     <div x-show="item.last_purchase_date" class="text-[11px] text-slate-500 dark:text-slate-400" x-text="formatCasePiece(item.last_purchase_date, item.last_purchase_case_qty, item.last_purchase_piece_qty)"></div>
                                 </div>
                             </td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week1_qty)"></td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week2_qty)"></td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week3_qty)"></td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.previous_month_sales_qty)"></td>
-                            <td class="whitespace-nowrap px-1 py-1.5 text-center">
-                                <input
-                                    type="date"
-                                    :value="plannedDateFor(item)"
-                                    :min="today"
-                                    x-bind:disabled="!canAddItem(item)"
-                                    x-on:change="setPlannedDate(item, $event.target.value)"
-                                    class="w-[128px] rounded-md border border-slate-300 bg-white px-1 py-0.5 text-xs font-mono text-slate-900 shadow-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-primary-500 dark:focus:ring-primary-900 dark:disabled:border-slate-700 dark:disabled:bg-slate-800"
-                                >
+                                <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week1_qty)"></td>
+                                <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week2_qty)"></td>
+                                <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week3_qty)"></td>
+                                <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.previous_month_sales_qty)"></td>
+                                <td class="whitespace-nowrap px-1 py-1.5 text-center">
+                                <x-order-registration.date-input value="plannedDateFor(item)" min="today" x-on:hq-date-valid.stop="dateErrors[itemKey(item)] = false; setPlannedDate(item, $event.detail.value); syncToWire()" x-on:hq-date-invalid.stop="dateErrors[itemKey(item)] = true; syncToWire()" />
                             </td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-center">
-                                <button type="button" x-on:click.stop="openNoteModal(item.item_contractor_note)" class="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">表示</button>
+                                <td class="px-2 py-1.5"><x-order-registration.note value="item.contractor_order_conditions" /></td>
+                                <td class="px-2 py-1.5"><x-order-registration.note value="item.item_contractor_note" /></td>
+                                <td class="px-2 py-1.5 text-slate-700 dark:text-slate-200" style="width: 180px !important; min-width: 180px !important; max-width: 180px !important;">
+                                <span x-show="String(item.contractor_code) === '9012'" class="block text-[10px] font-bold text-red-600 dark:text-red-400">移動発注対象</span>
+                                <span x-show="isUnhandledItem(item)" class="inline-flex rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-900/40 dark:text-red-200">取扱なし</span>
+                                <span x-show="!isUnhandledItem(item) && item.is_eos_available === false" class="inline-flex rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-bold text-green-700 dark:bg-green-900/40 dark:text-green-200">FAX専用</span>
+                                <span x-show="!isUnhandledItem(item) && item.is_eos_available === true" class="inline-flex rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">EOS可</span>
+                                <span class="block whitespace-normal break-words leading-4" x-text="item.contractor_name || item.supplier_name || '-'"></span>
+                                <button
+                                    type="button"
+                                    x-show="isTransferOrderItem(item)"
+                                    x-on:click.stop="openCandidateContractorChange(item)"
+                                    class="mt-1 rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 shadow-sm hover:border-slate-400 hover:bg-slate-50 dark:border-slate-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+                                >
+                                    発注先変更
+                                </button>
                             </td>
                         </tr>
                     </template>

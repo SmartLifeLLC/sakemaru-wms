@@ -1876,7 +1876,7 @@ class WmsOrderRegistration extends AdminPage
      * @param  array<int>  $itemIds
      * @return array<int, string>
      */
-    private function defaultLocationCodes(int $warehouseId, array $itemIds): array
+    protected function defaultLocationCodes(int $warehouseId, array $itemIds): array
     {
         if ($itemIds === []) {
             return [];
@@ -3211,7 +3211,7 @@ class WmsOrderRegistration extends AdminPage
     /**
      * @return array<int>
      */
-    private function selectedVisibleRegistrationLineIndexes(): array
+    protected function selectedVisibleRegistrationLineIndexes(): array
     {
         $visibleIndexes = $this->visibleRegistrationLineIndexes();
 
@@ -3221,7 +3221,7 @@ class WmsOrderRegistration extends AdminPage
             ->toArray();
     }
 
-    private function clearRegistrationLineSelection(): void
+    protected function clearRegistrationLineSelection(): void
     {
         $this->selectedRegistrationLineIndexes = [];
     }
