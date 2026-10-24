@@ -117,8 +117,8 @@
                     @include('filament.pages.auto-replenishment-recommendation-actions')
                     @if(!$recommendationReady)<p class="ar-help">商品選択後に発注先・配送を自動入力します。特定できない場合は商品発注管理・移動配送コース設定を確認してください。</p>@endif
                     <p class="ar-loading" role="status" wire:loading wire:target="calculateSettings,selectRecommendationCandidate,recommendationUnitMode,recommendationReviewDays,recommendationSafetyDays,savePalletUnit,saveShippingQuantities,registerShippingHistory,form.shipping_unit_mode,form.order_unit_mode,selectItem,form.item_id,form.channel,form.contractor_id,form.supplier_id,form.source_warehouse_id,form.delivery_course_id">出荷・入荷実績を確認して、おすすめ設定を計算しています…</p>
-                    <fieldset class="ar-quantity-input-panel">
-                        <legend>数量の入力</legend>
+                    <details class="ar-quantity-input-panel" wire:ignore.self wire:key="quantity-settings-{{ $this->form['item_id'] ?? 'new' }}">
+                        <summary>発注数量設定</summary>
                         <div class="ar-quantity-input-content">
                             <div class="ar-editor-quantities">
                                 @foreach(['reorder_point_pieces'=>'発注点','max_order_pieces'=>'最大発注数','min_order_pieces'=>'最小発注数','order_multiple_pieces'=>'最小発注単位','target_stock_pieces'=>'補充目標（任意）'] as $key=>$label)
@@ -129,7 +129,7 @@
                                 @include('filament.pages.auto-replenishment-setting-help')
                             </div>
                         </div>
-                    </fieldset>
+                    </details>
                     @if($this->recommendation)@include('filament.pages.auto-replenishment-candidates')@endif
                     @if($helperItem)@include('filament.pages.auto-replenishment-projection')@endif
                     @if($this->recommendation)

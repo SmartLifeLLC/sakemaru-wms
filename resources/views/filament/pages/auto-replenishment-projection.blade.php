@@ -1,6 +1,6 @@
 <section class="ar-projection" aria-label="2週間の在庫推移" x-data="{ changed: false }"
     @ar-quantity-change.window="changed = true"
-    @ar-quantity-change.window.debounce.700ms="if ($wire.inventoryProjectionInputs) { $wire.refreshInventoryProjection().then(() => changed = false) }">
+    @ar-quantity-change.window.debounce.700ms="if ($el.isConnected && $wire.showEditor && $wire.inventoryProjectionInputs) { $wire.refreshInventoryProjection().then(() => { if ($el.isConnected) changed = false }) }">
     @php $chart = $this->inventoryProjection; @endphp
     <div class="ar-projection-heading">
         <strong>2週間の在庫推移</strong>
