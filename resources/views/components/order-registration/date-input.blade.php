@@ -8,7 +8,8 @@
     {{ $attributes->class(['relative inline-block']) }}>
     <div class="flex items-center gap-1">
         <input type="text" inputmode="numeric" autocomplete="off" aria-label="{{ $label }}" placeholder="日／月日／年月日"
-            x-model="display" x-on:input="edit()" x-on:focus="$event.target.select()" x-on:blur="commit()" x-on:keydown.enter.prevent.stop="commit()"
+            x-model="display" x-on:input="edit($event)" x-on:focus="$event.target.select()" x-on:blur="commit($event)" x-on:keydown.enter="commitOnEnter($event)"
+            x-on:compositionstart="startComposition()" x-on:compositionend="endComposition($event)"
             x-bind:aria-invalid="!!error" class="w-32 rounded-md border-slate-300 px-2 py-1 text-xs font-mono dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100">
         <button type="button" x-on:click="openPicker()" aria-label="カレンダーを開く" class="text-slate-500 dark:text-gray-300">▦</button>
         <input type="date" x-ref="picker" x-bind:value="value" x-bind:min="min" x-bind:max="max" x-on:change="pick($event)" tabindex="-1" aria-hidden="true" class="pointer-events-none absolute bottom-0 right-0 h-px w-px opacity-0">

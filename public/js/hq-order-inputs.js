@@ -1,6 +1,10 @@
 (function (root) {
+    function toHalfWidthDigits(input) {
+        return String(input ?? '').replace(/[０-９]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xFEE0));
+    }
+
     function normalizeDateInput(input, basis = new Date()) {
-        const text = String(input ?? '').normalize('NFKC').trim();
+        const text = toHalfWidthDigits(input).replaceAll('／', '/').replaceAll('－', '-').trim();
         if (!text) return '';
         let year = basis.getFullYear(), month = basis.getMonth() + 1, day;
         const full = text.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
@@ -49,7 +53,7 @@
 
     function dateInput(value, min = '', max = '') {
         return {
-            value, min, max, display: '', error: '', isEditing: false, lastExternal: value, lastReset: 0,
+            value, min, max, display: '', error: '', isEditing: false, composing: false, justComposed: false, commitAfterComposition: false, lastExternal: value, lastReset: 0,
             init() {
                 this.display = String(this.value || '').replaceAll('-', '/');
                 this.$watch('value', value => {
@@ -64,11 +68,46 @@
                     this.display = String(external || '').replaceAll('-', '/');
                 }
             },
-            edit() {
+            edit(event) {
                 this.isEditing = true; this.error = ''; this.value = '';
+                if (!this.composing && !event?.isComposing) {
+                    const target = event?.target;
+                    this.display = toHalfWidthDigits(target?.value ?? this.display);
+                    if (target && target.value !== this.display) {
+                        const { selectionStart, selectionEnd } = target;
+                        target.value = this.display;
+                        target.setSelectionRange?.(selectionStart, selectionEnd);
+                    }
+                }
                 this.$dispatch('hq-date-invalid');
             },
-            commit() {
+            startComposition() {
+                this.composing = true;
+                this.justComposed = false;
+                this.edit();
+            },
+            endComposition(event) {
+                this.composing = false;
+                this.justComposed = true;
+                this.edit(event);
+                setTimeout(() => { this.justComposed = false; }, 100);
+                if (this.commitAfterComposition) {
+                    this.commitAfterComposition = false;
+                    this.commit();
+                }
+            },
+            commitOnEnter(event) {
+                event.stopPropagation();
+                if (this.composing || event.isComposing || event.keyCode === 229) return false;
+                event.preventDefault();
+                if (this.justComposed) return false;
+                return this.commit(event);
+            },
+            commit(event) {
+                if (this.composing || event?.isComposing || event?.keyCode === 229) {
+                    if (event?.type === 'blur') this.commitAfterComposition = true;
+                    return false;
+                }
                 this.isEditing = false;
                 try {
                     const normalized = normalizeDateInput(this.display);
