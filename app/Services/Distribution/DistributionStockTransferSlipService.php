@@ -24,7 +24,8 @@ class DistributionStockTransferSlipService
         ?string $sourceWarehouseCode = null,
         ?string $fixedProcessDate = null,
         string $requestIdPrefix = 'distribution-transfer',
-        bool $preventDuplicateByDistributionRow = false
+        bool $preventDuplicateByDistributionRow = false,
+        ?string $pickingDate = null
     ): array {
         $sourceWarehouse = $this->resolveSourceWarehouse($selectedWarehouseId, $sourceWarehouseCode);
         $destinations = $this->resolveDestinations($rows);
@@ -38,7 +39,7 @@ class DistributionStockTransferSlipService
             throw new RuntimeException('伝票出力できる確定行がありません。');
         }
 
-        return DB::connection('sakemaru')->transaction(function () use ($sourceWarehouse, $linesByGroup, $createdBy, $remark, $preventDuplicateByDistributionRow): array {
+        return DB::connection('sakemaru')->transaction(function () use ($sourceWarehouse, $linesByGroup, $createdBy, $remark, $preventDuplicateByDistributionRow, $pickingDate): array {
             $skippedRows = [];
             $skippedQueues = [];
 
@@ -53,7 +54,7 @@ class DistributionStockTransferSlipService
             $skippedQueueCount = count($skippedQueues);
 
             foreach ($linesByGroup as $group) {
-                $queue = $this->upsertStockTransferQueue($sourceWarehouse, $group, $createdBy, $remark);
+                $queue = $this->upsertStockTransferQueue($sourceWarehouse, $group, $createdBy, $remark, $pickingDate);
                 $queueId = (int) $queue['queue_id'];
                 if ($queue['created']) {
                     $createdQueueCount++;
@@ -619,7 +620,7 @@ class DistributionStockTransferSlipService
      * @param  array{destination: object, process_date: string, delivery_course_id: int|null, items: array<int, array<string, mixed>>, row_ids: array<string, string>, request_id: string, dedupe_keys?: array<string, string>}  $group
      * @return array{queue_id: int, created: bool}
      */
-    private function upsertStockTransferQueue(object $sourceWarehouse, array $group, int $createdBy, ?string $remark): array
+    private function upsertStockTransferQueue(object $sourceWarehouse, array $group, int $createdBy, ?string $remark, ?string $pickingDate = null): array
     {
         $note = '分配画面から作成';
         if ($remark !== null && trim($remark) !== '') {
@@ -643,6 +644,13 @@ class DistributionStockTransferSlipService
             'created_at' => now(),
             'updated_at' => now(),
         ];
+
+        if ($pickingDate !== null) {
+            if (! \Illuminate\Support\Facades\Schema::connection('sakemaru')->hasColumn('stock_transfer_queue', 'picking_date')) {
+                throw new RuntimeException('出荷日を保存する準備が完了していません。管理者に倉庫移動処理の更新を依頼してください。');
+            }
+            $queueData['picking_date'] = Carbon::parse($pickingDate)->toDateString();
+        }
 
         $existingQueue = DB::connection('sakemaru')
             ->table('stock_transfer_queue')
