@@ -173,10 +173,8 @@ class TransferCandidateExecutionService
         // request_idは候補IDを使用（ユニーク制約対応）
         $requestId = "transfer-create-{$candidate->id}";
 
-        // 処理日はshipment_dateを優先、なければexpected_arrival_dateを使用
-        $processDate = $candidate->shipment_date?->format('Y-m-d')
-            ?? $candidate->expected_arrival_date?->format('Y-m-d')
-            ?? now()->format('Y-m-d');
+        // 一括確定と同じく入荷日を渡し、出荷日は基幹の配送設定で算定する。
+        $processDate = $this->resolveIncomingExpectedArrivalDate($candidate)->format('Y-m-d');
 
         $deliveryCourseId = $this->resolveTransferDeliveryCourseId(
             (int) $candidate->hub_warehouse_id,

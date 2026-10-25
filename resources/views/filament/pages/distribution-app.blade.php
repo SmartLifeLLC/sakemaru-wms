@@ -289,7 +289,12 @@
     }
         </style>
 
-<div x-data="distributionApp()" x-init="init()" class="w-full min-w-0 px-3 sm:px-4 lg:px-5 text-neutral-900">
+<div x-data="distributionApp()" :inert="distributionRowsLoading || warehouseTransferCreating || transferSlipCreating || orderCandidateCreating" class="w-full min-w-0 px-3 sm:px-4 lg:px-5 text-neutral-900">
+
+  <div x-show="serverRowsLoadError" x-cloak role="alert" class="my-2 flex items-center justify-between gap-3 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+    <span x-text="serverRowsLoadError"></span>
+    <button type="button" @click="window.location.reload()" class="shrink-0 rounded-md bg-indigo-600 px-3 py-1.5 text-white hover:bg-indigo-700">画面を再読み込み</button>
+  </div>
 
   <!-- Toast -->
   <div x-show="toastVisible" x-cloak
@@ -502,7 +507,7 @@
 @if ($distributionInitialTabForView === 'allocation')
   <!-- ==================== Allocation Tab ==================== -->
   <template x-if="activeSubTab === 'allocation'">
-    <div>
+    <div :inert="!!serverRowsLoadError">
 
     <!-- Filters -->
     <div class="sticky top-0 z-20 bg-white/90 backdrop-blur shadow-sm">
@@ -590,6 +595,7 @@
             <span>CSV出力</span>
           </button>
           <button type="button" data-slip-action="warehouse-transfer" @click.prevent.stop="generateWarehouseTransfers()" :disabled="warehouseTransferCreating || transferSlipCreating || !hasWarehouseTransferCreatableRows()" :title="getWarehouseTransferButtonTitle()" :class="(warehouseTransferCreating || transferSlipCreating || !hasWarehouseTransferCreatableRows()) ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 text-white'" class="font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">倉庫移動生成</button>
+          <button type="button" data-slip-action="reprint-selection" @click.prevent.stop="openReprintSelection()" :disabled="warehouseTransferCreating || transferSlipCreating" class="bg-indigo-600 hover:bg-indigo-700 text-white disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">伝票再出力</button>
           <button x-show="showAllocationOrderCandidateButton" x-cloak @click="generateOrderCandidates()" :disabled="orderCandidateCreating || !hasOrderCandidateGeneratableRows()" :class="(orderCandidateCreating || !hasOrderCandidateGeneratableRows()) ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-amber-500 hover:bg-amber-600 text-white'" class="inline-flex items-center gap-1.5 font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">
             <svg x-show="orderCandidateCreating" x-cloak class="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -648,7 +654,7 @@
           </thead>
           <template x-for="row in getRenderableVisibleRows()" :key="row.id">
             <tbody class="text-xs">
-              <tr :class="isAllocationTransferCompleted(row) ? 'bg-gray-100' : ''" class="divide-x divide-gray-200 border-t border-gray-200 hover:bg-neutral-50">
+              <tr :data-allocation-row-id="row.id" :class="isAllocationTransferCompleted(row) ? 'bg-gray-100' : ''" class="divide-x divide-gray-200 border-t border-gray-200 hover:bg-neutral-50">
                 <td class="p-1 text-center">
                   <input type="checkbox"
                     :checked="isRowDeleteSelected(row, false)"
@@ -670,9 +676,9 @@
                       </label>
                     </div>
                     <div class="date-entry">
-                      <input type="text" x-model="row.deliveryDate" @blur="row.deliveryDate = normalizeFlexibleDate(row.deliveryDate)" @keydown.enter.prevent="row.deliveryDate = normalizeFlexibleDate(row.deliveryDate); $event.target.blur()" inputmode="numeric" :disabled="isRowEditLocked(row)" :class="isRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : (isDeliveryDateBeforeOrderDate(row) ? 'border-red-500 bg-red-50 text-red-700 focus:ring-2 focus:ring-red-500' : 'focus:ring-2 focus:ring-indigo-500')" class="date-entry-text w-full rounded-md border-gray-300 border px-1 py-1 text-xs shadow-sm" />
+                      <input type="text" x-model="row.deliveryDate" @blur="handleDeliveryDateChanged(row)" @keydown.enter.prevent="$event.target.blur()" inputmode="numeric" :disabled="isRowEditLocked(row)" :class="isRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : (isDeliveryDateBeforeOrderDate(row) ? 'border-red-500 bg-red-50 text-red-700 focus:ring-2 focus:ring-red-500' : 'focus:ring-2 focus:ring-indigo-500')" class="date-entry-text w-full rounded-md border-gray-300 border px-1 py-1 text-xs shadow-sm" />
                       <label class="date-entry-picker" :class="isRowEditLocked(row) ? 'is-disabled' : ''" title="納品希望日をカレンダー選択">
-                        <input type="date" :value="row.deliveryDate" @change="row.deliveryDate = $event.target.value" :disabled="isRowEditLocked(row)" class="date-entry-native" />
+                        <input type="date" :value="row.deliveryDate" @change="row.deliveryDate = $event.target.value; handleDeliveryDateChanged(row)" :disabled="isRowEditLocked(row)" class="date-entry-native" />
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                       </label>
                     </div>
@@ -694,7 +700,7 @@
                       @focus="productCodeEditBefore[row.id] = row.productCode || ''"
                       @input.debounce.150ms="resolveManualProductCodeFast(row)"
                       @blur="resolveManualProductCode(row)"
-                      @keydown.enter.prevent="resolveManualProductCode(row)"
+                      data-distribution-enter-nav @keydown.enter="focusNextAllocationDestinationInput($event, row)"
                       inputmode="numeric"
                       :disabled="isProductEditLocked(row)"
                       :class="isProductEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed text-gray-400' : 'focus:ring-2 focus:ring-indigo-500'"
@@ -744,13 +750,13 @@
                 </td>
                 <!-- 発注ケース -->
                 <td class="p-1 text-right">
-                  <input type="number" :value="orderQuantityInputValue(row.poCase)" @input="setOrderQuantity(row, 'poCase', $event.target.value, false)" @blur="flushQuantitySave(false)" :disabled="isQuantityLocked(row)"
+                  <input type="text" inputmode="numeric" :value="orderQuantityInputValue(row.poCase)" @compositionstart="$el.dataset.quantityComposing = 'true'" @compositionend="delete $el.dataset.quantityComposing; handleQuantityInput($event, row, 'poCase', false, true)" @input="handleQuantityInput($event, row, 'poCase', false)" @change="handleQuantityInput($event, row, 'poCase', false, true)" data-distribution-enter-nav @keydown.enter="focusNextAllocationDestinationInput($event)" @blur="flushQuantitySave(false)" :disabled="isQuantityLocked(row)"
                     :class="isQuantityLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : 'focus:ring-2 focus:ring-indigo-500'"
                     class="w-full rounded-md border-gray-300 border px-1 py-1 text-right shadow-sm alloc-spin-hide" />
                 </td>
                 <!-- 発注バラ -->
                 <td class="p-1 text-right">
-                  <input type="number" :value="orderQuantityInputValue(row.poEach)" @input="setOrderQuantity(row, 'poEach', $event.target.value, false)" @blur="flushQuantitySave(false)" :disabled="isQuantityLocked(row)"
+                  <input type="text" inputmode="numeric" :value="orderQuantityInputValue(row.poEach)" @compositionstart="$el.dataset.quantityComposing = 'true'" @compositionend="delete $el.dataset.quantityComposing; handleQuantityInput($event, row, 'poEach', false, true)" @input="handleQuantityInput($event, row, 'poEach', false)" @change="handleQuantityInput($event, row, 'poEach', false, true)" data-distribution-enter-nav @keydown.enter="focusNextAllocationDestinationInput($event)" @blur="flushQuantitySave(false)" :disabled="isQuantityLocked(row)"
                     :class="isQuantityLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : 'focus:ring-2 focus:ring-indigo-500'"
                     class="w-full rounded-md border-gray-300 border px-1 py-1 text-right shadow-sm alloc-spin-hide" />
                 </td>
@@ -769,9 +775,9 @@
                         x-text="row['wish_'+dest.key] || 0"></div>
                       <input type="text" inputmode="numeric"
                         :value="row['alloc_'+dest.key] || 0"
-                        @input="setAllocationQuantity(row, dest.key, $event.target.value, false)"
+                        @compositionstart="$el.dataset.quantityComposing = 'true'" @compositionend="delete $el.dataset.quantityComposing; handleQuantityInput($event, row, 'alloc_' + dest.key, false, true)" @input="handleQuantityInput($event, row, 'alloc_' + dest.key, false)" @change="handleQuantityInput($event, row, 'alloc_' + dest.key, false, true)"
                         @blur="flushQuantitySave(false)"
-                        @keydown.enter.prevent="focusNextAllocationDestinationInput($event)"
+                        data-distribution-enter-nav @keydown.enter="focusNextAllocationDestinationInput($event)"
                         @focus="$event.target.select()"
                         :disabled="isQuantityLocked(row)"
                         :class="isQuantityLocked(row) ? 'bg-gray-100 cursor-not-allowed text-gray-400 border-gray-300' : (Number(row['alloc_'+dest.key] || 0) > 0 ? 'bg-yellow-50 border-2 border-yellow-400 focus:ring-2 focus:ring-yellow-400 text-yellow-800' : 'bg-green-50 border-2 border-green-300 focus:ring-2 focus:ring-green-500 focus:border-green-500 focus:bg-white text-green-900')"
@@ -816,7 +822,7 @@
 @if ($distributionInitialTabForView === 'direct')
   <!-- ==================== 直送分配 Tab ==================== -->
   <template x-if="activeSubTab === 'direct'">
-    <div>
+    <div :inert="!!serverRowsLoadError">
 
     <!-- Filters -->
     <div class="sticky top-0 z-20 bg-white/90 backdrop-blur shadow-sm">
@@ -911,7 +917,7 @@
 
     <!-- Table -->
     <div class="px-0 pb-4">
-      <div class="overflow-auto rounded-lg bg-white shadow-md" style="max-height: calc(100vh - 190px);">
+      <div x-ref="directMainScroll" class="overflow-auto rounded-lg bg-white shadow-md" style="max-height: calc(100vh - 190px);">
         <table class="w-full table-auto text-xs" :style="'min-width: ' + getDirectTableMinWidth() + 'px;'">
           <thead class="sticky top-0 z-10">
             <tr class="divide-x divide-gray-200 border-t border-gray-300 bg-neutral-50 text-xs text-neutral-500">
@@ -956,7 +962,7 @@
           </thead>
           <tbody class="text-xs">
             <template x-for="row in getRenderableVisibleDirectRows()" :key="row.id">
-              <tr :class="isOrderCandidateCreated(row) ? 'bg-gray-100' : ''" class="divide-x divide-gray-200 border-t border-gray-200 hover:bg-neutral-50">
+              <tr :data-direct-row-id="row.id" :class="isOrderCandidateCreated(row) ? 'bg-gray-100' : ''" class="divide-x divide-gray-200 border-t border-gray-200 hover:bg-neutral-50">
                 <td class="p-1 text-center">
                   <input type="checkbox"
                     :checked="isRowDeleteSelected(row, true)"
@@ -977,9 +983,9 @@
                       </label>
                     </div>
                     <div class="date-entry">
-                      <input type="text" x-model="row.deliveryDate" @blur="row.deliveryDate = normalizeFlexibleDate(row.deliveryDate)" @keydown.enter.prevent="row.deliveryDate = normalizeFlexibleDate(row.deliveryDate); $event.target.blur()" inputmode="numeric" :disabled="isDirectRowEditLocked(row)" :class="isDirectRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : (isDeliveryDateBeforeOrderDate(row) ? 'border-red-500 bg-red-50 text-red-700 focus:ring-2 focus:ring-red-500' : 'focus:ring-2 focus:ring-indigo-500')" class="date-entry-text w-full rounded-md border-gray-300 border px-1 py-1 text-xs shadow-sm" />
+                      <input type="text" x-model="row.deliveryDate" @blur="handleDeliveryDateChanged(row, true)" @keydown.enter.prevent="$event.target.blur()" inputmode="numeric" :disabled="isDirectRowEditLocked(row)" :class="isDirectRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : (isDeliveryDateBeforeOrderDate(row) ? 'border-red-500 bg-red-50 text-red-700 focus:ring-2 focus:ring-red-500' : 'focus:ring-2 focus:ring-indigo-500')" class="date-entry-text w-full rounded-md border-gray-300 border px-1 py-1 text-xs shadow-sm" />
                       <label class="date-entry-picker" :class="isDirectRowEditLocked(row) ? 'is-disabled' : ''" title="入荷予定日をカレンダー選択">
-                        <input type="date" :value="row.deliveryDate" @change="row.deliveryDate = $event.target.value" :disabled="isDirectRowEditLocked(row)" class="date-entry-native" />
+                        <input type="date" :value="row.deliveryDate" @change="row.deliveryDate = $event.target.value; handleDeliveryDateChanged(row, true)" :disabled="isDirectRowEditLocked(row)" class="date-entry-native" />
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                       </label>
                     </div>
@@ -1001,7 +1007,7 @@
                       @focus="productCodeEditBefore[row.id] = row.productCode || ''"
                       @input.debounce.150ms="resolveManualProductCodeFast(row)"
                       @blur="resolveManualProductCode(row)"
-                      @keydown.enter.prevent="resolveManualProductCode(row)"
+                      data-distribution-enter-nav @keydown.enter="focusNextAllocationDestinationInput($event, row)"
                       inputmode="numeric"
                       :disabled="isDirectRowEditLocked(row)"
                       :class="isDirectRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed text-gray-400' : 'focus:ring-2 focus:ring-indigo-500'"
@@ -1026,8 +1032,8 @@
                     <div class="flex flex-1 items-center justify-end border-t border-gray-300 px-2 font-semibold text-blue-900" x-text="calcDirectAllocTotal(row)"></div>
                   </div>
                 </td>
-                <td class="p-1 text-right"><input type="number" :value="orderQuantityInputValue(row.poCase)" @input="setOrderQuantity(row, 'poCase', $event.target.value, true)" @blur="flushQuantitySave(true)" :disabled="isDirectRowEditLocked(row)" :class="isDirectRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : 'focus:ring-2 focus:ring-indigo-500'" class="w-full rounded-md border-gray-300 border px-1 py-1 text-right shadow-sm alloc-spin-hide" /></td>
-                <td class="p-1 text-right"><input type="number" :value="orderQuantityInputValue(row.poEach)" @input="setOrderQuantity(row, 'poEach', $event.target.value, true)" @blur="flushQuantitySave(true)" :disabled="isDirectRowEditLocked(row)" :class="isDirectRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : 'focus:ring-2 focus:ring-indigo-500'" class="w-full rounded-md border-gray-300 border px-1 py-1 text-right shadow-sm alloc-spin-hide" /></td>
+                <td class="p-1 text-right"><input type="text" inputmode="numeric" :value="orderQuantityInputValue(row.poCase)" @compositionstart="$el.dataset.quantityComposing = 'true'" @compositionend="delete $el.dataset.quantityComposing; handleQuantityInput($event, row, 'poCase', true, true)" @input="handleQuantityInput($event, row, 'poCase', true)" @change="handleQuantityInput($event, row, 'poCase', true, true)" data-distribution-enter-nav @keydown.enter="focusNextAllocationDestinationInput($event)" @blur="flushQuantitySave(true)" :disabled="isDirectRowEditLocked(row)" :class="isDirectRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : 'focus:ring-2 focus:ring-indigo-500'" class="w-full rounded-md border-gray-300 border px-1 py-1 text-right shadow-sm alloc-spin-hide" /></td>
+                <td class="p-1 text-right"><input type="text" inputmode="numeric" :value="orderQuantityInputValue(row.poEach)" @compositionstart="$el.dataset.quantityComposing = 'true'" @compositionend="delete $el.dataset.quantityComposing; handleQuantityInput($event, row, 'poEach', true, true)" @input="handleQuantityInput($event, row, 'poEach', true)" @change="handleQuantityInput($event, row, 'poEach', true, true)" data-distribution-enter-nav @keydown.enter="focusNextAllocationDestinationInput($event)" @blur="flushQuantitySave(true)" :disabled="isDirectRowEditLocked(row)" :class="isDirectRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : 'focus:ring-2 focus:ring-indigo-500'" class="w-full rounded-md border-gray-300 border px-1 py-1 text-right shadow-sm alloc-spin-hide" /></td>
                 <td class="p-1 text-right bg-gray-50"><div class="px-1 py-1 font-semibold" x-text="calcOrderTotalPieces(row, currentRow => calcDirectAllocTotal(currentRow))"></div></td>
                 <td class="w-px whitespace-nowrap p-0.5 text-center">
                   <span class="inline-flex whitespace-nowrap rounded px-0.5 py-0.5 text-[10px] font-semibold" :class="getDirectStatusClass(row)" x-text="getDirectStatusLabel(row)"></span>
@@ -1036,7 +1042,7 @@
                   <td class="w-[60px] min-w-[60px] max-w-[60px] border-l border-gray-300 p-0">
                     <div class="flex flex-col">
                       <div class="border-b-2 border-gray-300 bg-red-50 px-1 py-1.5 text-right text-xs font-medium text-red-800" x-text="row['wish_'+dest.key] || 0"></div>
-                      <input type="text" inputmode="numeric" :value="row['alloc_'+dest.key] || 0" @input="setAllocationQuantity(row, dest.key, $event.target.value, true)" @blur="flushQuantitySave(true)" @keydown.enter.prevent="focusNextAllocationDestinationInput($event)" @focus="$event.target.select()" :disabled="isDirectRowEditLocked(row)"
+                      <input type="text" inputmode="numeric" :value="row['alloc_'+dest.key] || 0" @compositionstart="$el.dataset.quantityComposing = 'true'" @compositionend="delete $el.dataset.quantityComposing; handleQuantityInput($event, row, 'alloc_' + dest.key, true, true)" @input="handleQuantityInput($event, row, 'alloc_' + dest.key, true)" @change="handleQuantityInput($event, row, 'alloc_' + dest.key, true, true)" @blur="flushQuantitySave(true)" data-distribution-enter-nav @keydown.enter="focusNextAllocationDestinationInput($event)" @focus="$event.target.select()" :disabled="isDirectRowEditLocked(row)"
                         :class="isDirectRowEditLocked(row) ? 'bg-gray-100 cursor-not-allowed text-gray-400 border-gray-300' : (Number(row['alloc_'+dest.key] || 0) > 0 ? 'bg-yellow-50 border-2 border-yellow-400 focus:ring-2 focus:ring-yellow-400 text-yellow-800' : 'bg-blue-50 border-2 border-blue-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white text-blue-900')"
                         class="allocation-destination-input w-full m-0.5 rounded px-1.5 py-1 text-right text-xs font-semibold" />
                     </div>
@@ -1102,7 +1108,7 @@
 @if ($distributionInitialTabForView === 'store-view')
   <!-- ==================== Store View Tab ==================== -->
   <template x-if="activeSubTab === 'store-view'">
-    <div>
+    <div :inert="!!serverRowsLoadError">
     <div class="bg-gray-50 p-0">
       <div class="hidden">
         <h1 class="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800 mb-1 sm:mb-2">店舗別分配管理</h1>
@@ -2073,6 +2079,7 @@ window.distributionApp = function distributionApp() {
   ];
   let DESTS = DEFAULT_DESTS.map(destination => ({ ...destination }));
   let activeDirectRequestPrintWindow = null;
+  const pendingProductResolutions = new Map();
 
   const SERVER_CSV_DESTS = {{ \Illuminate\Support\Js::from($distributionCsvDestinations) }};
   const SERVER_PRELOADED_DISTRIBUTION_ROWS = {{ \Illuminate\Support\Js::from($distributionPreloadedRows) }};
@@ -2283,6 +2290,7 @@ window.distributionApp = function distributionApp() {
     productCodeResolveTokens: {},
     orderDateResolveTokens: {},
     distributionRowsLoading: false,
+    serverRowsLoadError: '',
     serverRowsLoaded: false,
     serverRowsPersisted: false,
     serverRowsReadOnly: false,
@@ -2435,13 +2443,20 @@ window.distributionApp = function distributionApp() {
       this.directRequestPrintMessageHandler = async event => {
         if (event.origin !== window.location.origin) return;
         if (!activeDirectRequestPrintWindow || event.source !== activeDirectRequestPrintWindow) return;
+        if (event.data?.sessionId !== this.directPrintSession?.id || this.directRequestPrintStatusSaving) return;
+        if (event.data?.type === 'distribution-direct-request-released') {
+          this.releaseDirectRequestPrintLock();
+          return;
+        }
         if (event.data?.type === 'distribution-direct-request-printing') {
           return;
         }
         if (event.data?.type === 'distribution-direct-request-printed') {
           this.directRequestPrintStatusSaving = true;
+          this.directRequestPrintInProgress = true;
+          this.directRequestPrintLockedRowIds = this.directPrintSession.rowIds;
           try {
-            await this.markDirectRequestRowsPrinted(event.data?.rowIds || []);
+            await this.markDirectRequestRowsPrinted(this.directPrintSession.rowIds);
           } finally {
             this.directRequestPrintStatusSaving = false;
             this.finishDirectRequestPrint(true);
@@ -2761,22 +2776,46 @@ window.distributionApp = function distributionApp() {
       return quantity > 0 ? quantity : '';
     },
 
-    setOrderQuantity(row, key, value, isDirect = false) {
-      if (isDirect ? this.isDirectRowEditLocked(row) : this.isQuantityLocked(row)) return;
+    handleQuantityInput(event, row, key, isDirect = false, commit = false) {
+      const input = event.target;
+      if (event.isComposing || input.dataset.quantityComposing === 'true') return;
+      if (!commit && !this.parseCsvQuantityInput(input.value).valid) return;
 
-      const raw = String(value ?? '').trim();
-      row[key] = raw === '' ? '' : Math.max(0, toInt(raw));
+      const value = key.startsWith('alloc_')
+        ? this.setAllocationQuantity(row, key.slice(6), input.value, isDirect)
+        : this.setOrderQuantity(row, key, input.value, isDirect);
+      if (commit) input.value = value;
+    },
+
+    setOrderQuantity(row, key, value, isDirect = false) {
+      if (!row) return '';
+      if (isDirect ? this.isDirectRowEditLocked(row) : this.isQuantityLocked(row)) {
+        return this.orderQuantityInputValue(row[key]);
+      }
+
+      const parsed = this.parseCsvQuantityInput(value);
+      if (!parsed.valid) {
+        this.showToast((key === 'poCase' ? 'ケース数' : 'バラ数') + 'は0〜99,999,999の整数で入力してください。変更前の数量に戻しました。');
+        return this.orderQuantityInputValue(row[key]);
+      }
+      row[key] = parsed.provided ? parsed.value : '';
       this.queueQuantitySave(isDirect);
+      return this.orderQuantityInputValue(row[key]);
     },
 
     setAllocationQuantity(row, destinationKey, value, isDirect = false) {
-      if (!row || (isDirect ? this.isDirectRowEditLocked(row) : this.isQuantityLocked(row))) return;
-
       const key = 'alloc_' + String(destinationKey || '');
-      if (key === 'alloc_') return;
+      if (!row || key === 'alloc_') return 0;
+      if (isDirect ? this.isDirectRowEditLocked(row) : this.isQuantityLocked(row)) return row[key] || 0;
 
-      row[key] = Math.max(0, toInt(value));
+      const parsed = this.parseCsvQuantityInput(value);
+      if (!parsed.valid) {
+        this.showToast('店舗別分配数は0〜99,999,999の整数で入力してください。変更前の数量に戻しました。');
+        return row[key] || 0;
+      }
+      row[key] = parsed.value;
       this.queueQuantitySave(isDirect);
+      return row[key];
     },
 
     queueQuantitySave(isDirect = false, delay = 250) {
@@ -3077,10 +3116,12 @@ window.distributionApp = function distributionApp() {
     },
 
     isDirectRowEditLocked(row) {
+      if (this.directRequestPrintLockedRowIds.includes(String(row.id))) return true;
       return this.isOrderCandidateCreated(row);
     },
 
     isDirectRowDeleteLocked(row) {
+      if (this.directRequestPrintLockedRowIds.includes(String(row.id))) return true;
       return this.isOrderCandidateCreated(row);
     },
 
@@ -3098,7 +3139,8 @@ window.distributionApp = function distributionApp() {
     },
 
     getAllocationStatusLabel(row) {
-      if (this.isAllocationTransferCompleted(row)) return '移動生成済';
+      if (row?.warehouseTransferState === 'failed') return '生成失敗（要確認）';
+      if (this.isAllocationTransferCompleted(row)) return row?.warehouseTransferState === 'succeeded' ? '移動生成済' : '受付済（結果確認）';
       return '未対応';
     },
 
@@ -4027,13 +4069,32 @@ window.distributionApp = function distributionApp() {
       return this.normalizeDestinationKeyList(Array.from(keys));
     },
 
+    getRowEditorDestinationKeys(row) {
+      const keys = this.getRowActiveDestinationKeys(row);
+      // Manual rows have no imported destination scope. Keep their editor columns
+      // available without changing the destination keys used by totals/payloads.
+      if (!this.isCsvImportRow(row)
+        && !String(row?.source || row?.sourceKey || row?.source_key || '')
+        && this.getRowVisibleDestinationKeys(row).length === 0
+        && this.getRowEnteredDestinationKeys(row).length === 0) {
+        const standardKeys = this.getStoreDestinationPool()
+          .filter(destination => !destination.isHidden
+            && this.getStoreSelectionCode(destination) !== HQ_WAREHOUSE_CODE
+            && !this.isWholesaleDestination(destination))
+          .map(destination => String(destination.key));
+        return this.normalizeDestinationKeyList([...standardKeys, ...keys]);
+      }
+
+      return keys;
+    },
+
     getAllocationDisplayDestinations(rows = this.getVisibleRows()) {
       const sourceRows = Array.isArray(rows) ? rows : [];
       if (sourceRows.length === 0) return [];
 
       const mergedKeys = new Set();
       for (const row of sourceRows) {
-        const keys = this.getRowActiveDestinationKeys(row);
+        const keys = this.getRowEditorDestinationKeys(row);
         if (keys.length === 0) {
           DESTS.forEach(destination => mergedKeys.add(String(destination.key)));
         } else {
@@ -4067,7 +4128,7 @@ window.distributionApp = function distributionApp() {
 
       const mergedKeys = new Set();
       sourceRows.forEach(row => {
-        this.getRowActiveDestinationKeys(row).forEach(key => mergedKeys.add(String(key)));
+        this.getRowEditorDestinationKeys(row).forEach(key => mergedKeys.add(String(key)));
       });
 
       if (mergedKeys.size === 0) {
@@ -4102,23 +4163,32 @@ window.distributionApp = function distributionApp() {
       this.toggleAllocationDestinations(row);
     },
 
-    focusNextAllocationDestinationInput(event) {
+    async focusNextAllocationDestinationInput(event, productRow = null) {
+      if (event.isComposing || event.keyCode === 229 || event.target?.dataset?.quantityComposing === 'true') return;
       const target = event?.target;
       if (!(target instanceof HTMLInputElement)) return;
-
-      const scope = target.closest('table') || target.closest('.distribution-app-shell') || document;
-
-      const inputs = Array.from(scope.querySelectorAll('input.allocation-destination-input:not(:disabled)'))
+      event.preventDefault();
+      if (productRow && !event.shiftKey && !await this.resolveManualProductCode(productRow)) return;
+      if (document.activeElement !== target) return;
+      const scope = target.closest('table') || document;
+      const inputs = () => Array.from(scope.querySelectorAll('input[data-distribution-enter-nav]:not(:disabled)'))
         .filter(input => input.offsetParent !== null);
-      const currentIndex = inputs.indexOf(target);
-      if (currentIndex < 0) return;
-
-      const nextIndex = currentIndex + (event.shiftKey ? -1 : 1);
-      const nextInput = inputs[nextIndex];
-      if (!nextInput) return;
-
-      nextInput.focus();
-      nextInput.select();
+      let candidates = inputs();
+      let index = candidates.indexOf(target);
+      if (index < 0) return;
+      if (!event.shiftKey && index === candidates.length - 1) {
+        if (this.activeSubTab === 'direct') {
+          await this.waitForDistributionSaves('direct');
+          await this.loadMoreDirectRows();
+        } else {
+          this.allocationRenderLimit = Math.min(this.getVisibleRows().length, this.getTableRenderLimit() + 15);
+        }
+        await this.$nextTick();
+        candidates = inputs();
+        index = candidates.indexOf(target);
+      }
+      const next = candidates[index + (event.shiftKey ? -1 : 1)];
+      if (next && document.activeElement === target) { next.focus(); next.select(); }
     },
 
     visibleAllocationDestinationsExpanded() {
@@ -4571,6 +4641,13 @@ window.distributionApp = function distributionApp() {
     // ---------- Filtering ----------
     sortRowsByOrderDateDesc(rows) {
       return Array.from(rows).sort((left, right) => {
+        const leftAppendOrder = toInt(left?.allocationAppendOrder || 0);
+        const rightAppendOrder = toInt(right?.allocationAppendOrder || 0);
+        if (leftAppendOrder || rightAppendOrder) {
+          if (!leftAppendOrder) return -1;
+          if (!rightAppendOrder) return 1;
+          return leftAppendOrder - rightAppendOrder;
+        }
         const leftDate = String(left?.orderDate || '');
         const rightDate = String(right?.orderDate || '');
 
@@ -5003,16 +5080,23 @@ window.distributionApp = function distributionApp() {
     },
 
     async deleteRowsAndPersist(targetRows, isDirect = false, successMessage = 'データを削除しました') {
+      if (this.filterApplying) return;
       const mode = isDirect ? 'direct' : 'allocation';
       const rows = Array.isArray(targetRows) ? targetRows.filter(Boolean) : [];
       if (rows.length === 0) return;
 
-      const previousRows = isDirect ? this.directRows : this.rows;
-      const previousSelection = isDirect ? this.directDeleteSelectedRowIds : this.deleteSelectedRowIds;
-      const previousDeletedSourceKeys = [...this.deletedAllocationSourceKeys];
+      let previousRows;
+      let previousSelection;
+      let previousDeletedSourceKeys;
+      let deletionSaved = false;
+      this.filterApplying = true;
+      this.filterApplyingLabel = '削除結果を確認しています';
 
       try {
         await this.waitForDistributionSaves(mode);
+        previousRows = isDirect ? this.directRows : this.rows;
+        previousSelection = isDirect ? this.directDeleteSelectedRowIds : this.deleteSelectedRowIds;
+        previousDeletedSourceKeys = [...this.deletedAllocationSourceKeys];
 
         const targetIds = new Set(rows.map(row => String(row.id || '')));
         const targetKeys = new Set(rows.map(row => this.getAllocationRowDeleteKey(row)).filter(key => key !== ''));
@@ -5029,10 +5113,32 @@ window.distributionApp = function distributionApp() {
         }
 
         const persistable = isDirect ? this.getPersistableDirectRows() : this.getPersistableAllocationRows();
-        await this.persistDistributionRowsImmediately(mode, persistable);
+        const result = await this.persistDistributionRowsImmediately(mode, persistable);
+        if (result?.superseded) throw new Error('保存処理が更新されたため、削除結果を確認できません。');
+        deletionSaved = true;
+        if (isDirect && !(result?.resync_required_row_ids || []).length) {
+          await this.reloadDistributionRowsAfterProtection(mode);
+        }
         this.serverSaveErrors[mode] = null;
-        this.showToast(successMessage);
+        const protectedCount = (result?.delete_protected_row_ids || []).length;
+        if (protectedCount > 0) {
+          this.openModal('注意', '処理済みの' + protectedCount + '件は削除できません。削除結果は' + toInt(result.deleted_count) + '件です。');
+        } else {
+          this.showToast(successMessage);
+        }
       } catch (error) {
+        if (deletionSaved || error?.distributionSaveCommitted || error?.distributionSaveOutcomeUnknown) {
+          this.serverSaveBlocked[mode] = true;
+          this.openModal('エラー', (error?.distributionSaveOutcomeUnknown
+            ? '削除要求の保存結果を確認できません。'
+            : '削除要求は保存されましたが、最新の一覧を取得できませんでした。')
+            + '画面を再読み込みして削除結果を確認してください: ' + (error?.message || error));
+          return;
+        }
+        if (!previousRows) {
+          this.openModal('エラー', '削除を開始できませんでした: ' + (error?.message || error));
+          return;
+        }
         if (isDirect) {
           this.directRows = previousRows;
           this.directDeleteSelectedRowIds = previousSelection;
@@ -5047,6 +5153,8 @@ window.distributionApp = function distributionApp() {
 
         console.warn('Failed to delete distribution rows:', error);
         this.openModal('エラー', '削除内容をサーバーへ保存できなかったため、画面上の削除を取り消しました: ' + (error?.message || error));
+      } finally {
+        this.filterApplying = false;
       }
     },
 
@@ -6497,16 +6605,24 @@ window.distributionApp = function distributionApp() {
     },
 
     addRow() {
-      const row = this.makeAllocationRow();
-      this.rows.unshift(row);
+      // Store the append sequence in row_data; sort_order continues to preserve
+      // the backing array order. Imported/legacy rows keep their date ordering.
+      const allocationAppendOrder = this.rows.reduce((max, row) =>
+        Math.max(max, toInt(row?.allocationAppendOrder || 0)), 0) + 1;
+      const row = this.makeAllocationRow({ allocationAppendOrder });
+      this.rows.push(row);
+      this.touchAllocationRows();
       this.showNewAllocationRow(row);
       this.queueBulkAllocationAutoApply();
+      const visibleIndex = this.getVisibleRows().findIndex(candidate => candidate.id === row.id);
+      this.allocationRenderLimit = Math.max(this.getTableRenderLimit(), visibleIndex + 1);
 
       this.$nextTick(() => {
         const scroller = this.$refs.allocationMainScroll;
-        if (scroller && typeof scroller.scrollTo === 'function') {
-          scroller.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
-        }
+        const renderedRow = Array.from(scroller?.querySelectorAll('[data-allocation-row-id]') || [])
+          .find(element => element.dataset.allocationRowId === String(row.id));
+        renderedRow?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        renderedRow?.querySelector('input.product-code-entry:not(:disabled)')?.focus();
       });
     },
 
@@ -6677,6 +6793,8 @@ window.distributionApp = function distributionApp() {
 
     async loadDistributionRowsFromServer(options = {}) {
       this.distributionRowsLoading = true;
+      if (!options.append) this.serverRowsLoadError = '';
+      const localVersions = [this.allocationRowsVersion || 0, this.directRowsVersion || 0];
       try {
         const requestedServerRowsMode = options.mode || (this.activeSubTab === 'allocation'
           ? 'allocation'
@@ -6713,10 +6831,12 @@ window.distributionApp = function distributionApp() {
         if (!response.ok) {
           const message = payload?.result?.error_message || payload?.message || ('HTTP ' + response.status);
           if (payload?.code === 'DISTRIBUTION_ROWS_LIMIT_EXCEEDED') {
+            this.serverRowsLoadError = '分配一覧を読み込めませんでした。入力・帳票出力を停止しています。画面を再読み込みしてください。';
             this.serverRowsLoaded = false;
             this.serverRowsPersisted = false;
             this.serverRowsReadOnly = false;
             this.openModal('注意', message);
+            if (options.throwOnError) throw new Error(message);
             return;
           }
 
@@ -6724,11 +6844,19 @@ window.distributionApp = function distributionApp() {
         }
 
         const data = payload?.result?.data || {};
+        if (options.throwOnError && (
+          (requestedServerRowsMode !== 'direct' && localVersions[0] !== (this.allocationRowsVersion || 0))
+          || (requestedServerRowsMode !== 'allocation' && localVersions[1] !== (this.directRowsVersion || 0))
+        )) {
+          throw new Error('一覧の取得中に入力内容が変更されました。最新状態を再読み込みしてください。');
+        }
         this.serverRowsReadOnly = !!data.read_only;
         this.serverRowsPersisted = !!data.persisted && !this.serverRowsReadOnly;
         this.serverRowsLoaded = !!data.persisted;
 
         if (!data.persisted) {
+          this.serverRowsLoadError = '分配一覧を読み込めませんでした。入力・帳票出力を停止しています。画面を再読み込みしてください。';
+          if (options.throwOnError) throw new Error('分配データの保存先を利用できません。');
           return;
         }
 
@@ -6780,11 +6908,13 @@ window.distributionApp = function distributionApp() {
               append: true,
               mode: 'direct',
               page: toInt(this.serverRowPagination.direct.page || 1) + 1,
+              throwOnError: options.throwOnError,
             });
           }
         }
       } catch (error) {
         if (!options.append) {
+          this.serverRowsLoadError = '分配一覧を読み込めませんでした。入力・帳票出力を停止しています。画面を再読み込みしてください。';
           this.serverRowsLoaded = false;
           this.serverRowsPersisted = false;
           this.serverRowsReadOnly = false;
@@ -6793,6 +6923,7 @@ window.distributionApp = function distributionApp() {
         if (options.append) {
           this.openModal('注意', error.message || '追加データの読み込みに失敗しました。');
         }
+        if (options.throwOnError) throw error;
       } finally {
         this.distributionRowsLoading = false;
       }
@@ -6923,7 +7054,9 @@ window.distributionApp = function distributionApp() {
       const persistedIds = new Set(preparedRows.map(row => String(row.id || '')).filter(Boolean));
       const deletedRowIds = (this.serverLoadedRowIds[mode] || [])
         .filter(rowId => !persistedIds.has(String(rowId)));
-      const response = await fetch('/api/distribution/rows', {
+      let response, payload;
+      try {
+      response = await this.fetchWithTimeout('/api/distribution/rows', {
         method: 'PUT',
         headers: {
           Accept: 'application/json',
@@ -6937,17 +7070,32 @@ window.distributionApp = function distributionApp() {
           deleted_row_ids: deletedRowIds,
           rows: preparedRows,
         }),
-      });
-      const payload = await response.json().catch(() => ({}));
+      }, 20000);
+      payload = await response.json();
+      } catch (error) {
+        this.serverSaveBlocked[mode] = true;
+        error.distributionSaveOutcomeUnknown = true; // Never restore/re-save pre-request data on an ambiguous outcome.
+        error.message = '保存結果を確認できません。再読み込みして状態を確認してください。' + error.message;
+        throw error;
+      }
+
 
       if (!response.ok) {
         if (response.status === 409 && payload?.code === 'DISTRIBUTION_REVISION_CONFLICT') {
           this.serverSaveBlocked[mode] = true;
         }
-        throw new Error(payload?.result?.error_message || payload?.message || ('HTTP ' + response.status));
+        const error = new Error(payload?.result?.error_message || payload?.message || ('HTTP ' + response.status));
+        if (response.status >= 500) { this.serverSaveBlocked[mode] = true; error.distributionSaveOutcomeUnknown = true; }
+        throw error;
       }
 
       const data = payload?.result?.data || {};
+      if (!Number.isInteger(data.revision)) {
+        this.serverSaveBlocked[mode] = true;
+        const error = new Error('保存結果を確認できません。再読み込みしてください。');
+        error.distributionSaveOutcomeUnknown = true;
+        throw error;
+      }
       this.serverRowRevisions[mode] = toInt(data.revision || this.serverRowRevisions[mode] || 0);
       const protectedIds = []
         .concat(Array.isArray(data.protected_row_ids) ? data.protected_row_ids : [])
@@ -6956,7 +7104,13 @@ window.distributionApp = function distributionApp() {
       this.serverLoadedRowIds[mode] = Array.from(persistedIds);
 
       if (Array.isArray(data.resync_required_row_ids) && data.resync_required_row_ids.length > 0) {
-        await this.reloadDistributionRowsAfterProtection(mode);
+        try {
+          await this.reloadDistributionRowsAfterProtection(mode);
+        } catch (error) {
+          error.distributionSaveCommitted = true;
+          this.serverSaveBlocked[mode] = true;
+          throw error;
+        }
         this.showToast('処理済みデータは変更できないため、最新状態を再読み込みしました');
       }
 
@@ -6967,7 +7121,7 @@ window.distributionApp = function distributionApp() {
       const targetPage = mode === 'direct'
         ? Math.max(1, toInt(this.serverRowPagination.direct?.page || 1))
         : 1;
-      await this.loadDistributionRowsFromServer({ mode, page: 1 });
+      await this.loadDistributionRowsFromServer({ mode, page: 1, throwOnError: true });
 
       if (mode !== 'direct') return;
 
@@ -6979,6 +7133,7 @@ window.distributionApp = function distributionApp() {
           append: true,
           mode: 'direct',
           page: toInt(this.serverRowPagination.direct.page || 1) + 1,
+          throwOnError: true,
         });
       }
     },
@@ -7463,7 +7618,6 @@ window.distributionApp = function distributionApp() {
         const poEachInput = this.parseCsvQuantityInput(poEachRaw);
         const csvPoCase = poCaseInput.value;
         const csvPoEach = poEachInput.value;
-        const csvPoPieces = csvPoCase + csvPoEach;
         let hasCsvQuantityInput = poCaseInput.provided || poEachInput.provided;
         let hasPositiveCsvQuantity = csvPoCase > 0 || csvPoEach > 0;
         const invalidQuantityFields = [];
@@ -7489,8 +7643,8 @@ window.distributionApp = function distributionApp() {
           orderToCode,
           supplier,
           supplierCode,
-          poCase: '',
-          poEach: csvPoPieces > 0 ? csvPoPieces : '',
+          poCase: csvPoCase > 0 ? csvPoCase : '',
+          poEach: csvPoEach > 0 ? csvPoEach : '',
           checked: this.isCsvTruthy(this.getCsvValue(lookup, ['確定', 'チェック'])),
           memo: this.normalizeCsvText(this.getCsvValue(lookup, ['明細備考', '備考', 'メモ'])),
           visibleDestinationKeys: [],
@@ -8701,6 +8855,13 @@ window.distributionApp = function distributionApp() {
       }
     },
 
+    handleDeliveryDateChanged(row, isDirect = false) {
+      if (!row || (isDirect ? this.isDirectRowEditLocked(row) : this.isRowEditLocked(row))) return;
+      row.deliveryDate = this.normalizeFlexibleDate(row.deliveryDate || '') || '';
+      this.rememberFilterRetainedRow(row, isDirect);
+      this.saveRowsForMode(isDirect);
+    },
+
     async handleOrderDateChanged(row, isDirect = false) {
       if (!row || this.isRowEditLocked(row)) return;
 
@@ -9309,6 +9470,15 @@ window.distributionApp = function distributionApp() {
     },
 
     async resolveManualProductCode(row) {
+      if (!row) return false;
+      const key = String(row.id) + ':' + String(row.productCode);
+      if (pendingProductResolutions.has(key)) return pendingProductResolutions.get(key);
+      const pending = this.resolveManualProductCodeOnce(row);
+      pendingProductResolutions.set(key, pending);
+      try { return await pending; } finally { pendingProductResolutions.delete(key); }
+    },
+
+    async resolveManualProductCodeOnce(row) {
       if (!row) return;
       const isDirect = this.isDirectRow(row);
       if (isDirect ? this.isDirectRowEditLocked(row) : this.isProductEditLocked(row)) return;
@@ -9320,8 +9490,7 @@ window.distributionApp = function distributionApp() {
       row.productCode = query;
 
       if (row.itemId && query !== '' && query === previousQuery) {
-        delete this.productCodeEditBefore[row.id];
-        return;
+        return true;
       }
 
       if (!query) {
@@ -9337,6 +9506,7 @@ window.distributionApp = function distributionApp() {
       try {
         const products = (await this.fetchProductCandidates(query, normalizedOrderDate, 50))
           .map(product => this.normalizeProduct(product));
+        if (String(row.productCode).trim() !== query) return false;
         products.forEach(product => this.rememberProduct(product));
 
         const exactProducts = products.filter(product => this.isExactProductCandidate(product, query));
@@ -9351,7 +9521,7 @@ window.distributionApp = function distributionApp() {
           if (this.isJanConversion(product, query)) {
             this.showToast('JANを商品コード ' + product.code + ' に変換しました');
           }
-          return;
+          return true;
         }
 
         if (candidates.length > 1) {
@@ -9954,20 +10124,32 @@ window.distributionApp = function distributionApp() {
     },
 
     addDirectRow() {
-      this.directRows.push(this.makeDirectRow());
+      const row = this.makeDirectRow();
+      this.directRows.push(row);
+      this.rememberFilterRetainedRow(row, true);
       this.touchDirectRows();
+      this.directRenderReady = true;
+      const visibleIndex = this.getVisibleDirectRows().findIndex(candidate => candidate.id === row.id);
+      this.directRenderLimit = Math.max(this.getDirectTableRenderLimit(), visibleIndex + 1);
+
+      this.$nextTick(() => {
+        const scroller = this.$refs.directMainScroll;
+        const renderedRow = Array.from(scroller?.querySelectorAll('[data-direct-row-id]') || [])
+          .find(element => element.dataset.directRowId === String(row.id));
+        renderedRow?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        renderedRow?.querySelector('input.product-code-entry:not(:disabled)')?.focus();
+      });
     },
 
     removeDirectRow(id) {
       const row = this.directRows.find(r => r.id === id);
+      if (!row) return;
       if (row && this.isDirectRowDeleteLocked(row)) {
         this.openModal('エラー', '発注候補生成済みの行は削除できません');
         return;
       }
       this.openConfirm('この行を削除しますか？', () => {
-        this.directRows = this.directRows.filter(r => r.id !== id);
-        this.directDeleteSelectedRowIds = this.directDeleteSelectedRowIds.filter(rowId => String(rowId) !== String(id));
-        this.saveDirectData({ successMessage: 'データを削除しました' });
+        return this.deleteRowsAndPersist([row], true);
       }, 'delete');
     },
 
@@ -10007,33 +10189,42 @@ window.distributionApp = function distributionApp() {
       this.touchDirectRows();
     },
 
-    downloadDirectCSV() {
+    async downloadDirectCSV() {
+      if (this.filterApplying || this.directRequestPrintInProgress) return;
+      this.filterApplying = true;
       try {
-        this.normalizeDateFilters();
-        this.normalizeRowsDateFields(this.directRows, true);
-        let dataRows = this.getSelectedDirectRows();
-        if (dataRows.length === 0) {
-          dataRows = this.getVisibleDirectRows();
+        // Capture applied filters before any asynchronous save; selection/retained rows are irrelevant.
+        const params = this.directFilterParams();
+        await this.persistDistributionRowsImmediately('direct', this.getPersistableDirectRows());
+        params.set('expected_revision', String(this.serverRowRevisions.direct));
+        const response = await this.fetchWithTimeout('/api/distribution/rows/export?' + params.toString(), {
+          headers: { Accept: 'text/csv, application/json' },
+        }, 60000);
+        if (!response.ok) {
+          const payload = await response.json();
+          throw new Error(payload?.result?.error_message || 'CSVを取得できませんでした。');
         }
-        if (dataRows.length === 0) { this.openModal('エラー', '出力するデータがありません。'); return; }
-        const headers = ['計上日','発注日','商品コード','商品名','仕入先','入荷予定日','ロット','入数','理論','希計','分計','ケース','バラ','明細備考',
-          ...DESTS.flatMap(d => [d.name + '_希望', d.name + '_分配'])];
-        const body = dataRows.map(r => {
-          const vals = [this.getCsvImportPostingDate(r) || r.orderDate || '',r.orderDate||'',r.productCode,r.name,this.getSupplier(r.productCode),r.deliveryDate||'',
-            toInt(r.lot),toInt(r.unitsPerCase),toInt(r.reserved),this.calcDirectWishTotal(r),this.calcDirectAllocTotal(r),toInt(r.poCase),toInt(r.poEach),r.memo||'',
-            ...DESTS.flatMap(d => [toInt(r['wish_'+d.key]||0),toInt(r['alloc_'+d.key]||0)])];
-          return vals.map(x => '"'+String(x??'').replace(/"/g,'""')+'"').join(',');
-        });
-        const csv = [headers.join(','),...body].join('\r\n');
-        const blob = new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = 'direct_allocation_'+getTodayString()+'.csv';
-        document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-        this.showToast('CSVを出力しました（'+dataRows.length+'行）');
-      } catch(e) { this.openModal('エラー','CSV出力でエラーが発生しました'); }
+        this.downloadCsvBlob(await response.blob(), 'direct_allocation_');
+        this.showToast('適用中の条件に一致する全件をCSV出力しました');
+      } catch (error) {
+        this.openModal('エラー', error.message);
+      } finally {
+        this.filterApplying = false;
+      }
     },
 
-    printDirectRequestForm(opts) {
+    directFilterParams() {
+      return new URLSearchParams({
+        keyword_search: String(this.directKeywordSearch || '').trim(),
+        order_date_from: String(this.directDateFrom || '').trim(), order_date_to: String(this.directDateTo || '').trim(),
+        delivery_date_from: String(this.directDeliveryFrom || '').trim(), delivery_date_to: String(this.directDeliveryTo || '').trim(),
+        order_to_search: String(this.directOrderToSearch || '').trim(), supplier_search: String(this.directSupplierSearch || '').trim(),
+        status_filter: this.directCheckedOnly ? 'checked' : String(this.directPrintedFilter || 'all'),
+      });
+    },
+
+    async printDirectRequestForm(opts) {
+      let w;
       try {
         if (this.directRequestPrintInProgress) {
           this.openModal('注意', '直送発注書の出力処理中です。プレビューを閉じるか、処理完了までお待ちください。');
@@ -10043,8 +10234,28 @@ window.distributionApp = function distributionApp() {
         const tantou = opts?.tantou || '';
         const mgmtComment = opts?.mgmtComment || '';
         this.normalizeRowsDateFields(this.directRows, true);
-        const dataset = this.getDirectRequestPrintableRows();
+        let dataset = this.getDirectRequestPrintableRows();
         if (dataset.length === 0) { this.openModal('エラー','出力するデータがありません。対象を選択してください。'); return; }
+
+        this.validateDirectPrintQuantities(dataset);
+        w = window.open('', '_blank');
+        if (!w) throw new Error('ポップアップを許可して再出力してください。');
+        w.document.body.textContent = '印刷内容を保存・確認しています。';
+        this.beginDirectRequestPrint(dataset, w);
+        await this.persistDistributionRowsImmediately('direct', this.getPersistableDirectRows());
+        const prepared = await this.fetchWithTimeout('/api/distribution/rows/direct-request-printed', {
+          method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...this.csrfHeaders() },
+          body: JSON.stringify({ phase: 'prepare', row_ids: dataset.map(row => String(row.id)) }),
+        }, 20000);
+        const preparedPayload = await prepared.json();
+        if (!prepared.ok) throw new Error(preparedPayload?.result?.error_message || '印刷内容を確認できません。');
+        const snapshot = preparedPayload.result.data;
+        dataset = snapshot.rows;
+        this.validateDirectPrintQuantities(dataset);
+        const sessionId = String(Date.now()) + '-' + Math.random().toString(36).slice(2);
+        this.directPrintSession = { id: sessionId, token: snapshot.print_token,
+          rowIds: dataset.map(row => String(row.id)), signature: this.directPrintSignature(dataset) };
+        if (w.closed) throw new Error('印刷画面が閉じられました。');
 
         // 仕入先ごとにグループ化
         const supplierGroups = {};
@@ -10216,9 +10427,7 @@ window.distributionApp = function distributionApp() {
           }).join('');
         }).join('');
 
-        const w = window.open('', '_blank');
-        if (!w) { this.openModal('エラー', 'ポップアップがブロックされています。'); return; }
-        this.beginDirectRequestPrint(dataset, w);
+
         w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>依頼書</title>
           <style>
             @page { size: A4 landscape; margin: 5mm; }
@@ -10287,18 +10496,42 @@ window.distributionApp = function distributionApp() {
             .download-button { background:#059669; }
             @media print { body { background:white; padding:0; overflow:visible; } .btn-container { display:none !important; } .page-break { width:auto; min-height:auto; border:none; box-shadow:none; margin:0; padding:0; } .request-page-number { top:0; right:0; } .document-topline { margin:0 0 10px; } }
           </style></he${''}ad><bo${''}dy>
-          <div class="btn-container"><button class="print-button" onclick='if(window.opener&&!window.opener.closed){window.opener.postMessage(${JSON.stringify({ type: 'distribution-direct-request-printing' })},${JSON.stringify(window.location.origin)});}window.print();if(window.confirm("印刷は完了しましたか？ 完了した場合のみ出力済みに更新します。")){window.__distributionPrintResolved=true;if(window.opener&&!window.opener.closed){window.opener.postMessage(${JSON.stringify({ type: 'distribution-direct-request-printed', rowIds: dataset.map(row => String(row.id || '')) })},${JSON.stringify(window.location.origin)});}}else{window.__distributionPrintResolved=true;if(window.opener&&!window.opener.closed){window.opener.postMessage(${JSON.stringify({ type: 'distribution-direct-request-cancelled' })},${JSON.stringify(window.location.origin)});}}'>印刷</button></div>
+          <div class="btn-container"><button class="print-button" onclick='if(window.opener&&!window.opener.closed){window.opener.postMessage(${JSON.stringify({ sessionId, type: 'distribution-direct-request-printing' })},${JSON.stringify(window.location.origin)});}window.print();if(window.confirm("印刷は完了しましたか？ 完了した場合のみ出力済みに更新します。")){window.__distributionPrintResolved=true;if(window.opener&&!window.opener.closed){window.opener.postMessage(${JSON.stringify({ sessionId, type: 'distribution-direct-request-printed', rowIds: dataset.map(row => String(row.id || '')) })},${JSON.stringify(window.location.origin)});}}else{window.__distributionPrintResolved=true;if(window.opener&&!window.opener.closed){window.opener.postMessage(${JSON.stringify({ sessionId, type: 'distribution-direct-request-cancelled' })},${JSON.stringify(window.location.origin)});}}'>印刷</button></div>
           ${pagesHtml}
-          <script>window.__distributionPrintResolved=false;window.addEventListener('beforeunload',function(){if(!window.__distributionPrintResolved&&window.opener&&!window.opener.closed){window.opener.postMessage(${JSON.stringify({ type: 'distribution-direct-request-cancelled' })},${JSON.stringify(window.location.origin)});}});<\/script>
+          <script>window.addEventListener('afterprint',function(){if(window.opener&&!window.opener.closed)window.opener.postMessage(${JSON.stringify({ sessionId, type: 'distribution-direct-request-released' })},${JSON.stringify(window.location.origin)});});window.__distributionPrintResolved=false;window.addEventListener('beforeunload',function(){if(!window.__distributionPrintResolved&&window.opener&&!window.opener.closed){window.opener.postMessage(${JSON.stringify({ sessionId, type: 'distribution-direct-request-cancelled' })},${JSON.stringify(window.location.origin)});}});<\/script>
         ${'</bo' + 'dy></ht' + 'ml>'}`);
         w.document.close();
       } catch(e) {
-        this.finishDirectRequestPrint();
+        if (w && !w.closed) w.close();
+        this.finishDirectRequestPrint(true);
         this.openModal('エラー','依頼書出力でエラーが発生しました: ' + e.message);
       }
     },
 
+    directPrintSignature(rows) {
+      const fields = ['id', 'itemId', 'productCode', 'jan', 'name', 'unitsPerCase', 'poCase', 'poEach',
+        'supplier', 'supplierCode', 'supplierId', 'contractorId', 'orderTo', 'orderToCode', 'orderDate', 'deliveryDate', 'memo'];
+      return JSON.stringify(rows.map(row => [...fields, ...Object.keys(row).filter(key => /^(alloc|wish)_/.test(key)).sort()]
+        .map(key => [key, String(row[key] ?? '')])).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
+    },
+
+    validateDirectPrintQuantities(rows) {
+      for (const row of rows) {
+        const ordered = toInt(row.poCase) * Math.max(1, toInt(row.unitsPerCase)) + toInt(row.poEach);
+        const allocated = this.calcDirectAllocTotal(row);
+        if (ordered > 0 && ordered !== allocated) {
+          throw new Error('商品CD ' + row.productCode + '：発注数（' + ordered + '）と分配合計（' + allocated + '）を一致させてください。');
+        }
+      }
+    },
+
+    releaseDirectRequestPrintLock() {
+      this.directRequestPrintInProgress = false;
+      this.directRequestPrintLockedRowIds = [];
+    },
+
     beginDirectRequestPrint(dataset, printWindow) {
+      this.finishDirectRequestPrint(true);
       activeDirectRequestPrintWindow = printWindow;
       this.directRequestPrintInProgress = true;
       this.directRequestPrintStatusSaving = false;
@@ -10306,8 +10539,9 @@ window.distributionApp = function distributionApp() {
         (Array.isArray(dataset) ? dataset : []).map(row => String(row?.id || '')).filter(Boolean)
       ));
       if (this.directRequestPrintWindowTimer) window.clearInterval(this.directRequestPrintWindowTimer);
+      const expires = Date.now() + 1800000;
       this.directRequestPrintWindowTimer = window.setInterval(() => {
-        if (!printWindow || printWindow.closed) this.finishDirectRequestPrint();
+        if (!printWindow || printWindow.closed || Date.now() > expires) this.finishDirectRequestPrint();
       }, 500);
     },
 
@@ -10318,8 +10552,8 @@ window.distributionApp = function distributionApp() {
         this.directRequestPrintWindowTimer = null;
       }
       activeDirectRequestPrintWindow = null;
-      this.directRequestPrintInProgress = false;
-      this.directRequestPrintLockedRowIds = [];
+      this.directPrintSession = null;
+      this.releaseDirectRequestPrintLock();
     },
 
     async markDirectRequestRowsPrinted(rowIds = []) {
@@ -10329,24 +10563,30 @@ window.distributionApp = function distributionApp() {
       const targetRows = this.directRows.filter(row => targets.has(String(row.id || '')));
       if (targetRows.length === 0) return;
 
+      let requestStarted = false;
       try {
-        const persistable = this.getPersistableDirectRows();
-        await this.persistDistributionRowsImmediately('direct', persistable);
-        const response = await fetch('/api/distribution/rows/direct-request-printed', {
+        if (!this.directPrintSession || this.directPrintSignature(targetRows) !== this.directPrintSession.signature) {
+          throw new Error('印刷開始後に内容が変更されています。最新内容を再出力してください。');
+        }
+        await this.waitForDistributionSaves('direct');
+        if (this.directPrintSignature(targetRows) !== this.directPrintSession.signature) throw new Error('印刷開始後に内容が変更されています。再出力してください。');
+        requestStarted = true;
+        const response = await this.fetchWithTimeout('/api/distribution/rows/direct-request-printed', {
           method: 'POST',
           headers: {
             Accept: 'application/json',
             'Content-Type': 'application/json',
             ...this.csrfHeaders(),
           },
-          body: JSON.stringify({ row_ids: Array.from(targets) }),
-        });
+          body: JSON.stringify({ phase: 'complete', print_token: this.directPrintSession.token, row_ids: Array.from(targets) }),
+        }, 20000);
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
           throw new Error(payload?.result?.error_message || payload?.message || ('HTTP ' + response.status));
         }
 
         const result = payload?.result?.data || {};
+        if (!Number.isInteger(result.revision) || !Array.isArray(result.row_ids)) throw new Error('出力済み状態の保存結果を確認できません。');
         this.serverRowRevisions.direct = toInt(result.revision || this.serverRowRevisions.direct || 0);
         const updatedIds = new Set(
           (Array.isArray(result.row_ids) ? result.row_ids : Array.from(targets)).map(String)
@@ -10361,6 +10601,7 @@ window.distributionApp = function distributionApp() {
         this.touchStoreRows();
         this.showToast('直送発注書を出力済みにしました');
       } catch (error) {
+        if (requestStarted) this.serverSaveBlocked.direct = true;
         console.warn('Failed to persist direct request print status:', error);
         this.openModal('エラー', '印刷は完了しましたが、出力済み状態を保存できませんでした。画面を再読み込みして状態を確認してください: ' + error.message);
       }
@@ -10648,7 +10889,7 @@ window.distributionApp = function distributionApp() {
           hasUnpersistedChunkSuccess
             ? '発注候補は生成されましたが、生成済み状態の保存に失敗しました。画面を再読み込みして状態を確認してください: ' + e.message
             : hasPersistedChunkSuccess
-            ? '発注候補生成中にエラーが発生しました。成功済みの分は生成済みとして画面に反映しました。未生成分だけ再実行してください: ' + e.message
+            ? '発注候補生成中にエラーが発生しました。受付済みの分は画面に反映しました。未受付分だけ再実行してください: ' + e.message
             : '発注候補生成に失敗しました: ' + e.message
         );
       } finally {
@@ -10746,7 +10987,7 @@ window.distributionApp = function distributionApp() {
           hasUnpersistedChunkSuccess
             ? '発注は確定されましたが、生成済み状態の保存に失敗しました。画面を再読み込みして状態を確認してください: ' + e.message
             : hasPersistedChunkSuccess
-            ? '発注確定中にエラーが発生しました。成功済みの分は生成済みとして画面に反映しました。未生成分だけ再実行してください: ' + e.message
+            ? '発注確定中にエラーが発生しました。受付済みの分は画面に反映しました。未受付分だけ再実行してください: ' + e.message
             : '発注確定に失敗しました: ' + e.message
         );
       } finally {
@@ -10756,59 +10997,51 @@ window.distributionApp = function distributionApp() {
 
     // ---------- CSV Export ----------
     downloadCSV() {
-      try {
-        this.normalizeDateFilters();
-        this.normalizeRowsDateFields(this.rows, true);
-        const dataset = this.getActiveRows();
-        if (dataset.length === 0) {
-          // Fall back to all visible rows if none checked
-          const visible = this.getVisibleRows();
-          if (visible.length === 0) {
-            this.openModal('エラー', '出力するデータがありません。');
-            return;
-          }
-          this._exportCSVRows(visible);
-        } else {
-          this._exportCSVRows(dataset);
-        }
-      } catch (e) {
-        console.error(e);
-        this.openModal('エラー', 'CSV出力でエラーが発生しました');
-      }
+      this.normalizeRowsDateFields(this.rows, true);
+      const dataset = this.sortRowsByOrderDateDesc(this.rows.filter(row =>
+        !row.deleted && this.matchesAllocationActiveFilters(row, { applyLockedFilter: true })
+      ));
+      if (!dataset.length) { this.openModal('エラー', '適用中の条件に一致するデータがありません。'); return; }
+      this._exportCSVRows(dataset);
     },
 
     _exportCSVRows(dataRows) {
+      const destinations = this.mergeDestinationLists(DESTS, ...dataRows.map(row => this.getRowDestinationPool(row)));
       const headers = [
         '計上日', '発注日', '商品コード', '商品名', '仕入先', '納品希望日', 'ロット', '入数', '理論', '希計', '分計',
         'ケース', 'バラ', '明細備考',
-        ...DESTS.flatMap(d => [d.name + '_希望', d.name + '_分配']),
+        ...destinations.flatMap(d => [d.name + '_希望', d.name + '_分配']),
       ];
 
       const body = dataRows.map(r => {
         const vals = [
           this.getCsvImportPostingDate(r) || r.orderDate || '',
           r.orderDate || '', r.productCode, r.name,
-          this.getSupplier(r.productCode), r.deliveryDate || '',
+          r.supplier || this.getSupplier(r.productCode), r.deliveryDate || '',
           toInt(r.lot), toInt(r.unitsPerCase), toInt(r.reserved),
-          this.calcWishTotal(r),
-          this.calcAllocTotal(r),
+          destinations.reduce((sum, d) => sum + toInt(r['wish_' + d.key]), 0),
+          destinations.reduce((sum, d) => sum + toInt(r['alloc_' + d.key]), 0),
           toInt(r.poCase), toInt(r.poEach), r.memo || '',
-          ...DESTS.flatMap(d => [toInt(r['wish_' + d.key] || 0), toInt(r['alloc_' + d.key] || 0)]),
+          ...destinations.flatMap(d => [toInt(r['wish_' + d.key] || 0), toInt(r['alloc_' + d.key] || 0)]),
         ];
         return vals.map(x => '"' + String(x ?? '').replace(/"/g, '""') + '"').join(',');
       });
 
-      const csv = [headers.join(','), ...body].join('\r\n');
+      const csv = [headers.map(x => '"' + String(x).replace(/"/g, '""') + '"').join(','), ...body].join('\r\n');
       const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+      this.downloadCsvBlob(blob, 'allocation_');
+      this.showToast('CSVを出力しました（' + dataRows.length + '行）');
+    },
+
+    downloadCsvBlob(blob, prefix) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'allocation_' + getTodayString() + '.csv';
+      a.download = prefix + getTodayString() + '.csv';
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      this.showToast('CSVを出力しました（' + dataRows.length + '行）');
     },
 
     // ---------- Print Slips (移動伝票) ----------
@@ -11117,6 +11350,7 @@ window.distributionApp = function distributionApp() {
         row.checked = true;
         row.confirmedAt = row.confirmedAt || createdAt;
         row.warehouseTransferGenerated = true;
+        row.warehouseTransferState = 'pending';
         row.warehouseTransferCreatedAt = createdAt;
         row.warehouseTransferShipmentDate = shipmentDate;
         row.warehouseTransferQueueIds = Array.from(new Set([...existingQueueIds, ...queueIds]));
@@ -11126,7 +11360,7 @@ window.distributionApp = function distributionApp() {
     },
 
     async printSlips(opts, rows = null, destsList = DESTS, options = {}) {
-      if (this.transferSlipCreating) return;
+      if (this.transferSlipCreating || this.warehouseTransferCreating) return;
 
       try {
         const remark = opts?.remark || '';
@@ -11137,7 +11371,7 @@ window.distributionApp = function distributionApp() {
           return;
         }
         this.transferSlipCreating = true;
-        this._printSlipsForDests(destsList, dataset, remark, options);
+        await this._printSlipsForDests(destsList, dataset, remark, options);
         this.markRowsAsTransferSlipCreated(dataset, {});
         this.reprintSelectedRowIds = [];
         this.reprintSelectedStoreKeys = [];
@@ -11153,7 +11387,10 @@ window.distributionApp = function distributionApp() {
 
     async generateWarehouseTransfers() {
       if (this.warehouseTransferCreating || this.transferSlipCreating) return;
+      this.warehouseTransferCreating = true;
 
+      let printWindow = null;
+      let opened = false;
       let hasPersistedChunkSuccess = false;
       let hasUnpersistedChunkSuccess = false;
 
@@ -11162,6 +11399,10 @@ window.distributionApp = function distributionApp() {
           this.openModal('エラー', this.getMissingDeliveryCourseMessage());
           return;
         }
+
+        printWindow = window.open('', '_blank');
+        if (!printWindow) throw new Error('ポップアップを許可してから倉庫移動生成を再実行してください。');
+        printWindow.document.body.textContent = '倉庫移動の受付と実伝票の生成結果を確認しています。';
 
         if (this.bulkAutoApplyTimer) {
           window.clearTimeout(this.bulkAutoApplyTimer);
@@ -11189,7 +11430,6 @@ window.distributionApp = function distributionApp() {
           return;
         }
 
-        this.warehouseTransferCreating = true;
         let result = {};
 
         if (transferRows.length > 0) {
@@ -11215,7 +11455,8 @@ window.distributionApp = function distributionApp() {
         const createdQueueCount = toInt(result?.created_queue_count ?? result?.queue_count ?? 0);
         const skippedQueueCount = toInt(result?.skipped_queue_count || 0);
         try {
-          this._printSlipsForDests(DESTS, dataset, '', { includeZeroAllocRows: false, processDate: this.bulkInputDate });
+          await this._printSlipsForDests(DESTS, dataset, '', { includeZeroAllocRows: true, printWindow });
+          opened = true;
           if (transferRows.length > 0) {
             this.markRowsAsTransferSlipCreated(transferRows, result);
           }
@@ -11225,7 +11466,7 @@ window.distributionApp = function distributionApp() {
           this.saveData();
         } catch (printError) {
           console.error('伝票出力エラー:', printError);
-          this.openModal('エラー', '倉庫移動は生成されましたが、伝票出力でエラーが発生しました。店舗別管理の伝票出力から再出力してください: ' + printError.message);
+          this.openModal('エラー', '倉庫移動は受付済みですが、処理結果の確認または帳票出力が完了していません。伝票再出力で同じ受付結果を確認してください: ' + printError.message);
           return;
         }
 
@@ -11245,18 +11486,19 @@ window.distributionApp = function distributionApp() {
         this.openModal(
           'エラー',
           hasUnpersistedChunkSuccess
-            ? '倉庫移動は生成されましたが、生成済み状態の保存に失敗しました。画面を再読み込みして状態を確認してください: ' + e.message
+            ? '倉庫移動は受付済みですが、受付状態の保存に失敗しました。画面を再読み込みして状態を確認してください: ' + e.message
             : hasPersistedChunkSuccess
-            ? '倉庫移動生成中にエラーが発生しました。成功済みの分は生成済みとして画面に反映しました。未生成分だけ再実行してください: ' + e.message
+            ? '倉庫移動生成中にエラーが発生しました。受付済みの分は画面に反映しました。未受付分だけ再実行してください: ' + e.message
             : '倉庫移動生成でエラーが発生しました: ' + e.message
         );
       } finally {
+        if (printWindow && !opened && !printWindow.closed) printWindow.close();
         this.warehouseTransferCreating = false;
       }
     },
 
     async printSlipsForSelectedStores(opts) {
-      if (this.transferSlipCreating) return;
+      if (this.transferSlipCreating || this.warehouseTransferCreating) return;
 
       try {
         const remark = opts?.remark || '';
@@ -11277,7 +11519,7 @@ window.distributionApp = function distributionApp() {
           return;
         }
         this.transferSlipCreating = true;
-        this._printSlipsForDests(selectedDestsList, dataset, remark, { includeZeroAllocRows: true });
+        await this._printSlipsForDests(selectedDestsList, dataset, remark, { includeZeroAllocRows: true });
         this.markRowsAsTransferSlipCreated(dataset, {});
         this.saveData();
         this.transferSlipCreating = false;
@@ -11304,18 +11546,17 @@ window.distributionApp = function distributionApp() {
 
       const barcodeElements = [];
       const legacyRowsPerPage = remark ? 21 : 22;
-      const slipsHtml = destsList.map(dest => {
-        const destData = dataset.filter(r => {
-          const allocQty = toInt(r['alloc_' + dest.key] || 0);
-          if (allocQty > 0) return true;
-
-          return includeZeroAllocRows;
-        });
+      const slipsHtml = (options.documents || []).map((document, documentIndex) => {
+        const dest = document.destination;
+        const destData = document.rows;
+        const reference = document.kind !== 'transfer';
+        const referenceTitle = document.kind === 'direct-reference' ? '直送分配参考（移動伝票なし）' : '参考明細（実伝票なし）';
+        const orderDate = document.picking_date || '';
+        const deliveredDate = document.delivered_date || '';
         if (destData.length === 0) return '';
 
-        const slipBaseNumber = new Date().getTime().toString().slice(-8);
-        const slipNumber = slipBaseNumber + String(dest.key || '');
-        const slipDisplayNumber = slipBaseNumber + '-' + dest.key;
+        const slipNumber = document.serial_id ?? '';
+        const slipDisplayNumber = document.slip_number ?? '';
         const sourceWarehouseLabel = HQ_WAREHOUSE_CODE + ' ' + HQ_WAREHOUSE_NAME;
         const destWarehouseLabel = (dest.code || dest.key || '') + ' ' + (dest.name || '');
         const destPages = [];
@@ -11325,8 +11566,8 @@ window.distributionApp = function distributionApp() {
 
         let rowNumber = 1;
         return destPages.map((pageRows, pageIndex) => {
-          const barcodeElementId = 'barcode-' + slipNumber + '-' + (pageIndex + 1);
-          barcodeElements.push({ id: barcodeElementId, value: slipNumber });
+          const barcodeElementId = 'barcode-' + documentIndex + '-' + slipNumber + '-' + (pageIndex + 1);
+          if (!reference) barcodeElements.push({ id: barcodeElementId, value: slipNumber });
           const pageNumberText = (pageIndex + 1) + ' / ' + destPages.length + '頁';
           const rowsHtml = pageRows.map(r => {
             const alloc = toInt(r['alloc_' + dest.key] || 0);
@@ -11342,13 +11583,13 @@ window.distributionApp = function distributionApp() {
               '<td class="right">' + allocCase.toLocaleString('ja-JP') + '</td>' +
               '<td class="right">' + allocEach.toLocaleString('ja-JP') + '</td>' +
               '<td class="right">' + alloc.toLocaleString('ja-JP') + '</td>' +
-              '<td>' + escapeHtml(r.memo || '') + '</td>' +
+              '<td>' + escapeHtml((reference ? '希望数：' + toInt(r['wish_' + dest.key]) + '／分配数：' + alloc + ' ' : '') + (r.memo || '')) + '</td>' +
             '</tr>';
           }).join('');
 
           return '<section class="legacy-slip page-break">' +
           '<header class="legacy-header">' +
-            '<div class="legacy-title">【移動伝票】</div>' +
+            '<div class="legacy-title">' + (reference ? referenceTitle : '【移動伝票】') + '</div>' +
             '<div class="legacy-header-content">' +
               '<div class="legacy-header-left">' +
                 '<div>伝票日付: ' + escapeHtml(orderDate) + '</div>' +
@@ -11372,8 +11613,10 @@ window.distributionApp = function distributionApp() {
               '</div>' +
               '<div class="legacy-header-right">' +
                 '<div class="legacy-issue-time">発行日時: ' + escapeHtml(issueDateTime) + '</div>' +
+                '<div>識別ID: ' + escapeHtml(slipNumber) + '</div>' +
+                '<div>出荷日: ' + escapeHtml(orderDate) + '　入荷日: ' + escapeHtml(deliveredDate) + '</div>' +
                 '<div class="legacy-page-number">' + escapeHtml(pageNumberText) + '</div>' +
-                '<div class="legacy-barcode-box"><svg id="' + escapeHtml(barcodeElementId) + '" class="legacy-barcode"></svg></div>' +
+                (reference ? '' : '<div class="legacy-barcode-box"><svg id="' + escapeHtml(barcodeElementId) + '" class="legacy-barcode"></svg></div>') +
               '</div>' +
             '</div>' +
           '</header>' +
@@ -11452,20 +11695,80 @@ window.distributionApp = function distributionApp() {
       '</bo' + 'dy></ht' + 'ml>';
 
       const printUrl = URL.createObjectURL(new Blob([htmlContent], { type: 'text/html;charset=utf-8' }));
-      const w = window.open(printUrl, '_blank');
+      const w = options.printWindow || window.open(printUrl, '_blank');
+      if (w?.closed) throw new Error('帳票画面が閉じられました。');
+      if (w && options.printWindow) w.location.replace(printUrl);
       if (!w) {
         URL.revokeObjectURL(printUrl);
-        this.openModal('エラー', 'ポップアップがブロックされています。ブラウザの設定でポップアップを許可してください。');
-        return;
+        throw new Error('ポップアップがブロックされています。ブラウザの設定でポップアップを許可してください。');
       }
 
       setTimeout(() => URL.revokeObjectURL(printUrl), 60000);
+      return true;
     },
 
-    _printSlipsForDests(destsList, dataset, remark, options = {}) {
+    async _printSlipsForDests(destsList, dataset, remark, options = {}) {
+      const printWindow = options.printWindow || window.open('', '_blank');
+      if (!printWindow) throw new Error('ポップアップがブロックされています。ブラウザで許可してから再出力してください。');
+      printWindow.document.body.textContent = '実伝票を確認しています。完了までお待ちください。';
+      try {
+        const requestedRows = { allocation: new Set(), direct: new Set() };
+        const rowDestinations = {};
+        for (const row of dataset) {
+          const mode = row.storeSourceType === 'direct' ? 'direct' : 'allocation';
+          const id = String(row.sourceRowId || row.id);
+          requestedRows[mode].add(id);
+          const key = mode + '::' + id;
+          rowDestinations[key] = Array.from(new Set([...(rowDestinations[key] || []), ...destsList
+            .filter(dest => toInt(row['alloc_' + dest.key]) > 0 || toInt(row['wish_' + dest.key]) > 0)
+            .map(dest => String(dest.key))]));
+        }
+        const startedAt = Date.now();
+        let result;
+        do {
+          if (printWindow.closed) throw new Error('帳票画面が閉じられました。必要に応じて再出力してください。');
+          const response = await this.fetchWithTimeout('/api/distribution/warehouse-transfers/results', {
+            method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...this.csrfHeaders() },
+            body: JSON.stringify({
+              context: this.activeSubTab === 'store-view' ? 'store' : 'edit',
+              row_ids: Array.from(requestedRows.allocation),
+              direct_row_ids: Array.from(requestedRows.direct),
+              row_destinations: rowDestinations,
+              destination_keys: Array.from(new Set(destsList.map(dest => String(dest.key)))),
+            }),
+          }, 20000);
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload?.result?.error_message || payload?.message || '実伝票を取得できませんでした。');
+          result = payload?.result?.data;
+          if (!Array.isArray(result?.documents) || !Array.isArray(result?.queues)) throw new Error('実伝票の取得結果を確認できません。');
+          for (const row of this.rows) {
+            const states = result.queues.filter(queue => queue.row_ids.includes(String(row.id)));
+            if (!states.length) continue;
+            row.warehouseTransferState = states.some(q => ['failed', 'missing'].includes(q.state)) ? 'failed'
+              : states.every(q => q.state === 'succeeded') ? 'succeeded' : 'pending';
+          }
+          this.touchAllocationRows();
+          const failed = result.queues.find(queue => ['failed', 'missing'].includes(queue.state));
+          if (failed) throw new Error(failed.message);
+          if (result.queues.every(queue => queue.state === 'succeeded')) break;
+          if (Date.now() - startedAt >= 60000) {
+            throw new Error('倉庫移動は受付済みですが、処理が完了していません。時間をおいて「伝票再出力」で同じ受付結果を確認してください。');
+          }
+          await new Promise(resolve => window.setTimeout(resolve, 1500));
+        } while (true);
+        if (!result.documents.length) throw new Error('出力する実伝票または参考明細がありません。');
+        const opened = this._renderSlipsForDests(destsList, dataset, remark, { ...options, documents: result.documents, printWindow });
+        if (!opened) throw new Error('帳票を開けませんでした。もう一度再出力してください。');
+        return true;
+      } catch (error) {
+        printWindow.close();
+        throw error;
+      }
+    },
+
+    _renderSlipsForDests(destsList, dataset, remark, options = {}) {
       if (options?.layout === 'legacy') {
-        this._printLegacySlipsForDests(destsList, dataset, remark, options);
-        return;
+        return this._printLegacySlipsForDests(destsList, dataset, remark, options);
       }
 
       const orderDate = this.normalizeFlexibleDate(options.processDate || '') || dataset[0]?.orderDate || this.bulkInputDate || getTodayString();
@@ -11495,18 +11798,17 @@ window.distributionApp = function distributionApp() {
       const includeZeroAllocRows = !!options.includeZeroAllocRows;
       let printedPageNumber = 0;
 
-      const slipsHtml = destsList.map(dest => {
-        const destData = dataset.filter(r => {
-          const allocQty = toInt(r['alloc_' + dest.key] || 0);
-          if (allocQty > 0) return true;
-
-          return includeZeroAllocRows;
-        });
+      const slipsHtml = (options.documents || []).map((document, documentIndex) => {
+        const dest = document.destination;
+        const destData = document.rows;
+        const reference = document.kind !== 'transfer';
+        const referenceTitle = document.kind === 'direct-reference' ? '直送分配参考（移動伝票なし）' : '参考明細（実伝票なし）';
+        const orderDate = document.picking_date || '';
+        const deliveredDate = document.delivered_date || '';
         if (destData.length === 0) return '';
 
-        const slipBaseNumber = new Date().getTime().toString().slice(-8);
-        const slipNumber = slipBaseNumber + dest.key;
-        const slipDisplayNumber = slipBaseNumber + '-' + dest.key;
+        const slipNumber = document.serial_id ?? '';
+        const slipDisplayNumber = document.slip_number ?? '';
         const destPages = [];
         for (let i = 0; i < destData.length; i += slipRowsPerPage) {
           destPages.push(destData.slice(i, i + slipRowsPerPage));
@@ -11515,7 +11817,7 @@ window.distributionApp = function distributionApp() {
         const slipIdentity = slipNumber;
         const sourceWarehouseLabel = HQ_WAREHOUSE_CODE + ' ' + HQ_WAREHOUSE_NAME;
         const destinationWarehouseLabel = (dest.code || dest.key || '') + ' ' + (dest.name || '');
-        const copies = [
+        const copies = reference ? [{ type: 'reference', title: referenceTitle }] : [
           { type: 'in', title: '転送伝票（入庫用）' },
           { type: 'out', title: '転送伝票（出庫用）' },
         ];
@@ -11527,7 +11829,7 @@ window.distributionApp = function distributionApp() {
             const unitsPerCase = Math.max(1, toInt(r.unitsPerCase || 1));
             const meta = this.getProductMeta(r.productCode) || {};
             const jan = r.jan || meta.jan || '';
-            const productName = r.name || meta.name || '';
+            const productName = (r.name || meta.name || '') + (reference ? '（希望 ' + toInt(r['wish_' + dest.key]) + '／分配 ' + alloc + '）' : '');
             const spec = '0x' + unitsPerCase;
 
             return '<tbody class="slip-line">' +
@@ -11550,7 +11852,7 @@ window.distributionApp = function distributionApp() {
           return '<section class="checklist-page page-break">' +
             '<header>' +
               '<div class="title-row">' +
-                '<div class="document-title">' + escapeHtml(copy.title) + '</div>' +
+                '<div class="document-title">' + escapeHtml(reference ? referenceTitle : copy.title) + '</div>' +
                 '<div class="created-at">' +
                   '<div>作成 ' + escapeHtml(issueDateTime) + '</div>' +
                   '<div class="page-number">' + printedPageNumber + '頁</div>' +
@@ -11566,7 +11868,7 @@ window.distributionApp = function distributionApp() {
                 '<div class="info-right">' +
                   '<div>伝票番号：' + escapeHtml(slipDisplayNumber) + '</div>' +
                   '<div>転入倉庫：' + escapeHtml(destinationWarehouseLabel) + '</div>' +
-                  '<div>転入予定日：' + escapeHtml(formatChecklistDate(orderDate)) + '</div>' +
+                  '<div>転入予定日：' + escapeHtml(formatChecklistDate(deliveredDate)) + '</div>' +
                 '</div>' +
               '</div>' +
             '</header>' +
@@ -11652,14 +11954,16 @@ window.distributionApp = function distributionApp() {
       '</bo' + 'dy></ht' + 'ml>';
 
       const printUrl = URL.createObjectURL(new Blob([htmlContent], { type: 'text/html;charset=utf-8' }));
-      const w = window.open(printUrl, '_blank');
+      const w = options.printWindow || window.open(printUrl, '_blank');
+      if (w?.closed) throw new Error('帳票画面が閉じられました。');
+      if (w && options.printWindow) w.location.replace(printUrl);
       if (!w) {
         URL.revokeObjectURL(printUrl);
-        this.openModal('エラー', 'ポップアップがブロックされています。ブラウザの設定でポップアップを許可してください。');
-        return;
+        throw new Error('ポップアップがブロックされています。ブラウザの設定でポップアップを許可してください。');
       }
 
       setTimeout(() => URL.revokeObjectURL(printUrl), 60000);
+      return true;
     },
 
     // ---------- Store View helpers ----------
