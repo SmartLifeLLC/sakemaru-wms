@@ -162,6 +162,65 @@ class DirectDistributionOrderIntegrationTest extends TestCase
         }
     }
 
+    public function test_case_piece_matrix_preserves_exact_destination_and_incoming_quantities(): void
+    {
+        $capacity = (int) $this->master->capacity_case;
+        $cases = [
+            ['case-only', 2, 0, 2 * $capacity],
+            ['piece-only', 0, 3, 3],
+            ['mixed', 2, 3, 2 * $capacity + 3],
+            ['zero-fallback', 0, 0, 7],
+            ['null-fallback', null, null, 5],
+        ];
+        foreach ($cases as [$id, $case, $piece, $total]) {
+            $row = $this->row($id, $total);
+            $row['po_case'] = $case;
+            $row['po_each'] = $piece;
+            // The master, not a stale client-supplied capacity or purchase unit, controls conversion.
+            $row['units_per_case'] = 999;
+            $row['purchase_unit'] = 6;
+            $result = $this->generate([$row]);
+            $candidate = WmsOrderCandidate::findOrFail($result['candidate_ids'][0]);
+            $schedule = WmsOrderIncomingSchedule::where('order_candidate_id', $candidate->id)->sole();
+            $this->assertSame(QuantityType::PIECE, $candidate->quantity_type);
+            $this->assertSame($total, (int) $candidate->order_quantity, $id);
+            $this->assertSame($total, (int) $schedule->expected_quantity, $id);
+            $this->assertSame($this->destinationId, (int) $candidate->warehouse_id);
+        }
+    }
+
+    public function test_zero_allocations_never_generate_an_order_or_incoming_schedule(): void
+    {
+        $row = $this->row('zero-quantity', 0);
+        $row['po_case'] = 0;
+        $row['po_each'] = 0;
+        $row['allocations'] = [];
+        $beforeCandidates = WmsOrderCandidate::count();
+        $beforeSchedules = WmsOrderIncomingSchedule::count();
+        try {
+            $this->generate([$row]);
+            $this->fail('分配0の行から発注を生成してはいけません。');
+        } catch (\RuntimeException) {
+            $this->assertSame($beforeCandidates, WmsOrderCandidate::count());
+            $this->assertSame($beforeSchedules, WmsOrderIncomingSchedule::count());
+        }
+    }
+
+    public function test_stale_case_capacity_cannot_create_an_inconsistent_order(): void
+    {
+        $row = $this->row('stale-capacity', 999);
+        $row['po_case'] = 1;
+        $row['po_each'] = 0;
+        $row['units_per_case'] = 999;
+        $before = WmsOrderCandidate::count();
+        try {
+            $this->generate([$row]);
+            $this->fail('画面側の古い入数で発注してはいけません。');
+        } catch (\RuntimeException) {
+            $this->assertSame($before, WmsOrderCandidate::count());
+        }
+    }
+
     public function test_case_piece_mismatch_is_rejected(): void
     {
         $row = $this->row(quantity: 12);

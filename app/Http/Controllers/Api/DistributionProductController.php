@@ -1219,12 +1219,15 @@ class DistributionProductController extends ApiController
                 );
             }
 
-            $orderedQuery = $query
-                ->orderBy('sort_order')
-                ->orderBy('id');
-            $rows = $usesPaging
-                ? $orderedQuery->forPage($page, $perPage)->get()
-                : $orderedQuery->limit($rowFetchLimit)->get();
+            if ($usesPaging) {
+                // Match CSV/global display order without sorting the large JSON payload.
+                $ids = (clone $query)->select('id')->selectRaw("COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.orderDate')), 'null'), '') AS display_date")
+                    ->orderByDesc('display_date')->orderBy('sort_order')->orderBy('id')->forPage($page, $perPage)->pluck('id');
+                $byId = (clone $query)->whereIn('id', $ids)->get()->keyBy('id');
+                $rows = $ids->map(fn ($id) => $byId->get($id))->filter()->values();
+            } else {
+                $rows = $query->orderBy('sort_order')->orderBy('id')->limit($rowFetchLimit)->get();
+            }
 
             if ($usesPaging) {
                 $pagination[$modeName] = [
@@ -1675,7 +1678,8 @@ class DistributionProductController extends ApiController
 
             foreach ($row as $field => $value) {
                 $field = (string) $field;
-                if (! str_starts_with($field, 'wish_') && ! str_starts_with($field, 'alloc_')) {
+                $isOrderQuantity = in_array($field, ['poCase', 'poEach', 'po_case', 'po_each'], true);
+                if (! $isOrderQuantity && ! str_starts_with($field, 'wish_') && ! str_starts_with($field, 'alloc_')) {
                     continue;
                 }
                 if ($value === null || $value === '') {
@@ -1688,7 +1692,8 @@ class DistributionProductController extends ApiController
                     $existingValue = $existingRowData[$rowId][$field] ?? null;
                     $existingValidated = filter_var($existingValue, FILTER_VALIDATE_INT);
                     if (
-                        $validated !== false
+                        ! $isOrderQuantity
+                        && $validated !== false
                         && $validated < 0
                         && $existingValidated !== false
                         && $existingValidated === $validated
@@ -1696,12 +1701,118 @@ class DistributionProductController extends ApiController
                         continue;
                     }
 
-                    $errors["rows.{$rowIndex}.{$field}"] = ['0以上99,999,999以下の整数を入力してください。'];
+                    $label = match ($field) {
+                        'poCase', 'po_case' => 'ケース数は',
+                        'poEach', 'po_each' => 'バラ数は',
+                        default => '',
+                    };
+                    $errors["rows.{$rowIndex}.{$field}"] = [$label.'0以上99,999,999以下の整数を入力してください。'];
                 }
             }
         }
 
         return $errors;
+    }
+
+    public function exportDirectDistributionRows(Request $request, PermissionService $permissionService)
+    {
+        $user = $request->user();
+        if (! $user || ! $this->canView($permissionService, $user, self::PERMISSION_DIRECT_DISTRIBUTION)
+            || ! ($warehouseId = $this->selectedKuraWarehouseId($user))) {
+            abort(403);
+        }
+        $request->validate([
+            'expected_revision' => 'required|integer|min:0',
+            'keyword_search' => 'nullable|string|max:200',
+            'order_to_search' => 'nullable|string|max:200', 'supplier_search' => 'nullable|string|max:200',
+            'order_date_from' => 'nullable|date_format:Y-m-d', 'order_date_to' => 'nullable|date_format:Y-m-d',
+            'delivery_date_from' => 'nullable|date_format:Y-m-d', 'delivery_date_to' => 'nullable|date_format:Y-m-d',
+            'status_filter' => 'nullable|in:all,checked,unchecked,order_created,order_pending,printed,unprinted,unprocessed,request_printed',
+        ]);
+        $clientId = (int) config('app.client_id');
+        // Spool the snapshot while holding the same revision lock as saves. No HTTP streaming under a DB lock.
+        $spool = tmpfile();
+        if ($spool === false) {
+            throw new RuntimeException('CSVの一時ファイルを作成できません。');
+        }
+        try {
+            $columns = DB::connection('sakemaru')->transaction(function () use ($request, $clientId, $warehouseId, $spool) {
+                $revision = DB::connection('sakemaru')->table('wms_distribution_revisions')
+                    ->where('client_id', $clientId)->where('mode', 'direct')->where('warehouse_id', $warehouseId)
+                    ->sharedLock()->value('revision');
+                if ($revision === null || (int) $revision !== (int) $request->input('expected_revision')) {
+                    throw new RuntimeException('DISTRIBUTION_EXPORT_STALE');
+                }
+                $query = WmsDistributionRow::query()->forClient($clientId)->forMode('direct')->where('warehouse_id', $warehouseId);
+                $this->applyDirectDistributionRowsFilters($query, $request);
+                // Only small scalar columns are sorted; never filesort the large row_data JSON.
+                $ids = (clone $query)->select('id')->selectRaw("COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.orderDate')), 'null'), '') AS export_date")
+                    ->orderByDesc('export_date')->orderBy('sort_order')->orderBy('id')->pluck('id');
+                if ($ids->isEmpty()) {
+                    throw new RuntimeException('DISTRIBUTION_EXPORT_EMPTY');
+                }
+                $columns = [];
+                foreach ($ids->chunk(200) as $chunk) {
+                    $rows = (clone $query)->whereIn('id', $chunk)->get(['id', 'row_data'])->keyBy('id');
+                    foreach ($chunk as $id) {
+                        $data = $rows[$id]->row_data;
+                        foreach (array_keys($data) as $field) {
+                            if (preg_match('/^(?:wish|alloc)_(.+)$/', $field, $match)) {
+                                $columns[$match[1]] = true;
+                            }
+                        }
+                        fwrite($spool, json_encode($data, JSON_THROW_ON_ERROR)."\n");
+                    }
+                }
+                return array_keys($columns);
+            });
+        } catch (\Throwable $exception) {
+            fclose($spool);
+            if ($exception->getMessage() === 'DISTRIBUTION_EXPORT_STALE') {
+                return $this->error('保存後に分配データが変更されています。再読み込みしてCSVを出力してください。', 409, 'DISTRIBUTION_ROWS_STALE');
+            }
+            if ($exception->getMessage() === 'DISTRIBUTION_EXPORT_EMPTY') {
+                return $this->error('適用中の条件に一致するデータがありません。', 422, 'DISTRIBUTION_EXPORT_EMPTY');
+            }
+            throw $exception;
+        }
+        $names = DB::connection('sakemaru')->table('warehouses')->where('client_id', $clientId)->get(['id', 'code', 'name'])
+            ->mapWithKeys(fn ($w) => [$this->formatDestinationKey($w->code, $w->id) => $w->name]);
+        sort($columns, SORT_NATURAL);
+        return response()->streamDownload(function () use ($spool, $columns, $names) {
+            $out = fopen('php://output', 'w');
+            try {
+                fwrite($out, "\xEF\xBB\xBF");
+                $headers = ['計上日','発注日','商品コード','商品名','仕入先','入荷予定日','ロット','入数','理論','希計','分計','ケース','バラ','明細備考'];
+                foreach ($columns as $key) {
+                    $name = $names[$key] ?? '店舗CD '.$key;
+                    array_push($headers, $name.'_希望', $name.'_分配');
+                }
+                fputcsv($out, $headers, ',', '"', '', "\r\n");
+                rewind($spool);
+                while (($line = fgets($spool)) !== false) {
+                    $row = json_decode($line, true, 512, JSON_THROW_ON_ERROR);
+                    $wishes = $allocations = 0;
+                    $quantities = [];
+                    foreach ($columns as $key) {
+                        $wish = (int) ($row['wish_'.$key] ?? 0);
+                        $allocation = (int) ($row['alloc_'.$key] ?? 0);
+                        $wishes += $wish;
+                        $allocations += $allocation;
+                        array_push($quantities, $wish, $allocation);
+                    }
+                    fputcsv($out, array_merge([
+                        ($row['csvPostingDate'] ?? '') ?: ($row['postingDate'] ?? $row['accountingDate'] ?? $row['orderDate'] ?? ''), $row['orderDate'] ?? '', $row['productCode'] ?? '',
+                        $row['name'] ?? '', $row['supplier'] ?? '', $row['deliveryDate'] ?? '',
+                        (int) ($row['lot'] ?? 0), (int) ($row['unitsPerCase'] ?? 0), (int) ($row['reserved'] ?? 0),
+                        $wishes, $allocations, (int) ($row['poCase'] ?? 0), (int) ($row['poEach'] ?? 0), $row['memo'] ?? '',
+                    ], $quantities), ',', '"', '', "\r\n");
+                }
+            } finally {
+                fclose($spool);
+                fclose($out);
+            }
+        }, 'direct_allocation_'.now()->format('Y-m-d').'.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 
     public function markDirectRequestPrinted(Request $request, PermissionService $permissionService): JsonResponse
@@ -1713,6 +1824,8 @@ class DistributionProductController extends ApiController
         }
 
         $validator = Validator::make($request->all(), [
+            'phase' => 'required|in:prepare,complete',
+            'print_token' => 'required_if:phase,complete|string',
             'row_ids' => 'required|array|min:1|max:3000',
             'row_ids.*' => 'required|string|max:120|distinct',
         ]);
@@ -1740,8 +1853,22 @@ class DistributionProductController extends ApiController
             ->unique()
             ->values();
 
+        $snapshot = null;
+        if ($request->input('phase') === 'complete') {
+            try {
+                $snapshot = json_decode(\Illuminate\Support\Facades\Crypt::decryptString($request->input('print_token')), true, 512, JSON_THROW_ON_ERROR);
+                $expectedIds = $rowIds->sort()->values()->all();
+                if (($snapshot['user'] ?? null) !== (int) $user->id
+                    || ($snapshot['client'] ?? null) !== $clientId || ($snapshot['warehouse'] ?? null) !== $warehouseId
+                    || ($snapshot['expires'] ?? 0) < time() || ($snapshot['row_ids'] ?? []) !== $expectedIds) {
+                    throw new RuntimeException('invalid snapshot');
+                }
+            } catch (\Throwable $exception) {
+                return $this->error('印刷の確認期限が切れたか、対象が変更されています。再出力してください。', 409, 'DISTRIBUTION_PRINT_STALE');
+            }
+        }
         try {
-            $result = DB::connection('sakemaru')->transaction(function () use ($clientId, $warehouseId, $rowIds, $user): array {
+            $result = DB::connection('sakemaru')->transaction(function () use ($clientId, $warehouseId, $rowIds, $user, $snapshot): array {
                 DB::connection('sakemaru')->table('wms_distribution_revisions')->insertOrIgnore([
                     'client_id' => $clientId,
                     'mode' => 'direct',
@@ -1772,6 +1899,23 @@ class DistributionProductController extends ApiController
 
                 if ($foundRowIds->count() !== $rowIds->count()) {
                     throw new RuntimeException('DIRECT_REQUEST_PRINT_ROWS_NOT_FOUND');
+                }
+
+                $rows = (clone $rowsQuery)->get(['row_id', 'row_data'])->mapWithKeys(fn ($row) => [
+                    $row->row_id => array_merge($row->row_data, ['id' => $row->row_id]),
+                ]);
+                $digest = hash('sha256', $rows->sortKeys()->toJson());
+                if ($snapshot === null) {
+                    $token = \Illuminate\Support\Facades\Crypt::encryptString(json_encode([
+                        'user' => (int) $user->id, 'client' => $clientId, 'warehouse' => $warehouseId,
+                        'revision' => (int) $revisionRow->revision, 'expires' => time() + 1800, 'digest' => $digest,
+                        'row_ids' => $rowIds->sort()->values()->all(),
+                    ], JSON_THROW_ON_ERROR));
+                    return ['print_token' => $token, 'revision' => (int) $revisionRow->revision,
+                        'rows' => $rowIds->map(fn ($id) => $rows[$id])->all()];
+                }
+                if ((int) $revisionRow->revision !== $snapshot['revision'] || ! hash_equals($snapshot['digest'] ?? '', $digest)) {
+                    throw new RuntimeException('DIRECT_REQUEST_PRINT_SNAPSHOT_CHANGED');
                 }
 
                 $validDestinations = DB::connection('sakemaru')
@@ -1859,6 +2003,9 @@ class DistributionProductController extends ApiController
                 ];
             }, 5);
         } catch (RuntimeException $exception) {
+            if ($exception->getMessage() === 'DIRECT_REQUEST_PRINT_SNAPSHOT_CHANGED') {
+                return $this->error('印刷開始後に分配データが変更されています。最新内容を確認して再出力してください。', 409, 'DISTRIBUTION_PRINT_STALE');
+            }
             if ($exception->getMessage() === 'DIRECT_REQUEST_PRINT_ROWS_NOT_FOUND') {
                 return $this->error('出力対象の一部が削除または変更されています。画面を再読み込みしてください。', 409, 'DISTRIBUTION_ROWS_STALE');
             }
@@ -1870,6 +2017,72 @@ class DistributionProductController extends ApiController
         }
 
         return $this->success($result);
+    }
+
+    public function warehouseTransferResults(Request $request, PermissionService $permissionService,
+        \App\Services\Distribution\DistributionTransferResultService $service): JsonResponse
+    {
+        $user = $request->user();
+        if (! $user) {
+            abort(403);
+        }
+        $validator = Validator::make($request->all(), [
+            'context' => 'required|in:edit,store',
+            'row_ids' => 'present|array|max:3000',
+            'direct_row_ids' => 'sometimes|array|max:3000',
+            'direct_row_ids.*' => 'string|max:120|distinct',
+            'row_destinations' => 'sometimes|array|max:6000',
+            'row_destinations.*' => 'array|max:200',
+            'row_destinations.*.*' => 'string|max:50',
+            'row_ids.*' => 'required|string|max:120|distinct',
+            'destination_keys' => 'required|array|min:1|max:200',
+            'destination_keys.*' => 'required|string|max:50|distinct',
+        ]);
+        if ($validator->fails()) {
+            return $this->validationError($validator->errors()->toArray());
+        }
+        $store = $request->input('context') === 'store';
+        if (! $this->canView($permissionService, $user, $store
+            ? self::PERMISSION_STORE_DISTRIBUTION_MANAGEMENT : self::PERMISSION_DISTRIBUTION_ADJUSTMENT)) {
+            abort(403);
+        }
+        $selectedHq = $this->selectedKuraWarehouseId($user);
+        $sourceId = $store ? $this->kuraWarehouseId() : $selectedHq;
+        $keys = $request->input('destination_keys');
+        if (! $sourceId || ($store && ! $selectedHq && $keys !== [$this->selectedWarehouseDestinationKey($user)])) {
+            abort(403);
+        }
+        $clientId = (int) config('app.client_id');
+        if (! $store && $request->input('direct_row_ids', []) !== []) {
+            abort(403);
+        }
+        $rows = collect();
+        foreach (['allocation' => $request->input('row_ids', []), 'direct' => $request->input('direct_row_ids', [])] as $mode => $ids) {
+            if ($ids === []) continue;
+            $query = WmsDistributionRow::query()->forClient($clientId)->forMode($mode)
+                ->where('warehouse_id', $sourceId)->whereIn('row_id', $ids);
+            if ($store && ! $selectedHq) {
+                $this->applyStoreDistributionDestinationFilter($query, $keys[0]);
+            }
+            $found = $query->get(['row_id', 'row_data']);
+            if ($found->count() !== count($ids)) {
+                return $this->error('対象行が変更されたか、参照できません。画面を再読み込みしてください。', 409, 'DISTRIBUTION_ROWS_STALE');
+            }
+            foreach ($found as $row) {
+                $requestedKeys = $request->input('row_destinations', [])[$mode.'::'.$row->row_id] ?? $keys;
+                $rows->push(array_merge($row->row_data, ['id' => $row->row_id, '_distribution_mode' => $mode,
+                    '_requested_destination_keys' => array_values(array_intersect($keys, $requestedKeys))]));
+            }
+        }
+        if ($rows->isEmpty()) {
+            return $this->error('出力する行を選択してください。', 422);
+        }
+        try {
+            return $this->success($service->resolve($clientId, $sourceId,
+                $rows->all(), $keys));
+        } catch (RuntimeException $e) {
+            return $this->error($e->getMessage(), 409, 'DISTRIBUTION_TRANSFER_RESULT_UNAVAILABLE');
+        }
     }
 
     public function createWarehouseTransfers(
@@ -1943,7 +2156,8 @@ class DistributionProductController extends ApiController
                         remark: $request->input('remark') ?: '倉庫移動生成',
                         sourceWarehouseCode: self::HQ_TRANSFER_WAREHOUSE_CODE,
                         fixedProcessDate: Carbon::parse((string) $request->input('process_date'))->toDateString(),
-                        preventDuplicateByDistributionRow: true
+                        preventDuplicateByDistributionRow: true,
+                        pickingDate: Carbon::parse((string) $request->input('process_date'))->toDateString()
                     )
                 )
             );

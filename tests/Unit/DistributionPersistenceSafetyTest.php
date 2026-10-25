@@ -82,7 +82,7 @@ class DistributionPersistenceSafetyTest extends TestCase
     {
         $source = $this->distributionPageSource();
 
-        $this->assertStringContainsString("if (!options.append) {\n          this.serverRowsLoaded = false;", $source);
+        $this->assertMatchesRegularExpression('/if \(!options\.append\) \{\s+(?:this\.serverRowsLoadError = [^\n]+;\s+)?this\.serverRowsLoaded = false;/', $source);
         $this->assertStringContainsString("await this.persistGeneratedState('allocation');\n        const sourceRows", $source);
         $this->assertStringContainsString("await this.persistGeneratedState('direct');\n        const result = await this.createOrderCandidates", $source);
     }
@@ -164,7 +164,7 @@ class DistributionPersistenceSafetyTest extends TestCase
         $this->assertStringNotContainsString('(row?.checked || this.isOrderCandidateCreated(row))', $source);
         $this->assertStringContainsString('<div class="leading-tight">選択</div>', $source);
         $this->assertStringContainsString('x-text="getAllocationStatusLabel(row)"', $source);
-        $this->assertStringContainsString("if (this.isAllocationTransferCompleted(row)) return '移動生成済';", $source);
+        $this->assertStringContainsString("row?.warehouseTransferState === 'succeeded' ? '移動生成済' : '受付済（結果確認）'", $source);
         $this->assertStringContainsString(":class=\"isAllocationTransferCompleted(row) ? 'bg-gray-100' : ''\"", $source);
         $this->assertStringContainsString("return '未対応';", $source);
         $this->assertStringNotContainsString('<option value="warehouse_transfer_creatable">移動生成前</option>', $source);
@@ -312,7 +312,7 @@ class DistributionPersistenceSafetyTest extends TestCase
         $this->assertStringContainsString('queueQuantitySave(isDirect = false, delay = 250)', $source);
         $this->assertStringContainsString('flushQuantitySave(isDirect = false)', $source);
         $this->assertStringContainsString('setAllocationQuantity(row, destinationKey, value, isDirect = false)', $source);
-        $this->assertStringContainsString('row[key] = Math.max(0, toInt(value));', $source);
+        $this->assertStringContainsString('row[key] = parsed.value;', $source);
         $this->assertStringContainsString("this.saveRowsForMode(isDirect, { immediate: true });", $source);
         $this->assertStringContainsString('hasPendingDistributionSave()', $source);
         $this->assertStringContainsString("window.addEventListener('beforeunload', this.beforeUnloadHandler);", $source);
@@ -400,8 +400,8 @@ class DistributionPersistenceSafetyTest extends TestCase
 
         $this->assertStringContainsString("event.data?.type === 'distribution-direct-request-printed'", $source);
         $this->assertStringContainsString('markDirectRequestRowsPrinted(rowIds = [])', $source);
-        $this->assertStringContainsString("await this.persistDistributionRowsImmediately('direct', persistable);", $source);
-        $this->assertStringContainsString("fetch('/api/distribution/rows/direct-request-printed'", $source);
+        $this->assertStringContainsString("await this.persistDistributionRowsImmediately('direct', this.getPersistableDirectRows());", $source);
+        $this->assertStringContainsString("fetchWithTimeout('/api/distribution/rows/direct-request-printed'", $source);
         $this->assertStringContainsString('this.serverRowRevisions.direct = toInt(result.revision', $source);
         $this->assertStringNotContainsString("previousPrinted.set(String(row.id || ''), !!row.printed);", $source);
         $this->assertStringContainsString('directRequestPrintInProgress: false', $source);
@@ -409,7 +409,7 @@ class DistributionPersistenceSafetyTest extends TestCase
         $this->assertStringContainsString('let activeDirectRequestPrintWindow = null;', $source);
         $this->assertStringContainsString('event.source !== activeDirectRequestPrintWindow', $source);
         $this->assertStringContainsString('beginDirectRequestPrint(dataset, w)', $source);
-        $this->assertStringContainsString('if (!printWindow || printWindow.closed) this.finishDirectRequestPrint();', $source);
+        $this->assertStringContainsString('if (!printWindow || printWindow.closed || Date.now() > expires) this.finishDirectRequestPrint();', $source);
         $this->assertStringContainsString("event.data?.type === 'distribution-direct-request-printing'", $source);
         $this->assertStringContainsString('x-show="directRequestPrintInProgress && directRequestPrintStatusSaving"', $source);
         $printingHandler = substr(
@@ -434,7 +434,7 @@ class DistributionPersistenceSafetyTest extends TestCase
         $this->assertStringNotContainsString('dataset.forEach(r => { r.printed = true; });', $source);
 
         $printPosition = strpos($source, 'window.print();if(window.confirm("印刷は完了しましたか？');
-        $printedMessagePosition = strpos($source, 'window.opener.postMessage(${JSON.stringify({ type: \'distribution-direct-request-printed\'');
+        $printedMessagePosition = strpos($source, 'window.opener.postMessage(${JSON.stringify({ sessionId, type: \'distribution-direct-request-printed\'');
 
         $this->assertNotFalse($printPosition);
         $this->assertNotFalse($printedMessagePosition);
@@ -630,6 +630,21 @@ class DistributionPersistenceSafetyTest extends TestCase
             'legacy-row' => ['wish_01' => -1],
         ]);
         $this->assertArrayHasKey('rows.0.wish_01', $changedLegacyErrors);
+    }
+
+    public function test_saved_case_and_piece_quantities_reject_invalid_values(): void
+    {
+        $controller = new \App\Http\Controllers\Api\DistributionProductController;
+        $method = new \ReflectionMethod($controller, 'distributionRowQuantityErrors');
+        foreach (['poCase', 'poEach', 'po_case', 'po_each'] as $field) {
+            foreach (['1.5', '1e3', '12本', -1, 100000000] as $value) {
+                $errors = $method->invoke($controller, [['id' => 'row', $field => $value]], ['row' => [$field => $value]]);
+                $this->assertArrayHasKey('rows.0.'.$field, $errors, $field.': '.(string) $value);
+            }
+            foreach ([null, '', 0, 1, 99999999] as $value) {
+                $this->assertSame([], $method->invoke($controller, [[$field => $value]]));
+            }
+        }
     }
 
     private function controllerSource(): string
