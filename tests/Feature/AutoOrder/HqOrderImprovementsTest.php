@@ -2,9 +2,14 @@
 
 namespace Tests\Feature\AutoOrder;
 
+use App\Enums\QuantityType;
+use App\Filament\Pages\WmsOrderRegistration;
 use App\Filament\Pages\WmsOrderRegistrationHq;
 use App\Models\WmsContractorSetting;
+use App\Models\WmsOrderCandidate;
+use App\Models\WmsOrderIncomingSchedule;
 use App\Services\AutoOrder\ContractorOrderConditionImport;
+use App\Services\AutoOrder\ContractorOrderConditions;
 use App\Services\AutoOrder\OrderRegistrationSearchService;
 use App\Services\AutoOrder\OrderRegistrationService;
 use App\Services\AutoOrder\OrderReviewSalesSql;
@@ -237,6 +242,181 @@ class HqOrderImprovementsTest extends TestCase
         $this->fixture('wms_contractor_settings', ['contractor_id' => $id, 'order_conditions' => '別の担当者が更新']);
         $this->expectException(\RuntimeException::class);
         $import->apply($plan);
+    }
+
+    public function test_supplier_conditions_use_the_related_contractor_and_preserve_both_notes(): void
+    {
+        config(['client.id' => $this->clientId]);
+        $supplier = $this->fixture('suppliers');
+        $otherSupplier = $this->fixture('suppliers');
+        $contractor = $this->fixture('contractors', ['supplier_id' => $supplier]);
+        $supplierContractor = $this->fixture('contractors', [
+            'id' => max($otherSupplier, (int) DB::connection('sakemaru')->table('contractors')->max('id')) + 10,
+            'supplier_id' => $otherSupplier,
+        ]);
+        $this->assertNotSame($otherSupplier, $supplierContractor);
+        $duplicate = $this->fixture('contractors', ['supplier_id' => $otherSupplier]);
+        $inactive = $this->fixture('contractors', ['supplier_id' => $otherSupplier, 'is_active' => 0]);
+        $foreignClient = $this->fixture('clients');
+        $foreignSupplier = $this->fixture('suppliers', ['client_id' => $foreignClient]);
+        $foreignContractor = $this->fixture('contractors', ['client_id' => $foreignClient, 'supplier_id' => $foreignSupplier]);
+        $this->fixture('wms_contractor_settings', ['contractor_id' => $foreignContractor, 'order_conditions' => '別クライアントの条件']);
+        foreach ([$contractor => '発注先条件', $supplierContractor => '6本単位', $duplicate => '6本単位', $inactive => '無効な条件'] as $id => $note) {
+            $this->fixture('wms_contractor_settings', ['contractor_id' => $id, 'order_conditions' => $note]);
+        }
+        $rows = app(ContractorOrderConditions::class)->attach([
+            ['contractor_id' => $contractor, 'supplier_id' => $otherSupplier],
+            ['contractor_id' => $contractor, 'supplier_id' => $supplier],
+            ['contractor_id' => $contractor, 'supplier_id' => null],
+            ['contractor_id' => $contractor, 'supplier_id' => $foreignSupplier],
+        ]);
+        $this->assertSame('発注先条件', $rows[0]['contractor_order_conditions']);
+        $this->assertSame('6本単位', $rows[0]['supplier_order_conditions']);
+        $this->assertSame('', $rows[1]['supplier_order_conditions']);
+        $this->assertSame('', $rows[2]['supplier_order_conditions']);
+        $this->assertSame('', $rows[3]['supplier_order_conditions']);
+        $this->assertSame([], app(ContractorOrderConditions::class)->attach([]));
+    }
+
+    public function test_hq_capacity_one_case_price_applies_to_search_sales_and_quantity_changes(): void
+    {
+        $row = $this->hqPriceRow(1);
+        foreach (['search', 'sales'] as $source) {
+            $page = new WmsOrderRegistrationHq;
+            $page->warehouseId = $row['warehouse_id'];
+            $page->{$source.'Rows'} = [$row];
+            $page->{$source.'Quantities'} = [$row['key'] => ['case' => 12]];
+            $source === 'search' ? $page->addSearchRow($row['key']) : $page->addSalesRow($row['key']);
+
+            $this->assertSame(7840.0, $page->lines[0]['purchase_unit_price']);
+            $this->assertSame('ITEM_PRICE', $page->lines[0]['purchase_unit_price_source']);
+            $this->assertSame('CASE', $page->lines[0]['quantity_type']);
+            $this->assertSame(12, $page->lines[0]['total_piece_quantity']);
+            $this->assertSame(94080.0, $page->lines[0]['purchase_unit_price'] * $page->lines[0]['order_quantity']);
+
+            $page->setLineOrderQuantity(0, 'PIECE', 5);
+            $this->assertSame(7840.0, $page->lines[0]['purchase_unit_price']);
+            $page->setLineOrderQuantity(0, 'CASE', 12);
+            $this->assertSame(7840.0, $page->lines[0]['purchase_unit_price']);
+            $this->assertSame('CASE', $page->lines[0]['quantity_type']);
+            $this->assertSame(12, $page->lines[0]['total_piece_quantity']);
+        }
+    }
+
+    public function test_hq_capacity_one_keeps_supplier_and_price_group_precedence(): void
+    {
+        $row = $this->hqPriceRow(1);
+        foreach (['PARTNER', 'PARTNER_PRICE_GROUP', 'PARTNER_PRICE_GROUP2'] as $source) {
+            $group1 = $this->fixture('partners');
+            $group2 = $this->fixture('partners');
+            $partner = $this->fixture('partners', ['partner_price_group_id' => $group1, 'partner_price_group2_id' => $group2]);
+            $pricePartner = match ($source) {
+                'PARTNER' => $partner,
+                'PARTNER_PRICE_GROUP' => $group1,
+                default => $group2,
+            };
+            $this->fixture('item_partner_prices', ['item_id' => $row['item_id'], 'partner_id' => $pricePartner,
+                'warehouse_id' => $row['warehouse_id'], 'start_date' => now()->subDay()->toDateString(),
+                'unit_price' => 8200, 'case_price' => 9999]);
+            $page = new WmsOrderRegistrationHq;
+            $page->lines = [array_replace($row, ['supplier_partner_id' => $partner])];
+            $page->setLineOrderQuantity(0, 'CASE', 12);
+            $this->assertSame(8200.0, $page->lines[0]['purchase_unit_price']);
+            $this->assertSame($source, $page->lines[0]['purchase_unit_price_source']);
+            $this->assertSame('CASE', $page->lines[0]['quantity_type']);
+        }
+    }
+
+    public function test_hq_capacity_one_price_applies_to_candidate_and_sales_preview_modals(): void
+    {
+        $row = $this->hqPriceRow(1);
+        $search = app(OrderRegistrationSearchService::class);
+        $search->shouldReceive('incomingWarehouseId')->andReturn($row['warehouse_id']);
+        $search->shouldReceive('jxContractorIds')->andReturn([]);
+        $search->shouldReceive('searchCodeForItem', 'orderingCodeForItem')->andReturn('4900000000011');
+
+        $page = new WmsOrderRegistrationHq;
+        $page->warehouseId = $row['warehouse_id'];
+        $page->orderCandidateItems = [$row + ['case_qty' => 12]];
+        $page->addOrderCandidateItems();
+        $this->assertCount(1, $page->lines);
+        $this->assertSame(7840.0, $page->lines[0]['purchase_unit_price']);
+        $this->assertSame('CASE', $page->lines[0]['quantity_type']);
+
+        $page = new WmsOrderRegistrationHq;
+        $page->warehouseId = $row['warehouse_id'];
+        $page->salesBasedExternalOrderPreviewRows = [$row];
+        $result = $page->addSalesBasedExternalOrderPreviewRowsToRegistration([
+            ['index' => 0, 'item_id' => $row['item_id'], 'contractor_id' => $row['contractor_id'], 'case_qty' => 12],
+        ], $row['expected_arrival_date']);
+        $this->assertSame(1, $result['created']);
+        $this->assertSame(7840.0, $page->lines[0]['purchase_unit_price']);
+        $this->assertSame('CASE', $page->lines[0]['quantity_type']);
+    }
+
+    public function test_hq_capacity_rule_does_not_change_regular_orders_or_other_case_capacities(): void
+    {
+        foreach ([1, 2, 24, 0] as $capacity) {
+            $row = $this->hqPriceRow($capacity);
+            foreach ([WmsOrderRegistration::class, WmsOrderRegistrationHq::class] as $pageClass) {
+                $page = new $pageClass;
+                $page->lines = [$row];
+                $page->setLineOrderQuantity(0, 'CASE', 12);
+                $expected = $pageClass === WmsOrderRegistrationHq::class && $capacity === 1 ? 7840.0 : 0.0;
+                $this->assertSame($expected, $page->lines[0]['purchase_unit_price']);
+                $this->assertSame('CASE', $page->lines[0]['quantity_type']);
+            }
+        }
+    }
+
+    public function test_hq_capacity_one_case_price_is_preserved_when_registering_and_creating_incoming(): void
+    {
+        config(['client.id' => $this->clientId, 'wms.client' => 'hana']);
+        $row = $this->hqPriceRow(1);
+        $page = new WmsOrderRegistrationHq;
+        $page->lines = [$row];
+        $page->setLineOrderQuantity(0, 'CASE', 12);
+        $search = app(OrderRegistrationSearchService::class);
+        $search->shouldReceive('incomingWarehouseId')->andReturn($row['warehouse_id']);
+        $search->shouldReceive('availableStock', 'incomingQuantity')->andReturn(0);
+
+        $result = app(OrderRegistrationService::class)->register($row['warehouse_id'], $page->lines, 1,
+            generateDataFiles: false, batchCode: 'HQP'.bin2hex(random_bytes(6)));
+
+        $this->assertCount(1, $result['candidate_ids']);
+        $candidate = WmsOrderCandidate::findOrFail($result['candidate_ids'][0]);
+        $this->assertSame(7840.0, (float) $candidate->purchase_unit_price);
+        $this->assertSame(QuantityType::CASE, $candidate->quantity_type);
+        $this->assertSame(12, (int) $candidate->order_quantity);
+        $this->assertSame(94080.0, (float) $candidate->purchase_unit_price * $candidate->order_quantity);
+        $incoming = WmsOrderIncomingSchedule::where('order_candidate_id', $candidate->id)->sole();
+        $this->assertSame(QuantityType::CASE, $incoming->quantity_type);
+        $this->assertSame(12, (int) $incoming->expected_quantity);
+        $this->assertSame(7840.0, (float) $incoming->case_price);
+    }
+
+    private function hqPriceRow(int $capacity): array
+    {
+        $item = $this->fixture('items', ['capacity_case' => $capacity, 'purchase_price_type' => 'COST',
+            'end_of_sale_type' => 'NORMAL', 'is_ended' => 0]);
+        $this->fixture('item_prices', ['item_id' => $item, 'start_date' => now()->subDay()->toDateString(),
+            'cost_unit_price' => 7840, 'cost_case_price' => 0]);
+        $warehouse = $this->fixture('warehouses');
+        $partner = $this->fixture('partners');
+        $supplier = $this->fixture('suppliers', ['partner_id' => $partner]);
+        $contractor = $this->fixture('contractors', ['supplier_id' => $supplier]);
+        $this->fixture('item_contractors', ['item_id' => $item, 'warehouse_id' => $warehouse,
+            'supplier_id' => $supplier, 'contractor_id' => $contractor, 'purchase_unit' => 1]);
+        $this->partialMock(OrderRegistrationSearchService::class)->shouldReceive('defaultExpectedArrivalDate')
+            ->andReturn(now()->addDays(2)->toDateString());
+
+        return ['key' => 'price-'.$item, 'item_id' => $item, 'item_code' => (string) $item,
+            'item_name' => '入数1原価テスト', 'capacity_case' => max(1, (int) $capacity),
+            'warehouse_id' => $warehouse, 'contractor_id' => $contractor, 'contractor_name' => 'テスト発注先',
+            'supplier_id' => $supplier, 'supplier_partner_id' => $partner, 'is_eos_available' => false,
+            'order_channel' => 'FAX', 'quantity_type' => 'CASE', 'order_quantity' => 12,
+            'expected_arrival_date' => now()->addDays(2)->toDateString(), 'search_code' => '4900000000011',
+            'ordering_code' => '4900000000011'];
     }
 
     public function test_import_rejects_unmatched_and_duplicate_codes_before_writing(): void

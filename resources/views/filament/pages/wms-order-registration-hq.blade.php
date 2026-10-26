@@ -372,24 +372,16 @@
             return (float) ($line['purchase_unit_price'] ?? 0) * (int) ($line['order_quantity'] ?? 0);
         });
         $visibleLineTotalPieces = $visibleLines->sum(function ($line) {
-            $orderQuantity = (int) ($line['order_quantity'] ?? 0);
-            $capacityCase = max(1, (int) ($line['capacity_case'] ?? 1));
-
-            return ($line['quantity_type'] ?? '') === \App\Enums\QuantityType::CASE->value
-                ? $orderQuantity * $capacityCase
-                : $orderQuantity;
+            return ($line['quantity_type'] ?? '') === \App\Enums\QuantityType::PIECE->value
+                ? max(0, (int) ($line['order_quantity'] ?? 0))
+                : 0;
         });
         $visibleLineTotalCases = $visibleLines->sum(function ($line) {
-            $orderQuantity = (int) ($line['order_quantity'] ?? 0);
-            $capacityCase = max(1, (int) ($line['capacity_case'] ?? 1));
-
             return ($line['quantity_type'] ?? '') === \App\Enums\QuantityType::CASE->value
-                ? $orderQuantity
-                : $orderQuantity / $capacityCase;
+                ? max(0, (int) ($line['order_quantity'] ?? 0))
+                : 0;
         });
-        $visibleLineTotalCasesLabel = abs($visibleLineTotalCases - round($visibleLineTotalCases)) < 0.0001
-            ? number_format($visibleLineTotalCases, 0)
-            : rtrim(rtrim(number_format($visibleLineTotalCases, 2), '0'), '.');
+        $visibleLineTotalCasesLabel = number_format($visibleLineTotalCases);
         $warehouseOptionsById = collect($this->warehouses)->keyBy('id');
         $formatWarehouseCode = function ($warehouseId) use ($warehouseOptionsById): string {
             $warehouse = $warehouseOptionsById->get((int) $warehouseId);
@@ -480,12 +472,12 @@
                             件
                         </span>
                         <span class="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200">
-                            総ケース数
+                            ケース合計
                             <span class="font-mono text-base font-bold text-indigo-950 dark:text-indigo-100">{{ $visibleLineTotalCasesLabel }}</span>
                             ケース
                         </span>
-                        <span title="表示中の明細の合計数量（総バラ合計）" class="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
-                            総バラ数
+                        <span title="表示中の明細のバラ発注数の合計" class="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+                            バラ合計
                             <span class="font-mono text-base font-bold text-sky-950 dark:text-sky-100">{{ number_format($visibleLineTotalPieces) }}</span>
                             バラ
                         </span>
@@ -738,10 +730,10 @@
                             <th class="whitespace-nowrap px-2 py-2 text-right" title="{{ $weeklySalesHelps['2週'] ?? '' }}">2週</th>
                             <th class="whitespace-nowrap px-2 py-2 text-right" title="{{ $weeklySalesHelps['3週'] ?? '' }}">3週</th>
                             <th class="whitespace-nowrap px-2 py-2 text-right" title="{{ $weeklySalesHelps['前月'] ?? '' }}">前月</th>
-                            <th class="whitespace-nowrap px-2 py-2 text-right">仕入原価</th>
-                            <th class="whitespace-nowrap px-2 py-2 text-right">合計金額</th>
                             <th class="whitespace-nowrap px-2 py-2 text-center">入荷予定日</th>
                             <th class="whitespace-nowrap px-2 py-2 text-left" title="発注先CDをクリックすると発注先を検索して変更できます">発注先</th>
+                            <th class="whitespace-nowrap px-2 py-2 text-right">仕入原価</th>
+                            <th class="whitespace-nowrap px-2 py-2 text-right">合計金額</th>
                             <th class="sticky right-0 bg-slate-50 px-2 py-2 text-center dark:bg-gray-800">操作</th>
                     </tr>
                     </thead>
@@ -773,7 +765,8 @@
                                     : 'border-blue-300 bg-blue-100 text-blue-700 dark:border-blue-700 dark:bg-blue-900/40 dark:text-blue-200';
                                 $itemNote = trim((string) ($lineDetails[$index]['item_contractor_note'] ?? ''));
                                 $contractorNote = trim((string) ($lineDetails[$index]['contractor_order_conditions'] ?? ''));
-                                $hasNotes = $itemNote !== '' || $contractorNote !== '';
+                                $supplierNote = trim((string) ($lineDetails[$index]['supplier_order_conditions'] ?? ''));
+                                $hasNotes = $itemNote !== '' || $contractorNote !== '' || $supplierNote !== '';
                                 $noteRowSpan = $hasNotes ? 2 : 1;
                                 $lineItemId = (int) ($line['item_id'] ?? 0);
                                 $reference = $lineReferences[((int) ($line['warehouse_id'] ?? 0)).':'.$lineItemId] ?? null;
@@ -871,8 +864,6 @@
                                 <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-right font-mono">{{ $reference ? number_format((int) ($reference['sales_week2_qty'] ?? 0)) : '-' }}</td>
                                 <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-right font-mono">{{ $reference ? number_format((int) ($reference['sales_week3_qty'] ?? 0)) : '-' }}</td>
                                 <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-right font-mono">{{ $reference ? number_format((int) ($reference['previous_month_sales_qty'] ?? 0)) : '-' }}</td>
-                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-right font-mono">¥{{ number_format($purchaseUnitPrice, 0) }}</td>
-                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300">¥{{ number_format($lineTotalAmount, 0) }}</td>
                                 <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2"><x-order-registration.date-input :model="'lines.'.$index.'.expected_arrival_date'" :min="json_encode(now()->toDateString())" /></td>
                                 <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2">
                                     <button
@@ -890,6 +881,8 @@
                                         <div class="mt-0.5 text-[11px] font-semibold text-danger-700 dark:text-danger-300">商品未設定 / FAX固定</div>
                                     @endif
                                 </td>
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-right font-mono">¥{{ number_format($purchaseUnitPrice, 0) }}</td>
+                                <td rowspan="{{ $noteRowSpan }}" class="whitespace-nowrap px-2 py-2 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300">¥{{ number_format($lineTotalAmount, 0) }}</td>
                                 <td rowspan="{{ $noteRowSpan }}" class="sticky right-0 whitespace-nowrap bg-inherit px-2 py-2 text-center">
                                     <button
                                         type="button"
@@ -910,7 +903,7 @@
                             @if ($hasNotes)
                                 <tr>
                                     <td colspan="3" class="px-2 pb-1.5 text-left">
-                                        <x-order-registration.item-notes :item="json_encode($itemNote, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)" :contractor="json_encode($contractorNote, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)" />
+                                        <x-order-registration.item-notes :item="json_encode($itemNote, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)" :contractor="json_encode($contractorNote, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)" :supplier="json_encode($supplierNote, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)" />
                                     </td>
                                 </tr>
                             @endif

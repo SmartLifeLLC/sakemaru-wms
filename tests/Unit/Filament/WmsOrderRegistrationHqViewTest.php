@@ -179,8 +179,33 @@ class WmsOrderRegistrationHqViewTest extends TestCase
         $this->assertStringNotContainsString('{{ $warehouseName }}</div>', $table);
     }
 
+    public function test_registration_totals_count_case_and_piece_inputs_separately(): void
+    {
+        $contents = file_get_contents(resource_path(self::PAGE_VIEW));
+        $calculations = '$visibleLineTotalAmount ='.$this->between($contents, '$visibleLineTotalAmount =', '$warehouseOptionsById =');
+        $lines = collect([
+            ['quantity_type' => 'CASE', 'order_quantity' => 72, 'capacity_case' => 24, 'purchase_unit_price' => 3761.04],
+            ['quantity_type' => 'CASE', 'order_quantity' => 12, 'capacity_case' => 1, 'purchase_unit_price' => 0],
+            ['quantity_type' => 'PIECE', 'order_quantity' => 12, 'capacity_case' => 24, 'purchase_unit_price' => 540],
+        ]);
+        $template = "@php\n".$calculations."\n@endphp\n".'{{ $visibleLineTotalCasesLabel }}|{{ number_format($visibleLineTotalPieces) }}|{{ number_format($visibleLineTotalAmount) }}';
+        $this->assertSame('84|12|277,275', Blade::render($template, ['visibleLines' => $lines]));
+        $this->assertSame('84|0|270,795', Blade::render($template, ['visibleLines' => $lines->take(2)]));
+        $this->assertSame('0|0|0', Blade::render($template, ['visibleLines' => collect()]));
+    }
+
+    public function test_registration_prices_follow_contractor_before_actions(): void
+    {
+        $contents = file_get_contents(resource_path(self::PAGE_VIEW));
+        $start = strpos($contents, '<th class="whitespace-nowrap px-2 py-2 text-center">行</th>');
+        $header = substr($contents, $start, strpos($contents, '</thead>', $start) - $start);
+        $this->assertLessThan(strpos($header, '>仕入原価</th>'), strpos($header, '>発注先</th>'));
+        $this->assertLessThan(strpos($header, '>合計金額</th>'), strpos($header, '>仕入原価</th>'));
+        $this->assertLessThan(strpos($header, '>操作</th>'), strpos($header, '>合計金額</th>'));
+    }
+
     #[DataProvider('registrationNotes')]
-    public function test_rendered_registration_rows_keep_notes_within_the_24_columns(string $itemNote, string $contractorNote, int $rowCount): void
+    public function test_rendered_registration_rows_keep_notes_within_the_24_columns(string $itemNote, string $contractorNote, int $rowCount, string $supplierNote = ''): void
     {
         $line = ['item_id' => 1, 'item_code' => '100001', 'item_name' => 'テスト商品', 'capacity_case' => 24,
             'order_quantity' => 2, 'quantity_type' => 'CASE', 'warehouse_id' => 2, 'contractor_id' => 10,
@@ -188,7 +213,7 @@ class WmsOrderRegistrationHqViewTest extends TestCase
             'is_eos_available' => true, 'order_channel' => 'EOS'];
         $xpath = $this->renderRegistrationRows([$line, array_replace($line, ['quantity_type' => 'PIECE', 'order_quantity' => 7,
             'is_eos_available' => false, 'order_channel' => 'FAX'])], [
-                ['item_contractor_note' => $itemNote, 'contractor_order_conditions' => $contractorNote],
+                ['item_contractor_note' => $itemNote, 'contractor_order_conditions' => $contractorNote, 'supplier_order_conditions' => $supplierNote],
             ]);
         $groups = $xpath->query('//tbody[@data-hq-order-item]');
         $this->assertCount(2, $groups);
@@ -228,6 +253,8 @@ class WmsOrderRegistrationHqViewTest extends TestCase
             'item note only' => ['商品備考', '', 2],
             'contractor note only' => ['', '発注先備考', 2],
             'both notes' => ['商品備考', '発注先備考', 2],
+            'supplier note only' => ['', '', 2, '仕入先備考'],
+            'all notes' => ['商品備考', '発注先備考', 2, '仕入先備考'],
         ];
     }
 
