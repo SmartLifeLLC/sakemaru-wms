@@ -1906,13 +1906,14 @@ class DistributionProductController extends ApiController
                 ]);
                 $digest = hash('sha256', $rows->sortKeys()->toJson());
                 if ($snapshot === null) {
+                    $printRows = $this->withDirectRequestOrderingCodes($clientId, $rows);
                     $token = \Illuminate\Support\Facades\Crypt::encryptString(json_encode([
                         'user' => (int) $user->id, 'client' => $clientId, 'warehouse' => $warehouseId,
                         'revision' => (int) $revisionRow->revision, 'expires' => time() + 1800, 'digest' => $digest,
                         'row_ids' => $rowIds->sort()->values()->all(),
                     ], JSON_THROW_ON_ERROR));
                     return ['print_token' => $token, 'revision' => (int) $revisionRow->revision,
-                        'rows' => $rowIds->map(fn ($id) => $rows[$id])->all()];
+                        'rows' => $rowIds->map(fn ($id) => $printRows[$id])->all()];
                 }
                 if ((int) $revisionRow->revision !== $snapshot['revision'] || ! hash_equals($snapshot['digest'] ?? '', $digest)) {
                     throw new RuntimeException('DIRECT_REQUEST_PRINT_SNAPSHOT_CHANGED');
@@ -3791,6 +3792,28 @@ SQL;
             if ($supplierIds !== null) {
                 $subQuery->whereIn('ic_filter.supplier_id', $supplierIds);
             }
+        });
+    }
+
+    private function withDirectRequestOrderingCodes(int $clientId, Collection $rows): Collection
+    {
+        $itemIds = $rows->pluck('itemId')->filter()->map(fn ($id): int => (int) $id)->unique()->values();
+        $productCodes = $rows->pluck('productCode')->filter()->map(fn ($code): string => (string) $code)->unique()->values();
+        $items = DB::connection('sakemaru')->table('items')
+            ->where('client_id', $clientId)
+            ->where(fn ($query) => $query->whereIn('id', $itemIds)->orWhereIn('code', $productCodes))
+            ->get(['id', 'code'])->keyBy('id');
+        $itemsByCode = $items->keyBy(fn ($item): string => (string) $item->code);
+        $codes = app(DistributionOrderCandidateService::class)->resolveOrderingCodes($items->keys()->all(), $clientId);
+
+        // Fetch the current ordering code for every print, including previously saved rows.
+        // Keep this print-only field out of saved rows and their completion digest.
+        return $rows->map(function (array $row) use ($items, $itemsByCode, $codes): array {
+            $item = $items->get((int) ($row['itemId'] ?? 0))
+                ?? $itemsByCode->get((string) ($row['productCode'] ?? ''));
+            $row['orderingCode'] = $item ? (string) ($codes->get((int) $item->id) ?? '') : '';
+
+            return $row;
         });
     }
 

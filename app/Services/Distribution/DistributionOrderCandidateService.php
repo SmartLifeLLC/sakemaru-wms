@@ -1231,11 +1231,11 @@ class DistributionOrderCandidateService
      * @param  array<int, int>  $itemIds
      * @return Collection<int, string>
      */
-    private function resolveOrderingCodes(array $itemIds): Collection
+    public function resolveOrderingCodes(array $itemIds, ?int $clientId = null): Collection
     {
         return DB::connection('sakemaru')
             ->table('item_search_information')
-            ->where('client_id', (int) config('app.client_id'))
+            ->where('client_id', $clientId ?? (int) config('app.client_id'))
             ->whereIn('item_id', $itemIds)
             ->where('is_used_for_ordering', true)
             ->where('is_active', true)
