@@ -4,6 +4,8 @@ namespace App\Filament\Pages;
 
 use App\Enums\AutoOrder\OrderChannel;
 use App\Enums\EMenu;
+use App\Enums\QuantityType;
+use App\Models\Sakemaru\Item;
 use App\Services\AutoOrder\ContractorOrderConditions;
 use App\Services\AutoOrder\HqOrderRegistrationReferenceService;
 use App\Services\AutoOrder\OrderRegistrationSearchService;
@@ -42,6 +44,24 @@ class WmsOrderRegistrationHq extends WmsOrderRegistration
     public array $lineReferences = [];
 
     public string $bulkOrderChannel = 'FAX';
+
+    /** @var array<int, int> */
+    protected array $hqItemCaseCapacities = [];
+
+    protected function purchasePriceForLine(int $itemId, int $supplierPartnerId, int $warehouseId, QuantityType $quantityType): array
+    {
+        if ($quantityType === QuantityType::CASE && $itemId > 0) {
+            $capacityCase = $this->hqItemCaseCapacities[$itemId] ??= (int) Item::query()
+                ->whereKey($itemId)->value('capacity_case');
+
+            // 入数1はケース発注のまま、単価だけバラ側を参照する。
+            if ($capacityCase === 1) {
+                $quantityType = QuantityType::PIECE;
+            }
+        }
+
+        return parent::purchasePriceForLine($itemId, $supplierPartnerId, $warehouseId, $quantityType);
+    }
 
     public function applyBulkOrderChannel(): void
     {
@@ -106,7 +126,7 @@ class WmsOrderRegistrationHq extends WmsOrderRegistration
 
     public function registrationLineDetails(): array
     {
-        $conditions = app(ContractorOrderConditions::class)->forContractors(array_column($this->lines, 'contractor_id'));
+        $conditions = app(ContractorOrderConditions::class)->attach($this->lines);
         $result = [];
         $locations = [];
         $warehouseIds = [];
@@ -123,7 +143,8 @@ class WmsOrderRegistrationHq extends WmsOrderRegistration
             $result[$index] = [
                 'default_location_code' => $locations[$warehouseId][(int) $line['item_id']] ?? '',
                 'item_contractor_note' => (string) ($setting?->note ?? ''),
-                'contractor_order_conditions' => $conditions[(int) $line['contractor_id']] ?? '',
+                'contractor_order_conditions' => $conditions[$index]['contractor_order_conditions'] ?? '',
+                'supplier_order_conditions' => $conditions[$index]['supplier_order_conditions'] ?? '',
             ];
         }
 
