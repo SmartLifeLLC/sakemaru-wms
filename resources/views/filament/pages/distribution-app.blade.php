@@ -10933,7 +10933,7 @@ window.distributionApp = function distributionApp() {
         await this.persistGeneratedState('direct');
         this.openResultModal(
           '発注確定',
-          'FAX発注を確定しました（新規 ' + toInt(result.created_count) + '件 / 確定済み ' + toInt(result.already_generated_count) + '件 / 入荷予定 ' + toInt(result.incoming_schedule_count) + '件）。依頼書を先方へ送付してください。',
+          'FAX発注確定しました。',
           'success'
         );
       } catch (e) {
