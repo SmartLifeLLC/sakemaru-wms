@@ -7,6 +7,7 @@ use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\AutoOrder\OrderChannel;
 use App\Enums\AutoOrder\OrderDataFileChannel;
+use App\Enums\AutoOrder\OriginType;
 use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
@@ -92,6 +93,25 @@ class WmsOrderConfirmedTable
                     ->color(fn (CandidateStatus $state): string => $state->color())
                     ->sortable()
                     ->width('80px'),
+
+                TextColumn::make('origin_type')
+                    ->label('発注元')
+                    ->badge()
+                    ->formatStateUsing(fn (?OriginType $state): string => match ($state) {
+                        OriginType::DIST => '分配発注',
+                        OriginType::AUTO_SAFETY_STOCK, OriginType::AUTO_SALES_BASED => '自動発注',
+                        OriginType::MANUAL_SAFETY_STOCK, OriginType::MANUAL_SALES_BASED, OriginType::USER => '手動発注',
+                        null => '未設定',
+                    })
+                    ->color(fn (?OriginType $state): string => match ($state) {
+                        OriginType::DIST => 'warning',
+                        OriginType::AUTO_SAFETY_STOCK, OriginType::AUTO_SALES_BASED => 'info',
+                        default => 'gray',
+                    })
+                    ->tooltip(fn (WmsOrderCandidate $record): ?string => $record->origin_type?->label())
+                    ->placeholder('未設定')
+                    ->sortable()
+                    ->width('90px'),
 
                 TextColumn::make('jx_generation_status')
                     ->label('JX生成')
