@@ -4068,8 +4068,8 @@ SQL;
             ->whereIn('status', [
                 IncomingScheduleStatus::PENDING->value,
                 IncomingScheduleStatus::PARTIAL->value,
-                IncomingScheduleStatus::TRANSMITTED->value,
             ])
+            ->whereNull('purchase_queue_id')
             ->whereColumn('expected_quantity', '>', 'received_quantity')
             ->groupBy('item_id')
             ->get([
@@ -4093,8 +4093,8 @@ SQL;
             ->whereIn('status', [
                 IncomingScheduleStatus::PENDING->value,
                 IncomingScheduleStatus::PARTIAL->value,
-                IncomingScheduleStatus::TRANSMITTED->value,
             ])
+            ->whereNull('purchase_queue_id')
             ->whereColumn('expected_quantity', '>', 'received_quantity')
             ->groupBy('item_id', 'contractor_id', 'supplier_id', 'warehouse_id')
             ->get([
@@ -4174,8 +4174,8 @@ SQL;
             ->whereIn('ios.status', [
                 IncomingScheduleStatus::PENDING->value,
                 IncomingScheduleStatus::PARTIAL->value,
-                IncomingScheduleStatus::TRANSMITTED->value,
             ])
+            ->whereNull('ios.purchase_queue_id')
             ->whereColumn('ios.expected_quantity', '>', 'ios.received_quantity');
 
         if ($itemId > 0) {
