@@ -3036,7 +3036,7 @@ class WmsOrderRegistration extends AdminPage
     /**
      * @return array{price: float, source: string}
      */
-    private function purchasePriceForLine(int $itemId, int $supplierPartnerId, int $warehouseId, QuantityType $quantityType): array
+    protected function purchasePriceForLine(int $itemId, int $supplierPartnerId, int $warehouseId, QuantityType $quantityType): array
     {
         if ($itemId < 1) {
             return ['price' => 0.0, 'source' => 'NONE'];
