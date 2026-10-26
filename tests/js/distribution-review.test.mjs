@@ -529,3 +529,41 @@ test('fullwidth digits 0 through 9 preserve integer values and reject fullwidth 
         assert.equal(app.parseCsvQuantityInput(value).valid, false, value);
     }
 });
+
+for (const [orderingCode, renderedCode] of [['01000153', '01000153'], ['00<&', '00&lt;&amp;'], ['', '']]) {
+    test(`direct request prints current ordering code ${JSON.stringify(orderingCode)} without falling back to JAN`, async () => {
+        const { app, context } = component();
+        let html = '';
+        const popup = { closed: false, close() { this.closed = true; }, document: {
+            body: { textContent: '' }, open() {}, write(value) { html += value; }, close() {},
+        } };
+        context.URL = URL;
+        context.window.location.origin = 'https://wms.sakemaru.test';
+        context.window.open = () => popup;
+        context.window.setInterval = () => 1;
+        context.window.clearInterval = () => {};
+        const row = { id: 'order-code', itemId: 100, productCode: '100', name: '確認商品',
+            jan: 'JAN-NOT-FOR-ORDER', unitsPerCase: 1, checked: true, alloc_01: 2,
+            poCase: 0, poEach: 2, supplier: '確認仕入先', orderDate: '2026-10-27', deliveryDate: '2026-10-30' };
+        app.directRows = [row];
+        app.getDirectRequestPrintableRows = () => [row];
+        app.getDirectRequestDestinationPool = () => [{ key: '01', code: '1', name: '本店' }];
+        app.persistDistributionRowsImmediately = async () => {};
+        app.csrfHeaders = () => ({});
+        app.fetchWithTimeout = async () => ({ ok: true, json: async () => ({ result: { data: {
+            print_token: 'test-token', rows: [{ ...row, orderingCode }],
+        } } }) });
+        await app.printDirectRequestForm({});
+        assert.equal(app.lastError, undefined);
+        assert.equal(popup.closed, false);
+        assert.ok(html.includes('発注用コード（JAN等）'));
+        assert.ok(html.includes(`<td class="jan-cell">${renderedCode}</td>`));
+        assert.ok(!html.includes('JAN-NOT-FOR-ORDER'));
+        assert.equal(app.directPrintSession.signature, app.directPrintSignature([row]));
+        if (process.env.DISTRIBUTION_PRINT_CAPTURE && orderingCode === '01000153') {
+            const { writeFileSync } = await import('node:fs');
+            writeFileSync(process.env.DISTRIBUTION_PRINT_CAPTURE, html);
+        }
+        app.finishDirectRequestPrint(true);
+    });
+}

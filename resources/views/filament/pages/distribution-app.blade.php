@@ -595,7 +595,6 @@
             <span>CSV出力</span>
           </button>
           <button type="button" data-slip-action="warehouse-transfer" @click.prevent.stop="generateWarehouseTransfers()" :disabled="warehouseTransferCreating || transferSlipCreating || !hasWarehouseTransferCreatableRows()" :title="getWarehouseTransferButtonTitle()" :class="(warehouseTransferCreating || transferSlipCreating || !hasWarehouseTransferCreatableRows()) ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 text-white'" class="font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">倉庫移動生成</button>
-          <button type="button" data-slip-action="reprint-selection" @click.prevent.stop="openReprintSelection()" :disabled="warehouseTransferCreating || transferSlipCreating" class="bg-indigo-600 hover:bg-indigo-700 text-white disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">伝票再出力</button>
           <button x-show="showAllocationOrderCandidateButton" x-cloak @click="generateOrderCandidates()" :disabled="orderCandidateCreating || !hasOrderCandidateGeneratableRows()" :class="(orderCandidateCreating || !hasOrderCandidateGeneratableRows()) ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-amber-500 hover:bg-amber-600 text-white'" class="inline-flex items-center gap-1.5 font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">
             <svg x-show="orderCandidateCreating" x-cloak class="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -2022,22 +2021,6 @@ if (!window.__distributionStoreSlipListenerRegistered) {
   });
 }
 
-if (!window.__distributionReprintListenerRegistered) {
-  window.__distributionReprintListenerRegistered = true;
-
-  document.addEventListener('click', (event) => {
-    if (!(event.target instanceof Element)) return;
-
-    const button = event.target.closest('[data-reprint-selection-button]');
-    if (!button) return;
-
-    if (typeof window.__distributionOpenReprintSelection === 'function') {
-      event.__distributionSlipHandled = true;
-      window.__distributionOpenReprintSelection(button);
-    }
-  });
-}
-
 if (!window.__distributionSlipActionListenerRegistered) {
   window.__distributionSlipActionListenerRegistered = true;
 
@@ -2498,21 +2481,11 @@ window.distributionApp = function distributionApp() {
         }
       };
 
-      window.__distributionOpenReprintSelection = (button) => {
-        const root = button && typeof button.closest === 'function' ? button.closest('[x-data]') : null;
-        const data = root && root._x_dataStack && root._x_dataStack[0] ? root._x_dataStack[0] : this;
-
-        if (data && typeof data.openReprintSelection === 'function') {
-          data.openReprintSelection();
-        }
-      };
-
       window.__distributionInvokeSlipAction = (button) => {
         const root = button && typeof button.closest === 'function' ? button.closest('[x-data]') : null;
         const data = root && root._x_dataStack && root._x_dataStack[0] ? root._x_dataStack[0] : this;
         const action = String(button?.dataset?.slipAction || '');
         const methodByAction = {
-          'reprint-selection': 'openReprintSelection',
           'warehouse-transfer': 'generateWarehouseTransfers',
           'direct-request': 'openDirectRequestOutput',
           'store-slip': 'openStoreSlipOutput',
@@ -5393,23 +5366,6 @@ window.distributionApp = function distributionApp() {
 
     getPrintableRows(rows = this.getVisibleRows()) {
       return this.getFilteredReprintRows(this.getReprintCandidateRows(rows));
-    },
-
-    openReprintSelection() {
-      const candidates = this.getReprintCandidateRows();
-      if (candidates.length === 0) {
-        this.openModal('エラー', '再出力できる伝票データがありません。');
-        return;
-      }
-
-      this.openReprintSelectionDialog({
-        mode: 'reprint',
-        title: '伝票再出力対象を選択',
-        description: '表示中の確定済みデータから、再出力する明細を選択します。',
-        confirmLabel: '再出力へ',
-        rows: candidates,
-        storeKeys: [],
-      });
     },
 
     isReprintRowSelected(row) {
@@ -10365,7 +10321,7 @@ window.distributionApp = function distributionApp() {
               }).join('');
               const allocTotal = activeDests.reduce((s, d) => s + (r['alloc_' + d.key] || 0), 0);
               return `<tr>
-                <td class="jan-cell">${r.jan || (this.getProductMeta(r.productCode) || {}).jan || ''}</td>
+                <td class="jan-cell">${escapeRequestHtml(r.orderingCode ?? '')}</td>
                 <td class="product-cell">${r.name || ''}</td>
                 <td class="center-cell">${r.unitsPerCase || ''}</td>
                 ${destCells}
@@ -10413,7 +10369,7 @@ window.distributionApp = function distributionApp() {
             <table class="request-list-table" style="border-collapse:collapse;width:100%;margin-bottom:12px;">
               <thead>
                 <tr style="background:#f3f4f6;">
-                  <th style="padding:3px 3px;border:1px solid #d1d5db;background:#f3f4f6;font-size:13px;white-space:nowrap;">JAN</th>
+                  <th style="padding:3px 3px;border:1px solid #d1d5db;background:#f3f4f6;font-size:13px;">発注用コード（JAN等）</th>
                   <th style="padding:3px 4px;border:1px solid #d1d5db;background:#f3f4f6;font-size:13px;">商品名</th>
                   <th style="padding:3px 3px;border:1px solid #d1d5db;background:#f3f4f6;font-size:13px;white-space:nowrap;">入数</th>
                   ${destHeaders}
@@ -11466,7 +11422,7 @@ window.distributionApp = function distributionApp() {
           this.saveData();
         } catch (printError) {
           console.error('伝票出力エラー:', printError);
-          this.openModal('エラー', '倉庫移動は受付済みですが、処理結果の確認または帳票出力が完了していません。伝票再出力で同じ受付結果を確認してください: ' + printError.message);
+          this.openModal('エラー', '倉庫移動は受付済みですが、処理結果の確認または帳票出力が完了していません。基幹の倉庫移動画面で伝票を確認してください: ' + printError.message);
           return;
         }
 
@@ -11752,7 +11708,7 @@ window.distributionApp = function distributionApp() {
           if (failed) throw new Error(failed.message);
           if (result.queues.every(queue => queue.state === 'succeeded')) break;
           if (Date.now() - startedAt >= 60000) {
-            throw new Error('倉庫移動は受付済みですが、処理が完了していません。時間をおいて「伝票再出力」で同じ受付結果を確認してください。');
+            throw new Error('倉庫移動は受付済みですが、処理が完了していません。時間をおいて基幹の倉庫移動画面で結果を確認してください。');
           }
           await new Promise(resolve => window.setTimeout(resolve, 1500));
         } while (true);

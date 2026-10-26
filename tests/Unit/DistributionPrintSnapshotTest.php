@@ -56,6 +56,13 @@ class DistributionPrintSnapshotTest extends TestCase
         $this->db->getPdo()->sqliteCreateFunction('JSON_UNQUOTE',fn($value)=>$value);
         $this->db->getPdo()->sqliteCreateFunction('JSON_LENGTH',fn($value)=>is_string($value)?count(json_decode($value,true)??[]):0);
         $this->db->statement('CREATE TABLE warehouses (id INTEGER, client_id INTEGER, code TEXT, name TEXT, is_active INTEGER)');
+        $this->db->statement('CREATE TABLE items (id INTEGER, client_id INTEGER, code TEXT)');
+        $this->db->statement('CREATE TABLE item_search_information (id INTEGER, client_id INTEGER, item_id INTEGER, code_type TEXT, search_string TEXT, is_active INTEGER, is_used_for_ordering INTEGER, priority INTEGER)');
+        $this->db->table('items')->insert(['id'=>100,'client_id'=>1,'code'=>'100']);
+        $this->db->table('item_search_information')->insert([
+            ['id'=>1,'client_id'=>1,'item_id'=>100,'code_type'=>'OTHER','search_string'=>'01000153','is_active'=>1,'is_used_for_ordering'=>1,'priority'=>2],
+            ['id'=>2,'client_id'=>1,'item_id'=>100,'code_type'=>'JAN','search_string'=>'4900000000000','is_active'=>1,'is_used_for_ordering'=>0,'priority'=>1],
+        ]);
         $this->db->table('warehouses')->insert([['id'=>91,'client_id'=>1,'code'=>'91','name'=>'倉庫','is_active'=>1],['id'=>1,'client_id'=>1,'code'=>'01','name'=>'店舗,引用"符','is_active'=>1]]);
         $this->db->statement('CREATE TABLE wms_distribution_revisions (client_id INTEGER, mode TEXT, warehouse_id INTEGER, revision INTEGER, created_at TEXT, updated_at TEXT, UNIQUE(client_id,mode,warehouse_id))');
         $this->db->statement('CREATE TABLE wms_distribution_rows (id INTEGER PRIMARY KEY AUTOINCREMENT, client_id INTEGER, mode TEXT, warehouse_id INTEGER, row_id TEXT, row_data TEXT, sort_order INTEGER, product_code TEXT, updated_by INTEGER, created_at TEXT, updated_at TEXT, deleted_at TEXT)');
@@ -101,6 +108,39 @@ class DistributionPrintSnapshotTest extends TestCase
         $s=$this->prepare();$this->db->table('wms_distribution_revisions')->update(['revision'=>6]);
         self::assertSame(409,$this->complete($s['print_token'])->getStatusCode());
         self::assertArrayNotHasKey('printed',json_decode($this->db->table('wms_distribution_rows')->value('row_data'),true));
+    }
+
+    public function test_print_uses_current_ordering_code_for_saved_rows_and_preserves_leading_zero(): void
+    {
+        $s=$this->prepare();
+        self::assertSame('01000153',$s['rows'][0]['orderingCode']);
+        self::assertArrayNotHasKey('orderingCode',json_decode($this->db->table('wms_distribution_rows')->value('row_data'),true));
+        self::assertSame(200,$this->complete($s['print_token'])->getStatusCode());
+
+        $this->db->table('item_search_information')->where('id',1)->update(['search_string'=>'00NEW<&']);
+        self::assertSame('00NEW<&',$this->prepare()['rows'][0]['orderingCode']);
+    }
+
+    public function test_print_accepts_every_ordering_code_type_but_excludes_inactive_unchecked_and_other_clients(): void
+    {
+        foreach (['JAN','ITF','SDP','OTHER'] as $type) {
+            $this->db->table('item_search_information')->where('id',1)->update(['code_type'=>$type]);
+            self::assertSame('01000153',$this->prepare()['rows'][0]['orderingCode']);
+        }
+        $this->db->table('item_search_information')->where('id',1)->update(['is_active'=>0]);
+        self::assertSame('',$this->prepare()['rows'][0]['orderingCode']);
+        $this->db->table('item_search_information')->where('id',1)->update(['is_active'=>1,'is_used_for_ordering'=>0]);
+        self::assertSame('',$this->prepare()['rows'][0]['orderingCode']);
+        $this->db->table('item_search_information')->where('id',1)->update(['is_used_for_ordering'=>1,'client_id'=>2]);
+        self::assertSame('',$this->prepare()['rows'][0]['orderingCode']);
+    }
+
+    public function test_print_uses_the_same_code_selection_as_order_generation(): void
+    {
+        $this->db->table('item_search_information')->where('id',2)->update(['is_used_for_ordering'=>1]);
+        $codes=app(\App\Services\Distribution\DistributionOrderCandidateService::class)->resolveOrderingCodes([100]);
+        self::assertSame('01000153',$codes->get(100));
+        self::assertSame($codes->get(100),$this->prepare()['rows'][0]['orderingCode']);
     }
     public function test_content_changed_without_revision_is_also_rejected(): void
     {
