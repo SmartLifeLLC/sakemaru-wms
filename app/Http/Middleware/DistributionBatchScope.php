@@ -33,7 +33,7 @@ class DistributionBatchScope
                 ->where('warehouse_id', (int) $request->user()->getSelectedWarehouseId())
                 ->lockForUpdate()->findOrFail($batchId);
             $reopening = $request->isMethod('PATCH') && $request->has('archive') && ! $request->boolean('archive');
-            abort_if($batch->archived_at && ! $request->isMethod('GET') && ! $request->is('*/results') && ! $reopening, 422, '終了した分配は変更できません。');
+            abort_if($batch->archived_at && ! $request->isMethod('GET') && ! $request->is('*/results') && ! $reopening, 422, 'すでに対応済みの分配です。作業を再開するには再開するボタンを押してください。');
             $request->attributes->set('distribution_batch', $batch);
             // These endpoints are exclusively for headquarters allocation, never direct rows.
             $request->merge(['mode' => 'allocation']);
@@ -56,10 +56,6 @@ class DistributionBatchScope
             if ($request->is('*warehouse-transfers', '*stock-transfer-slips') || ($request->is('*order-candidates') && ! $request->boolean('check_only'))) {
                 $request->validate(['expected_revision' => 'required|integer|min:0'], [], ['expected_revision' => '分配の更新番号']);
                 abort_unless((int) $request->input('expected_revision') === $batch->revision, 409, '分配が更新されています。再読み込みして生成対象を確認してください。');
-            }
-            if ($request->is('*warehouse-transfers', '*stock-transfer-slips')) {
-                abort_unless($batch->shipping_date, 422, '出荷日を設定してから倉庫移動を生成してください。');
-                abort_unless($request->input('process_date') === $batch->shipping_date->format('Y-m-d'), 409, '出荷日が変更されています。再読み込みしてください。');
             }
             $response = $next($request);
             if ($response->getStatusCode() === 409 && method_exists($response, 'getData')) {

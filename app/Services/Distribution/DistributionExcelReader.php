@@ -12,6 +12,8 @@ use RuntimeException;
 /** Parse spreadsheet data only. Never evaluate formulas, macros or external links. */
 class DistributionExcelReader
 {
+    private const CODE_HEADERS = ['単品CD', '自社CD', '自社コード', '商品CD', '商品コード', '華CD', 'CD', 'JAN', 'JANCD', 'JANコード'];
+
     private const STANDARD_STORE_CODES = [1, 2, 3, 4, 7, 8, 9, 10, 11, 21, 22];
 
     private const ALIASES = [
@@ -77,24 +79,29 @@ class DistributionExcelReader
             $result = ['sheet_name' => $sheet->getTitle(), 'header_row' => null, 'columns' => [],
                 'rows' => [], 'skipped' => [], 'errors' => [], 'warnings' => [], 'duplicate_warnings' => [], 'excel_total' => 0];
             $codeColumn = null;
+            $codeColumns = [];
+            $itemsByJan = [];
+            foreach ($items as $item) {
+                foreach ($item['jan_codes'] ?? [] as $jan) {
+                    $itemsByJan[self::normalize($jan)][$item['id']] = $item;
+                }
+            }
             for ($r = 1; $r <= $maxRow; $r++) {
                 $matches = [];
                 for ($c = 1; $c <= $maxCol; $c++) {
-                    if ($sheet->cellExists([$c, $r]) && in_array(self::normalize($sheet->getCell([$c, $r])->getValue()), ['単品CD', '自社CD', 'CD'], true)) {
+                    if ($sheet->cellExists([$c, $r]) && in_array(self::normalize($sheet->getCell([$c, $r])->getValue()), self::CODE_HEADERS, true)) {
                         $matches[] = $c;
                     }
                 }
                 if ($matches !== []) {
-                    if (count($matches) !== 1) {
-                        throw new RuntimeException("{$r}行目に商品CDの見出しが複数あります。1列に整理してください。");
-                    }
+                    $codeColumns = $matches;
                     $codeColumn = $matches[0];
                     $result['header_row'] = $r;
                     break;
                 }
             }
             if (! $codeColumn) {
-                throw new RuntimeException('先頭シートに「単品CD」「自社CD」「CD」のいずれかの見出しがありません。');
+                throw new RuntimeException('先頭シートに商品CDまたはJANの見出しがありません（単品CD・自社CD・自社コード・華CD・CD・JAN CD・JANコード）。');
             }
             $result['code_column'] = Coordinate::stringFromColumnIndex($codeColumn);
             $result['code_header'] = (string) $sheet->getCell([$codeColumn, $result['header_row']])->getValue();
@@ -114,7 +121,7 @@ class DistributionExcelReader
             $seenDestinations = [];
             $storeColumns = [];
             for ($c = 1; $c <= $maxCol; $c++) {
-                if ($c === $codeColumn) {
+                if (in_array($c, $codeColumns, true)) {
                     continue;
                 }
                 $letter = Coordinate::stringFromColumnIndex($c);
@@ -204,12 +211,12 @@ class DistributionExcelReader
                 $raw = trim((string) \Normalizer::normalize((string) ($cell->getValue() ?? ''), \Normalizer::FORM_KC));
                 $repeatedHeaders = [];
                 for ($c = 1; $c <= $maxCol; $c++) {
-                    if ($sheet->cellExists([$c, $r]) && in_array(self::normalize($sheet->getCell([$c, $r])->getValue()), ['単品CD', '自社CD', 'CD'], true)) {
+                    if ($sheet->cellExists([$c, $r]) && in_array(self::normalize($sheet->getCell([$c, $r])->getValue()), self::CODE_HEADERS, true)) {
                         $repeatedHeaders[] = $c;
                     }
                 }
                 if ($repeatedHeaders !== []) {
-                    $sameLayout = $repeatedHeaders === [$codeColumn];
+                    $sameLayout = $repeatedHeaders === $codeColumns;
                     foreach ($storeColumns as $c => $destination) {
                         $sameLayout = $sameLayout && self::normalize($sheet->getCell([$c, $r])->getValue()) === self::normalize($sheet->getCell([$c, $result['header_row']])->getValue());
                     }
@@ -219,15 +226,33 @@ class DistributionExcelReader
 
                     continue;
                 }
-                // PhpSpreadsheet cells are detached from their coordinate by subsequent reads.
-                $cell = $sheet->getCell([$codeColumn, $r]);
-                $numericCode = preg_match('/^\d+(?:\.0+)?$/D', $raw) && (int) $raw > 0 ? (string) (int) $raw : '';
-                $item = $items[$numericCode] ?? null;
-                if (! $item || ! $item['is_active'] || Date::isDateTime($cell) || in_array($cell->getDataType(), [DataType::TYPE_BOOL, DataType::TYPE_ERROR, DataType::TYPE_FORMULA], true)) {
-                    $result['skipped'][] = ['row' => $r, 'code' => $raw, 'reason' => $raw === '' ? '商品CDなし' : '商品CDが不正、未登録または無効'];
+                $matches = [];
+                $rawCodes = [];
+                foreach ($codeColumns as $column) {
+                    // Reacquire the cell before inspecting date formatting (PhpSpreadsheet detaches cells).
+                    $cell = $sheet->getCell([$column, $r]);
+                    $rawCode = trim((string) \Normalizer::normalize((string) ($cell->getValue() ?? ''), \Normalizer::FORM_KC));
+                    $rawCodes[] = $rawCode;
+                    if (Date::isDateTime($cell) || in_array($cell->getDataType(), [DataType::TYPE_BOOL, DataType::TYPE_ERROR, DataType::TYPE_FORMULA], true)
+                        || ! preg_match('/^\d+(?:\.0+)?$/D', $rawCode)) {
+                        continue;
+                    }
+                    $code = (string) (int) $rawCode;
+                    $jan = preg_replace('/\.0+$/', '', $rawCode);
+                    foreach (array_merge(isset($items[$code]) ? [$items[$code]] : [], array_values($itemsByJan[$jan] ?? [])) as $candidate) {
+                        if ($candidate['is_active']) {
+                            $matches[$candidate['id']] = $candidate;
+                        }
+                    }
+                }
+                if (count($matches) !== 1) {
+                    $result['skipped'][] = ['row' => $r, 'code' => implode(' / ', array_filter($rawCodes)),
+                        'reason' => count($matches) > 1 ? '商品CD・JANが複数の商品に一致するため特定できません' : '商品CDまたはJANが不正、未登録または無効'];
 
                     continue;
                 }
+                $item = reset($matches);
+                $numericCode = (string) $item['code'];
                 $mergedStoreQuantity = false;
                 foreach ($storeColumns as $c => $destination) {
                     if ($sheet->getCell([$c, $r])->isInMergeRange()) {

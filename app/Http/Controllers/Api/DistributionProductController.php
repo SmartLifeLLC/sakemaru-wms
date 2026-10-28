@@ -2837,7 +2837,7 @@ SQL;
                 $key = trim((string) ($allocation['destination_key'] ?? $allocation['destination_id'] ?? ''));
                 $quantity = (int) ($allocation['quantity'] ?? 0);
 
-                if ($operation === 'warehouse-transfer' && in_array($key, self::DISTRIBUTION_DEPARTMENT_CODES, true)) {
+                if ($operation === 'warehouse-transfer' && in_array($key, [self::HQ_TRANSFER_WAREHOUSE_CODE, ...self::DISTRIBUTION_DEPARTMENT_CODES], true)) {
                     return [];
                 }
 
@@ -2854,7 +2854,7 @@ SQL;
             ->filter(fn ($value, $key): bool => str_starts_with((string) $key, 'alloc_') && (int) $value > 0)
             ->mapWithKeys(function ($value, $key) use ($operation): array {
                 $destinationKey = substr((string) $key, 6);
-                if ($operation === 'warehouse-transfer' && in_array($destinationKey, self::DISTRIBUTION_DEPARTMENT_CODES, true)) {
+                if ($operation === 'warehouse-transfer' && in_array($destinationKey, [self::HQ_TRANSFER_WAREHOUSE_CODE, ...self::DISTRIBUTION_DEPARTMENT_CODES], true)) {
                     return [];
                 }
 

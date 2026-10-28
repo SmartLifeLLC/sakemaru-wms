@@ -60,14 +60,14 @@ class DistributionBatchController extends ApiController
     public function store(Request $request, PermissionService $permissions)
     {
         $this->authorizeUser($request, $permissions);
-        $data = $request->validate(['name' => 'required|string|max:100', 'shipping_date' => 'required|date_format:Y-m-d',
+        $data = $request->validate(['name' => 'required|string|max:100', 'shipping_date' => 'nullable|date_format:Y-m-d',
             'responsible_department' => ['required', Rule::in(array_keys(WmsDistributionBatch::RESPONSIBLE_DEPARTMENTS))],
             'note' => 'nullable|string|max:1000', 'execution_id' => 'required|uuid'], [],
             ['name' => '分配名', 'shipping_date' => '出荷日', 'note' => '備考', 'responsible_department' => '担当部署']);
         $key = 'create:'.(int) config('app.client_id').':'.(int) $request->user()->getSelectedWarehouseId().':'.$request->user()->id.':'.$data['execution_id'];
         $batch = WmsDistributionBatch::withTrashed()->firstOrCreate(['registration_key' => $key], [
             'client_id' => (int) config('app.client_id'), 'warehouse_id' => (int) $request->user()->getSelectedWarehouseId(),
-            'name' => trim($data['name']), 'shipping_date' => $data['shipping_date'], 'note' => $data['note'] ?? '',
+            'name' => trim($data['name']), 'shipping_date' => $data['shipping_date'] ?? null, 'note' => $data['note'] ?? '',
             'responsible_department' => $data['responsible_department'],
             'created_by' => $request->user()->id, 'updated_by' => $request->user()->id,
         ]);
@@ -85,7 +85,7 @@ class DistributionBatchController extends ApiController
     public function update(Request $request, DistributionBatchService $service)
     {
         $batch = DistributionBatchService::current();
-        $data = $request->validate(['name' => 'required|string|max:100', 'shipping_date' => 'nullable|required_unless:archive,true|date_format:Y-m-d',
+        $data = $request->validate(['name' => 'required|string|max:100', 'shipping_date' => 'nullable|date_format:Y-m-d',
             'responsible_department' => ['sometimes', 'nullable', Rule::in(array_keys(WmsDistributionBatch::RESPONSIBLE_DEPARTMENTS))],
             'note' => 'nullable|string|max:1000', 'expected_revision' => 'required|integer|min:0', 'archive' => 'sometimes|boolean'], [],
             ['name' => '分配名', 'shipping_date' => '出荷日', 'note' => '備考', 'responsible_department' => '担当部署']);
@@ -97,7 +97,7 @@ class DistributionBatchController extends ApiController
         if ($dateChanged && $service->hasGeneratedRows($batch) && ! ($batch->is_legacy && ! $batch->shipping_date)) {
             throw ValidationException::withMessages(['shipping_date' => '移動生成受付後は出荷日を変更できません。']);
         }
-        $batch->update(['name' => trim($data['name']), 'shipping_date' => $data['shipping_date'], 'note' => $data['note'] ?? '',
+        $batch->update(['name' => trim($data['name']), 'shipping_date' => $data['shipping_date'] ?? null, 'note' => $data['note'] ?? '',
             'responsible_department' => $data['responsible_department'] ?? $batch->responsible_department,
             'updated_by' => $request->user()->id, 'revision' => $batch->revision + 1,
             'archived_at' => $request->boolean('archive') ? now() : null]);
@@ -121,6 +121,38 @@ class DistributionBatchController extends ApiController
         return $this->success(['deleted' => true]);
     }
 
+    public function pickingPdf(Request $request, \App\Services\Distribution\DistributionPickingPdfService $pdf)
+    {
+        $data = $request->validate(['type' => ['required', Rule::in($pdf::TYPES)],
+            'shipping_date' => 'nullable|date_format:Y-m-d', 'expected_revision' => 'required|integer|min:0'], [],
+            ['type' => 'リスト種別', 'shipping_date' => '出荷日', 'expected_revision' => '分配の更新番号']);
+        $batch = DistributionBatchService::current();
+        abort_unless((int) $data['expected_revision'] === $batch->revision, 409, '分配が更新されています。画面を再読み込みしてから出力してください。');
+
+        return response($pdf->render($batch, $data['type'], $data['shipping_date'] ?? ''))
+            ->header('Content-Type', 'application/pdf')->header('Content-Disposition', 'inline; filename="distribution-picking-'.$batch->id.'.pdf"')
+            ->header('Cache-Control', 'private, no-store');
+    }
+
+    public function matrixPdf(Request $request, \App\Services\Distribution\DistributionMatrixPdfService $pdf)
+    {
+        $data = $request->validate(['unit' => 'required|in:case,piece', 'expected_revision' => 'required|integer|min:0']);
+        $batch = DistributionBatchService::current();
+        abort_unless((int) $data['expected_revision'] === $batch->revision, 409, '分配が更新されています。画面を再読み込みしてから出力してください。');
+        $rows = $batch->rows()->orderBy('id')->get(['row_data'])->pluck('row_data')
+            ->filter(fn ($row) => ! empty($row['productCode']))->values()->all();
+        abort_if($rows === [], 422, '出力する商品がありません。');
+        $codes = collect($rows)->flatMap(fn ($row) => array_keys($row))->filter(fn ($key) => str_starts_with($key, 'alloc_'))
+            ->map(fn ($key) => (int) substr($key, 6))->unique()->values();
+        $destinations = DB::connection('sakemaru')->table('warehouses')->where('client_id', $batch->client_id)
+            ->whereIn('code', $codes)->orderBy('code')->get(['code', 'name'])->map(fn ($row) => (array) $row)->all();
+        abort_if($destinations === [], 422, '分配先の店舗・倉庫がありません。');
+
+        return response($pdf->render($batch->name, $rows, $destinations, $data['unit']))
+            ->header('Content-Type', 'application/pdf')->header('Content-Disposition', 'inline; filename="distribution-matrix-'.$batch->id.'.pdf"')
+            ->header('Cache-Control', 'private, no-store');
+    }
+
     public function preview(Request $request, DistributionExcelReader $reader)
     {
         $request->validate(['file' => 'required|file|max:20480', 'quantity_unit' => 'required|in:case,piece',
@@ -135,6 +167,14 @@ class DistributionBatchController extends ApiController
         }
         $items = DB::connection('sakemaru')->table('items')->where('client_id', $batch->client_id)
             ->get(['id', 'code', 'name', 'capacity_case', 'is_active'])->keyBy('code')->map(fn ($row) => (array) $row)->all();
+        $janCodes = DB::connection('sakemaru')->table('item_search_information')
+            ->where('client_id', $batch->client_id)->where('is_active', true)->where('is_in_use', true)
+            ->where('code_type', \App\Enums\EItemSearchCodeType::JAN->value)
+            ->whereNotNull('search_string')->get(['item_id', 'search_string'])->groupBy('item_id');
+        foreach ($items as &$item) {
+            $item['jan_codes'] = $janCodes->get($item['id'], collect())->pluck('search_string')->all();
+        }
+        unset($item);
         $destinations = DB::connection('sakemaru')->table('warehouses')->where('client_id', $batch->client_id)->where('is_active', true)
             ->get(['id', 'code', 'name'])->map(function ($d) {
                 $d->allowed = true;

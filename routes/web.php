@@ -25,6 +25,8 @@ Route::prefix('api')->middleware(['web', 'auth:web'])->group(function () {
         Route::get('/', [DistributionBatchController::class, 'show']);
         Route::patch('/', [DistributionBatchController::class, 'update']);
         Route::delete('/', [DistributionBatchController::class, 'destroy']);
+        Route::get('/picking-pdf', [DistributionBatchController::class, 'pickingPdf']);
+        Route::get('/matrix-pdf', [DistributionBatchController::class, 'matrixPdf']);
         Route::get('/rows', [DistributionProductController::class, 'distributionRows']);
         Route::put('/rows', [DistributionProductController::class, 'saveDistributionRows']);
         Route::post('/excel/preview', [DistributionBatchController::class, 'preview']);

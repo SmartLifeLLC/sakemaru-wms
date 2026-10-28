@@ -60,8 +60,11 @@ class DistributionBatchService
 
     public function assertEditable(WmsDistributionBatch $batch): void
     {
-        if ($batch->archived_at || $batch->deleted_at) {
-            throw ValidationException::withMessages(['分配' => 'この分配は終了または削除されているため変更できません。']);
+        if ($batch->deleted_at) {
+            throw ValidationException::withMessages(['分配' => '削除済みの分配です。一覧から対象の分配を選び直してください。']);
+        }
+        if ($batch->archived_at) {
+            throw ValidationException::withMessages(['分配' => 'すでに対応済みの分配です。作業を再開するには再開するボタンを押してください。']);
         }
     }
 

@@ -750,3 +750,44 @@ test('explicit HQ and other warehouses display dynamically while HQ does not cre
     assert.deepEqual(keys(app.getWarehouseTransferDestinationPool(row)).sort(), ['01','05']);
     assert.equal(app.hasWarehouseTransferTargetDestination({alloc_91:3}), false);
 });
+
+
+test('archived batch read-side normalization never queues a forbidden save', async () => {
+    const { app } = component({ batch: { id: 4, archived: true, revision: 3 } });
+    app.serverRowsPersisted = true;
+    app.prepareRowsForServerPersistence = () => { throw new Error('archived data must stay untouched'); };
+    app.queuePersistDistributionRows('allocation', [{ id: 'old' }], { immediate: true });
+    assert.equal(!!app.serverSaveTimers.allocation, false);
+    await app.waitForDistributionSaves('allocation');
+});
+
+test('transfer generation date does not replace the optimistic row snapshot', () => {
+    const { app } = component();
+    const row = {id:'one', itemId:1, productCode:'100001', orderDate:'2026-10-28', deliveryDate:'2026-10-29', alloc_01:2};
+    const payload = app.buildStockTransferSlipPayload([row], '', [{id:1,key:'01'}], {processDate:'2026-11-01'});
+    assert.equal(payload.process_date, '2026-11-01');
+    assert.equal(payload.rows[0].order_date, '2026-10-28');
+    assert.equal(payload.rows[0].delivery_date, '2026-10-29');
+});
+
+
+test('transfer print groups incoming pages then outgoing pages then references', async () => {
+    const {app, context} = component();
+    let html;
+    context.Blob = class { constructor(parts) { html = parts.join(''); } };
+    context.URL = {createObjectURL: () => 'blob:test', revokeObjectURL() {}};
+    context.setTimeout = () => {};
+    app.getProductMeta = () => ({});
+    const row = { productCode: '100001', name:'確認商品', unitsPerCase:6, alloc_01:2, alloc_02:3 };
+    const documents = [
+        {kind:'transfer', destination:{key:'01',name:'本店'}, rows:Array(12).fill(row), serial_id:'111',slip_number:'S1'},
+        {kind:'transfer', destination:{key:'02',name:'二の宮店'}, rows:[row], serial_id:'222',slip_number:'S2'},
+        {kind:'direct-reference', destination:{key:'02',name:'二の宮店'}, rows:[row]},
+    ];
+    const printWindow = {location:{replace() {}},closed:false};
+    assert.equal(app._renderSlipsForDests([], [], '', {documents,printWindow}),true);
+    assert.deepEqual(Array.from(html.matchAll(/<div class="document-title">([^<]+)<\/div>/g),m=>m[1]),[
+        '転送伝票（入庫用）','転送伝票（入庫用）','転送伝票（入庫用）',
+        '転送伝票（出庫用）','転送伝票（出庫用）','転送伝票（出庫用）','直送分配参考（移動伝票なし）',
+    ]);
+});

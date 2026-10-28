@@ -49,6 +49,31 @@ class DistributionExcelReaderTest extends TestCase
             array_replace(['quantity_unit' => 'piece', 'store_mode' => 'name', 'mapping' => []], $options));
     }
 
+    public function test_code_or_jan_aliases_and_duplicate_identity(): void
+    {
+        $items = [100001 => ['id' => 42, 'code' => 100001, 'name' => '商品A', 'capacity_case' => 12,
+            'is_active' => true, 'jan_codes' => ['0491234567890', '4901234567894']]];
+        $destinations = [['id' => 1, 'code' => 1, 'name' => '本店', 'allowed' => true]];
+        $settings = ['quantity_unit' => 'piece', 'store_mode' => 'name'];
+        foreach (['自社コード', 'JAN CD', 'JANコード', '華CD'] as $header) {
+            $path = $this->file([[$header, '本店'], [100001, 3], ['0491234567890', 7]]);
+            $result = (new DistributionExcelReader)->parse($path, $items, $destinations, $settings);
+            self::assertSame([], $result['errors']);
+            self::assertCount(1, $result['rows']);
+            self::assertSame('100001', $result['rows'][0]['product_code']);
+            self::assertSame(7, $result['excel_total']);
+            self::assertCount(1, $result['duplicate_warnings']);
+        }
+        $path = $this->file([['単品CD', 'JANコード', '本店'], [null, '4901234567894', 8], [100001, '0491234567890', 9]]);
+        $result = (new DistributionExcelReader)->parse($path, $items, $destinations, $settings);
+        self::assertSame([], $result['errors']);
+        self::assertSame(9, $result['excel_total']);
+        $items[100002] = array_replace($items[100001], ['id' => 43, 'code' => 100002]);
+        $result = (new DistributionExcelReader)->parse($path, $items, $destinations, $settings);
+        self::assertSame([], $result['rows']);
+        self::assertCount(2, $result['skipped']);
+    }
+
     public function test_cd_alias_hq_other_warehouse_and_last_duplicate_wins(): void
     {
         $result = $this->parse($this->file([

@@ -730,7 +730,7 @@ class PurchaseOrderPdfService
         $width = 140;
         $height = 18;
 
-        $this->setDrawColor(self::COLOR_BORDER_GRAY);
+        $this->setDrawColor(self::COLOR_BLACK);
         $this->setFillColor(self::COLOR_WHITE);
         $this->pdf->Rect($x, $y, $width, $height);
         $this->setFillColor(self::COLOR_ACCENT_GRAY);
@@ -743,7 +743,7 @@ class PurchaseOrderPdfService
         $this->pdf->SetXY($x + 5, $y + 3);
         $this->pdf->Cell($width - 8, 6, $contractorTitle, 0, 1, 'L');
 
-        $this->setDrawColor(self::COLOR_BORDER_GRAY);
+        $this->setDrawColor(self::COLOR_BLACK);
         $this->pdf->Line($x + 5, $y + 10.2, $x + $width - 4, $y + 10.2);
 
         $contactParts = [];
@@ -1253,7 +1253,7 @@ class PurchaseOrderPdfService
         $rowHeight = self::LINE_HEIGHT_TABLE;
 
         $tableWidth = array_sum(self::COL_WIDTHS);
-        $this->setDrawColor(self::COLOR_BORDER_GRAY);
+        $this->setDrawColor(self::COLOR_BLACK);
         $this->setFillColor(self::COLOR_HEADER_FILL_GRAY);
         $this->pdf->Rect($x, $y, $tableWidth, $rowHeight, 'F');
 
@@ -1341,7 +1341,7 @@ class PurchaseOrderPdfService
 
         $x = self::MARGIN_LEFT;
         $y = $this->currentY;
-        $this->setDrawColor(self::COLOR_BORDER_GRAY);
+        $this->setDrawColor(self::COLOR_BLACK);
 
         // 各セルを描画
         foreach ($rowData as $i => $value) {
@@ -1382,7 +1382,7 @@ class PurchaseOrderPdfService
     {
         $tableWidth = array_sum(self::COL_WIDTHS);
         $this->pdf->SetLineWidth(self::LINE_WIDTH);
-        $this->setDrawColor(self::COLOR_BORDER_GRAY);
+        $this->setDrawColor(self::COLOR_BLACK);
         $this->pdf->Line(self::MARGIN_LEFT, $this->currentY, self::MARGIN_LEFT + $tableWidth, $this->currentY);
         $this->setDrawColor(self::COLOR_BLACK);
     }
