@@ -322,8 +322,14 @@ class DistributionRowsPersistenceTest extends TestCase
             ->where($scope)
             ->where('row_id', $rowId)
             ->update(['row_data' => json_encode($confirmedData, JSON_THROW_ON_ERROR)]);
+        $prepared = $controller->markDirectRequestPrinted(
+            $this->request($updater, ['phase' => 'prepare', 'row_ids' => [$rowId]]),
+            $permissionService
+        );
+        $this->assertSame(200, $prepared->getStatusCode());
         $printed = $controller->markDirectRequestPrinted(
-            $this->request($updater, ['row_ids' => [$rowId]]),
+            $this->request($updater, ['phase' => 'complete', 'row_ids' => [$rowId],
+                'print_token' => $prepared->getData(true)['result']['data']['print_token']]),
             $permissionService
         );
         $this->assertSame(200, $printed->getStatusCode());

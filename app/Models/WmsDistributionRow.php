@@ -12,6 +12,7 @@ class WmsDistributionRow extends WmsModel
     protected $table = 'wms_distribution_rows';
 
     protected $fillable = [
+        'distribution_batch_id',
         'client_id',
         'mode',
         'warehouse_id',
@@ -32,6 +33,22 @@ class WmsDistributionRow extends WmsModel
         'row_data' => 'array',
         'deleted_at' => 'datetime',
     ];
+
+    protected static function booted(): void
+    {
+        // Aggregate store views have no batch context; editing routes must establish it.
+        static::addGlobalScope('distribution_batch', function (Builder $query): void {
+            $batch = \App\Services\Distribution\DistributionBatchService::current();
+            if ($batch) {
+                $query->where('distribution_batch_id', $batch->id);
+            }
+        });
+    }
+
+    public function batch(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(WmsDistributionBatch::class, 'distribution_batch_id');
+    }
 
     public function scopeForClient(Builder $query, int $clientId): Builder
     {

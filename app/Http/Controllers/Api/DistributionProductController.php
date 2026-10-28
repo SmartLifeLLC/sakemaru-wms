@@ -8,6 +8,7 @@ use App\Enums\EItemSearchCodeType;
 use App\Enums\EVolumeUnit;
 use App\Enums\QuantityType;
 use App\Models\WmsDistributionRow;
+use App\Services\Distribution\DistributionBatchService;
 use App\Services\Distribution\DistributionDeliveryDateService;
 use App\Services\Distribution\DistributionOrderCandidateService;
 use App\Services\Distribution\DistributionStockTransferSlipService;
@@ -72,7 +73,7 @@ class DistributionProductController extends ApiController
 
     private const DISTRIBUTION_ROW_MODES = ['allocation', 'direct'];
 
-    private const DISTRIBUTION_ROW_FETCH_LIMIT = 3000;
+    private const DISTRIBUTION_ROW_FETCH_LIMIT = 6000;
 
     private const DISTRIBUTION_STORE_ROW_FETCH_LIMIT = 1000;
 
@@ -1189,6 +1190,16 @@ class DistributionProductController extends ApiController
                 ->forClient($clientId)
                 ->forMode($modeName)
                 ->where('warehouse_id', (int) $rowWarehouseId);
+            if ($context === 'store' && $modeName === 'allocation' && Schema::connection('sakemaru')->hasTable('wms_distribution_batches')) {
+                // Read row contents and the revision authorizing their next save in one SQL snapshot.
+                $query->select('wms_distribution_rows.*')->selectSub(
+                    DB::connection('sakemaru')->table('wms_distribution_batches')
+                        ->whereColumn('wms_distribution_batches.id', 'wms_distribution_rows.distribution_batch_id')
+                        ->whereNull('wms_distribution_batches.deleted_at')
+                        ->selectRaw("JSON_OBJECT('id', id, 'revision', revision, 'name', name, 'archived', archived_at IS NOT NULL)"),
+                    'distribution_batch_snapshot'
+                );
+            }
 
             if ($context === 'store') {
                 $this->applyStoreDistributionRowsFilters($query, $request);
@@ -1286,6 +1297,14 @@ class DistributionProductController extends ApiController
                     return;
                 }
 
+                if ($row->mode === 'allocation' && $row->distribution_batch_snapshot) {
+                    $batchSnapshot = json_decode($row->distribution_batch_snapshot, true, flags: JSON_THROW_ON_ERROR);
+                    $data['distributionBatchId'] = (int) $batchSnapshot['id'];
+                    $data['distributionBatchRevision'] = (int) $batchSnapshot['revision'];
+                    $data['distributionBatchName'] = $batchSnapshot['name'];
+                    $data['distributionBatchArchived'] = (bool) $batchSnapshot['archived'];
+                }
+
                 $itemContractorId = (int) ($data['itemContractorId'] ?? $data['item_contractor_id'] ?? 0);
                 if ($itemContractorId > 0 && $itemContractorNotes->has($itemContractorId)) {
                     $data['itemContractorNote'] = trim((string) ($itemContractorNotes->get($itemContractorId) ?? ''));
@@ -1340,9 +1359,9 @@ class DistributionProductController extends ApiController
             'mode' => 'required|string|in:allocation,direct',
             'replace' => 'nullable|boolean',
             'expected_revision' => 'required|integer|min:0',
-            'deleted_row_ids' => 'nullable|array|max:3000',
+            'deleted_row_ids' => 'nullable|array|max:'.(DistributionBatchService::current() ? 6000 : 3000),
             'deleted_row_ids.*' => 'string|max:120',
-            'rows' => 'present|array|max:3000',
+            'rows' => 'present|array|max:'.(DistributionBatchService::current() ? 6000 : 3000),
             'rows.*' => 'array',
             'rows.*.id' => 'required|string|max:120',
         ]);
@@ -1433,6 +1452,7 @@ class DistributionProductController extends ApiController
                 continue;
             }
 
+            unset($row['distributionBatchId'], $row['distributionBatchRevision'], $row['distributionBatchName'], $row['distributionBatchArchived']);
             $rowId = trim((string) ($row['id'] ?? ''));
             if ($rowId === '') {
                 continue;
@@ -1477,28 +1497,39 @@ class DistributionProductController extends ApiController
             ];
         }
 
+        if ($batch = DistributionBatchService::current()) {
+            foreach ($upsertRows as &$rowToSave) {
+                $rowToSave['distribution_batch_id'] = $batch->id;
+            }
+            unset($rowToSave);
+        }
         $incomingRowIds = array_values($incomingRowIds);
         $upsertRows = array_values($upsertRows);
 
         try {
             DB::connection('sakemaru')->transaction(function () use ($clientId, $warehouseId, $mode, $upsertRows, $deletedRowIds, $replaceAll, $request, $incomingRowIds, &$newRevision, &$protectedRowIds, &$deleteProtectedRowIds, &$fieldProtectedRowIds, &$confirmationProtectedRowIds, &$resyncRequiredRowIds, &$savedRowCount, &$deletedRowCount): void {
-                DB::connection('sakemaru')->table('wms_distribution_revisions')->insertOrIgnore([
-                    'client_id' => $clientId,
-                    'mode' => $mode,
-                    'warehouse_id' => $warehouseId,
-                    'revision' => 0,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
+                $batch = DistributionBatchService::current();
+                if ($batch) {
+                    $currentRevision = (int) $batch->revision;
+                } else {
+                    DB::connection('sakemaru')->table('wms_distribution_revisions')->insertOrIgnore([
+                        'client_id' => $clientId,
+                        'mode' => $mode,
+                        'warehouse_id' => $warehouseId,
+                        'revision' => 0,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
 
-                $revisionRow = DB::connection('sakemaru')
-                    ->table('wms_distribution_revisions')
-                    ->where('client_id', $clientId)
-                    ->where('mode', $mode)
-                    ->where('warehouse_id', $warehouseId)
-                    ->lockForUpdate()
-                    ->first(['revision']);
-                $currentRevision = (int) ($revisionRow->revision ?? 0);
+                    $revisionRow = DB::connection('sakemaru')
+                        ->table('wms_distribution_revisions')
+                        ->where('client_id', $clientId)
+                        ->where('mode', $mode)
+                        ->where('warehouse_id', $warehouseId)
+                        ->lockForUpdate()
+                        ->first(['revision']);
+                    $currentRevision = (int) ($revisionRow->revision ?? 0);
+                }
                 $expectedRevision = (int) $request->input('expected_revision');
 
                 if ($currentRevision !== $expectedRevision) {
@@ -1553,6 +1584,7 @@ class DistributionProductController extends ApiController
                 if (! $replaceAll && $saveRows !== []) {
                     $existingSortOrders = DB::connection('sakemaru')
                         ->table('wms_distribution_rows')
+                        ->when(DistributionBatchService::current(), fn ($q, $batch) => $q->where('distribution_batch_id', $batch->id))
                         ->where('client_id', $clientId)
                         ->where('mode', $mode)
                         ->where('warehouse_id', $warehouseId)
@@ -1560,6 +1592,7 @@ class DistributionProductController extends ApiController
                         ->pluck('sort_order', 'row_id');
                     $nextSortOrder = (int) (DB::connection('sakemaru')
                         ->table('wms_distribution_rows')
+                        ->when(DistributionBatchService::current(), fn ($q, $batch) => $q->where('distribution_batch_id', $batch->id))
                         ->where('client_id', $clientId)
                         ->where('mode', $mode)
                         ->where('warehouse_id', $warehouseId)
@@ -1619,15 +1652,19 @@ class DistributionProductController extends ApiController
                 }
 
                 $newRevision = $currentRevision + 1;
-                DB::connection('sakemaru')
-                    ->table('wms_distribution_revisions')
-                    ->where('client_id', $clientId)
-                    ->where('mode', $mode)
-                    ->where('warehouse_id', $warehouseId)
-                    ->update([
-                        'revision' => $newRevision,
-                        'updated_at' => now(),
-                    ]);
+                if ($batch) {
+                    $batch->update(['revision' => $newRevision, 'updated_by' => $request->user()->id]);
+                } else {
+                    DB::connection('sakemaru')
+                        ->table('wms_distribution_revisions')
+                        ->where('client_id', $clientId)
+                        ->where('mode', $mode)
+                        ->where('warehouse_id', $warehouseId)
+                        ->update([
+                            'revision' => $newRevision,
+                            'updated_at' => now(),
+                        ]);
+                }
             }, 5);
         } catch (\RuntimeException $exception) {
             if (str_starts_with($exception->getMessage(), 'DISTRIBUTION_REVISION_CONFLICT:')) {
@@ -1764,6 +1801,7 @@ class DistributionProductController extends ApiController
                         fwrite($spool, json_encode($data, JSON_THROW_ON_ERROR)."\n");
                     }
                 }
+
                 return array_keys($columns);
             });
         } catch (\Throwable $exception) {
@@ -1779,11 +1817,12 @@ class DistributionProductController extends ApiController
         $names = DB::connection('sakemaru')->table('warehouses')->where('client_id', $clientId)->get(['id', 'code', 'name'])
             ->mapWithKeys(fn ($w) => [$this->formatDestinationKey($w->code, $w->id) => $w->name]);
         sort($columns, SORT_NATURAL);
+
         return response()->streamDownload(function () use ($spool, $columns, $names) {
             $out = fopen('php://output', 'w');
             try {
                 fwrite($out, "\xEF\xBB\xBF");
-                $headers = ['計上日','発注日','商品コード','商品名','仕入先','入荷予定日','ロット','入数','理論','希計','分計','ケース','バラ','明細備考'];
+                $headers = ['計上日', '発注日', '商品コード', '商品名', '仕入先', '入荷予定日', 'ロット', '入数', '理論', '希計', '分計', 'ケース', 'バラ', '明細備考'];
                 foreach ($columns as $key) {
                     $name = $names[$key] ?? '店舗CD '.$key;
                     array_push($headers, $name.'_希望', $name.'_分配');
@@ -1912,6 +1951,7 @@ class DistributionProductController extends ApiController
                         'revision' => (int) $revisionRow->revision, 'expires' => time() + 1800, 'digest' => $digest,
                         'row_ids' => $rowIds->sort()->values()->all(),
                     ], JSON_THROW_ON_ERROR));
+
                     return ['print_token' => $token, 'revision' => (int) $revisionRow->revision,
                         'rows' => $rowIds->map(fn ($id) => $printRows[$id])->all()];
                 }
@@ -2059,7 +2099,9 @@ class DistributionProductController extends ApiController
         }
         $rows = collect();
         foreach (['allocation' => $request->input('row_ids', []), 'direct' => $request->input('direct_row_ids', [])] as $mode => $ids) {
-            if ($ids === []) continue;
+            if ($ids === []) {
+                continue;
+            }
             $query = WmsDistributionRow::query()->forClient($clientId)->forMode($mode)
                 ->where('warehouse_id', $sourceId)->whereIn('row_id', $ids);
             if ($store && ! $selectedHq) {
@@ -2306,6 +2348,10 @@ class DistributionProductController extends ApiController
 
     private function distributionGenerationLockKey(string $operation, int $selectedWarehouseId): string
     {
+        if ($batch = DistributionBatchService::current()) {
+            return 'distribution:generation:'.$operation.':'.$selectedWarehouseId.':batch:'.$batch->id;
+        }
+
         return implode(':', [
             'distribution',
             'generation',
@@ -2390,6 +2436,9 @@ class DistributionProductController extends ApiController
 
     private function distributionRevision(int $clientId, string $mode, int $warehouseId): int
     {
+        if ($mode === 'allocation' && ($batch = DistributionBatchService::current())) {
+            return (int) $batch->revision;
+        }
         if (! Schema::connection('sakemaru')->hasTable('wms_distribution_revisions')) {
             return 0;
         }
