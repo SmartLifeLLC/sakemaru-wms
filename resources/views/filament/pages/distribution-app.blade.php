@@ -140,7 +140,40 @@
     <div class="distribution-app-shell">
         <style>
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap");
-    .allocation-scroll { cursor: grab; scroll-padding-left: 548px; }
+    /* HQ batch details use the available panel height; only the table scrolls. */
+    .fi-page-header-main-ctn:has(.distribution-batch-layout) { margin-top: 0 !important; }
+    .fi-page-main:has(.distribution-batch-layout) { margin-top: 0 !important; }
+    .distribution-app-shell:has(.distribution-batch-layout) { height: calc(100dvh - 2.5rem); min-height: 0; }
+    .distribution-batch-layout { height: 100%; min-height: 0; display: flex; flex-direction: column; padding-top: 8px; padding-bottom: 8px; gap: 8px; }
+    .distribution-batch-header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; flex-shrink: 0; padding: 10px 12px; border: 1px solid #dbe2ea; border-radius: 8px; background: #fff; }
+    .distribution-batch-heading { flex: 1 1 280px; min-width: 0; }
+    .distribution-batch-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .distribution-batch-title a { flex-shrink: 0; font-size: 12px; color: #475569; }
+    .distribution-batch-title strong { font-size: 15px; color: #0f172a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .distribution-batch-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 5px; font-size: 11px; color: #64748b; }
+    .distribution-batch-meta b { font-weight: 500; color: #334155; }
+    .distribution-batch-note { max-width: 28rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .distribution-batch-actions { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .distribution-batch-actions button { height: 32px; padding: 0 12px; border-radius: 6px; font-size: 12px; white-space: nowrap; border: 1px solid #cbd5e1; background: #fff; color: #334155; }
+    .distribution-batch-actions button:hover { background: #f8fafc; }
+    .distribution-batch-actions .distribution-delete { border-color: #fecaca; color: #dc2626; }
+    .distribution-batch-actions .distribution-picking { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+    .distribution-batch-actions .distribution-picking:hover { background: #4338ca; }
+    .distribution-batch-actions button:disabled { opacity: .5; cursor: not-allowed; }
+    .distribution-batch-layout .distribution-allocation-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    .distribution-batch-layout .distribution-allocation-filters { flex-shrink: 0; position: relative; padding: 8px 10px; background: #fff; border: 1px solid #dbe2ea; border-radius: 8px 8px 0 0; box-shadow: none; }
+    .distribution-batch-layout .distribution-allocation-filters > div { padding: 0; }
+    .distribution-batch-layout .distribution-allocation-controls { flex-shrink: 0; padding: 8px 10px; margin-bottom: 8px; background: #fff; border: 1px solid #dbe2ea; border-top: 0; border-radius: 0 0 8px 8px; }
+    .distribution-batch-layout .distribution-control-row { margin: 0; gap: 8px; }
+    .distribution-batch-layout .distribution-control-row > button,
+    .distribution-batch-layout .distribution-file-actions > button,
+    .distribution-batch-layout .distribution-allocation-filters input,
+    .distribution-batch-layout .distribution-allocation-filters select,
+    .distribution-batch-layout .distribution-allocation-controls input:not(.date-entry-native) { height: 32px; box-shadow: none; }
+    .distribution-batch-layout .distribution-allocation-filters input { padding-top: 0; padding-bottom: 0; }
+    .distribution-batch-layout .distribution-table-frame { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 0; }
+    .distribution-batch-layout .allocation-scroll { flex: 1; min-height: 0; max-height: none !important; border: 1px solid #dbe2ea; border-radius: 8px; box-shadow: none; }
+    .allocation-scroll { cursor: grab; scroll-padding-left: 608px; }
     .allocation-scroll.is-dragging { cursor: grabbing; user-select: none; }
     .allocation-grid { table-layout: fixed; border-collapse: separate; border-spacing: 0; }
     .allocation-grid th, .allocation-grid td { box-sizing: border-box; }
@@ -148,12 +181,12 @@
     .allocation-grid .allocation-fixed { position: sticky; z-index: 2; background-color: #fff; }
     .allocation-grid thead .allocation-fixed { z-index: 3; background-color: #f8fafc; }
     .allocation-select { width: 32px; left: 0; font-size: 10px; }
-    .allocation-product { width: 240px; left: 32px; }
-    .allocation-theory { width: 56px; left: 272px; }
-    .allocation-summary { width: 56px; left: 328px; }
-    .allocation-cases { width: 52px; left: 384px; }
-    .allocation-pieces { width: 52px; left: 436px; }
-    .allocation-total { width: 60px; left: 488px; box-shadow: 2px 0 0 #94a3b8, 5px 0 8px -4px #64748b; }
+    .allocation-product { width: 300px; left: 32px; }
+    .allocation-theory { width: 56px; left: 332px; }
+    .allocation-summary { width: 56px; left: 388px; }
+    .allocation-cases { width: 52px; left: 444px; }
+    .allocation-pieces { width: 52px; left: 496px; }
+    .allocation-total { width: 60px; left: 548px; box-shadow: 2px 0 0 #94a3b8, 5px 0 8px -4px #64748b; }
     .allocation-grid tr.bg-gray-100 .allocation-fixed { background-color: #f3f4f6; }
     .allocation-grid .allocation-theory.is-short { background-color: #fee2e2; }
     .allocation-grid .allocation-total { background-color: #f8fafc; }
@@ -321,16 +354,26 @@
     }
         </style>
 
-<div x-data="distributionApp()" :inert="distributionRowsLoading || warehouseTransferCreating || transferSlipCreating || orderCandidateCreating" class="w-full min-w-0 px-3 sm:px-4 lg:px-5 text-neutral-900">
+<div x-data="distributionApp()" :inert="distributionRowsLoading || warehouseTransferCreating || transferSlipCreating || orderCandidateCreating" class="w-full min-w-0 px-3 sm:px-4 lg:px-5 text-neutral-900 {{ $distributionBatchForView ? 'distribution-batch-layout' : '' }}">
   @if($distributionBatchForView)
-  <div class="mb-3 flex flex-wrap items-center gap-3 rounded-lg border bg-white p-3 text-sm">
-    <a href="/admin/distribution-adjustment" class="text-blue-700">一覧へ戻る</a>
-    <strong x-text="batchInfo.name"></strong>
-    <span>担当部署：<span x-text="batchInfo.responsible_department_label"></span></span>
-    <span>登録者：<span x-text="batchInfo.creator"></span></span><span x-text="batchInfo.note"></span>
-    <button @click="editBatchInfo()" :disabled="batchInfo.archived" class="rounded border px-3 py-1">分配情報を変更</button>
-    <button @click="archiveBatch()" class="rounded border px-3 py-1" x-text="batchInfo.archived ? '再開する' : '終了にする'"></button>
-    <button @click="deleteBatch()" :disabled="batchInfo.archived" class="rounded border border-red-300 px-3 py-1 text-red-700">分配を削除</button>
+  <div class="distribution-batch-header">
+    <div class="distribution-batch-heading">
+      <div class="distribution-batch-title">
+        <a href="/admin/distribution-adjustment">← 一覧へ戻る</a>
+        <strong x-text="batchInfo.name" :title="batchInfo.name"></strong>
+      </div>
+      <div class="distribution-batch-meta">
+        <span>担当部署 <b x-text="batchInfo.responsible_department_label"></b></span>
+        <span>登録者 <b x-text="batchInfo.creator"></b></span>
+        <span x-show="batchInfo.note" class="distribution-batch-note" :title="batchInfo.note">備考 <b x-text="batchInfo.note"></b></span>
+      </div>
+    </div>
+    <div class="distribution-batch-actions">
+      <button @click="editBatchInfo()" :disabled="batchInfo.archived">分配情報を変更</button>
+      <button @click="archiveBatch()" x-text="batchInfo.archived ? '再開する' : '終了にする'"></button>
+      <button @click="deleteBatch()" :disabled="batchInfo.archived" class="distribution-delete">分配を削除</button>
+      <button type="button" @click="pickingPrintVisible=true" class="distribution-picking">ピッキングリスト</button>
+    </div>
   </div>
   @include('filament.pages.distribution-excel-import')
   <div x-show="batchEditor.visible" x-cloak class="fixed inset-0 z-[220] flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="分配情報を変更">
@@ -566,10 +609,10 @@
 @if ($distributionInitialTabForView === 'allocation')
   <!-- ==================== Allocation Tab ==================== -->
   <template x-if="activeSubTab === 'allocation'">
-    <div :inert="!!serverRowsLoadError">
+    <div class="distribution-allocation-pane" :inert="!!serverRowsLoadError">
 
     <!-- Filters -->
-    <div class="sticky top-0 z-20 bg-white/90 backdrop-blur shadow-sm">
+    <div class="distribution-allocation-filters sticky top-0 z-20 bg-white/90 backdrop-blur shadow-sm">
       <div class="px-0 py-1">
         <div class="distribution-filter-controls flex flex-wrap items-center gap-1.5 text-xs">
           <div class="relative flex-none" style="width: 18rem; max-width: 100%;">
@@ -592,8 +635,8 @@
     </div>
 
     <!-- Controls -->
-    <div class="px-0 pt-1">
-      <div class="mb-1 flex flex-wrap items-center gap-1.5 sm:gap-2">
+    <div class="distribution-allocation-controls px-0 pt-1">
+      <div class="distribution-control-row mb-1 flex flex-wrap items-center gap-1.5 sm:gap-2">
         <button @click="addRow()" :disabled="!!batchInfo?.archived" class="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md bg-green-600 hover:bg-green-700 text-white font-medium shadow transition text-xs">+ 行追加</button>
         <button x-show="false" x-cloak @click="toggleAllCheckedVisible()"
           :class="allVisibleChecked() ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' : 'bg-indigo-600 hover:bg-indigo-700 text-white'"
@@ -635,7 +678,7 @@
           </div>
         </div>
 
-        <div class="ml-auto flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs sm:text-sm">
+        <div class="distribution-file-actions ml-auto flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs sm:text-sm">
           @if($distributionBatchForView)
           <button type="button" @click="openExcelImport()" :disabled="!!batchInfo?.archived" class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">
             <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
@@ -661,12 +704,6 @@
         </div>
       </div>
     </div>
-
-    @if($distributionBatchForView)
-    <div class="flex items-center justify-end gap-2 py-1 text-xs">
-      <button type="button" @click="pickingPrintVisible=true" class="rounded bg-indigo-600 px-3 py-1 text-white">ピッキングリスト</button>
-    </div>
-    @endif
 
     @if($distributionBatchForView)
     <div x-show="pickingPrintVisible" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" @keydown.escape.window="pickingPrintVisible=false">
@@ -696,7 +733,7 @@
     @endif
 
     <!-- Main Table -->
-    <div class="px-0 pb-2">
+    <div class="distribution-table-frame px-0 pb-2">
       <div x-ref="allocationMainScroll" class="allocation-scroll overflow-auto rounded-lg bg-white shadow-md"
         :class="allocationDrag ? 'is-dragging' : ''"
         @pointerdown="startAllocationDrag($event)" @pointermove="moveAllocationDrag($event)"
@@ -4389,7 +4426,7 @@ window.distributionApp = function distributionApp() {
 
     getAllocationTableMinWidth() {
       const destinationCount = this.getAllocationDisplayDestinations().length;
-      return 652 + destinationCount * 52 + (this.showAllocationDetailMemoButton ? 64 : 0);
+      return 712 + destinationCount * 52 + (this.showAllocationDetailMemoButton ? 64 : 0);
     },
 
     getDirectDisplayDestinations(rows = this.getVisibleDirectRows()) {
