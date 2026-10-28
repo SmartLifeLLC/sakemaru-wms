@@ -46,6 +46,33 @@ class DistributionBatchTest extends TestCase
         parent::tearDown();
     }
 
+    public function test_batch_registration_and_edit_do_not_require_shipping_date(): void
+    {
+        $response = $this->postJson('/api/distribution/batches', ['name' => '日付なし', 'responsible_department' => 'warehouse', 'execution_id' => (string) Str::uuid()])
+            ->assertOk()->assertJsonPath('result.data.shipping_date', null);
+        $id = $response->json('result.data.id');
+        $this->patchJson('/api/distribution/batches/'.$id, ['name' => '日付なし変更', 'expected_revision' => 0])
+            ->assertOk()->assertJsonPath('result.data.shipping_date', null);
+    }
+
+    public function test_all_picking_formats_read_distribution_without_creating_waves(): void
+    {
+        $id = $this->batch('分配ピッキング検証');
+        $this->save($id, 0, [['id' => 'picking-test-row', 'productCode' => '100567', 'alloc_01' => 7, 'alloc_04' => 5]])->assertOk();
+        $db = DB::connection('sakemaru');
+        $tables = ['wms_waves', 'wms_reservations', 'wms_picking_tasks', 'stock_transfer_queue'];
+        $counts = collect($tables)->mapWithKeys(fn ($t) => [$t => $db->table($t)->count()])->all();
+        foreach (\App\Services\Distribution\DistributionPickingPdfService::TYPES as $type) {
+            $response = $this->get('/api/distribution/batches/'.$id.'/picking-pdf?type='.$type.'&expected_revision=1');
+            $response->assertOk()->assertHeader('Content-Type', 'application/pdf');
+            self::assertStringStartsWith('%PDF-', $response->getContent());
+        }
+        self::assertSame($counts, collect($tables)->mapWithKeys(fn ($t) => [$t => $db->table($t)->count()])->all());
+        self::assertSame(1, (int) $db->table('wms_distribution_batches')->where('id', $id)->value('revision'));
+        $this->getJson('/api/distribution/batches/'.$id.'/picking-pdf?type=primary&expected_revision=0')->assertStatus(409);
+        $this->getJson('/api/distribution/batches/'.$id.'/picking-pdf?type=shortage&expected_revision=1')->assertStatus(422);
+    }
+
     private function batch(string $name = '分配X'): int
     {
         return $this->postJson('/api/distribution/batches', ['name' => $name, 'shipping_date' => '2026-11-01',
@@ -110,6 +137,48 @@ class DistributionBatchTest extends TestCase
         $data['expected_revision'] = 1;
         $this->patchJson('/api/distribution/batches/'.$batch, $data)->assertOk()->assertJsonPath('result.data.responsible_department', 'headquarters');
         self::assertSame(0, DB::connection('sakemaru')->table('wms_distribution_rows')->where('distribution_batch_id', $batch)->count());
+    }
+
+    public function test_excel_preview_resolves_active_jan_and_product_code_to_the_same_item(): void
+    {
+        $batch = $this->batch();
+        $item = DB::connection('sakemaru')->table('items')->where('client_id', $this->actor->client_id)->where('code', 100567)->first();
+        DB::connection('sakemaru')->table('item_search_information')->insert([
+            'client_id' => $this->actor->client_id, 'item_id' => $item->id, 'code_type' => 'JAN', 'quantity_type' => 'PIECE',
+            'search_string' => '0490999900001', 'is_active' => true, 'is_in_use' => true,
+        ]);
+        $response = $this->post('/api/distribution/batches/'.$batch.'/excel/preview', [
+            'file' => $this->spreadsheet([['自社コード', 'JANコード', '本店'], [null, '0490999900001', 8], [100567, null, 3]]),
+            'quantity_unit' => 'piece', 'store_mode' => 'name',
+        ], ['Accept' => 'application/json'])->assertOk();
+        $response->assertJsonPath('result.data.rows.0.item_id', $item->id)
+            ->assertJsonPath('result.data.rows.0.allocations.01', 3)
+            ->assertJsonCount(1, 'result.data.rows')->assertJsonCount(1, 'result.data.duplicate_warnings');
+    }
+
+    public function test_matrix_pdf_is_scoped_and_read_only_even_for_archived_batches(): void
+    {
+        $batch = $this->batch();
+        $this->save($batch, 0, [['id' => 'matrix', 'productCode' => '100567', 'name' => '作業書検証', 'unitsPerCase' => 6, 'alloc_01' => 13]])->assertOk();
+        $revision = DB::connection('sakemaru')->table('wms_distribution_batches')->where('id', $batch)->value('revision');
+        DB::connection('sakemaru')->table('wms_distribution_batches')->where('id', $batch)->update(['archived_at' => now()]);
+        $pdf = $this->get('/api/distribution/batches/'.$batch.'/matrix-pdf?unit=case&expected_revision='.$revision);
+        $pdf->assertOk()->assertHeader('Content-Type', 'application/pdf');
+        self::assertStringStartsWith('%PDF-', $pdf->getContent());
+        self::assertSame($revision, DB::connection('sakemaru')->table('wms_distribution_batches')->where('id', $batch)->value('revision'));
+        $this->getJson('/api/distribution/batches/'.$batch.'/matrix-pdf?unit=piece&expected_revision=0')->assertStatus(409);
+        $this->getJson('/api/distribution/batches/'.$batch.'/matrix-pdf?unit=unknown&expected_revision='.$revision)->assertStatus(422);
+    }
+
+    public function test_initial_batch_without_shipping_date_can_be_archived_and_reopened(): void
+    {
+        $batch = $this->batch();
+        DB::connection('sakemaru')->table('wms_distribution_batches')->where('id', $batch)
+            ->update(['shipping_date' => null, 'is_legacy' => true]);
+        $data = ['name' => '初回分配', 'shipping_date' => null, 'expected_revision' => 0, 'archive' => true];
+        $this->patchJson('/api/distribution/batches/'.$batch, $data)->assertOk()->assertJsonPath('result.data.archived', true);
+        $this->patchJson('/api/distribution/batches/'.$batch, array_replace($data, ['expected_revision' => 1, 'archive' => false]))
+            ->assertOk()->assertJsonPath('result.data.archived', false)->assertJsonPath('result.data.shipping_date', null);
     }
 
     public function test_existing_unassigned_department_can_archive_reopen_and_be_assigned(): void
@@ -466,7 +535,7 @@ class DistributionBatchTest extends TestCase
         $this->putJson('/api/distribution/batches/'.$x.'/rows', ['rows' => ['bad'], 'expected_revision' => 1])->assertUnprocessable();
         foreach (['warehouse-transfers', 'stock-transfer-slips'] as $endpoint) {
             $this->postJson('/api/distribution/batches/'.$x.'/'.$endpoint, ['expected_revision' => 0, 'process_date' => '2026-11-01', 'check_only' => true])->assertStatus(409);
-            $this->postJson('/api/distribution/batches/'.$x.'/'.$endpoint, ['expected_revision' => 1, 'process_date' => '2026-11-02', 'check_only' => true])->assertStatus(409);
+            $this->postJson('/api/distribution/batches/'.$x.'/'.$endpoint, ['expected_revision' => 1, 'process_date' => '2026-11-02', 'check_only' => true])->assertStatus(422);
         }
         $header = ['name' => '終了試験', 'shipping_date' => '2026-11-01', 'expected_revision' => 1, 'archive' => true];
         $this->patchJson('/api/distribution/batches/'.$x, $header)->assertOk()->assertJsonPath('result.data.archived', true);
@@ -526,12 +595,12 @@ class DistributionBatchTest extends TestCase
     {
         $x = $this->batch();
         $item = DB::connection('sakemaru')->table('items')->where('code', 100567)->first();
-        $this->save($x, 0, [['id' => 'receipt-row', 'itemId' => $item->id, 'productCode' => '100567', 'deliveryCourseId' => 1, 'alloc_01' => 12]])->assertOk();
+        $this->save($x, 0, [['id' => 'receipt-row', 'itemId' => $item->id, 'productCode' => '100567', 'deliveryCourseId' => 1, 'alloc_01' => 12, 'alloc_91' => 5]])->assertOk();
         $service = Mockery::mock(\App\Services\Distribution\DistributionStockTransferSlipService::class);
         $service->shouldReceive('create')->once()->andReturn(['queues' => [['queue_id' => 99902801]], 'row_ids' => ['receipt-row']]);
         $this->app->instance(\App\Services\Distribution\DistributionStockTransferSlipService::class, $service);
         $this->postJson('/api/distribution/batches/'.$x.'/warehouse-transfers', [
-            'expected_revision' => 1, 'process_date' => '2026-11-01', 'rows' => [[
+            'expected_revision' => 1, 'process_date' => '2026-11-03', 'rows' => [[
                 'row_id' => 'receipt-row', 'distribution_business_key' => DB::connection('sakemaru')->table('wms_distribution_rows')->where('distribution_batch_id', $x)->value('business_key'), 'item_id' => $item->id, 'product_code' => '100567', 'delivery_course_id' => 1,
                 'allocations' => [['destination_id' => 1, 'destination_key' => '01', 'quantity' => 12]],
             ]],

@@ -104,7 +104,7 @@ class PickingListPdfService
 
         // 左側
         $this->pdf->SetXY(self::MARGIN, $this->currentY);
-        $this->pdf->Cell(95, self::LINE_HEIGHT, '波動番号:'.($header['wave_no'] ?? ''), 0, 0, 'L');
+        $this->pdf->Cell(95, self::LINE_HEIGHT, ($header['wave_label'] ?? '波動番号').':'.(isset($header['distribution_name']) ? $this->truncateText($header['wave_no'], 80) : ($header['wave_no'] ?? '')), 0, 0, 'L');
 
         // 右側
         $this->pdf->SetXY(self::MARGIN + 95, $this->currentY);
@@ -1314,9 +1314,9 @@ class PickingListPdfService
 
         $isCourseGrouped = array_key_exists('slip_count', $header);
         $this->pdf->SetXY($infoX, $this->currentY);
-        $this->pdf->Cell($labelW, $infoLineH, $isCourseGrouped ? '伝票数：' : '伝票No：', 0, 0, 'L');
+        $this->pdf->Cell($labelW, $infoLineH, isset($header['distribution_name']) ? '分配：' : ($isCourseGrouped ? '伝票数：' : '伝票No：'), 0, 0, 'L');
         $this->pdf->SetXY($infoX + $labelW, $this->currentY);
-        $this->pdf->Cell($valueW, $infoLineH, $isCourseGrouped ? ((string) $header['slip_count']).'件' : (string) ($header['slip_no'] ?? ''), 0, 0, 'L');
+        $this->pdf->Cell($valueW, $infoLineH, isset($header['distribution_name']) ? $this->truncateText($header['distribution_name'], $valueW) : ($isCourseGrouped ? ((string) $header['slip_count']).'件' : (string) ($header['slip_no'] ?? '')), 0, 0, 'L');
         $this->currentY += $infoLineH;
 
         $shippingDate = $header['shipping_date'] ?? '';
@@ -1705,9 +1705,9 @@ class PickingListPdfService
         $infoLineH = 6;
 
         $this->pdf->SetXY($infoX, $this->currentY);
-        $this->pdf->Cell($labelW, $infoLineH, '伝票No：', 0, 0, 'L');
+        $this->pdf->Cell($labelW, $infoLineH, isset($header['distribution_name']) ? '分配：' : '伝票No：', 0, 0, 'L');
         $this->pdf->SetXY($infoX + $labelW, $this->currentY);
-        $this->pdf->Cell($valueW, $infoLineH, (string) ($header['wave_no'] ?? ''), 0, 0, 'L');
+        $this->pdf->Cell($valueW, $infoLineH, isset($header['distribution_name']) ? $this->truncateText($header['distribution_name'], $valueW) : (string) ($header['wave_no'] ?? ''), 0, 0, 'L');
         $this->currentY += $infoLineH;
 
         $shippingDate = $header['shipping_date'] ?? '';

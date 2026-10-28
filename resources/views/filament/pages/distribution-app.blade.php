@@ -297,7 +297,7 @@
   @if($distributionBatchForView)
   <div class="mb-3 flex flex-wrap items-center gap-3 rounded-lg border bg-white p-3 text-sm">
     <a href="/admin/distribution-adjustment" class="text-blue-700">一覧へ戻る</a>
-    <strong x-text="batchInfo.name"></strong><span>出荷日：<span x-text="batchInfo.shipping_date || '要確認'"></span></span>
+    <strong x-text="batchInfo.name"></strong>
     <span>担当部署：<span x-text="batchInfo.responsible_department_label"></span></span>
     <span>登録者：<span x-text="batchInfo.creator"></span></span><span x-text="batchInfo.note"></span>
     <button @click="editBatchInfo()" :disabled="batchInfo.archived" class="rounded border px-3 py-1">分配情報を変更</button>
@@ -310,7 +310,6 @@
       <div class="bg-slate-800 px-5 py-3 text-white">分配情報を変更</div>
       <div class="grid gap-4 p-5">
         <label class="distribution-form-label">分配名 <span class="distribution-required">必須</span><input x-model="batchEditor.name" required maxlength="100" :disabled="batchEditor.busy" class="distribution-form-input"></label>
-        <label class="distribution-form-label">出荷日 <span class="distribution-required">必須</span><input type="date" x-model="batchEditor.shipping_date" required :disabled="batchEditor.busy" class="distribution-form-input"></label>
         @include('filament.partials.distribution-department-field', ['departmentModel' => 'batchEditor.responsible_department', 'departmentBusy' => 'batchEditor.busy', 'departmentGroup' => 'edit-department'])
         <label class="distribution-form-label">備考<textarea x-model="batchEditor.note" maxlength="1000" rows="3" :disabled="batchEditor.busy" class="distribution-form-input"></textarea></label>
         <p class="whitespace-pre-wrap text-red-700" role="alert" x-text="batchEditor.error"></p>
@@ -319,6 +318,8 @@
     </form>
   </div>
   @endif
+
+  <div x-show="batchInfo?.archived" x-cloak class="my-2 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">すでに対応済みの分配です。作業を再開するには再開するボタンを押してください。</div>
 
   <div x-show="serverRowsLoadError" x-cloak role="alert" class="my-2 flex items-center justify-between gap-3 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
     <span x-text="serverRowsLoadError"></span>
@@ -580,9 +581,9 @@
         <div class="flex flex-wrap items-center gap-1 text-xs">
           <span class="text-slate-500 whitespace-nowrap">出荷日</span>
           <div class="date-entry" style="width: 8.75rem; min-width: 8.75rem;">
-            <input type="text" :disabled="!!batchInfo" x-model="bulkInputDate" @blur="bulkInputDate = normalizeFlexibleDate(bulkInputDate); queueBulkAllocationAutoApply()" @keydown.enter.prevent="bulkInputDate = normalizeFlexibleDate(bulkInputDate); queueBulkAllocationAutoApply(); $event.target.blur()" inputmode="numeric" placeholder="YYYY-MM-DD" class="date-entry-text w-full rounded-md border-gray-300 border px-2 py-1 text-xs shadow-sm" />
+            <input type="text" :disabled="!!batchInfo?.archived" x-model="bulkInputDate" @blur="bulkInputDate = normalizeFlexibleDate(bulkInputDate); queueBulkAllocationAutoApply()" @keydown.enter.prevent="bulkInputDate = normalizeFlexibleDate(bulkInputDate); queueBulkAllocationAutoApply(); $event.target.blur()" inputmode="numeric" placeholder="YYYY-MM-DD" class="date-entry-text w-full rounded-md border-gray-300 border px-2 py-1 text-xs shadow-sm" />
             <label class="date-entry-picker" title="カレンダー選択">
-              <input type="date" :disabled="!!batchInfo" :value="bulkInputDate" @change="bulkInputDate = $event.target.value; queueBulkAllocationAutoApply()" class="date-entry-native" />
+              <input type="date" :disabled="!!batchInfo?.archived" :value="bulkInputDate" @change="bulkInputDate = $event.target.value; queueBulkAllocationAutoApply()" class="date-entry-native" />
               <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
             </label>
           </div>
@@ -607,17 +608,6 @@
         </div>
 
         <div class="ml-auto flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs sm:text-sm">
-          <input x-ref="allocationCsvInput" type="file" accept=".csv,text/csv" class="hidden" @change="importAllocationCsv($event)" />
-          <button @click="$refs.allocationCsvInput.click()" :disabled="csvImporting || !!batchInfo?.archived" class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">
-            <svg x-show="csvImporting" x-cloak class="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-            </svg>
-            <svg x-show="!csvImporting" x-cloak class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 16V4m0 0L7 9m5-5l5 5M5 20h14"></path>
-            </svg>
-            <span x-text="csvImporting ? '取込中' : 'CSV取込'"></span>
-          </button>
           @if($distributionBatchForView)
           <button type="button" @click="openExcelImport()" :disabled="!!batchInfo?.archived" class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">
             <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
@@ -643,6 +633,39 @@
         </div>
       </div>
     </div>
+
+    @if($distributionBatchForView)
+    <div class="flex items-center justify-end gap-2 py-1 text-xs">
+      <button type="button" @click="pickingPrintVisible=true" class="rounded bg-indigo-600 px-3 py-1 text-white">帳票出力</button>
+    </div>
+    @endif
+
+    @if($distributionBatchForView)
+    <div x-show="pickingPrintVisible" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" @keydown.escape.window="pickingPrintVisible=false">
+      <section role="dialog" aria-label="分配帳票出力" aria-modal="true" class="w-full max-w-5xl overflow-hidden rounded-lg bg-white shadow-xl">
+        <header class="bg-slate-800 px-5 py-4 font-bold text-white">分配帳票出力</header>
+        <div class="space-y-4 p-5">
+          <p class="text-sm" x-text="pickingPrintType === 'matrix' ? '商品別・店舗別の分配数量を一覧で出力します。' : '分配数量から出力します。波動は生成しません。棚は標準ロケーションを表示します。'"></p>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <template x-for="option in pickingPrintTypes" :key="option.value">
+              <label class="flex cursor-pointer items-center gap-2 rounded-lg border-2 p-4 text-sm" :class="pickingPrintType===option.value ? 'border-blue-500 bg-blue-50' : 'border-gray-200'">
+                <input type="radio" name="distribution-picking-type" :value="option.value" x-model="pickingPrintType"><span x-text="option.label"></span>
+              </label>
+            </template>
+          </div>
+          <fieldset x-show="pickingPrintType === 'matrix'" x-cloak class="flex items-center gap-4 text-sm">
+            <legend class="mb-2 font-medium">作業書の数量単位</legend>
+            <label class="flex cursor-pointer items-center gap-2 rounded border border-gray-300 px-4 py-2"><input type="radio" name="distribution-matrix-unit" value="piece" x-model="matrixPrintUnit">バラ</label>
+            <label class="flex cursor-pointer items-center gap-2 rounded border border-gray-300 px-4 py-2"><input type="radio" name="distribution-matrix-unit" value="case" x-model="matrixPrintUnit">ケース</label>
+          </fieldset>
+        </div>
+        <footer class="flex justify-end gap-3 border-t p-4">
+          <button type="button" @click="pickingPrintVisible=false" class="rounded border border-gray-300 px-4 py-2">出力せず閉じる</button>
+          <button type="button" @click="printDistributionPicking()" class="rounded bg-red-600 px-4 py-2 text-white">PDF出力</button>
+        </footer>
+      </section>
+    </div>
+    @endif
 
     <!-- Main Table -->
     <div class="px-0 pb-2">
@@ -928,17 +951,6 @@
           <button @click="clearDirectFilters()" class="whitespace-nowrap rounded-md bg-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-300">クリア</button>
         </div>
         <div class="ml-auto flex flex-wrap items-center gap-1.5 sm:gap-2">
-          <input x-ref="directCsvInput" type="file" accept=".csv,text/csv" class="hidden" @change="importDirectCsv($event)" />
-          <button @click="$refs.directCsvInput.click()" :disabled="csvImporting" class="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md bg-emerald-600 text-white disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed text-xs font-medium hover:bg-emerald-700 shadow transition">
-            <svg x-show="csvImporting" x-cloak class="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-            </svg>
-            <svg x-show="!csvImporting" x-cloak class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 16V4m0 0L7 9m5-5l5 5M5 20h14"></path>
-            </svg>
-            <span x-text="csvImporting ? '取込中' : 'CSV取込'"></span>
-          </button>
           <button @click="downloadDirectCSV()" class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-md bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 shadow transition">CSV出力</button>
           <button type="button" data-slip-action="direct-request" @click.prevent.stop="openDirectRequestOutput()" :disabled="transferSlipCreating || !hasDirectRequestPrintableRows()" :class="hasDirectRequestPrintableRows() ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'" class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-xs font-medium shadow transition">依頼書出力</button>
           <button @click="generateDirectOrderCandidates()" :disabled="orderCandidateCreating || !hasDirectOrderCandidateGeneratableRows()" :class="(!orderCandidateCreating && hasDirectOrderCandidateGeneratableRows()) ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'" class="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-xs font-medium shadow transition">
@@ -1053,6 +1065,15 @@
                     <button @click="openDirectProductSearch(row.id)" :disabled="isDirectRowEditLocked(row)" :class="isDirectRowEditLocked(row) ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-indigo-600'" class="shrink-0 p-0.5" title="商品検索">
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                     </button>
+                    <!-- Arrival schedule icon (calendar SVG, blue) -->
+                    <template x-if="hasRowProductInfo(row)">
+                      <button @click="openArrivalSchedule(row)"
+                        class="shrink-0 p-0.5 text-blue-500 hover:text-blue-700" title="入荷予定">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                        </svg>
+                      </button>
+                    </template>
                   </div>
                 </td>
                 <td class="p-1"><div class="px-1 py-1 whitespace-nowrap text-xs" x-text="row.name || '-'"></div></td>
@@ -2483,6 +2504,56 @@ window.distributionApp = function distributionApp() {
       }
     },
 
+    pickingPrintVisible: false,
+    pickingPrintType: 'primary',
+    pickingPrintTypes: [
+      {value:'matrix',label:'作業書（店舗別一覧）'},
+      {value:'primary',label:'1次（分配集約）'},
+      {value:'primary_total',label:'1次リスト（一括）'},
+      {value:'secondary',label:'2次（配送コース別）'},
+      {value:'secondary_v2',label:'2次リスト2（1F→2F→YX順）'},
+      {value:'tertiary',label:'3次（店舗・倉庫別）'},
+    ],
+    async printDistributionPicking() {
+      if (this.pickingPrintType === 'matrix') return this.printDistributionMatrix();
+      const popup = window.open('', '_blank');
+      if (!popup) { this.openModal('エラー','ポップアップを許可してから出力してください。'); return; }
+      popup.document.body.textContent='ピッキングリストを作成しています。';
+      try {
+        await this.waitForDistributionSaves('allocation');
+        const query = new URLSearchParams({type:this.pickingPrintType,shipping_date:this.normalizeFlexibleDate(this.bulkInputDate || '') || '',expected_revision:this.serverRowRevisions.allocation});
+        const response = await fetch('/api/distribution/batches/'+BATCH.id+'/picking-pdf?'+query,{headers:{Accept:'application/pdf, application/json'}});
+        if (!response.ok) {
+          const error=await response.json();
+          throw new Error(Object.values(error.errors || {}).flat().join('\n') || error.message || error.result?.error_message || 'ピッキングリストを出力できませんでした。');
+        }
+        const url=URL.createObjectURL(await response.blob());
+        popup.location.replace(url);
+        setTimeout(()=>URL.revokeObjectURL(url),60000);
+        this.pickingPrintVisible=false;
+      } catch(e) {popup.close();this.openModal('エラー',e.message);}
+    },
+    matrixPrintUnit: 'piece',
+
+    async printDistributionMatrix() {
+      const popup = window.open('', '_blank');
+      if (!popup) { this.openModal('エラー', 'ポップアップを許可してから出力してください。'); return; }
+      popup.document.body.textContent = '分配作業書を作成しています。';
+      try {
+        await this.waitForDistributionSaves('allocation');
+        const query = new URLSearchParams({unit:this.matrixPrintUnit, expected_revision:this.serverRowRevisions.allocation});
+        const response = await fetch('/api/distribution/batches/'+BATCH.id+'/matrix-pdf?'+query, {headers:{Accept:'application/pdf, application/json'}});
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error?.message || error?.result?.error_message || '作業書を出力できませんでした。');
+        }
+        const url = URL.createObjectURL(await response.blob());
+        popup.location.replace(url);
+        this.pickingPrintVisible=false;
+        setTimeout(()=>URL.revokeObjectURL(url),60000);
+      } catch(e) { popup.close(); this.openModal('エラー',e.message); }
+    },
+
     async editBatchInfo() {
       try {
         await this.waitForDistributionSaves('allocation');
@@ -2498,10 +2569,9 @@ window.distributionApp = function distributionApp() {
       this.batchEditor.busy = true;
       try {
         const info = await this.batchRequest('', {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-          name:this.batchEditor.name,shipping_date:this.batchEditor.shipping_date,note:this.batchEditor.note,responsible_department:this.batchEditor.responsible_department,expected_revision:this.batchInfo.revision,
+          name:this.batchEditor.name,note:this.batchEditor.note,responsible_department:this.batchEditor.responsible_department,expected_revision:this.batchInfo.revision,
         })});
         this.batchInfo = info;
-        this.bulkInputDate = info.shipping_date;
         this.serverRowRevisions.allocation = info.revision;
         this.batchEditor.visible = false;
       } catch(e) { this.batchEditor.error = e.message; }
@@ -2557,7 +2627,7 @@ window.distributionApp = function distributionApp() {
     },
 
     async openExcelImport() {
-      if(this.batchInfo?.archived) {this.openModal('注意','終了した分配は変更できません。');return;}
+      if(this.batchInfo?.archived) {this.openModal('注意','すでに対応済みの分配です。作業を再開するには再開するボタンを押してください。');return;}
       try {
         await this.waitForDistributionSaves('allocation');
         this.excelImport={visible:true,file:null,unit:'',storeMode:'',mapping:{},editingColumn:null,preview:null,busy:false,error:'',acknowledged:false,needsPreview:false};
@@ -7091,7 +7161,7 @@ window.distributionApp = function distributionApp() {
     },
 
     queuePersistDistributionRows(mode, rows, options = {}) {
-      if (options.skipServer || this.serverRowsReadOnly || !this.serverRowsPersisted) return;
+      if (options.skipServer || this.serverRowsReadOnly || !this.serverRowsPersisted || (mode === 'allocation' && this.batchInfo?.archived)) return;
 
       if (this.serverSaveTimers[mode]) {
         clearTimeout(this.serverSaveTimers[mode]);
@@ -8366,7 +8436,7 @@ window.distributionApp = function distributionApp() {
     },
 
     async importAllocationCsv(event) {
-      if(this.batchInfo?.archived) {this.openModal('注意','終了した分配は変更できません。');return;}
+      if(this.batchInfo?.archived) {this.openModal('注意','すでに対応済みの分配です。作業を再開するには再開するボタンを押してください。');return;}
       const input = event?.target;
       const file = input?.files?.[0];
       if (!file) return;
@@ -10527,7 +10597,7 @@ window.distributionApp = function distributionApp() {
           const destHeaders = activeDests.map(d => {
             let nm = d.name === '本店' ? d.name : d.name.replace(/店$/, '');
             nm = nm.replace(/サンドーム前/, 'SD前');
-            return `<th style="padding:3px 2px;border:1px solid #d1d5db;background:#f3f4f6;font-size:12px;text-align:center;white-space:nowrap;">${nm}</th>`;
+            return `<th style="padding:3px 2px;border:1px solid #000;background:#f3f4f6;font-size:12px;text-align:center;white-space:nowrap;">${nm}</th>`;
           }).join('');
 
           // 納品希望日を収集（重複排除）
@@ -10593,11 +10663,11 @@ window.distributionApp = function distributionApp() {
             <table class="request-list-table" style="border-collapse:collapse;width:100%;margin-bottom:12px;">
               <thead>
                 <tr style="background:#f3f4f6;">
-                  <th style="padding:3px 3px;border:1px solid #d1d5db;background:#f3f4f6;font-size:13px;">発注用コード（JAN等）</th>
-                  <th style="padding:3px 4px;border:1px solid #d1d5db;background:#f3f4f6;font-size:13px;">商品名</th>
-                  <th style="padding:3px 3px;border:1px solid #d1d5db;background:#f3f4f6;font-size:13px;white-space:nowrap;">入数</th>
+                  <th style="padding:3px 3px;border:1px solid #000;background:#f3f4f6;font-size:13px;">発注用コード（JAN等）</th>
+                  <th style="padding:3px 4px;border:1px solid #000;background:#f3f4f6;font-size:13px;">商品名</th>
+                  <th style="padding:3px 3px;border:1px solid #000;background:#f3f4f6;font-size:13px;white-space:nowrap;">入数</th>
                   ${destHeaders}
-                  <th style="padding:3px 3px;border:1px solid #d1d5db;background:#f3f4f6;font-size:13px;white-space:nowrap;">合計</th>
+                  <th style="padding:3px 3px;border:1px solid #000;background:#f3f4f6;font-size:13px;white-space:nowrap;">合計</th>
                 </tr>
               </thead>
               <tbody>${bodyRows}</tbody>
@@ -10613,22 +10683,22 @@ window.distributionApp = function distributionApp() {
             @page { size: A4 landscape; margin: 5mm; }
             * { margin:0; padding:0; box-sizing:border-box; }
             body { font-family:"BIZ UDPGothic", "Yu Gothic", "YuGothic", "Meiryo", sans-serif; font-size:12px; padding:8px; color:#111827; background:#f3f4f6; overflow-x:auto; }
-            .page-break { position:relative; page-break-after:always; page-break-inside:avoid; width:297mm; min-height:210mm; margin:0 auto 20px; padding:12px 14px 14px; border:1px solid #cbd5e1; background:#fff; box-shadow:0 8px 22px rgba(15,23,42,.12); }
+            .page-break { position:relative; page-break-after:always; page-break-inside:avoid; width:297mm; min-height:210mm; margin:0 auto 20px; padding:12px 14px 14px; border:1px solid #000; background:#fff; box-shadow:0 8px 22px rgba(15,23,42,.12); }
             .page-break:last-child { page-break-after:auto; }
             .document-topline { height:1px; background:#d1d5db; margin:-12px -14px 12px; }
             .document-header { display:flex; justify-content:space-between; gap:20px; align-items:flex-start; margin-bottom:12px; }
             .document-left { min-width:0; flex:1; }
             .document-generated-at { margin-bottom:2px; color:#4b5563; font-size:11px; font-weight:400; line-height:1.2; white-space:nowrap; }
             .document-title { font-size:23px; font-weight:800; line-height:1.15; color:#111827; margin-bottom:4px; }
-            .eos-order-badge { position:absolute; top:74px; left:57%; z-index:2; display:inline-flex; align-items:center; justify-content:center; width:max-content; padding:5px 10px; border:2px solid #1d4ed8; color:#1d4ed8; font-size:15px; font-weight:900; line-height:1.2; white-space:nowrap; transform:translateX(-50%); -webkit-text-stroke:.2px #1d4ed8; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+            .eos-order-badge { position:absolute; top:74px; left:57%; z-index:2; display:inline-flex; align-items:center; justify-content:center; width:max-content; padding:5px 10px; border:2px solid #000; color:#1d4ed8; font-size:15px; font-weight:900; line-height:1.2; white-space:nowrap; transform:translateX(-50%); -webkit-text-stroke:.2px #1d4ed8; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
             .request-meta-line { display:flex; align-items:center; justify-content:space-between; gap:16px; max-width:520px; margin:0 0 9px; }
             .request-number-line { color:#374151; font-size:14px; font-weight:700; white-space:nowrap; }
             .request-page-number { position:absolute; top:2px; right:14px; color:#374151; font-size:12px; font-weight:700; white-space:nowrap; z-index:2; }
-            .supplier-box { border:1px solid #d1d5db; border-left:5px solid #374151; padding:9px 12px; background:#f9fafb; max-width:520px; }
-            .supplier-name { font-size:18px; font-weight:800; border-bottom:1px solid #d1d5db; padding-bottom:4px; margin-bottom:5px; }
+            .supplier-box { border:1px solid #000; border-left:5px solid #000; padding:9px 12px; background:#f9fafb; max-width:520px; }
+            .supplier-name { font-size:18px; font-weight:800; border-bottom:1px solid #000; padding-bottom:4px; margin-bottom:5px; }
             .supplier-contact { display:flex; gap:20px; margin-bottom:4px; font-size:13px; color:#111827; white-space:nowrap; }
             .supplier-caption { margin-top:2px; font-size:14px; color:#4b5563; line-height:1.4; }
-            .company-box { display:flex; flex-direction:column; gap:1px; width:350px; border:1px solid #d1d5db; background:#fff; padding:1px 8px 6px; text-align:right; font-size:14px; line-height:1.2; }
+            .company-box { display:flex; flex-direction:column; gap:1px; width:350px; border:1px solid #000; background:#fff; padding:1px 8px 6px; text-align:right; font-size:14px; line-height:1.2; }
             .company-logo { display:block; width:100%; height:auto; margin:0; }
             .company-info { position:relative; width:100%; margin:0; color:#111827; font-size:13px; line-height:1.2; text-align:right; }
             .company-stamp { position:absolute; top:50%; right:3px; width:64px; height:64px; object-fit:contain; opacity:.45; transform:translateY(-50%); z-index:1; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
@@ -10648,28 +10718,28 @@ window.distributionApp = function distributionApp() {
             .supplier-code-line span, .issue-date-line span, .delivery-date-line span { font-weight:700; }
             .supplier-code-line strong, .issue-date-line strong, .delivery-date-line strong { font-size:14px; font-weight:400; color:#111827; }
             .summary-stamp-cell { width:250px; padding:0 !important; background:#fff; }
-            .summary-stamp-cell .stamp-grid { height:auto; min-height:62px; border:1px solid #d1d5db; font-family:"BIZ UDPGothic", "Yu Gothic", "YuGothic", "Meiryo", sans-serif; }
+            .summary-stamp-cell .stamp-grid { height:auto; min-height:62px; border:1px solid #000; font-family:"BIZ UDPGothic", "Yu Gothic", "YuGothic", "Meiryo", sans-serif; }
             .summary-stamp-cell .stamp-grid span { padding:3px 0; color:#111827; font-size:12px; font-weight:800; }
             .unit-label { text-align:right; font-size:11px; margin-bottom:1px; color:#374151; font-weight:700; }
             table { border-collapse:collapse; width:100%; }
             th { font-weight:bold; text-align:center; }
             .request-list-table thead th { background:#f3f4f6; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-            .request-list-table th { border:1px solid #d1d5db !important; color:#111827; }
-            .request-list-table td { border:1px solid #d1d5db; padding:3px 4px; font-size:13px; line-height:1.15; }
+            .request-list-table th { border:1px solid #000 !important; color:#111827; }
+            .request-list-table td { border:1px solid #000; padding:3px 4px; font-size:13px; line-height:1.15; }
             .jan-cell { min-width:116px; padding:3px 2px !important; white-space:nowrap; text-align:center; font-family:Consolas, "Courier New", monospace; font-size:15px !important; font-weight:700; line-height:1.1; letter-spacing:0; }
             .product-cell { min-width:210px; }
             .center-cell { text-align:center; white-space:nowrap; }
             .qty-cell { text-align:right; white-space:nowrap; min-width:28px; }
             .total-cell { text-align:right; white-space:nowrap; font-weight:800; background:#f9fafb; }
-            .note-box { margin-top:10px; padding:8px 10px; border:1px solid #d6b35a; border-radius:3px; font-size:12px; background:#fff8dc; }
+            .note-box { margin-top:10px; padding:8px 10px; border:1px solid #000; border-radius:3px; font-size:12px; background:#fff8dc; }
             .note-box span { font-weight:800; }
             .footer-area { margin:12px 0 6px; }
-            .comment-box { border:1px solid #cbd5e1; background:#fff; padding:7px; min-height:30px; font-size:12px; line-height:1.4; }
+            .comment-box { border:1px solid #000; background:#fff; padding:7px; min-height:30px; font-size:12px; line-height:1.4; }
             .comment-box span { font-weight:800; }
-            .stamp-grid { display:grid; grid-template-columns:repeat(3,1fr); border:1px solid #d1d5db; min-height:56px; text-align:center; font-size:11px; color:#374151; }
-            .stamp-grid div { border-left:1px solid #d1d5db; }
+            .stamp-grid { display:grid; grid-template-columns:repeat(3,1fr); border:1px solid #000; min-height:56px; text-align:center; font-size:11px; color:#374151; }
+            .stamp-grid div { border-left:1px solid #000; }
             .stamp-grid div:first-child { border-left:0; }
-            .stamp-grid span { display:block; padding:4px 0; border-bottom:1px solid #d1d5db; background:#f3f4f6; font-weight:700; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+            .stamp-grid span { display:block; padding:4px 0; border-bottom:1px solid #000; background:#f3f4f6; font-weight:700; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
             .btn-container { position:fixed; top:20px; right:20px; display:flex; gap:8px; z-index:1000; }
             .print-button, .download-button { color:white; border:none; padding:12px 24px; font-size:16px; font-weight:bold; border-radius:8px; cursor:pointer; }
             .print-button { background:#2563eb; }
@@ -11259,8 +11329,9 @@ window.distributionApp = function distributionApp() {
           distribution_business_key: this.getDistributionBusinessKey(row, 'allocation'),
           item_id: row.itemId || null,
           product_code: row.productCode || '',
-          order_date: processDate || row.orderDate || '',
-          delivery_date: processDate || row.deliveryDate || '',
+          // Keep the saved row snapshot intact; process_date controls the generated slip.
+          order_date: row.orderDate || '',
+          delivery_date: row.deliveryDate || '',
           delivery_course_id: toInt(row.deliveryCourseId || row.delivery_course_id || 0) || null,
           memo: row.memo || '',
           allocations: allocations,
@@ -11454,7 +11525,8 @@ window.distributionApp = function distributionApp() {
     },
 
     async createWarehouseTransfers(dataset, destsList = DESTS, options = {}) {
-      const processDate = this.normalizeFlexibleDate(this.bulkInputDate || '') || getTodayString();
+      const processDate = this.normalizeFlexibleDate(this.bulkInputDate || '');
+      if (!processDate) throw new Error('倉庫移動を生成する出荷日を指定してください。');
       this.bulkInputDate = processDate;
       const payload = this.buildStockTransferSlipPayload(dataset, '倉庫移動生成', destsList, {
         processDate,
@@ -11578,6 +11650,10 @@ window.distributionApp = function distributionApp() {
       let hasUnpersistedChunkSuccess = false;
 
       try {
+        if (!this.normalizeFlexibleDate(this.bulkInputDate || '')) {
+          this.openModal('エラー', '倉庫移動を生成する出荷日を指定してください。');
+          return;
+        }
         if (!this.hasSelectedBulkDeliveryCourse()) {
           this.openModal('エラー', this.getMissingDeliveryCourseMessage());
           return;
@@ -11981,10 +12057,15 @@ window.distributionApp = function distributionApp() {
       const includeZeroAllocRows = !!options.includeZeroAllocRows;
       let printedPageNumber = 0;
 
-      const slipsHtml = (options.documents || []).map((document, documentIndex) => {
+      const slipsHtml = [
+        { type: 'in', title: '転送伝票（入庫用）' },
+        { type: 'out', title: '転送伝票（出庫用）' },
+        { type: 'reference', title: '' },
+      ].map(copy => (options.documents || []).map((document, documentIndex) => {
         const dest = document.destination;
         const destData = document.rows;
         const reference = document.kind !== 'transfer';
+        if (reference !== (copy.type === 'reference')) return '';
         const referenceTitle = document.kind === 'direct-reference' ? '直送分配参考（移動伝票なし）' : '参考明細（実伝票なし）';
         const orderDate = document.picking_date || '';
         const deliveredDate = document.delivered_date || '';
@@ -12000,12 +12081,7 @@ window.distributionApp = function distributionApp() {
         const slipIdentity = slipNumber;
         const sourceWarehouseLabel = HQ_WAREHOUSE_CODE + ' ' + HQ_WAREHOUSE_NAME;
         const destinationWarehouseLabel = (dest.code || dest.key || '') + ' ' + (dest.name || '');
-        const copies = reference ? [{ type: 'reference', title: referenceTitle }] : [
-          { type: 'in', title: '転送伝票（入庫用）' },
-          { type: 'out', title: '転送伝票（出庫用）' },
-        ];
-
-        return copies.map(copy => destPages.map((pageRows, pageIndex) => {
+        return destPages.map((pageRows, pageIndex) => {
           printedPageNumber++;
           const rowsHtml = pageRows.map(r => {
             const alloc = toInt(r['alloc_' + dest.key] || 0);
@@ -12084,8 +12160,8 @@ window.distributionApp = function distributionApp() {
               rowsHtml +
             '</table>' +
           '</section>';
-        }).join('')).join('');
-      }).filter(html => html !== '').join('');
+        }).join('');
+      }).filter(html => html !== '').join('')).join('');
 
       if (!slipsHtml || slipsHtml.trim() === '') {
         this.openModal('エラー', includeZeroAllocRows ? '希望または分配が入力されている店舗がありません。' : '分配数が入力されている店舗がありません。');
