@@ -150,6 +150,10 @@
     .distribution-batch-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
     .distribution-batch-title a { flex-shrink: 0; font-size: 12px; color: #475569; }
     .distribution-batch-title strong { font-size: 15px; color: #0f172a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .distribution-department-badge { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 3px 9px; border: 1px solid #cbd5e1; border-radius: 5px; background: #f8fafc; color: #64748b; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .distribution-department-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .distribution-department-badge.is-warehouse { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
+    .distribution-department-badge.is-headquarters { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
     .distribution-batch-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 5px; font-size: 11px; color: #64748b; }
     .distribution-batch-meta b { font-weight: 500; color: #334155; }
     .distribution-batch-note { max-width: 28rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -361,9 +365,9 @@
       <div class="distribution-batch-title">
         <a href="/admin/distribution-adjustment">← 一覧へ戻る</a>
         <strong x-text="batchInfo.name" :title="batchInfo.name"></strong>
+        <span class="distribution-department-badge" :class="{'is-warehouse': batchInfo.responsible_department === 'warehouse', 'is-headquarters': batchInfo.responsible_department === 'headquarters'}" :aria-label="'担当部署：' + (batchInfo.responsible_department_label || '未設定')" x-text="batchInfo.responsible_department_label || '担当未設定'"></span>
       </div>
       <div class="distribution-batch-meta">
-        <span>担当部署 <b x-text="batchInfo.responsible_department_label"></b></span>
         <span>登録者 <b x-text="batchInfo.creator"></b></span>
         <span x-show="batchInfo.note" class="distribution-batch-note" :title="batchInfo.note">備考 <b x-text="batchInfo.note"></b></span>
       </div>
