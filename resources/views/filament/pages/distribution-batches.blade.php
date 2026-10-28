@@ -35,7 +35,7 @@
         <div class="batch-tools">
             <button type="button" class="primary" @click="openCreate()">＋ 新規分配登録</button>
             <input class="batch-search" x-model="search" @keydown.enter.prevent="load(1)" placeholder="分配名・備考で検索" aria-label="分配検索">
-            <label class="batch-date">出荷日<input type="date" x-model="date" @change="load(1)" aria-label="出荷日で絞込"></label>
+            <label class="batch-date">出荷日<input type="date" x-model="date" @change="load(1)" aria-label="出荷日で絞込"><button type="button" x-show="date" @click="date='';load(1)" aria-label="出荷日の絞り込みを解除" class="px-2">×</button></label>
             <button type="button" class="secondary" @click="load(1)">検索</button>
         </div>
         <div class="batch-filterbar">
@@ -70,7 +70,7 @@
         <div class="batch-scroll">
             <table><thead><tr><th>分配名</th><th>担当部署</th><th>出荷日</th><th>登録者</th><th>登録日時</th><th>最終更新者</th><th>最終更新日時</th><th>商品行数</th><th>分配合計（バラ）</th><th>処理状況</th><th>備考</th><th>操作</th></tr></thead>
                 <tbody><template x-for="batch in batches" :key="batch.id"><tr>
-                    <td x-text="batch.name"></td><td><span class="batch-department-badge" :class="{'is-warehouse':batch.responsible_department==='warehouse','is-headquarters':batch.responsible_department==='headquarters'}" x-text="batch.responsible_department_label || '未設定'"></span></td><td x-text="batch.shipping_date || '要確認'"></td><td x-text="batch.creator"></td><td x-text="batch.created_at"></td><td x-text="batch.updater"></td><td x-text="batch.updated_at"></td><td x-text="batch.row_count"></td><td x-text="batch.total"></td><td x-text="batch.status"></td><td x-text="batch.note"></td>
+                    <td x-text="batch.name"></td><td><span class="batch-department-badge" :class="{'is-warehouse':batch.responsible_department==='warehouse','is-headquarters':batch.responsible_department==='headquarters'}" x-text="batch.responsible_department_label || '未設定'"></span></td><td x-text="batch.shipping_date || '生成時に指定'"></td><td x-text="batch.creator"></td><td x-text="batch.created_at"></td><td x-text="batch.updater"></td><td x-text="batch.updated_at"></td><td x-text="batch.row_count"></td><td x-text="batch.total"></td><td x-text="batch.status"></td><td x-text="batch.note"></td>
                     <td><a :href="'/admin/distribution-adjustment/'+batch.id" class="text-blue-700">詳細</a></td>
                 </tr></template></tbody>
             </table>
@@ -81,7 +81,6 @@
             <form class="batch-dialog" @submit.prevent="create()">
                 <header>新規分配登録</header><main>
                     <label>分配名（必須）<input x-model="form.name" required maxlength="100" autofocus></label>
-                    <label>出荷日（必須）<input type="date" x-model="form.shipping_date" required></label>
                     @include('filament.partials.distribution-department-field', ['departmentModel' => 'form.responsible_department', 'departmentBusy' => 'saving', 'departmentGroup' => 'create-department'])
                     <label>備考<textarea x-model="form.note" rows="3" maxlength="1000"></textarea></label>
                     <p>登録者：{{ auth()->user()?->name }}</p><p class="batch-error" x-text="formError" role="alert"></p>
@@ -93,7 +92,7 @@
         window.distributionBatchList = function () {
             return {batches:[],search:'',date:'',mine:false,department:'',status:'',page:1,lastPage:1,loading:false,error:'',creating:false,saving:false,formError:'',form:{},
                 init(){this.load(1)},
-                openCreate(){this.form={name:'',shipping_date:{{ \Illuminate\Support\Js::from(now()->toDateString()) }},note:'',responsible_department:'',execution_id:crypto.randomUUID()};this.formError='';this.creating=true},
+                openCreate(){this.form={name:'',note:'',responsible_department:'',execution_id:crypto.randomUUID()};this.formError='';this.creating=true},
                 async request(url,options={}){const response=await fetch(url,{...options,headers:{Accept:'application/json','Content-Type':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name="csrf-token"]').content,...options.headers}});const data=await response.json();if(!response.ok)throw new Error(Object.values(data.errors||{}).flat().join('\n')||data.result?.error_message||data.message||'処理に失敗しました。');return data.result.data},
                 async load(page){this.loading=true;this.error='';try{const data=await this.request('/api/distribution/batches?'+new URLSearchParams({page,search:this.search,status:this.status,responsible_department:this.department,shipping_date:this.date,mine:this.mine?'1':'0'}));this.batches=data.data;this.page=data.current_page;this.lastPage=data.last_page}catch(e){this.error=e.message}finally{this.loading=false}},
                 async create(){if(this.saving)return;this.saving=true;this.formError='';try{const batch=await this.request('/api/distribution/batches',{method:'POST',body:JSON.stringify(this.form)});window.location.href='/admin/distribution-adjustment/'+batch.id}catch(e){this.formError=e.message;this.saving=false}}

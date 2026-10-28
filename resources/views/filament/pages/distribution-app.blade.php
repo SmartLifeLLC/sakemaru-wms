@@ -140,7 +140,72 @@
     <div class="distribution-app-shell">
         <style>
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap");
-    .allocation-product-name {width:210px;min-width:210px;max-width:210px;}
+    /* HQ batch details use the available panel height; only the table scrolls. */
+    .fi-page-header-main-ctn:has(.distribution-batch-layout) { margin-top: 0 !important; }
+    .fi-page-main:has(.distribution-batch-layout) { margin-top: 0 !important; }
+    .distribution-app-shell:has(.distribution-batch-layout) { height: calc(100dvh - 2.5rem); min-height: 0; }
+    .distribution-batch-layout { height: 100%; min-height: 0; display: flex; flex-direction: column; padding-top: 8px; padding-bottom: 8px; gap: 8px; }
+    .distribution-batch-header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; flex-shrink: 0; padding: 10px 12px; border: 1px solid #dbe2ea; border-radius: 8px; background: #fff; }
+    .distribution-batch-heading { flex: 1 1 280px; min-width: 0; }
+    .distribution-batch-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .distribution-batch-title a { flex-shrink: 0; font-size: 12px; color: #475569; }
+    .distribution-batch-title strong { font-size: 15px; color: #0f172a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .distribution-department-badge { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 3px 9px; border: 1px solid #cbd5e1; border-radius: 5px; background: #f8fafc; color: #64748b; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .distribution-department-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .distribution-department-badge.is-warehouse { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
+    .distribution-department-badge.is-headquarters { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+    .distribution-batch-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 5px; font-size: 11px; color: #64748b; }
+    .distribution-batch-meta b { font-weight: 500; color: #334155; }
+    .distribution-batch-note { max-width: 28rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .distribution-batch-actions { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .distribution-batch-actions button { height: 32px; padding: 0 12px; border-radius: 6px; font-size: 12px; white-space: nowrap; border: 1px solid #cbd5e1; background: #fff; color: #334155; }
+    .distribution-batch-actions button:hover { background: #f8fafc; }
+    .distribution-batch-actions .distribution-delete { border-color: #fecaca; color: #dc2626; }
+    .distribution-batch-actions .distribution-picking { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+    .distribution-batch-actions .distribution-picking:hover { background: #4338ca; }
+    .distribution-batch-actions button:disabled { opacity: .5; cursor: not-allowed; }
+    .distribution-batch-layout .distribution-allocation-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    .distribution-batch-layout .distribution-allocation-filters { flex-shrink: 0; position: relative; padding: 8px 10px; background: #fff; border: 1px solid #dbe2ea; border-radius: 8px 8px 0 0; box-shadow: none; }
+    .distribution-batch-layout .distribution-allocation-filters > div { padding: 0; }
+    .distribution-batch-layout .distribution-allocation-controls { flex-shrink: 0; padding: 8px 10px; margin-bottom: 8px; background: #fff; border: 1px solid #dbe2ea; border-top: 0; border-radius: 0 0 8px 8px; }
+    .distribution-batch-layout .distribution-control-row { margin: 0; gap: 8px; }
+    .distribution-batch-layout .distribution-control-row > button,
+    .distribution-batch-layout .distribution-file-actions > button,
+    .distribution-batch-layout .distribution-allocation-filters input,
+    .distribution-batch-layout .distribution-allocation-filters select,
+    .distribution-batch-layout .distribution-allocation-controls input:not(.date-entry-native) { height: 32px; box-shadow: none; }
+    .distribution-batch-layout .distribution-allocation-filters input { padding-top: 0; padding-bottom: 0; }
+    .distribution-batch-layout .distribution-table-frame { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 0; }
+    .distribution-batch-layout .allocation-scroll { flex: 1; min-height: 0; max-height: none !important; border: 1px solid #dbe2ea; border-radius: 8px; box-shadow: none; }
+    .allocation-scroll { cursor: grab; scroll-padding-left: 708px; }
+    .allocation-scroll.is-dragging { cursor: grabbing; user-select: none; }
+    .allocation-grid { table-layout: fixed; border-collapse: separate; border-spacing: 0; }
+    .allocation-grid th, .allocation-grid td { box-sizing: border-box; }
+    .allocation-grid tbody td { border-top: 1px solid #e5e7eb; }
+    .allocation-grid .allocation-fixed { position: sticky; z-index: 2; background-color: #fff; }
+    .allocation-grid thead .allocation-fixed { z-index: 3; background-color: #f8fafc; }
+    .allocation-select { width: 32px; left: 0; font-size: 10px; }
+    .allocation-product { width: 400px; left: 32px; }
+    .allocation-theory { width: 56px; left: 432px; }
+    .allocation-summary { width: 56px; left: 488px; }
+    .allocation-cases { width: 52px; left: 544px; }
+    .allocation-pieces { width: 52px; left: 596px; }
+    .allocation-total { width: 60px; left: 648px; box-shadow: 2px 0 0 #94a3b8, 5px 0 8px -4px #64748b; }
+    .allocation-grid tr.bg-gray-100 .allocation-fixed { background-color: #f3f4f6; }
+    .allocation-grid .allocation-theory.is-short { background-color: #fee2e2; }
+    .allocation-grid .allocation-total { background-color: #f8fafc; }
+    .allocation-grid .allocation-status { width: 104px; }
+    .allocation-grid .allocation-destination { width: 52px; padding: 0; }
+    .allocation-grid .allocation-memo { width: 64px; }
+    .allocation-grid .allocation-quantity { height: 26px; min-width: 0; padding: 2px 3px; font-size: 12px; font-variant-numeric: tabular-nums; }
+    .allocation-grid .allocation-destination-input { width: calc(100% - 4px); margin: 2px; }
+    .allocation-grid .allocation-wish { height: 28px; padding: 5px 5px 3px; font-variant-numeric: tabular-nums; }
+    .allocation-grid .allocation-product-name-text { padding: 3px 0 0; line-height: 16px; }
+    .allocation-grid .product-code-entry { height: 24px; padding: 2px 4px; }
+    .allocation-grid .allocation-note { width: 20px; height: 20px; flex-shrink: 0; }
+    .allocation-grid .allocation-capacity { margin-left: auto; color: #64748b; font-size: 10px; white-space: nowrap; }
+    .allocation-scroll input, .allocation-scroll button, .allocation-scroll select { cursor: auto; }
+    .allocation-scroll button:not(:disabled) { cursor: pointer; }
     .allocation-product-name-text {white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;}
     .allocation-product-name-text:focus {display:block;background:#f1f5f9;position:relative;z-index:15;}
     .distribution-app-shell { font-family: "Inter", sans-serif; width: 100%; min-width: 0; background: #f9fafb; }
@@ -293,16 +358,27 @@
     }
         </style>
 
-<div x-data="distributionApp()" :inert="distributionRowsLoading || warehouseTransferCreating || transferSlipCreating || orderCandidateCreating" class="w-full min-w-0 px-3 sm:px-4 lg:px-5 text-neutral-900">
+<div x-data="distributionApp()" :inert="distributionRowsLoading || warehouseTransferCreating || transferSlipCreating || orderCandidateCreating" class="w-full min-w-0 px-3 sm:px-4 lg:px-5 text-neutral-900 {{ $distributionBatchForView ? 'distribution-batch-layout' : '' }}">
   @if($distributionBatchForView)
-  <div class="mb-3 flex flex-wrap items-center gap-3 rounded-lg border bg-white p-3 text-sm">
-    <a href="/admin/distribution-adjustment" class="text-blue-700">一覧へ戻る</a>
-    <strong x-text="batchInfo.name"></strong><span>出荷日：<span x-text="batchInfo.shipping_date || '要確認'"></span></span>
-    <span>担当部署：<span x-text="batchInfo.responsible_department_label"></span></span>
-    <span>登録者：<span x-text="batchInfo.creator"></span></span><span x-text="batchInfo.note"></span>
-    <button @click="editBatchInfo()" :disabled="batchInfo.archived" class="rounded border px-3 py-1">分配情報を変更</button>
-    <button @click="archiveBatch()" class="rounded border px-3 py-1" x-text="batchInfo.archived ? '再開する' : '終了にする'"></button>
-    <button @click="deleteBatch()" :disabled="batchInfo.archived" class="rounded border border-red-300 px-3 py-1 text-red-700">分配を削除</button>
+  <div class="distribution-batch-header">
+    <div class="distribution-batch-heading">
+      <div class="distribution-batch-title">
+        <a href="/admin/distribution-adjustment" @click.prevent="returnToBatchList()">← 一覧へ戻る</a>
+        <strong x-text="batchInfo.name" :title="batchInfo.name"></strong>
+        <span class="distribution-department-badge" :class="{'is-warehouse': batchInfo.responsible_department === 'warehouse', 'is-headquarters': batchInfo.responsible_department === 'headquarters'}" :aria-label="'担当部署：' + (batchInfo.responsible_department_label || '未設定')" x-text="batchInfo.responsible_department_label || '担当未設定'"></span>
+      </div>
+      <div class="distribution-batch-meta">
+        <span>登録者 <b x-text="batchInfo.creator"></b></span>
+        <span x-show="batchInfo.note" class="distribution-batch-note" :title="batchInfo.note">備考 <b x-text="batchInfo.note"></b></span>
+      </div>
+    </div>
+    <div class="distribution-batch-actions">
+      <button type="button" @click="returnToBatchList()">一覧に戻る</button>
+      <button @click="editBatchInfo()" :disabled="batchInfo.archived">分配情報を変更</button>
+      <button @click="archiveBatch()" x-text="batchInfo.archived ? '再開する' : '終了にする'"></button>
+      <button @click="deleteBatch()" :disabled="batchInfo.archived" class="distribution-delete">分配を削除</button>
+      <button type="button" @click="pickingPrintVisible=true" class="distribution-picking">ピッキングリスト</button>
+    </div>
   </div>
   @include('filament.pages.distribution-excel-import')
   <div x-show="batchEditor.visible" x-cloak class="fixed inset-0 z-[220] flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="分配情報を変更">
@@ -310,7 +386,6 @@
       <div class="bg-slate-800 px-5 py-3 text-white">分配情報を変更</div>
       <div class="grid gap-4 p-5">
         <label class="distribution-form-label">分配名 <span class="distribution-required">必須</span><input x-model="batchEditor.name" required maxlength="100" :disabled="batchEditor.busy" class="distribution-form-input"></label>
-        <label class="distribution-form-label">出荷日 <span class="distribution-required">必須</span><input type="date" x-model="batchEditor.shipping_date" required :disabled="batchEditor.busy" class="distribution-form-input"></label>
         @include('filament.partials.distribution-department-field', ['departmentModel' => 'batchEditor.responsible_department', 'departmentBusy' => 'batchEditor.busy', 'departmentGroup' => 'edit-department'])
         <label class="distribution-form-label">備考<textarea x-model="batchEditor.note" maxlength="1000" rows="3" :disabled="batchEditor.busy" class="distribution-form-input"></textarea></label>
         <p class="whitespace-pre-wrap text-red-700" role="alert" x-text="batchEditor.error"></p>
@@ -319,6 +394,8 @@
     </form>
   </div>
   @endif
+
+  <div x-show="batchInfo?.archived" x-cloak class="my-2 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">すでに対応済みの分配です。作業を再開するには再開するボタンを押してください。</div>
 
   <div x-show="serverRowsLoadError" x-cloak role="alert" class="my-2 flex items-center justify-between gap-3 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
     <span x-text="serverRowsLoadError"></span>
@@ -510,7 +587,7 @@
          x-transition:leave-start="opacity-100 transform scale-100"
          x-transition:leave-end="opacity-0 transform scale-95"
          class="relative bg-white rounded-lg shadow-xl p-4 sm:p-6 max-w-lg sm:max-w-2xl w-full" :style="batchInfo ? 'padding:0;overflow:hidden' : ''" @click.stop>
-      <div x-show="batchInfo" class="bg-slate-800 px-5 py-3 text-white">確認</div>
+      <div x-show="batchInfo" class="bg-slate-800 px-5 py-3 text-white" x-text="confirmBatchAction === '終了にする' ? '分配終了の確認' : (confirmBatchAction === '分配を削除' ? '分配削除の確認' : '確認')"></div>
       <div class="flex items-center gap-3 mb-4" :style="batchInfo ? 'padding:20px;margin:0' : ''">
         <template x-if="confirmModalType === 'delete'">
           <div class="flex-shrink-0 w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
@@ -525,11 +602,13 @@
         <div class="min-w-0 flex-1">
           <p x-show="!batchInfo" class="text-lg font-bold" :class="confirmModalType === 'delete' ? 'text-red-600' : 'text-yellow-600'" x-text="confirmModalType === 'delete' ? '削除確認' : '確認'"></p>
         <p class="text-gray-700 mt-1 leading-relaxed whitespace-pre-line" x-text="confirmMessage"></p>
+        <p x-show="confirmBatchAction" class="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm leading-relaxed text-blue-900">入力作業を終えて画面を離れるだけの場合は、「一覧に戻る」を押してください。分配の終了・削除は行いません。</p>
         </div>
       </div>
       <div class="flex justify-end gap-3" :style="batchInfo ? 'padding:14px 20px;border-top:1px solid #e2e8f0' : ''">
-        <button @click="confirmVisible = false; confirmCallback = null" class="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium" x-text="batchInfo ? '操作せず閉じる' : 'キャンセル'"></button>
-        <button @click="doConfirm()" class="px-4 py-2 text-white rounded-lg font-medium" :class="(batchInfo || confirmModalType === 'delete') ? 'bg-red-600 hover:bg-red-700' : 'bg-yellow-600 hover:bg-yellow-700'" x-text="confirmModalType === 'delete' ? '削除' : (batchInfo ? '実行する' : 'OK')"></button>
+        <button @click="confirmVisible = false; confirmCallback = null" class="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium" x-text="confirmBatchAction === '分配を削除' ? '削除せず閉じる' : (confirmBatchAction ? '終了せず閉じる' : (batchInfo ? '操作せず閉じる' : 'キャンセル'))"></button>
+        <button x-show="confirmBatchAction" @click="returnToBatchList()" class="px-4 py-2 border border-gray-300 rounded-lg font-medium">一覧に戻る</button>
+        <button @click="doConfirm()" class="px-4 py-2 text-white rounded-lg font-medium" :class="(batchInfo || confirmModalType === 'delete') ? 'bg-red-600 hover:bg-red-700' : 'bg-yellow-600 hover:bg-yellow-700'" x-text="confirmBatchAction || (confirmModalType === 'delete' ? '削除' : (batchInfo ? '実行する' : 'OK'))"></button>
       </div>
     </div>
   </div>
@@ -537,10 +616,10 @@
 @if ($distributionInitialTabForView === 'allocation')
   <!-- ==================== Allocation Tab ==================== -->
   <template x-if="activeSubTab === 'allocation'">
-    <div :inert="!!serverRowsLoadError">
+    <div class="distribution-allocation-pane" :inert="!!serverRowsLoadError">
 
     <!-- Filters -->
-    <div class="sticky top-0 z-20 bg-white/90 backdrop-blur shadow-sm">
+    <div class="distribution-allocation-filters sticky top-0 z-20 bg-white/90 backdrop-blur shadow-sm">
       <div class="px-0 py-1">
         <div class="distribution-filter-controls flex flex-wrap items-center gap-1.5 text-xs">
           <div class="relative flex-none" style="width: 18rem; max-width: 100%;">
@@ -563,8 +642,8 @@
     </div>
 
     <!-- Controls -->
-    <div class="px-0 pt-1">
-      <div class="mb-1 flex flex-wrap items-center gap-1.5 sm:gap-2">
+    <div class="distribution-allocation-controls px-0 pt-1">
+      <div class="distribution-control-row mb-1 flex flex-wrap items-center gap-1.5 sm:gap-2">
         <button @click="addRow()" :disabled="!!batchInfo?.archived" class="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md bg-green-600 hover:bg-green-700 text-white font-medium shadow transition text-xs">+ 行追加</button>
         <button x-show="false" x-cloak @click="toggleAllCheckedVisible()"
           :class="allVisibleChecked() ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' : 'bg-indigo-600 hover:bg-indigo-700 text-white'"
@@ -580,9 +659,9 @@
         <div class="flex flex-wrap items-center gap-1 text-xs">
           <span class="text-slate-500 whitespace-nowrap">出荷日</span>
           <div class="date-entry" style="width: 8.75rem; min-width: 8.75rem;">
-            <input type="text" :disabled="!!batchInfo" x-model="bulkInputDate" @blur="bulkInputDate = normalizeFlexibleDate(bulkInputDate); queueBulkAllocationAutoApply()" @keydown.enter.prevent="bulkInputDate = normalizeFlexibleDate(bulkInputDate); queueBulkAllocationAutoApply(); $event.target.blur()" inputmode="numeric" placeholder="YYYY-MM-DD" class="date-entry-text w-full rounded-md border-gray-300 border px-2 py-1 text-xs shadow-sm" />
+            <input type="text" :disabled="!!batchInfo?.archived" x-model="bulkInputDate" @blur="bulkInputDate = normalizeFlexibleDate(bulkInputDate); queueBulkAllocationAutoApply()" @keydown.enter.prevent="bulkInputDate = normalizeFlexibleDate(bulkInputDate); queueBulkAllocationAutoApply(); $event.target.blur()" inputmode="numeric" placeholder="YYYY-MM-DD" class="date-entry-text w-full rounded-md border-gray-300 border px-2 py-1 text-xs shadow-sm" />
             <label class="date-entry-picker" title="カレンダー選択">
-              <input type="date" :disabled="!!batchInfo" :value="bulkInputDate" @change="bulkInputDate = $event.target.value; queueBulkAllocationAutoApply()" class="date-entry-native" />
+              <input type="date" :disabled="!!batchInfo?.archived" :value="bulkInputDate" @change="bulkInputDate = $event.target.value; queueBulkAllocationAutoApply()" class="date-entry-native" />
               <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
             </label>
           </div>
@@ -606,18 +685,7 @@
           </div>
         </div>
 
-        <div class="ml-auto flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs sm:text-sm">
-          <input x-ref="allocationCsvInput" type="file" accept=".csv,text/csv" class="hidden" @change="importAllocationCsv($event)" />
-          <button @click="$refs.allocationCsvInput.click()" :disabled="csvImporting || !!batchInfo?.archived" class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">
-            <svg x-show="csvImporting" x-cloak class="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-            </svg>
-            <svg x-show="!csvImporting" x-cloak class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 16V4m0 0L7 9m5-5l5 5M5 20h14"></path>
-            </svg>
-            <span x-text="csvImporting ? '取込中' : 'CSV取込'"></span>
-          </button>
+        <div class="distribution-file-actions ml-auto flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs sm:text-sm">
           @if($distributionBatchForView)
           <button type="button" @click="openExcelImport()" :disabled="!!batchInfo?.archived" class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">
             <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
@@ -644,13 +712,44 @@
       </div>
     </div>
 
+    @if($distributionBatchForView)
+    <div x-show="pickingPrintVisible" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" @keydown.escape.window="pickingPrintVisible=false">
+      <section role="dialog" aria-label="ピッキングリスト出力" aria-modal="true" class="w-full max-w-5xl overflow-hidden rounded-lg bg-white shadow-xl">
+        <header class="bg-slate-800 px-5 py-4 font-bold text-white">ピッキングリスト出力</header>
+        <div class="space-y-4 p-5">
+          <p class="text-sm" x-text="pickingPrintType === 'matrix' ? '商品別・店舗別の分配数量を一覧で出力します。' : '分配数量から出力します。波動は生成しません。棚番は標準棚番を優先し、未登録の場合は在庫ロットの棚番を表示します。'"></p>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <template x-for="option in pickingPrintTypes" :key="option.value">
+              <label class="flex cursor-pointer items-center gap-2 rounded-lg border-2 p-4 text-sm" :class="pickingPrintType===option.value ? 'border-blue-500 bg-blue-50' : 'border-gray-200'">
+                <input type="radio" name="distribution-picking-type" :value="option.value" x-model="pickingPrintType"><span x-text="option.label"></span>
+              </label>
+            </template>
+          </div>
+          <fieldset x-show="pickingPrintType === 'matrix'" x-cloak class="flex items-center gap-4 text-sm">
+            <legend class="mb-2 font-medium">作業書の数量単位</legend>
+            <label class="flex cursor-pointer items-center gap-2 rounded border border-gray-300 px-4 py-2"><input type="radio" name="distribution-matrix-unit" value="piece" x-model="matrixPrintUnit">バラ</label>
+            <label class="flex cursor-pointer items-center gap-2 rounded border border-gray-300 px-4 py-2"><input type="radio" name="distribution-matrix-unit" value="case" x-model="matrixPrintUnit">ケース</label>
+          </fieldset>
+        </div>
+        <footer class="flex justify-end gap-3 border-t p-4">
+          <button type="button" @click="pickingPrintVisible=false" class="rounded border border-gray-300 px-4 py-2">出力せず閉じる</button>
+          <button type="button" @click="printDistributionPicking()" class="rounded bg-red-600 px-4 py-2 text-white">PDF出力</button>
+        </footer>
+      </section>
+    </div>
+    @endif
+
     <!-- Main Table -->
-    <div class="px-0 pb-2">
-      <div x-ref="allocationMainScroll" class="overflow-auto rounded-lg bg-white shadow-md" style="max-height: calc(100vh - 180px);">
-        <table class="w-full table-auto text-xs" :style="'min-width: ' + getAllocationTableMinWidth() + 'px;'">
+    <div class="distribution-table-frame px-0 pb-2">
+      <div x-ref="allocationMainScroll" class="allocation-scroll overflow-auto rounded-lg bg-white shadow-md"
+        :class="allocationDrag ? 'is-dragging' : ''"
+        @pointerdown="startAllocationDrag($event)" @pointermove="moveAllocationDrag($event)"
+        @pointerup="endAllocationDrag($event)" @pointercancel="endAllocationDrag($event)"
+        @lostpointercapture="endAllocationDrag($event)" style="max-height: calc(100vh - 180px);">
+        <table class="allocation-grid text-xs" :style="'width: ' + getAllocationTableMinWidth() + 'px;'">
           <thead class="sticky top-0 z-10">
             <tr class="divide-x divide-gray-200 border-t border-gray-300 bg-neutral-50 text-xs text-neutral-500">
-              <th class="whitespace-nowrap w-10 p-1 text-center">
+              <th class="allocation-fixed allocation-select p-1 text-center">
                 <div class="leading-tight">選択</div>
                 <input type="checkbox"
                   :checked="allVisibleDeleteSelected(false)"
@@ -668,31 +767,28 @@
                 <div>発注先</div>
                 <div class="mt-0.5 text-[10px] leading-none text-neutral-400">仕入先</div>
               </th>
-              <th class="whitespace-nowrap w-28 p-1 text-left">商品コード</th>
-              <th class="allocation-product-name p-1 text-left">商品名</th>
-              <th class="whitespace-nowrap w-12 p-1 text-center">入数</th>
-              <th class="whitespace-nowrap w-12 p-1 text-center">備考</th>
-              <th class="whitespace-nowrap w-14 min-w-[3.5rem] p-1 text-center">理論</th>
-              <th class="whitespace-nowrap w-14 min-w-[3.5rem] p-0 text-center">
+              <th class="allocation-fixed allocation-product p-1 text-left">商品CD / 商品名</th>
+              <th class="allocation-fixed allocation-theory p-1 text-center">理論</th>
+              <th class="allocation-fixed allocation-summary p-0 text-center">
                 <div class="flex h-6 items-center justify-center px-1 leading-tight">希計</div>
                 <div class="flex h-6 items-center justify-center border-t border-gray-300 px-1 leading-tight">分計</div>
               </th>
-              <th class="whitespace-nowrap w-16 p-1 text-center">ケース</th>
-              <th class="whitespace-nowrap w-16 p-1 text-center">バラ</th>
-              <th class="whitespace-nowrap w-12 p-1 text-center">総バラ</th>
-              <th class="w-px whitespace-nowrap p-0.5 text-center">状態</th>
+              <th class="allocation-fixed allocation-cases p-1 text-center">ケース</th>
+              <th class="allocation-fixed allocation-pieces p-1 text-center">バラ</th>
+              <th class="allocation-fixed allocation-total p-1 text-center">総バラ</th>
+              <th class="allocation-status p-0.5 text-center">状態</th>
               <template x-for="dest in getAllocationDisplayDestinations()" :key="dest.key">
-                <th class="w-[60px] min-w-[60px] max-w-[60px] border-l border-gray-300 p-1 text-center">
+                <th class="allocation-destination border-l border-gray-300 text-center">
                   <div class="text-xs font-semibold leading-tight text-neutral-700" x-text="dest.key"></div>
                 </th>
               </template>
-              <th x-show="showAllocationDetailMemoButton" x-cloak class="whitespace-nowrap w-24 p-1 text-center">明細備考</th>
+              <th x-show="showAllocationDetailMemoButton" x-cloak class="allocation-memo whitespace-nowrap p-1 text-center">明細備考</th>
             </tr>
           </thead>
           <template x-for="row in getRenderableVisibleRows()" :key="row.id">
             <tbody class="text-xs">
               <tr :data-allocation-row-id="row.id" :class="isAllocationTransferCompleted(row) ? 'bg-gray-100' : ''" class="divide-x divide-gray-200 border-t border-gray-200 hover:bg-neutral-50">
-                <td class="p-1 text-center">
+                <td class="allocation-fixed allocation-select p-1 text-center">
                   <input type="checkbox"
                     :checked="isRowDeleteSelected(row, false)"
                     :disabled="isRowDeleteLocked(row)"
@@ -730,14 +826,17 @@
                     <div class="partner-stack-line px-1 py-0.5 text-xs text-gray-500" :title="getSupplierDisplay(row)" x-text="getSupplierDisplay(row)"></div>
                   </div>
                 </td>
-                <!-- 商品コード + search + arrival -->
-                <td class="p-1">
+                <!-- 商品CD / 商品名 / 入数 / 備考 -->
+                <td class="allocation-fixed allocation-product p-1">
                   <div class="flex items-center gap-1">
+                  <button x-show="getItemContractorNote(row) !== ''" x-cloak x-effect="queueItemContractorNote(row)" @click="toggleItemContractorNote(row, false, $event)" class="allocation-note rounded-full bg-amber-500 hover:bg-amber-600 text-white inline-flex items-center justify-center transition shadow-sm" title="備考を確認">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  </button>
                     <input type="text" x-model="row.productCode"
                       @focus="productCodeEditBefore[row.id] = row.productCode || ''"
                       @input.debounce.150ms="resolveManualProductCodeFast(row)"
                       @blur="resolveManualProductCode(row)"
-                      data-distribution-enter-nav @keydown.enter="focusNextAllocationDestinationInput($event, row)"
+                      data-distribution-enter-nav data-distribution-nav-column="productCode" @keydown="focusDistributionArrowInput($event, row)" @keydown.enter="focusNextAllocationDestinationInput($event, row)"
                       inputmode="numeric"
                       :disabled="isProductEditLocked(row)"
                       :class="isProductEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed text-gray-400' : 'focus:ring-2 focus:ring-indigo-500'"
@@ -760,70 +859,60 @@
                         </svg>
                       </button>
                     </template>
+                    <span class="allocation-capacity" x-text="'入数 ' + (row.unitsPerCase || '-')"></span>
                   </div>
-                </td>
-                <!-- 商品名 -->
-                <td class="allocation-product-name p-1">
-                  <div class="allocation-product-name-text px-1 py-1 text-xs" tabindex="0" :title="row.name" x-text="row.name || '-'"></div>
-                </td>
-                <!-- 入数 -->
-                <td class="p-1 text-center"><div class="px-1 py-1 whitespace-nowrap text-xs" x-text="row.unitsPerCase || ''"></div></td>
-                <!-- ロット (clickable for popover) -->
-                <td class="p-1 text-center">
-                  <button @click="toggleItemContractorNote(row, false, $event)" class="w-6 h-6 rounded-full bg-amber-500 hover:bg-amber-600 text-white inline-flex items-center justify-center transition shadow-sm" title="備考を確認">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                  </button>
+                  <div class="allocation-product-name-text text-xs" tabindex="0" :title="row.name" x-text="row.name || '-'"></div>
                 </td>
                 <!-- 理論 -->
-                <td class="w-14 min-w-[3.5rem] p-1 text-right" :class="toInt(row.reserved) < calcAllocTotal(row) ? 'bg-red-100' : ''">
+                <td class="allocation-fixed allocation-theory p-1 text-right" :class="toInt(row.reserved) < calcAllocTotal(row) ? 'is-short' : ''">
                   <div class="px-1 py-1 font-semibold" :class="toInt(row.reserved) < calcAllocTotal(row) ? 'text-red-700' : ''" :title="getStockSummaryTitle(row)" x-text="row.reserved"></div>
                 </td>
                 <!-- 希計 / 分計 -->
-                <td class="w-14 min-w-[3.5rem] p-0 text-right" style="background: linear-gradient(to bottom, #fef2f2 0%, #fef2f2 50%, #f0fdf4 50%, #f0fdf4 100%);">
+                <td class="allocation-fixed allocation-summary p-0 text-right" style="background: linear-gradient(to bottom, #fef2f2 0%, #fef2f2 50%, #f0fdf4 50%, #f0fdf4 100%);">
                   <div class="flex h-full min-h-14 flex-col">
                     <div class="flex flex-1 items-center justify-end px-2 font-semibold text-red-800" x-text="calcWishTotal(row)"></div>
                     <div class="flex flex-1 items-center justify-end border-t border-gray-300 px-2 font-semibold text-green-900" x-text="calcAllocTotal(row)"></div>
                   </div>
                 </td>
                 <!-- 発注ケース -->
-                <td class="p-1 text-right">
-                  <input type="text" inputmode="numeric" :value="orderQuantityInputValue(row.poCase)" @compositionstart="$el.dataset.quantityComposing = 'true'" @compositionend="delete $el.dataset.quantityComposing; handleQuantityInput($event, row, 'poCase', false, true)" @input="handleQuantityInput($event, row, 'poCase', false)" @change="handleQuantityInput($event, row, 'poCase', false, true)" data-distribution-enter-nav @keydown.enter="focusNextAllocationDestinationInput($event)" @blur="flushQuantitySave(false)" :disabled="isQuantityLocked(row)"
+                <td class="allocation-fixed allocation-cases p-1 text-right">
+                  <input type="text" inputmode="numeric" :value="orderQuantityInputValue(row.poCase)" @compositionstart="$el.dataset.quantityComposing = 'true'" @compositionend="delete $el.dataset.quantityComposing; handleQuantityInput($event, row, 'poCase', false, true)" @input="handleQuantityInput($event, row, 'poCase', false)" @change="handleQuantityInput($event, row, 'poCase', false, true)" data-distribution-enter-nav data-distribution-nav-column="poCase" @keydown="focusDistributionArrowInput($event)" @keydown.enter="focusNextAllocationDestinationInput($event)" @blur="flushQuantitySave(false)" :disabled="isQuantityLocked(row)"
                     :class="isQuantityLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : 'focus:ring-2 focus:ring-indigo-500'"
-                    class="w-full rounded-md border-gray-300 border px-1 py-1 text-right shadow-sm alloc-spin-hide" />
+                    class="allocation-quantity w-full rounded-md border-gray-300 border text-right shadow-sm alloc-spin-hide" />
                 </td>
                 <!-- 発注バラ -->
-                <td class="p-1 text-right">
-                  <input type="text" inputmode="numeric" :value="orderQuantityInputValue(row.poEach)" @compositionstart="$el.dataset.quantityComposing = 'true'" @compositionend="delete $el.dataset.quantityComposing; handleQuantityInput($event, row, 'poEach', false, true)" @input="handleQuantityInput($event, row, 'poEach', false)" @change="handleQuantityInput($event, row, 'poEach', false, true)" data-distribution-enter-nav @keydown.enter="focusNextAllocationDestinationInput($event)" @blur="flushQuantitySave(false)" :disabled="isQuantityLocked(row)"
+                <td class="allocation-fixed allocation-pieces p-1 text-right">
+                  <input type="text" inputmode="numeric" :value="orderQuantityInputValue(row.poEach)" @compositionstart="$el.dataset.quantityComposing = 'true'" @compositionend="delete $el.dataset.quantityComposing; handleQuantityInput($event, row, 'poEach', false, true)" @input="handleQuantityInput($event, row, 'poEach', false)" @change="handleQuantityInput($event, row, 'poEach', false, true)" data-distribution-enter-nav data-distribution-nav-column="poEach" @keydown="focusDistributionArrowInput($event)" @keydown.enter="focusNextAllocationDestinationInput($event)" @blur="flushQuantitySave(false)" :disabled="isQuantityLocked(row)"
                     :class="isQuantityLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : 'focus:ring-2 focus:ring-indigo-500'"
-                    class="w-full rounded-md border-gray-300 border px-1 py-1 text-right shadow-sm alloc-spin-hide" />
+                    class="allocation-quantity w-full rounded-md border-gray-300 border text-right shadow-sm alloc-spin-hide" />
                 </td>
                 <!-- 総バラ -->
-                <td class="p-1 text-right bg-gray-50">
+                <td class="allocation-fixed allocation-total p-1 text-right">
                   <div class="px-1 py-1 font-semibold" x-text="calcOrderTotalPieces(row, currentRow => calcAllocTotal(currentRow))"></div>
                 </td>
                 <!-- 状態 -->
-                <td class="w-px whitespace-nowrap p-0.5 text-center">
+                <td class="allocation-status whitespace-nowrap p-0.5 text-center">
                   <span class="inline-flex whitespace-nowrap rounded px-1 py-0.5 text-[10px] font-semibold" :class="getAllocationStatusClass(row)" x-text="getAllocationStatusLabel(row)"></span>
                 </td>
                 <template x-for="dest in getAllocationDisplayDestinations()" :key="dest.key">
-                  <td class="w-[60px] min-w-[60px] max-w-[60px] border-l border-gray-300 p-0">
+                  <td class="allocation-destination border-l border-gray-300">
                     <div class="flex flex-col">
-                      <div class="bg-red-50 border-b-2 border-gray-300 px-2 py-1.5 text-right text-xs font-medium text-red-800"
+                      <div class="allocation-wish bg-red-50 border-b border-gray-300 text-right text-xs font-medium text-red-800"
                         x-text="row['wish_'+dest.key] || 0"></div>
                       <input type="text" inputmode="numeric"
                         :value="row['alloc_'+dest.key] || 0"
                         @compositionstart="$el.dataset.quantityComposing = 'true'" @compositionend="delete $el.dataset.quantityComposing; handleQuantityInput($event, row, 'alloc_' + dest.key, false, true)" @input="handleQuantityInput($event, row, 'alloc_' + dest.key, false)" @change="handleQuantityInput($event, row, 'alloc_' + dest.key, false, true)"
                         @blur="flushQuantitySave(false)"
-                        data-distribution-enter-nav @keydown.enter="focusNextAllocationDestinationInput($event)"
+                        data-distribution-enter-nav :data-distribution-nav-column="'alloc_' + dest.key" @keydown="focusDistributionArrowInput($event)" @keydown.enter="focusNextAllocationDestinationInput($event)"
                         @focus="$event.target.select()"
                         :disabled="isQuantityLocked(row)"
                         :class="isQuantityLocked(row) ? 'bg-gray-100 cursor-not-allowed text-gray-400 border-gray-300' : (Number(row['alloc_'+dest.key] || 0) > 0 ? 'bg-yellow-50 border-2 border-yellow-400 focus:ring-2 focus:ring-yellow-400 text-yellow-800' : 'bg-green-50 border-2 border-green-300 focus:ring-2 focus:ring-green-500 focus:border-green-500 focus:bg-white text-green-900')"
-                        class="allocation-destination-input w-full m-0.5 rounded px-1.5 py-1 text-right text-xs font-semibold" />
+                        class="allocation-quantity allocation-destination-input rounded text-right font-semibold" />
                     </div>
                   </td>
                 </template>
                 <!-- 明細備考 -->
-                <td x-show="showAllocationDetailMemoButton" x-cloak class="p-1 text-center">
+                <td x-show="showAllocationDetailMemoButton" x-cloak class="allocation-memo p-1 text-center">
                   <button @click="memoPopupRowId = row.id; memoPopupText = row.memo || ''" :disabled="isRowEditLocked(row)"
                     :class="isRowEditLocked(row) ? 'text-gray-300 cursor-not-allowed' : row.memo ? 'text-indigo-600 hover:text-indigo-800' : 'text-gray-400 hover:text-gray-600'"
                     class="p-1 relative" :title="row.memo || '明細備考入力'">
@@ -928,17 +1017,6 @@
           <button @click="clearDirectFilters()" class="whitespace-nowrap rounded-md bg-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-300">クリア</button>
         </div>
         <div class="ml-auto flex flex-wrap items-center gap-1.5 sm:gap-2">
-          <input x-ref="directCsvInput" type="file" accept=".csv,text/csv" class="hidden" @change="importDirectCsv($event)" />
-          <button @click="$refs.directCsvInput.click()" :disabled="csvImporting" class="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md bg-emerald-600 text-white disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed text-xs font-medium hover:bg-emerald-700 shadow transition">
-            <svg x-show="csvImporting" x-cloak class="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-            </svg>
-            <svg x-show="!csvImporting" x-cloak class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 16V4m0 0L7 9m5-5l5 5M5 20h14"></path>
-            </svg>
-            <span x-text="csvImporting ? '取込中' : 'CSV取込'"></span>
-          </button>
           <button @click="downloadDirectCSV()" class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-md bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 shadow transition">CSV出力</button>
           <button type="button" data-slip-action="direct-request" @click.prevent.stop="openDirectRequestOutput()" :disabled="transferSlipCreating || !hasDirectRequestPrintableRows()" :class="hasDirectRequestPrintableRows() ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'" class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-xs font-medium shadow transition">依頼書出力</button>
           <button @click="generateDirectOrderCandidates()" :disabled="orderCandidateCreating || !hasDirectOrderCandidateGeneratableRows()" :class="(!orderCandidateCreating && hasDirectOrderCandidateGeneratableRows()) ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'" class="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-xs font-medium shadow transition">
@@ -1044,7 +1122,7 @@
                       @focus="productCodeEditBefore[row.id] = row.productCode || ''"
                       @input.debounce.150ms="resolveManualProductCodeFast(row)"
                       @blur="resolveManualProductCode(row)"
-                      data-distribution-enter-nav @keydown.enter="focusNextAllocationDestinationInput($event, row)"
+                      data-distribution-enter-nav data-distribution-nav-column="productCode" @keydown="focusDistributionArrowInput($event, row)" @keydown.enter="focusNextAllocationDestinationInput($event, row)"
                       inputmode="numeric"
                       :disabled="isDirectRowEditLocked(row)"
                       :class="isDirectRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed text-gray-400' : 'focus:ring-2 focus:ring-indigo-500'"
@@ -1053,12 +1131,21 @@
                     <button @click="openDirectProductSearch(row.id)" :disabled="isDirectRowEditLocked(row)" :class="isDirectRowEditLocked(row) ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-indigo-600'" class="shrink-0 p-0.5" title="商品検索">
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                     </button>
+                    <!-- Arrival schedule icon (calendar SVG, blue) -->
+                    <template x-if="hasRowProductInfo(row)">
+                      <button @click="openArrivalSchedule(row)"
+                        class="shrink-0 p-0.5 text-blue-500 hover:text-blue-700" title="入荷予定">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                        </svg>
+                      </button>
+                    </template>
                   </div>
                 </td>
                 <td class="p-1"><div class="px-1 py-1 whitespace-nowrap text-xs" x-text="row.name || '-'"></div></td>
                 <td class="p-1 text-center"><div class="px-1 py-1 whitespace-nowrap text-xs" x-text="row.unitsPerCase || ''"></div></td>
                 <td class="p-1 text-center">
-                  <button @click="toggleItemContractorNote(row, true, $event)" class="w-6 h-6 rounded-full bg-amber-500 hover:bg-amber-600 text-white inline-flex items-center justify-center transition shadow-sm" title="備考を確認">
+                  <button x-show="getItemContractorNote(row) !== ''" x-cloak x-effect="queueItemContractorNote(row)" @click="toggleItemContractorNote(row, true, $event)" class="w-6 h-6 rounded-full bg-amber-500 hover:bg-amber-600 text-white inline-flex items-center justify-center transition shadow-sm" title="備考を確認">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                   </button>
                 </td>
@@ -1069,8 +1156,8 @@
                     <div class="flex flex-1 items-center justify-end border-t border-gray-300 px-2 font-semibold text-blue-900" x-text="calcDirectAllocTotal(row)"></div>
                   </div>
                 </td>
-                <td class="p-1 text-right"><input type="text" inputmode="numeric" :value="orderQuantityInputValue(row.poCase)" @compositionstart="$el.dataset.quantityComposing = 'true'" @compositionend="delete $el.dataset.quantityComposing; handleQuantityInput($event, row, 'poCase', true, true)" @input="handleQuantityInput($event, row, 'poCase', true)" @change="handleQuantityInput($event, row, 'poCase', true, true)" data-distribution-enter-nav @keydown.enter="focusNextAllocationDestinationInput($event)" @blur="flushQuantitySave(true)" :disabled="isDirectRowEditLocked(row)" :class="isDirectRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : 'focus:ring-2 focus:ring-indigo-500'" class="w-full rounded-md border-gray-300 border px-1 py-1 text-right shadow-sm alloc-spin-hide" /></td>
-                <td class="p-1 text-right"><input type="text" inputmode="numeric" :value="orderQuantityInputValue(row.poEach)" @compositionstart="$el.dataset.quantityComposing = 'true'" @compositionend="delete $el.dataset.quantityComposing; handleQuantityInput($event, row, 'poEach', true, true)" @input="handleQuantityInput($event, row, 'poEach', true)" @change="handleQuantityInput($event, row, 'poEach', true, true)" data-distribution-enter-nav @keydown.enter="focusNextAllocationDestinationInput($event)" @blur="flushQuantitySave(true)" :disabled="isDirectRowEditLocked(row)" :class="isDirectRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : 'focus:ring-2 focus:ring-indigo-500'" class="w-full rounded-md border-gray-300 border px-1 py-1 text-right shadow-sm alloc-spin-hide" /></td>
+                <td class="p-1 text-right"><input type="text" inputmode="numeric" :value="orderQuantityInputValue(row.poCase)" @compositionstart="$el.dataset.quantityComposing = 'true'" @compositionend="delete $el.dataset.quantityComposing; handleQuantityInput($event, row, 'poCase', true, true)" @input="handleQuantityInput($event, row, 'poCase', true)" @change="handleQuantityInput($event, row, 'poCase', true, true)" data-distribution-enter-nav data-distribution-nav-column="poCase" @keydown="focusDistributionArrowInput($event)" @keydown.enter="focusNextAllocationDestinationInput($event)" @blur="flushQuantitySave(true)" :disabled="isDirectRowEditLocked(row)" :class="isDirectRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : 'focus:ring-2 focus:ring-indigo-500'" class="w-full rounded-md border-gray-300 border px-1 py-1 text-right shadow-sm alloc-spin-hide" /></td>
+                <td class="p-1 text-right"><input type="text" inputmode="numeric" :value="orderQuantityInputValue(row.poEach)" @compositionstart="$el.dataset.quantityComposing = 'true'" @compositionend="delete $el.dataset.quantityComposing; handleQuantityInput($event, row, 'poEach', true, true)" @input="handleQuantityInput($event, row, 'poEach', true)" @change="handleQuantityInput($event, row, 'poEach', true, true)" data-distribution-enter-nav data-distribution-nav-column="poEach" @keydown="focusDistributionArrowInput($event)" @keydown.enter="focusNextAllocationDestinationInput($event)" @blur="flushQuantitySave(true)" :disabled="isDirectRowEditLocked(row)" :class="isDirectRowEditLocked(row) ? 'bg-neutral-50 cursor-not-allowed' : 'focus:ring-2 focus:ring-indigo-500'" class="w-full rounded-md border-gray-300 border px-1 py-1 text-right shadow-sm alloc-spin-hide" /></td>
                 <td class="p-1 text-right bg-gray-50"><div class="px-1 py-1 font-semibold" x-text="calcOrderTotalPieces(row, currentRow => calcDirectAllocTotal(currentRow))"></div></td>
                 <td class="w-px whitespace-nowrap p-0.5 text-center">
                   <span class="inline-flex whitespace-nowrap rounded px-0.5 py-0.5 text-[10px] font-semibold" :class="getDirectStatusClass(row)" x-text="getDirectStatusLabel(row)"></span>
@@ -1079,7 +1166,7 @@
                   <td class="w-[60px] min-w-[60px] max-w-[60px] border-l border-gray-300 p-0">
                     <div class="flex flex-col">
                       <div class="border-b-2 border-gray-300 bg-red-50 px-1 py-1.5 text-right text-xs font-medium text-red-800" x-text="row['wish_'+dest.key] || 0"></div>
-                      <input type="text" inputmode="numeric" :value="row['alloc_'+dest.key] || 0" @compositionstart="$el.dataset.quantityComposing = 'true'" @compositionend="delete $el.dataset.quantityComposing; handleQuantityInput($event, row, 'alloc_' + dest.key, true, true)" @input="handleQuantityInput($event, row, 'alloc_' + dest.key, true)" @change="handleQuantityInput($event, row, 'alloc_' + dest.key, true, true)" @blur="flushQuantitySave(true)" data-distribution-enter-nav @keydown.enter="focusNextAllocationDestinationInput($event)" @focus="$event.target.select()" :disabled="isDirectRowEditLocked(row)"
+                      <input type="text" inputmode="numeric" :value="row['alloc_'+dest.key] || 0" @compositionstart="$el.dataset.quantityComposing = 'true'" @compositionend="delete $el.dataset.quantityComposing; handleQuantityInput($event, row, 'alloc_' + dest.key, true, true)" @input="handleQuantityInput($event, row, 'alloc_' + dest.key, true)" @change="handleQuantityInput($event, row, 'alloc_' + dest.key, true, true)" @blur="flushQuantitySave(true)" data-distribution-enter-nav :data-distribution-nav-column="'alloc_' + dest.key" @keydown="focusDistributionArrowInput($event)" @keydown.enter="focusNextAllocationDestinationInput($event)" @focus="$event.target.select()" :disabled="isDirectRowEditLocked(row)"
                         :class="isDirectRowEditLocked(row) ? 'bg-gray-100 cursor-not-allowed text-gray-400 border-gray-300' : (Number(row['alloc_'+dest.key] || 0) > 0 ? 'bg-yellow-50 border-2 border-yellow-400 focus:ring-2 focus:ring-yellow-400 text-yellow-800' : 'bg-blue-50 border-2 border-blue-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white text-blue-900')"
                         class="allocation-destination-input w-full m-0.5 rounded px-1.5 py-1 text-right text-xs font-semibold" />
                     </div>
@@ -1474,7 +1561,7 @@
   <!-- ==================== ロット条件ポップアップ（本部分配） ==================== -->
   <template x-if="lotPopoverRowId !== null">
     <div class="fixed inset-0 z-50" @click="lotPopoverRowId = null">
-      <div class="fixed bg-white border border-gray-300 rounded-xl shadow-2xl p-4 sm:p-5 w-64 sm:w-72 text-sm max-w-[90vw]" :style="(lotPopoverPos.anchor === 'above' ? 'bottom:' + (window.innerHeight - lotPopoverPos.top) + 'px;' : 'top:' + lotPopoverPos.top + 'px;') + ' left:' + lotPopoverPos.left + 'px; transform: translateX(-50%);'" @click.stop>
+      <div class="distribution-note-popover fixed overflow-y-auto bg-white border border-gray-300 rounded-xl shadow-2xl p-4 sm:p-5 text-sm" :style="(lotPopoverPos.anchor === 'above' ? 'bottom:' + (window.innerHeight - lotPopoverPos.top) + 'px;' : 'top:' + lotPopoverPos.top + 'px;') + 'left:' + lotPopoverPos.left + 'px;width:' + lotPopoverPos.width + 'px;max-height:' + lotPopoverPos.maxHeight + 'px;'" @resize.window="lotPopoverRowId = null" @click.stop>
         <template x-for="row in rows.filter(r => r.id === lotPopoverRowId)" :key="row.id">
           <div>
             <div class="font-bold text-gray-800 mb-3 pb-2 border-b text-base">備考</div>
@@ -1493,7 +1580,7 @@
   <!-- ==================== ロット条件ポップアップ（直送分配） ==================== -->
   <template x-if="directLotPopoverRowId !== null">
     <div class="fixed inset-0 z-50" @click="directLotPopoverRowId = null">
-      <div class="fixed bg-white border border-gray-300 rounded-xl shadow-2xl p-4 sm:p-5 w-64 sm:w-72 text-sm max-w-[90vw]" :style="(directLotPopoverPos.anchor === 'above' ? 'bottom:' + (window.innerHeight - directLotPopoverPos.top) + 'px;' : 'top:' + directLotPopoverPos.top + 'px;') + ' left:' + directLotPopoverPos.left + 'px; transform: translateX(-50%);'" @click.stop>
+      <div class="distribution-note-popover fixed overflow-y-auto bg-white border border-gray-300 rounded-xl shadow-2xl p-4 sm:p-5 text-sm" :style="(directLotPopoverPos.anchor === 'above' ? 'bottom:' + (window.innerHeight - directLotPopoverPos.top) + 'px;' : 'top:' + directLotPopoverPos.top + 'px;') + 'left:' + directLotPopoverPos.left + 'px;width:' + directLotPopoverPos.width + 'px;max-height:' + directLotPopoverPos.maxHeight + 'px;'" @resize.window="directLotPopoverRowId = null" @click.stop>
         <template x-for="row in directRows.filter(r => r.id === directLotPopoverRowId)" :key="row.id">
           <div>
             <div class="font-bold text-gray-800 mb-3 pb-2 border-b text-base">備考</div>
@@ -2208,7 +2295,7 @@ window.distributionApp = function distributionApp() {
     // ---------- State ----------
     batchInfo: BATCH,
     batchEditor: {visible:false,busy:false,error:'',name:'',shipping_date:'',note:'',responsible_department:''},
-    excelImport: {visible:false,file:null,unit:'',storeMode:'',mapping:{},editingColumn:null,preview:null,busy:false,error:'',acknowledged:false,needsPreview:false},
+    excelImport: {visible:false,file:null,unit:'',storeMode:'',mapping:{},editingColumn:null,preview:null,busy:false,error:'',needsPreview:false},
     DESTS: DESTS,
     csvDestinations: CSV_DESTS,
     showAllocationDetailMemoButton: SHOW_ALLOCATION_DETAIL_MEMO_BUTTON,
@@ -2463,6 +2550,7 @@ window.distributionApp = function distributionApp() {
     confirmMessage: '',
     confirmCallback: null,
     confirmModalType: 'confirm',
+    confirmBatchAction: '',
 
     // ---------- Init ----------
     async batchRequest(path, options = {}) {
@@ -2483,6 +2571,56 @@ window.distributionApp = function distributionApp() {
       }
     },
 
+    pickingPrintVisible: false,
+    pickingPrintType: 'primary',
+    pickingPrintTypes: [
+      {value:'matrix',label:'作業書（店舗別一覧）'},
+      {value:'primary',label:'1次（分配集約）'},
+      {value:'primary_total',label:'1次リスト（一括）'},
+      {value:'secondary',label:'2次（配送コース別）'},
+      {value:'secondary_v2',label:'2次リスト2（1F→2F→YX順）'},
+      {value:'tertiary',label:'3次（店舗・倉庫別）'},
+    ],
+    async printDistributionPicking() {
+      if (this.pickingPrintType === 'matrix') return this.printDistributionMatrix();
+      const popup = window.open('', '_blank');
+      if (!popup) { this.openModal('エラー','ポップアップを許可してから出力してください。'); return; }
+      popup.document.body.textContent='ピッキングリストを作成しています。';
+      try {
+        await this.waitForDistributionSaves('allocation');
+        const query = new URLSearchParams({type:this.pickingPrintType,shipping_date:this.normalizeFlexibleDate(this.bulkInputDate || '') || '',expected_revision:this.serverRowRevisions.allocation});
+        const response = await fetch('/api/distribution/batches/'+BATCH.id+'/picking-pdf?'+query,{headers:{Accept:'application/pdf, application/json'}});
+        if (!response.ok) {
+          const error=await response.json();
+          throw new Error(Object.values(error.errors || {}).flat().join('\n') || error.message || error.result?.error_message || 'ピッキングリストを出力できませんでした。');
+        }
+        const url=URL.createObjectURL(await response.blob());
+        popup.location.replace(url);
+        setTimeout(()=>URL.revokeObjectURL(url),60000);
+        this.pickingPrintVisible=false;
+      } catch(e) {popup.close();this.openModal('エラー',e.message);}
+    },
+    matrixPrintUnit: 'piece',
+
+    async printDistributionMatrix() {
+      const popup = window.open('', '_blank');
+      if (!popup) { this.openModal('エラー', 'ポップアップを許可してから出力してください。'); return; }
+      popup.document.body.textContent = '分配作業書を作成しています。';
+      try {
+        await this.waitForDistributionSaves('allocation');
+        const query = new URLSearchParams({unit:this.matrixPrintUnit, expected_revision:this.serverRowRevisions.allocation});
+        const response = await fetch('/api/distribution/batches/'+BATCH.id+'/matrix-pdf?'+query, {headers:{Accept:'application/pdf, application/json'}});
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error?.message || error?.result?.error_message || '作業書を出力できませんでした。');
+        }
+        const url = URL.createObjectURL(await response.blob());
+        popup.location.replace(url);
+        this.pickingPrintVisible=false;
+        setTimeout(()=>URL.revokeObjectURL(url),60000);
+      } catch(e) { popup.close(); this.openModal('エラー',e.message); }
+    },
+
     async editBatchInfo() {
       try {
         await this.waitForDistributionSaves('allocation');
@@ -2498,14 +2636,22 @@ window.distributionApp = function distributionApp() {
       this.batchEditor.busy = true;
       try {
         const info = await this.batchRequest('', {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-          name:this.batchEditor.name,shipping_date:this.batchEditor.shipping_date,note:this.batchEditor.note,responsible_department:this.batchEditor.responsible_department,expected_revision:this.batchInfo.revision,
+          name:this.batchEditor.name,note:this.batchEditor.note,responsible_department:this.batchEditor.responsible_department,expected_revision:this.batchInfo.revision,
         })});
         this.batchInfo = info;
-        this.bulkInputDate = info.shipping_date;
         this.serverRowRevisions.allocation = info.revision;
         this.batchEditor.visible = false;
       } catch(e) { this.batchEditor.error = e.message; }
       finally { this.batchEditor.busy = false; }
+    },
+
+    async returnToBatchList() {
+      try {
+        await this.waitForDistributionSaves('allocation');
+        this.confirmVisible = false;
+        this.confirmCallback = null;
+        window.location.href = '/admin/distribution-adjustment';
+      } catch (e) { this.openModal('エラー', e.message); }
     },
 
     async archiveBatch() {
@@ -2514,10 +2660,10 @@ window.distributionApp = function distributionApp() {
         const info=await this.batchRequest('');
         this.verifyBatchHeaderRevision(info);
         const archive=!info.archived;
-        this.openConfirm('分配「'+info.name+'」を'+(archive?'終了':'再開')+'します。',async()=>{
+        this.openConfirm('分配「'+info.name+'」を'+(archive?'終了':'再開')+'します。'+(archive?'終了すると、再開するまで明細の編集ができなくなります。':''),async()=>{
           try {await this.batchRequest('',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({...info,expected_revision:info.revision,archive})});window.location.reload();}
           catch(e){this.openModal('エラー',e.message);}
-        });
+        }, 'confirm', archive ? '終了にする' : '');
       } catch(e) {this.openModal('エラー',e.message);}
     },
 
@@ -2528,7 +2674,7 @@ window.distributionApp = function distributionApp() {
           await this.batchRequest('',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({expected_revision:this.serverRowRevisions.allocation})});
           window.location.href='/admin/distribution-adjustment';
         } catch(e) { this.openModal('エラー',e.message); }
-      });
+      }, 'delete', '分配を削除');
     },
 
     excelPreviewColumns() {
@@ -2552,22 +2698,21 @@ window.distributionApp = function distributionApp() {
       if (value === '') delete this.excelImport.mapping[column.column];
       else this.excelImport.mapping[column.column] = value;
       this.excelImport.needsPreview = true;
-      this.excelImport.acknowledged = false;
       this.excelImport.editingColumn = null;
     },
 
     async openExcelImport() {
-      if(this.batchInfo?.archived) {this.openModal('注意','終了した分配は変更できません。');return;}
+      if(this.batchInfo?.archived) {this.openModal('注意','すでに対応済みの分配です。作業を再開するには再開するボタンを押してください。');return;}
       try {
         await this.waitForDistributionSaves('allocation');
-        this.excelImport={visible:true,file:null,unit:'',storeMode:'',mapping:{},editingColumn:null,preview:null,busy:false,error:'',acknowledged:false,needsPreview:false};
+        this.excelImport={visible:true,file:null,unit:'',storeMode:'',mapping:{},editingColumn:null,preview:null,busy:false,error:'',needsPreview:false};
         if(this.$refs.excelInput) this.$refs.excelInput.value='';
       } catch(e) { this.openModal('エラー',e.message); }
     },
 
     async previewExcel() {
       if(this.excelImport.busy) return;
-      this.excelImport.busy=true;this.excelImport.error='';this.excelImport.acknowledged=false;
+      this.excelImport.busy=true;this.excelImport.error='';
       try {
         await this.waitForDistributionSaves('allocation');
         const body=new FormData();body.append('file',this.excelImport.file);body.append('quantity_unit',this.excelImport.unit);
@@ -2583,7 +2728,7 @@ window.distributionApp = function distributionApp() {
       this.excelImport.busy=true;this.excelImport.error='';
       try {
         const result=await this.batchRequest('/excel/commit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-          token:this.excelImport.preview.token,acknowledge_warnings:this.excelImport.acknowledged,
+          token:this.excelImport.preview.token,
         })});
         this.serverRowRevisions.allocation=result.revision;
         this.serverSaveBlocked.allocation=false;
@@ -4089,7 +4234,8 @@ window.distributionApp = function distributionApp() {
       this.resultModalVisible = true;
     },
 
-    openConfirm(message, callback, type = 'confirm') {
+    openConfirm(message, callback, type = 'confirm', batchAction = '') {
+      this.confirmBatchAction = batchAction;
       this.confirmMessage = message;
       this.confirmCallback = callback;
       this.confirmModalType = type;
@@ -4264,9 +4410,45 @@ window.distributionApp = function distributionApp() {
       return this.getDestinationsForKeys(Array.from(mergedKeys));
     },
 
+    allocationDrag: null,
+
+    startAllocationDrag(event) {
+      const scroller = event.currentTarget;
+      // Native touch scrolling and all editable/clickable controls keep their normal behavior.
+      if (event.pointerType !== 'mouse' || event.button !== 0 || this.allocationDrag
+        || event.target.closest('input, textarea, select, button, a, label, [contenteditable="true"]')
+        || (scroller.scrollWidth <= scroller.clientWidth && scroller.scrollHeight <= scroller.clientHeight)) return;
+      const bounds = scroller.getBoundingClientRect();
+      // Leave native scrollbars available, including the bottom-right corner.
+      if (event.clientX >= bounds.left + scroller.clientWidth
+        || event.clientY >= bounds.top + scroller.clientHeight) return;
+      this.allocationDrag = {
+        pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
+        scrollLeft: scroller.scrollLeft, scrollTop: scroller.scrollTop,
+      };
+      scroller.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    },
+
+    moveAllocationDrag(event) {
+      const drag = this.allocationDrag;
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      event.currentTarget.scrollLeft = drag.scrollLeft + drag.startX - event.clientX;
+      event.currentTarget.scrollTop = drag.scrollTop + drag.startY - event.clientY;
+      event.preventDefault();
+    },
+
+    endAllocationDrag(event) {
+      if (!this.allocationDrag || event.pointerId !== this.allocationDrag.pointerId) return;
+      this.allocationDrag = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    },
+
     getAllocationTableMinWidth() {
       const destinationCount = this.getAllocationDisplayDestinations().length;
-      return (BATCH ? 870 : 1020) + destinationCount * 60;
+      return 812 + destinationCount * 52 + (this.showAllocationDetailMemoButton ? 64 : 0);
     },
 
     getDirectDisplayDestinations(rows = this.getVisibleDirectRows()) {
@@ -4320,12 +4502,59 @@ window.distributionApp = function distributionApp() {
       this.toggleAllocationDestinations(row);
     },
 
-    async focusNextAllocationDestinationInput(event, productRow = null) {
+    arrowNavigationPending: false,
+
+    async focusDistributionArrowInput(event, productRow = null) {
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)
+        || event.isComposing || event.keyCode === 229 || event.target?.dataset?.quantityComposing === 'true'
+        || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      event.preventDefault();
+      if (this.arrowNavigationPending) return;
+      this.arrowNavigationPending = true;
+      try {
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+          await this.focusNextAllocationDestinationInput(event, productRow, event.key === 'ArrowLeft');
+          return;
+        }
+        if (productRow && !await this.resolveManualProductCode(productRow)) return;
+        if (document.activeElement !== target) return;
+        const scope = target.closest('table');
+        const column = target.dataset.distributionNavColumn;
+        if (!scope || !column) return;
+        const inputs = () => Array.from(scope.querySelectorAll('input[data-distribution-nav-column]:not(:disabled)'))
+          .filter(input => input.offsetParent !== null && input.dataset.distributionNavColumn === column);
+        let candidates = inputs();
+        let index = candidates.indexOf(target);
+        if (index < 0) return;
+        const forward = event.key === 'ArrowDown';
+        if (forward && index === candidates.length - 1) {
+          if (this.activeSubTab === 'direct') {
+            await this.waitForDistributionSaves('direct');
+            await this.loadMoreDirectRows();
+          } else {
+            this.allocationRenderLimit = Math.min(this.getVisibleRows().length, this.getTableRenderLimit() + 15);
+          }
+          await this.$nextTick();
+          candidates = inputs();
+          index = candidates.indexOf(target);
+        }
+        const next = candidates[index + (forward ? 1 : -1)];
+        if (next && document.activeElement === target) { next.focus(); next.select(); }
+      } catch (error) {
+        this.openModal('エラー', '次の入力欄へ移動できませんでした。' + (error?.message || ''));
+      } finally {
+        this.arrowNavigationPending = false;
+      }
+    },
+
+    async focusNextAllocationDestinationInput(event, productRow = null, backward = event.shiftKey) {
       if (event.isComposing || event.keyCode === 229 || event.target?.dataset?.quantityComposing === 'true') return;
       const target = event?.target;
       if (!(target instanceof HTMLInputElement)) return;
       event.preventDefault();
-      if (productRow && !event.shiftKey && !await this.resolveManualProductCode(productRow)) return;
+      if (productRow && !backward && !await this.resolveManualProductCode(productRow)) return;
       if (document.activeElement !== target) return;
       const scope = target.closest('table') || document;
       const inputs = () => Array.from(scope.querySelectorAll('input[data-distribution-enter-nav]:not(:disabled)'))
@@ -4333,7 +4562,7 @@ window.distributionApp = function distributionApp() {
       let candidates = inputs();
       let index = candidates.indexOf(target);
       if (index < 0) return;
-      if (!event.shiftKey && index === candidates.length - 1) {
+      if (!backward && index === candidates.length - 1) {
         if (this.activeSubTab === 'direct') {
           await this.waitForDistributionSaves('direct');
           await this.loadMoreDirectRows();
@@ -4344,7 +4573,7 @@ window.distributionApp = function distributionApp() {
         candidates = inputs();
         index = candidates.indexOf(target);
       }
-      const next = candidates[index + (event.shiftKey ? -1 : 1)];
+      const next = candidates[index + (backward ? -1 : 1)];
       if (next && document.activeElement === target) { next.focus(); next.select(); }
     },
 
@@ -7091,7 +7320,7 @@ window.distributionApp = function distributionApp() {
     },
 
     queuePersistDistributionRows(mode, rows, options = {}) {
-      if (options.skipServer || this.serverRowsReadOnly || !this.serverRowsPersisted) return;
+      if (options.skipServer || this.serverRowsReadOnly || !this.serverRowsPersisted || (mode === 'allocation' && this.batchInfo?.archived)) return;
 
       if (this.serverSaveTimers[mode]) {
         clearTimeout(this.serverSaveTimers[mode]);
@@ -8366,7 +8595,7 @@ window.distributionApp = function distributionApp() {
     },
 
     async importAllocationCsv(event) {
-      if(this.batchInfo?.archived) {this.openModal('注意','終了した分配は変更できません。');return;}
+      if(this.batchInfo?.archived) {this.openModal('注意','すでに対応済みの分配です。作業を再開するには再開するボタンを押してください。');return;}
       const input = event?.target;
       const file = input?.files?.[0];
       if (!file) return;
@@ -8810,6 +9039,19 @@ window.distributionApp = function distributionApp() {
       ) || '-';
     },
 
+    getItemContractorNotePopoverPosition(rect) {
+      const margin = 8;
+      const width = Math.min(288, Math.max(0, window.innerWidth - margin * 2));
+      const left = Math.max(margin, Math.min(rect.left + rect.width / 2 - width / 2, window.innerWidth - margin - width));
+      const below = Math.min(window.innerHeight - margin, Math.max(margin, rect.bottom + 4));
+      const above = Math.min(window.innerHeight - margin, Math.max(margin, rect.top - 4));
+      const belowSpace = window.innerHeight - margin - below;
+      const aboveSpace = above - margin;
+      const useAbove = belowSpace < 240 && aboveSpace > belowSpace;
+      return { left, width, top: useAbove ? above : below, anchor: useAbove ? 'above' : 'below',
+        maxHeight: Math.max(0, useAbove ? aboveSpace : belowSpace) };
+    },
+
     async toggleItemContractorNote(row, isDirect, event) {
       const rowId = String(row?.id || '');
       const activeRowId = String(isDirect ? this.directLotPopoverRowId ?? '' : this.lotPopoverRowId ?? '');
@@ -8822,13 +9064,7 @@ window.distributionApp = function distributionApp() {
         return;
       }
 
-      const rect = event.currentTarget.getBoundingClientRect();
-      const popoverHeight = 360;
-      const below = rect.bottom + 4;
-      const above = rect.top - 4;
-      const position = below + popoverHeight > window.innerHeight
-        ? { top: above, left: rect.left + (rect.width / 2), anchor: 'above' }
-        : { top: below, left: rect.left + (rect.width / 2), anchor: 'below' };
+      const position = this.getItemContractorNotePopoverPosition(event.currentTarget.getBoundingClientRect());
 
       if (isDirect) {
         this.directLotPopoverPos = position;
@@ -8838,7 +9074,7 @@ window.distributionApp = function distributionApp() {
         this.lotPopoverRowId = row.id;
       }
 
-      if (row?.itemContractorNoteLoaded || String(row?.itemContractorNote || '').trim() !== '') return;
+      if (row?.itemContractorNoteLoaded || this.getItemContractorNote(row) !== '') return;
 
       const query = String(row?.productCode || row?.jan || '').trim();
       if (!query) return;
@@ -8889,8 +9125,53 @@ window.distributionApp = function distributionApp() {
       }
     },
 
+    itemContractorNoteCache: {},
+    itemContractorNoteQueue: [],
+    itemContractorNoteTimer: null,
+
+    itemContractorNoteKey(row) {
+      return JSON.stringify([row?.id, row?.productCode, row?.itemContractorId, row?.orderDate, row?.orderToCode, row?.supplierCode]);
+    },
+
+    queueItemContractorNote(row) {
+      if (!row?.productCode || row.itemContractorNoteLoaded || String(row.itemContractorNote || '').trim()) return;
+      const key = this.itemContractorNoteKey(row);
+      if (this.itemContractorNoteCache[key]) return;
+      this.itemContractorNoteCache[key] = { status: 'loading', note: '' };
+      this.itemContractorNoteQueue.push({ key, row: { ...row }, query: String(row.productCode),
+        orderDate: this.normalizeFlexibleDate(row.orderDate || '') || getTodayString(),
+        orderToSearch: row.orderToCode || row.orderTo || '', supplierSearch: row.supplierCode || row.supplier || '' });
+      if (this.itemContractorNoteTimer === null) {
+        this.itemContractorNoteTimer = setTimeout(() => this.loadQueuedItemContractorNotes(), 0);
+      }
+    },
+
+    async loadQueuedItemContractorNotes() {
+      this.itemContractorNoteTimer = null;
+      const targets = this.itemContractorNoteQueue.splice(0);
+      if (!targets.length) return;
+      try {
+        // Resolve only visible, unhydrated Excel/legacy rows using the existing batch lookup.
+        const productsByRowId = await this.fetchProductCandidatesBatchForRows(targets);
+        targets.forEach(({ key, row }) => {
+          const candidates = productsByRowId.get(String(row.id)) || [];
+          const product = this.pickProductForExistingRow(row, candidates);
+          const matchesContractor = !row.itemContractorId || String(product?.itemContractorId || '') === String(row.itemContractorId);
+          this.itemContractorNoteCache[key] = { status: 'loaded',
+            note: matchesContractor ? String(product?.itemContractorNote || '').trim() : '' };
+        });
+      } catch (error) {
+        targets.forEach(({ key }) => { this.itemContractorNoteCache[key] = { status: 'failed', note: '' }; });
+        this.showToast('備考を確認できませんでした。画面を再読み込みしてください。');
+      }
+    },
+
     getItemContractorNote(row) {
-      return String(row?.itemContractorNote || this.getProductMeta(row?.productCode || '').itemContractorNote || '').trim();
+      // A loaded empty value is authoritative; never borrow another supplier's cached note.
+      if (row?.itemContractorNoteLoaded || String(row?.itemContractorNote || '').trim()) {
+        return String(row?.itemContractorNote || '').trim();
+      }
+      return String(this.itemContractorNoteCache[this.itemContractorNoteKey(row)]?.note || '').trim();
     },
 
     getProductName(productCode) {
@@ -10527,7 +10808,7 @@ window.distributionApp = function distributionApp() {
           const destHeaders = activeDests.map(d => {
             let nm = d.name === '本店' ? d.name : d.name.replace(/店$/, '');
             nm = nm.replace(/サンドーム前/, 'SD前');
-            return `<th style="padding:3px 2px;border:1px solid #d1d5db;background:#f3f4f6;font-size:12px;text-align:center;white-space:nowrap;">${nm}</th>`;
+            return `<th style="padding:3px 2px;border:1px solid #000;background:#f3f4f6;font-size:12px;text-align:center;white-space:nowrap;">${nm}</th>`;
           }).join('');
 
           // 納品希望日を収集（重複排除）
@@ -10593,11 +10874,11 @@ window.distributionApp = function distributionApp() {
             <table class="request-list-table" style="border-collapse:collapse;width:100%;margin-bottom:12px;">
               <thead>
                 <tr style="background:#f3f4f6;">
-                  <th style="padding:3px 3px;border:1px solid #d1d5db;background:#f3f4f6;font-size:13px;">発注用コード（JAN等）</th>
-                  <th style="padding:3px 4px;border:1px solid #d1d5db;background:#f3f4f6;font-size:13px;">商品名</th>
-                  <th style="padding:3px 3px;border:1px solid #d1d5db;background:#f3f4f6;font-size:13px;white-space:nowrap;">入数</th>
+                  <th style="padding:3px 3px;border:1px solid #000;background:#f3f4f6;font-size:13px;">発注用コード（JAN等）</th>
+                  <th style="padding:3px 4px;border:1px solid #000;background:#f3f4f6;font-size:13px;">商品名</th>
+                  <th style="padding:3px 3px;border:1px solid #000;background:#f3f4f6;font-size:13px;white-space:nowrap;">入数</th>
                   ${destHeaders}
-                  <th style="padding:3px 3px;border:1px solid #d1d5db;background:#f3f4f6;font-size:13px;white-space:nowrap;">合計</th>
+                  <th style="padding:3px 3px;border:1px solid #000;background:#f3f4f6;font-size:13px;white-space:nowrap;">合計</th>
                 </tr>
               </thead>
               <tbody>${bodyRows}</tbody>
@@ -10613,22 +10894,22 @@ window.distributionApp = function distributionApp() {
             @page { size: A4 landscape; margin: 5mm; }
             * { margin:0; padding:0; box-sizing:border-box; }
             body { font-family:"BIZ UDPGothic", "Yu Gothic", "YuGothic", "Meiryo", sans-serif; font-size:12px; padding:8px; color:#111827; background:#f3f4f6; overflow-x:auto; }
-            .page-break { position:relative; page-break-after:always; page-break-inside:avoid; width:297mm; min-height:210mm; margin:0 auto 20px; padding:12px 14px 14px; border:1px solid #cbd5e1; background:#fff; box-shadow:0 8px 22px rgba(15,23,42,.12); }
+            .page-break { position:relative; page-break-after:always; page-break-inside:avoid; width:297mm; min-height:210mm; margin:0 auto 20px; padding:12px 14px 14px; border:1px solid #000; background:#fff; box-shadow:0 8px 22px rgba(15,23,42,.12); }
             .page-break:last-child { page-break-after:auto; }
             .document-topline { height:1px; background:#d1d5db; margin:-12px -14px 12px; }
             .document-header { display:flex; justify-content:space-between; gap:20px; align-items:flex-start; margin-bottom:12px; }
             .document-left { min-width:0; flex:1; }
             .document-generated-at { margin-bottom:2px; color:#4b5563; font-size:11px; font-weight:400; line-height:1.2; white-space:nowrap; }
             .document-title { font-size:23px; font-weight:800; line-height:1.15; color:#111827; margin-bottom:4px; }
-            .eos-order-badge { position:absolute; top:74px; left:57%; z-index:2; display:inline-flex; align-items:center; justify-content:center; width:max-content; padding:5px 10px; border:2px solid #1d4ed8; color:#1d4ed8; font-size:15px; font-weight:900; line-height:1.2; white-space:nowrap; transform:translateX(-50%); -webkit-text-stroke:.2px #1d4ed8; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+            .eos-order-badge { position:absolute; top:74px; left:57%; z-index:2; display:inline-flex; align-items:center; justify-content:center; width:max-content; padding:5px 10px; border:2px solid #000; color:#1d4ed8; font-size:15px; font-weight:900; line-height:1.2; white-space:nowrap; transform:translateX(-50%); -webkit-text-stroke:.2px #1d4ed8; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
             .request-meta-line { display:flex; align-items:center; justify-content:space-between; gap:16px; max-width:520px; margin:0 0 9px; }
             .request-number-line { color:#374151; font-size:14px; font-weight:700; white-space:nowrap; }
             .request-page-number { position:absolute; top:2px; right:14px; color:#374151; font-size:12px; font-weight:700; white-space:nowrap; z-index:2; }
-            .supplier-box { border:1px solid #d1d5db; border-left:5px solid #374151; padding:9px 12px; background:#f9fafb; max-width:520px; }
-            .supplier-name { font-size:18px; font-weight:800; border-bottom:1px solid #d1d5db; padding-bottom:4px; margin-bottom:5px; }
+            .supplier-box { border:1px solid #000; border-left:5px solid #000; padding:9px 12px; background:#f9fafb; max-width:520px; }
+            .supplier-name { font-size:18px; font-weight:800; border-bottom:1px solid #000; padding-bottom:4px; margin-bottom:5px; }
             .supplier-contact { display:flex; gap:20px; margin-bottom:4px; font-size:13px; color:#111827; white-space:nowrap; }
             .supplier-caption { margin-top:2px; font-size:14px; color:#4b5563; line-height:1.4; }
-            .company-box { display:flex; flex-direction:column; gap:1px; width:350px; border:1px solid #d1d5db; background:#fff; padding:1px 8px 6px; text-align:right; font-size:14px; line-height:1.2; }
+            .company-box { display:flex; flex-direction:column; gap:1px; width:350px; border:1px solid #000; background:#fff; padding:1px 8px 6px; text-align:right; font-size:14px; line-height:1.2; }
             .company-logo { display:block; width:100%; height:auto; margin:0; }
             .company-info { position:relative; width:100%; margin:0; color:#111827; font-size:13px; line-height:1.2; text-align:right; }
             .company-stamp { position:absolute; top:50%; right:3px; width:64px; height:64px; object-fit:contain; opacity:.45; transform:translateY(-50%); z-index:1; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
@@ -10648,28 +10929,28 @@ window.distributionApp = function distributionApp() {
             .supplier-code-line span, .issue-date-line span, .delivery-date-line span { font-weight:700; }
             .supplier-code-line strong, .issue-date-line strong, .delivery-date-line strong { font-size:14px; font-weight:400; color:#111827; }
             .summary-stamp-cell { width:250px; padding:0 !important; background:#fff; }
-            .summary-stamp-cell .stamp-grid { height:auto; min-height:62px; border:1px solid #d1d5db; font-family:"BIZ UDPGothic", "Yu Gothic", "YuGothic", "Meiryo", sans-serif; }
+            .summary-stamp-cell .stamp-grid { height:auto; min-height:62px; border:1px solid #000; font-family:"BIZ UDPGothic", "Yu Gothic", "YuGothic", "Meiryo", sans-serif; }
             .summary-stamp-cell .stamp-grid span { padding:3px 0; color:#111827; font-size:12px; font-weight:800; }
             .unit-label { text-align:right; font-size:11px; margin-bottom:1px; color:#374151; font-weight:700; }
             table { border-collapse:collapse; width:100%; }
             th { font-weight:bold; text-align:center; }
             .request-list-table thead th { background:#f3f4f6; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-            .request-list-table th { border:1px solid #d1d5db !important; color:#111827; }
-            .request-list-table td { border:1px solid #d1d5db; padding:3px 4px; font-size:13px; line-height:1.15; }
+            .request-list-table th { border:1px solid #000 !important; color:#111827; }
+            .request-list-table td { border:1px solid #000; padding:3px 4px; font-size:13px; line-height:1.15; }
             .jan-cell { min-width:116px; padding:3px 2px !important; white-space:nowrap; text-align:center; font-family:Consolas, "Courier New", monospace; font-size:15px !important; font-weight:700; line-height:1.1; letter-spacing:0; }
             .product-cell { min-width:210px; }
             .center-cell { text-align:center; white-space:nowrap; }
             .qty-cell { text-align:right; white-space:nowrap; min-width:28px; }
             .total-cell { text-align:right; white-space:nowrap; font-weight:800; background:#f9fafb; }
-            .note-box { margin-top:10px; padding:8px 10px; border:1px solid #d6b35a; border-radius:3px; font-size:12px; background:#fff8dc; }
+            .note-box { margin-top:10px; padding:8px 10px; border:1px solid #000; border-radius:3px; font-size:12px; background:#fff8dc; }
             .note-box span { font-weight:800; }
             .footer-area { margin:12px 0 6px; }
-            .comment-box { border:1px solid #cbd5e1; background:#fff; padding:7px; min-height:30px; font-size:12px; line-height:1.4; }
+            .comment-box { border:1px solid #000; background:#fff; padding:7px; min-height:30px; font-size:12px; line-height:1.4; }
             .comment-box span { font-weight:800; }
-            .stamp-grid { display:grid; grid-template-columns:repeat(3,1fr); border:1px solid #d1d5db; min-height:56px; text-align:center; font-size:11px; color:#374151; }
-            .stamp-grid div { border-left:1px solid #d1d5db; }
+            .stamp-grid { display:grid; grid-template-columns:repeat(3,1fr); border:1px solid #000; min-height:56px; text-align:center; font-size:11px; color:#374151; }
+            .stamp-grid div { border-left:1px solid #000; }
             .stamp-grid div:first-child { border-left:0; }
-            .stamp-grid span { display:block; padding:4px 0; border-bottom:1px solid #d1d5db; background:#f3f4f6; font-weight:700; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+            .stamp-grid span { display:block; padding:4px 0; border-bottom:1px solid #000; background:#f3f4f6; font-weight:700; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
             .btn-container { position:fixed; top:20px; right:20px; display:flex; gap:8px; z-index:1000; }
             .print-button, .download-button { color:white; border:none; padding:12px 24px; font-size:16px; font-weight:bold; border-radius:8px; cursor:pointer; }
             .print-button { background:#2563eb; }
@@ -11259,8 +11540,9 @@ window.distributionApp = function distributionApp() {
           distribution_business_key: this.getDistributionBusinessKey(row, 'allocation'),
           item_id: row.itemId || null,
           product_code: row.productCode || '',
-          order_date: processDate || row.orderDate || '',
-          delivery_date: processDate || row.deliveryDate || '',
+          // Keep the saved row snapshot intact; process_date controls the generated slip.
+          order_date: row.orderDate || '',
+          delivery_date: row.deliveryDate || '',
           delivery_course_id: toInt(row.deliveryCourseId || row.delivery_course_id || 0) || null,
           memo: row.memo || '',
           allocations: allocations,
@@ -11454,7 +11736,8 @@ window.distributionApp = function distributionApp() {
     },
 
     async createWarehouseTransfers(dataset, destsList = DESTS, options = {}) {
-      const processDate = this.normalizeFlexibleDate(this.bulkInputDate || '') || getTodayString();
+      const processDate = this.normalizeFlexibleDate(this.bulkInputDate || '');
+      if (!processDate) throw new Error('倉庫移動を生成する出荷日を指定してください。');
       this.bulkInputDate = processDate;
       const payload = this.buildStockTransferSlipPayload(dataset, '倉庫移動生成', destsList, {
         processDate,
@@ -11578,6 +11861,10 @@ window.distributionApp = function distributionApp() {
       let hasUnpersistedChunkSuccess = false;
 
       try {
+        if (!this.normalizeFlexibleDate(this.bulkInputDate || '')) {
+          this.openModal('エラー', '倉庫移動を生成する出荷日を指定してください。');
+          return;
+        }
         if (!this.hasSelectedBulkDeliveryCourse()) {
           this.openModal('エラー', this.getMissingDeliveryCourseMessage());
           return;
@@ -11981,10 +12268,15 @@ window.distributionApp = function distributionApp() {
       const includeZeroAllocRows = !!options.includeZeroAllocRows;
       let printedPageNumber = 0;
 
-      const slipsHtml = (options.documents || []).map((document, documentIndex) => {
+      const slipsHtml = [
+        { type: 'in', title: '転送伝票（入庫用）' },
+        { type: 'out', title: '転送伝票（出庫用）' },
+        { type: 'reference', title: '' },
+      ].map(copy => (options.documents || []).map((document, documentIndex) => {
         const dest = document.destination;
         const destData = document.rows;
         const reference = document.kind !== 'transfer';
+        if (reference !== (copy.type === 'reference')) return '';
         const referenceTitle = document.kind === 'direct-reference' ? '直送分配参考（移動伝票なし）' : '参考明細（実伝票なし）';
         const orderDate = document.picking_date || '';
         const deliveredDate = document.delivered_date || '';
@@ -12000,12 +12292,7 @@ window.distributionApp = function distributionApp() {
         const slipIdentity = slipNumber;
         const sourceWarehouseLabel = HQ_WAREHOUSE_CODE + ' ' + HQ_WAREHOUSE_NAME;
         const destinationWarehouseLabel = (dest.code || dest.key || '') + ' ' + (dest.name || '');
-        const copies = reference ? [{ type: 'reference', title: referenceTitle }] : [
-          { type: 'in', title: '転送伝票（入庫用）' },
-          { type: 'out', title: '転送伝票（出庫用）' },
-        ];
-
-        return copies.map(copy => destPages.map((pageRows, pageIndex) => {
+        return destPages.map((pageRows, pageIndex) => {
           printedPageNumber++;
           const rowsHtml = pageRows.map(r => {
             const alloc = toInt(r['alloc_' + dest.key] || 0);
@@ -12084,8 +12371,8 @@ window.distributionApp = function distributionApp() {
               rowsHtml +
             '</table>' +
           '</section>';
-        }).join('')).join('');
-      }).filter(html => html !== '').join('');
+        }).join('');
+      }).filter(html => html !== '').join('')).join('');
 
       if (!slipsHtml || slipsHtml.trim() === '') {
         this.openModal('エラー', includeZeroAllocRows ? '希望または分配が入力されている店舗がありません。' : '分配数が入力されている店舗がありません。');

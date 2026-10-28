@@ -59,7 +59,6 @@
     .dark .distribution-excel-screen .distribution-store-editor label,.dark .distribution-excel-screen .distribution-store-editor-close { color:#e2e8f0; }
     .distribution-excel-screen .distribution-quantity-before { display:block; margin-top:2px; color:#64748b; font-size:10px; font-weight:400; }
     .distribution-excel-screen .distribution-excel-footer { display:flex; flex-shrink:0; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:10px; border-top:1px solid #cbd5e1; padding:12px 16px; }
-    .distribution-excel-screen .distribution-excel-ack { margin-right:auto; font-size:13px; }
     .distribution-excel-screen .distribution-excel-empty { display:flex; flex:1; align-items:center; justify-content:center; color:#64748b; }
     .dark .distribution-excel-screen .distribution-excel-settings,.dark .distribution-excel-screen .distribution-excel-footer,.dark .distribution-excel-screen .distribution-excel-matrix,.dark .distribution-excel-screen .distribution-excel-matrix th,.dark .distribution-excel-screen .distribution-excel-matrix td { border-color:#475569; }
     .dark .distribution-excel-screen .distribution-excel-matrix th { background:#1e293b; }
@@ -82,20 +81,20 @@
         <div class="distribution-excel-header">Excel取込：<span x-text="batchInfo?.name"></span></div>
         <div class="distribution-excel-settings">
             <label class="distribution-form-label distribution-excel-file">Excelファイル <span class="distribution-required">必須</span>
-                <input x-ref="excelInput" type="file" accept=".xls,.xlsx" :disabled="excelImport.busy" @change="excelImport.file=$event.target.files[0];excelImport.preview=null;excelImport.mapping={};excelImport.acknowledged=false" class="distribution-import-file">
+                <input x-ref="excelInput" type="file" accept=".xls,.xlsx" :disabled="excelImport.busy" @change="excelImport.file=$event.target.files[0];excelImport.preview=null;excelImport.mapping={}" class="distribution-import-file">
             </label>
             <fieldset class="distribution-option-group" :disabled="excelImport.busy">
                 <legend>数量単位 <span class="distribution-required">必須</span></legend>
                 <div class="distribution-option-grid">
-                    <label class="distribution-option"><span class="distribution-option-title">バラ</span><input type="radio" name="distribution-excel-unit" value="piece" x-model="excelImport.unit" @change="excelImport.preview=null;excelImport.acknowledged=false" aria-label="バラ"></label>
-                    <label class="distribution-option"><span class="distribution-option-title">ケース</span><input type="radio" name="distribution-excel-unit" value="case" x-model="excelImport.unit" @change="excelImport.preview=null;excelImport.acknowledged=false" aria-label="ケース"></label>
+                    <label class="distribution-option"><span class="distribution-option-title">バラ</span><input type="radio" name="distribution-excel-unit" value="piece" x-model="excelImport.unit" @change="excelImport.preview=null" aria-label="バラ"></label>
+                    <label class="distribution-option"><span class="distribution-option-title">ケース</span><input type="radio" name="distribution-excel-unit" value="case" x-model="excelImport.unit" @change="excelImport.preview=null" aria-label="ケース"></label>
                 </div>
             </fieldset>
             <fieldset class="distribution-option-group" :disabled="excelImport.busy">
                 <legend>店舗見出し <span class="distribution-required">必須</span></legend>
                 <div class="distribution-option-grid">
-                    <label class="distribution-option"><span class="distribution-option-title">店舗名</span><input type="radio" name="distribution-excel-store-mode" value="name" x-model="excelImport.storeMode" @change="excelImport.preview=null;excelImport.acknowledged=false" aria-label="店舗名"></label>
-                    <label class="distribution-option"><span class="distribution-option-title">店舗コード</span><input type="radio" name="distribution-excel-store-mode" value="code" x-model="excelImport.storeMode" @change="excelImport.preview=null;excelImport.acknowledged=false" aria-label="店舗コード"></label>
+                    <label class="distribution-option"><span class="distribution-option-title">店舗名</span><input type="radio" name="distribution-excel-store-mode" value="name" x-model="excelImport.storeMode" @change="excelImport.preview=null" aria-label="店舗名"></label>
+                    <label class="distribution-option"><span class="distribution-option-title">店舗コード</span><input type="radio" name="distribution-excel-store-mode" value="code" x-model="excelImport.storeMode" @change="excelImport.preview=null" aria-label="店舗コード"></label>
                 </div>
             </fieldset>
             <button type="button" @click="previewExcel()" :disabled="excelImport.busy || !excelImport.file || !excelImport.unit || !excelImport.storeMode" class="rounded bg-indigo-600 px-4 py-2 text-sm text-white disabled:bg-gray-300">取込内容を確認</button>
@@ -159,9 +158,8 @@
             </div></template>
         </div>
         <div class="distribution-excel-footer">
-            <label x-show="excelImport.preview" class="distribution-excel-ack"><input type="checkbox" x-model="excelImport.acknowledged" :disabled="excelImport.busy || excelImport.needsPreview"> 店舗・数量・注意事項を確認しました</label>
             <button type="button" @click="excelImport.visible=false" :disabled="excelImport.busy" class="rounded border px-4 py-2">取り込まず閉じる</button>
-            <button type="button" @click="commitExcel()" :disabled="excelImport.busy || !excelImport.preview || !excelImport.preview.rows.length || excelImport.preview.errors.length || !excelImport.acknowledged || excelImport.needsPreview" class="rounded bg-red-600 px-4 py-2 text-white disabled:bg-gray-300">この内容で取り込む</button>
+            <button type="button" @click="commitExcel()" :disabled="excelImport.busy || !excelImport.preview || !excelImport.preview.rows.length || excelImport.preview.errors.length || excelImport.needsPreview" class="rounded bg-red-600 px-4 py-2 text-white disabled:bg-gray-300">この内容で取り込む</button>
         </div>
     </div>
 </div>

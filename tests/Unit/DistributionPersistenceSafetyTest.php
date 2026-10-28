@@ -183,7 +183,7 @@ class DistributionPersistenceSafetyTest extends TestCase
         $this->assertStringContainsString('if (!this.isAllocationTransferCompleted(r)) return false;', $source);
         $this->assertStringContainsString('!this.isOrderCandidateCreated(row) && !this.isAllocationTransferCompleted(row)', $source);
         $this->assertStringContainsString("'件は削除対象から除外します。'", $source);
-        $this->assertStringContainsString("this.deleteSelectedRowIds = this.deleteSelectedRowIds.filter(rowId => !rowIds.has(String(rowId)));", $source);
+        $this->assertStringContainsString('this.deleteSelectedRowIds = this.deleteSelectedRowIds.filter(rowId => !rowIds.has(String(rowId)));', $source);
         $this->assertStringContainsString("field.startsWith('alloc_') && toInt(value) > 0", $source);
         $this->assertStringContainsString('getWarehouseTransferDestinationPool(row)', $source);
         $this->assertStringContainsString('isWarehouseTransferExcludedDestination(key, destination = null)', $source);
@@ -205,10 +205,12 @@ class DistributionPersistenceSafetyTest extends TestCase
         $this->assertSame(['01' => 2], $requestSnapshot->invoke($controller, [
             ['destination_key' => '01', 'quantity' => 2],
             ['destination_key' => '97', 'quantity' => 3],
+            ['destination_key' => '91', 'quantity' => 4],
         ], 'warehouse-transfer'));
         $this->assertSame(['01' => 2], $persistedSnapshot->invoke($controller, [
             'alloc_01' => 2,
             'alloc_97' => 3,
+            'alloc_91' => 4,
         ], 'warehouse-transfer'));
         $this->assertSame(['01' => 2, '97' => 3], $persistedSnapshot->invoke($controller, [
             'alloc_01' => 2,
@@ -261,7 +263,7 @@ class DistributionPersistenceSafetyTest extends TestCase
 
         $this->assertStringContainsString('x-text="getReprintStoreLabel(dest)"', $source);
         $this->assertStringContainsString('getReprintStoreLabel(destination)', $source);
-        $this->assertStringContainsString("candidates.find(value => /^\\d+$/.test(value))", $source);
+        $this->assertStringContainsString('candidates.find(value => /^\\d+$/.test(value))', $source);
     }
 
     public function test_direct_default_filter_shows_unprocessed_rows(): void
@@ -313,7 +315,7 @@ class DistributionPersistenceSafetyTest extends TestCase
         $this->assertStringContainsString('flushQuantitySave(isDirect = false)', $source);
         $this->assertStringContainsString('setAllocationQuantity(row, destinationKey, value, isDirect = false)', $source);
         $this->assertStringContainsString('row[key] = parsed.value;', $source);
-        $this->assertStringContainsString("this.saveRowsForMode(isDirect, { immediate: true });", $source);
+        $this->assertStringContainsString('this.saveRowsForMode(isDirect, { immediate: true });', $source);
         $this->assertStringContainsString('hasPendingDistributionSave()', $source);
         $this->assertStringContainsString("window.addEventListener('beforeunload', this.beforeUnloadHandler);", $source);
         $this->assertStringContainsString('if (!options.append) this.resetAllocationRenderWindow();', $source);
@@ -354,7 +356,7 @@ class DistributionPersistenceSafetyTest extends TestCase
         $view = $this->distributionPageSource();
         $controller = $this->controllerSource();
 
-        $this->assertStringNotContainsString("const isEosOrder = rows.some", $view);
+        $this->assertStringNotContainsString('const isEosOrder = rows.some', $view);
         $this->assertStringContainsString('FAX発注</div>', $view);
         $this->assertStringContainsString('.eos-order-badge {', $view);
         $this->assertStringContainsString("'wcs.transmission_type'", $controller);
@@ -482,7 +484,7 @@ class DistributionPersistenceSafetyTest extends TestCase
         $this->assertStringContainsString('COLLATE utf8mb4_0900_ai_ci', $controller);
         $this->assertStringNotContainsString('foreach ([\' \', \'　\', \'[\'', $controller);
         $this->assertStringContainsString('CAST(COALESCE({$expression}, \'\') AS UNSIGNED) = ?', $controller);
-        $this->assertStringContainsString("if (!/^\\d+$/.test(compactField) || !/^\\d+$/.test(compactQ)) return false;", $source);
+        $this->assertStringContainsString('if (!/^\\d+$/.test(compactField) || !/^\\d+$/.test(compactQ)) return false;', $source);
     }
 
     public function test_direct_distribution_uses_one_selection_and_status_based_locking(): void
@@ -497,7 +499,7 @@ class DistributionPersistenceSafetyTest extends TestCase
         $this->assertStringNotContainsString('<div class="leading-tight">確定</div>', substr($source, strpos($source, '<!-- ==================== 直送分配 Tab')));
         $this->assertStringContainsString('getSelectedDirectRows(rows = this.getVisibleDirectRows())', $source);
         $this->assertStringContainsString('isDirectRowEditLocked(row)', $source);
-        $this->assertStringContainsString("return this.isOrderCandidateCreated(row);", $source);
+        $this->assertStringContainsString('return this.isOrderCandidateCreated(row);', $source);
         $this->assertStringContainsString("if (\$mode === 'direct') {\n                \$incomingData = \$existingData;", $controller);
         $this->assertStringNotContainsString('DIRECT_REQUEST_PRINT_ROW_NOT_CONFIRMED', $controller);
     }
@@ -530,8 +532,8 @@ class DistributionPersistenceSafetyTest extends TestCase
         $this->assertStringContainsString('if (!hasCsvQuantityInput) {', $source);
         $this->assertStringContainsString('発注数・店舗別希望数・分配数がすべて空欄のためスキップ', $source);
         $this->assertStringContainsString('parseCsvQuantityInput(value)', $source);
-        $this->assertStringContainsString("const isPlainInteger = /^\\d+(?:\\.0+)?$/.test(raw);", $source);
-        $this->assertStringContainsString("const isGroupedInteger = /^\\d{1,3}(?:,\\d{3})+(?:\\.0+)?$/.test(raw);", $source);
+        $this->assertStringContainsString('const isPlainInteger = /^\\d+(?:\\.0+)?$/.test(raw);', $source);
+        $this->assertStringContainsString('const isGroupedInteger = /^\\d{1,3}(?:,\\d{3})+(?:\\.0+)?$/.test(raw);', $source);
         $this->assertStringContainsString('if (!isPlainInteger && !isGroupedInteger)', $source);
         $this->assertStringContainsString('if (invalidQuantityFields.length > 0) {', $source);
         $this->assertStringContainsString('数量が0以上99,999,999以下の整数ではありません:', $source);

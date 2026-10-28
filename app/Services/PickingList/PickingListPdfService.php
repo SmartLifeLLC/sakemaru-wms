@@ -104,7 +104,7 @@ class PickingListPdfService
 
         // 左側
         $this->pdf->SetXY(self::MARGIN, $this->currentY);
-        $this->pdf->Cell(95, self::LINE_HEIGHT, '波動番号:'.($header['wave_no'] ?? ''), 0, 0, 'L');
+        $this->pdf->Cell(95, self::LINE_HEIGHT, ($header['wave_label'] ?? '波動番号').':'.(isset($header['distribution_name']) ? $this->truncateText($header['wave_no'], 80) : ($header['wave_no'] ?? '')), 0, 0, 'L');
 
         // 右側
         $this->pdf->SetXY(self::MARGIN + 95, $this->currentY);
@@ -191,7 +191,7 @@ class PickingListPdfService
 
             $rowData = [
                 $index + 1,
-                $item['location_code'] ?? '',
+                PickingListLocationLabel::format($item['location_code'] ?? null),
                 $item['item_code'],
                 $item['item_name'],
                 $item['packaging'] ?? '',
@@ -372,7 +372,7 @@ class PickingListPdfService
                 $item['serial_id'] ?? '',
                 $item['partner_name'] ?? '',
                 $item['salesman_name'] ?? '',
-                $item['location_code'] ?? '',
+                PickingListLocationLabel::format($item['location_code'] ?? null),
                 $item['item_code'],
                 $item['item_name'],
                 $item['packaging'] ?? '',
@@ -557,7 +557,7 @@ class PickingListPdfService
             $y = $this->currentY;
 
             $rowData = [
-                $item['location_code'],
+                PickingListLocationLabel::format($item['location_code'] ?? null),
                 $item['item_code'],
                 $this->truncateText($item['item_name'], $widths[2] - 2),
                 $item['total_pick_qty'],
@@ -740,7 +740,7 @@ class PickingListPdfService
             $y = $this->currentY;
 
             $rowData = [
-                $item['location_code'],
+                PickingListLocationLabel::format($item['location_code'] ?? null),
                 $item['item_code'],
                 $this->truncateText($item['item_name'], $widths[2] - 2),
                 $item['case_qty'] ?: '',
@@ -977,7 +977,7 @@ class PickingListPdfService
                 $item['jan_code'],
                 $this->truncateText($item['item_name'], $widths[4] - 2),
                 $this->truncateText($item['packaging'] ?? '', $widths[5] - 2),
-                $item['location_code'],
+                PickingListLocationLabel::format($item['location_code'] ?? null),
                 $item['qty_type'],
                 $item['assign_qty'],
                 '',
@@ -1314,9 +1314,9 @@ class PickingListPdfService
 
         $isCourseGrouped = array_key_exists('slip_count', $header);
         $this->pdf->SetXY($infoX, $this->currentY);
-        $this->pdf->Cell($labelW, $infoLineH, $isCourseGrouped ? '伝票数：' : '伝票No：', 0, 0, 'L');
+        $this->pdf->Cell($labelW, $infoLineH, isset($header['distribution_name']) ? '分配：' : ($isCourseGrouped ? '伝票数：' : '伝票No：'), 0, 0, 'L');
         $this->pdf->SetXY($infoX + $labelW, $this->currentY);
-        $this->pdf->Cell($valueW, $infoLineH, $isCourseGrouped ? ((string) $header['slip_count']).'件' : (string) ($header['slip_no'] ?? ''), 0, 0, 'L');
+        $this->pdf->Cell($valueW, $infoLineH, isset($header['distribution_name']) ? $this->truncateText($header['distribution_name'], $valueW) : ($isCourseGrouped ? ((string) $header['slip_count']).'件' : (string) ($header['slip_no'] ?? '')), 0, 0, 'L');
         $this->currentY += $infoLineH;
 
         $shippingDate = $header['shipping_date'] ?? '';
@@ -1440,7 +1440,7 @@ class PickingListPdfService
             // 棚番（太字）
             $this->pdf->SetFont('kozgopromedium', 'B', $shelfFontSize);
             $this->pdf->SetXY($colX, $y);
-            $this->pdf->Cell($widths[1], $rowH, (string) ($item['location_code'] ?? ''), 0, 0, 'C');
+            $this->pdf->Cell($widths[1], $rowH, PickingListLocationLabel::format($item['location_code'] ?? null), 0, 0, 'C');
             $colX += $widths[1];
 
             // 商品CD（上、太字）+ JAN（直下、小）— 行高に関わらず上端に密着配置
@@ -1705,9 +1705,9 @@ class PickingListPdfService
         $infoLineH = 6;
 
         $this->pdf->SetXY($infoX, $this->currentY);
-        $this->pdf->Cell($labelW, $infoLineH, '伝票No：', 0, 0, 'L');
+        $this->pdf->Cell($labelW, $infoLineH, isset($header['distribution_name']) ? '分配：' : '伝票No：', 0, 0, 'L');
         $this->pdf->SetXY($infoX + $labelW, $this->currentY);
-        $this->pdf->Cell($valueW, $infoLineH, (string) ($header['wave_no'] ?? ''), 0, 0, 'L');
+        $this->pdf->Cell($valueW, $infoLineH, isset($header['distribution_name']) ? $this->truncateText($header['distribution_name'], $valueW) : (string) ($header['wave_no'] ?? ''), 0, 0, 'L');
         $this->currentY += $infoLineH;
 
         $shippingDate = $header['shipping_date'] ?? '';
@@ -1806,7 +1806,7 @@ class PickingListPdfService
             // 棚番（太字）
             $this->pdf->SetFont('kozgopromedium', 'B', $shelfFontSize);
             $this->pdf->SetXY($colX, $y);
-            $this->pdf->Cell($widths[1], $rowH, (string) ($item['location_code'] ?? ''), 0, 0, 'C');
+            $this->pdf->Cell($widths[1], $rowH, PickingListLocationLabel::format($item['location_code'] ?? null), 0, 0, 'C');
             $colX += $widths[1];
 
             // 得意先（左寄せ折返し、上寄せ）

@@ -123,7 +123,6 @@ test('Excel preview highlights a wish-only update and retains both previous quan
 test('an Excel preview containing only skipped rows never submits an import', async () => {
     const { app } = component();
     app.excelImport.preview = { rows: [], errors: [], skipped: [{ reason_code: 'merged_store_quantity' }] };
-    app.excelImport.acknowledged = true;
     let requests = 0;
     app.batchRequest = async () => { requests++; throw new Error('No import should be submitted'); };
     await app.commitExcel();
@@ -135,11 +134,9 @@ test('an Excel preview containing only skipped rows never submits an import', as
 test('restoring an Excel column to automatic matching removes the override and requires review', () => {
     const { app } = component();
     const column = { column: 'I' };
-    app.excelImport.acknowledged = true;
     app.updateExcelPreviewMapping(column, '2');
     assert.equal(app.excelImport.mapping.I, '2');
     assert.equal(app.excelImport.needsPreview, true);
-    assert.equal(app.excelImport.acknowledged, false);
     app.updateExcelPreviewMapping(column, '');
     assert.equal(Object.hasOwn(app.excelImport.mapping, 'I'), false);
 });
@@ -749,4 +746,312 @@ test('explicit HQ and other warehouses display dynamically while HQ does not cre
     assert.deepEqual(keys(app.getAllocationDisplayDestinations([row])).sort(), ['01','05','91']);
     assert.deepEqual(keys(app.getWarehouseTransferDestinationPool(row)).sort(), ['01','05']);
     assert.equal(app.hasWarehouseTransferTargetDestination({alloc_91:3}), false);
+});
+
+
+test('archived batch read-side normalization never queues a forbidden save', async () => {
+    const { app } = component({ batch: { id: 4, archived: true, revision: 3 } });
+    app.serverRowsPersisted = true;
+    app.prepareRowsForServerPersistence = () => { throw new Error('archived data must stay untouched'); };
+    app.queuePersistDistributionRows('allocation', [{ id: 'old' }], { immediate: true });
+    assert.equal(!!app.serverSaveTimers.allocation, false);
+    await app.waitForDistributionSaves('allocation');
+});
+
+test('transfer generation date does not replace the optimistic row snapshot', () => {
+    const { app } = component();
+    const row = {id:'one', itemId:1, productCode:'100001', orderDate:'2026-10-28', deliveryDate:'2026-10-29', alloc_01:2};
+    const payload = app.buildStockTransferSlipPayload([row], '', [{id:1,key:'01'}], {processDate:'2026-11-01'});
+    assert.equal(payload.process_date, '2026-11-01');
+    assert.equal(payload.rows[0].order_date, '2026-10-28');
+    assert.equal(payload.rows[0].delivery_date, '2026-10-29');
+});
+
+
+test('transfer print groups incoming pages then outgoing pages then references', async () => {
+    const {app, context} = component();
+    let html;
+    context.Blob = class { constructor(parts) { html = parts.join(''); } };
+    context.URL = {createObjectURL: () => 'blob:test', revokeObjectURL() {}};
+    context.setTimeout = () => {};
+    app.getProductMeta = () => ({});
+    const row = { productCode: '100001', name:'確認商品', unitsPerCase:6, alloc_01:2, alloc_02:3 };
+    const documents = [
+        {kind:'transfer', destination:{key:'01',name:'本店'}, rows:Array(12).fill(row), serial_id:'111',slip_number:'S1'},
+        {kind:'transfer', destination:{key:'02',name:'二の宮店'}, rows:[row], serial_id:'222',slip_number:'S2'},
+        {kind:'direct-reference', destination:{key:'02',name:'二の宮店'}, rows:[row]},
+    ];
+    const printWindow = {location:{replace() {}},closed:false};
+    assert.equal(app._renderSlipsForDests([], [], '', {documents,printWindow}),true);
+    assert.deepEqual(Array.from(html.matchAll(/<div class="document-title">([^<]+)<\/div>/g),m=>m[1]),[
+        '転送伝票（入庫用）','転送伝票（入庫用）','転送伝票（入庫用）',
+        '転送伝票（出庫用）','転送伝票（出庫用）','転送伝票（出庫用）','直送分配参考（移動伝票なし）',
+    ]);
+});
+
+test('allocation drag scrolls both axes, including vertical-only overflow, and releases capture', () => {
+    const { app } = component();
+    let captured = null;
+    let prevented = 0;
+    const scroller = { scrollWidth: 1600, clientWidth: 1000, scrollHeight: 1500, clientHeight: 500, scrollLeft: 120, scrollTop: 100,
+        getBoundingClientRect: () => ({ left: 20, top: 100 }),
+        setPointerCapture: id => { captured = id; },
+        hasPointerCapture: id => captured === id,
+        releasePointerCapture: () => { captured = null; },
+    };
+    const event = { currentTarget: scroller, target: { closest: () => null }, pointerId: 4,
+        pointerType: 'mouse', button: 0, clientX: 850, clientY: 200,
+        preventDefault: () => { prevented++; },
+    };
+    app.startAllocationDrag(event);
+    assert.equal(captured, 4);
+    app.moveAllocationDrag({ ...event, pointerId: 5, clientX: 600 });
+    assert.equal(scroller.scrollLeft, 120);
+    app.moveAllocationDrag({ ...event, clientX: 600, clientY: 150 });
+    assert.equal(scroller.scrollLeft, 370);
+    assert.equal(scroller.scrollTop, 150);
+    app.endAllocationDrag(event);
+    assert.equal(captured, null);
+    assert.equal(app.allocationDrag, null);
+    app.moveAllocationDrag({ ...event, clientX: 500 });
+    assert.equal(scroller.scrollLeft, 370);
+    assert.equal(prevented, 2);
+    scroller.scrollWidth = scroller.clientWidth;
+    scroller.scrollLeft = 0;
+    app.startAllocationDrag(event);
+    assert.equal(captured, 4);
+    app.moveAllocationDrag({ ...event, clientY: 300 });
+    assert.equal(scroller.scrollLeft, 0);
+    assert.equal(scroller.scrollTop, 50);
+    app.endAllocationDrag(event);
+    assert.equal(captured, null);
+});
+
+test('allocation drag leaves controls, native touch, and scrollbars usable', () => {
+    const { app } = component();
+    const scroller = { scrollWidth: 1600, clientWidth: 1000, scrollHeight: 500, clientHeight: 500,
+        getBoundingClientRect: () => ({ left: 20, top: 100 }),
+        setPointerCapture: () => { throw new Error('Must not capture this interaction'); },
+    };
+    const event = { currentTarget: scroller, target: { closest: () => null }, pointerId: 4,
+        pointerType: 'mouse', button: 0, clientX: 850, clientY: 200,
+        preventDefault: () => { throw new Error('Must preserve default behavior'); },
+    };
+    for (const override of [
+        { target: { closest: () => ({}) } }, { pointerType: 'touch' }, { button: 2 },
+        { clientX: 1021 }, { clientY: 601 },
+        { currentTarget: { ...scroller, scrollWidth: 1000 } },
+    ]) {
+        app.startAllocationDrag({ ...event, ...override });
+        assert.equal(app.allocationDrag, null);
+    }
+});
+
+test('note popover stays inside either horizontal viewport edge and narrow screens', () => {
+    const { app, context } = component();
+    context.window.innerWidth = 1120;
+    context.window.innerHeight = 800;
+    const rect = { left: 56, width: 20, top: 270, bottom: 290 };
+    const left = app.getItemContractorNotePopoverPosition(rect);
+    assert.equal(left.left, 8);
+    assert.equal(left.width, 288);
+    assert.equal(left.top, 294);
+    assert.equal(left.anchor, 'below');
+    const right = app.getItemContractorNotePopoverPosition({ ...rect, left: 1090 });
+    assert.equal(right.left + right.width, 1112);
+    context.window.innerWidth = 260;
+    const narrow = app.getItemContractorNotePopoverPosition(rect);
+    assert.equal(narrow.left, 8);
+    assert.equal(narrow.width, 244);
+});
+
+test('note popover uses the available vertical space without crossing viewport edges', () => {
+    const { app, context } = component();
+    context.window.innerWidth = 1120;
+    context.window.innerHeight = 800;
+    const bottom = app.getItemContractorNotePopoverPosition({ left: 56, width: 20, top: 750, bottom: 770 });
+    assert.equal(bottom.anchor, 'above');
+    assert.equal(bottom.top, 746);
+    assert.equal(bottom.maxHeight, 738);
+    context.window.innerHeight = 200;
+    const short = app.getItemContractorNotePopoverPosition({ left: 56, width: 20, top: 110, bottom: 130 });
+    assert.equal(short.anchor, 'above');
+    assert.equal(short.top - short.maxHeight, 8);
+});
+
+function navigationGrid() {
+    const { app, context } = component();
+    const document = { activeElement: null };
+    const all = [];
+    const scope = { querySelectorAll: () => all.filter(input => !input.disabled) };
+    class Input {
+        constructor(row, column) { this.row = row; this.dataset = { distributionNavColumn: column }; this.offsetParent = {}; all.push(this); }
+        closest() { return scope; }
+        focus() { document.activeElement = this; }
+        select() { this.selected = true; }
+    }
+    context.HTMLInputElement = Input;
+    context.document = document;
+    const row = number => ['poCase', 'poEach', 'alloc_01', 'alloc_22'].map(column => new Input(number, column));
+    const first = row(1), second = row(2), third = row(3);
+    const key = (name, extras = {}) => ({ key: name, target: document.activeElement, preventDefault() { this.prevented = true; }, ...extras });
+    app.activeSubTab = 'allocation';
+    app.getVisibleRows = () => [1, 2, 3];
+    app.getTableRenderLimit = () => 15;
+    return { app, context, document, all, first, second, third, key, row };
+}
+
+test('arrow navigation moves horizontally like Enter and vertically within the same destination', async () => {
+    const { app, document, first, second, key } = navigationGrid();
+    first[2].focus();
+    await app.focusDistributionArrowInput(key('ArrowRight'));
+    assert.equal(document.activeElement, first[3]);
+    await app.focusDistributionArrowInput(key('ArrowDown'));
+    assert.equal(document.activeElement, second[3]);
+    assert.equal(second[3].selected, true);
+    await app.focusDistributionArrowInput(key('ArrowUp'));
+    assert.equal(document.activeElement, first[3]);
+    await app.focusDistributionArrowInput(key('ArrowLeft'));
+    assert.equal(document.activeElement, first[2]);
+    await app.focusNextAllocationDestinationInput(key('Enter'));
+    assert.equal(document.activeElement, first[3]);
+    await app.focusNextAllocationDestinationInput(key('Enter', { shiftKey: true }));
+    assert.equal(document.activeElement, first[2]);
+});
+
+test('vertical arrows skip locked and hidden fields and stop at the first row', async () => {
+    const { app, document, first, second, third, key } = navigationGrid();
+    first[2].focus();
+    second[2].disabled = true;
+    await app.focusDistributionArrowInput(key('ArrowDown'));
+    assert.equal(document.activeElement, third[2]);
+    second[2].disabled = false;
+    second[2].offsetParent = null;
+    await app.focusDistributionArrowInput(key('ArrowUp'));
+    assert.equal(document.activeElement, first[2]);
+    await app.focusDistributionArrowInput(key('ArrowUp'));
+    assert.equal(document.activeElement, first[2]);
+});
+
+test('down arrow loads more rendered rows and keeps the destination column', async () => {
+    const { app, document, third, key, row } = navigationGrid();
+    third[3].focus();
+    app.getVisibleRows = () => [1, 2, 3, 4];
+    let fourth;
+    app.$nextTick = callback => { fourth = row(4); callback?.(); };
+    await app.focusDistributionArrowInput(key('ArrowDown'));
+    assert.equal(document.activeElement, fourth[3]);
+    assert.equal(app.arrowNavigationPending, false);
+});
+
+test('arrows preserve IME composition and modified text selection shortcuts', async () => {
+    const { app, document, first, key } = navigationGrid();
+    first[2].focus();
+    for (const extra of [{ isComposing: true }, { keyCode: 229 }, { shiftKey: true }, { ctrlKey: true }, { metaKey: true }, { altKey: true }]) {
+        const event = key('ArrowRight', extra);
+        await app.focusDistributionArrowInput(event);
+        assert.equal(document.activeElement, first[2]);
+        assert.equal(event.prevented, undefined);
+    }
+    first[2].dataset.quantityComposing = 'true';
+    await app.focusDistributionArrowInput(key('ArrowDown'));
+    assert.equal(document.activeElement, first[2]);
+});
+
+test('vertical navigation does not steal focus after asynchronous loading', async () => {
+    const { app, document, first, third, key, row } = navigationGrid();
+    third[3].focus();
+    app.activeSubTab = 'direct';
+    app.waitForDistributionSaves = async () => {};
+    app.loadMoreDirectRows = async () => { row(4); first[0].focus(); };
+    await app.focusDistributionArrowInput(key('ArrowDown'));
+    assert.equal(document.activeElement, first[0]);
+    assert.equal(app.arrowNavigationPending, false);
+});
+
+test('note icons use only nonblank notes and never fall back to another supplier', () => {
+    const { app } = component();
+    app.getProductMeta = () => ({ itemContractorNote: '別仕入先の備考' });
+    assert.equal(app.getItemContractorNote({ productCode: '100448', itemContractorNoteLoaded: true, itemContractorNote: '  ' }), '');
+    assert.equal(app.getItemContractorNote({ productCode: '100448', itemContractorNote: '\n ' }), '');
+    assert.equal(app.getItemContractorNote({ productCode: '100448', itemContractorNoteLoaded: true, itemContractorNote: ' 発注ロット注意 ' }), '発注ロット注意');
+});
+
+test('unknown visible notes are requested in one batch without changing distribution rows', async () => {
+    const { app } = component();
+    const rows = [{ id: 'one', productCode: '100448', orderDate: '2026-10-29' },
+        { id: 'two', productCode: '100449', orderDate: '2026-10-29' }];
+    const before = JSON.stringify(rows);
+    let calls = 0;
+    app.fetchProductCandidatesBatchForRows = async targets => {
+        calls++;
+        assert.equal(targets.length, 2);
+        return new Map([['one', [{ itemContractorNote: 'ロット注意' }]], ['two', [{ itemContractorNote: '  ' }]]]);
+    };
+    app.pickProductForExistingRow = (row, products) => products[0];
+    rows.forEach(row => app.queueItemContractorNote(row));
+    rows.forEach(row => app.queueItemContractorNote(row));
+    clearTimeout(app.itemContractorNoteTimer);
+    await app.loadQueuedItemContractorNotes();
+    assert.equal(calls, 1);
+    assert.equal(app.getItemContractorNote(rows[0]), 'ロット注意');
+    assert.equal(app.getItemContractorNote(rows[1]), '');
+    assert.equal(JSON.stringify(rows), before);
+    rows.forEach(row => app.queueItemContractorNote(row));
+    assert.equal(app.itemContractorNoteQueue.length, 0);
+    rows[0].productCode = '999999';
+    assert.equal(app.getItemContractorNote(rows[0]), '');
+});
+
+test('failed note lookup warns once and a different contractor note is not shown', async () => {
+    const { app } = component();
+    const row = { id: 'one', productCode: '100448', itemContractorId: 8, orderDate: '2026-10-29' };
+    app.queueItemContractorNote(row);
+    clearTimeout(app.itemContractorNoteTimer);
+    app.fetchProductCandidatesBatchForRows = async () => { throw new Error('offline'); };
+    await app.loadQueuedItemContractorNotes();
+    assert.match(app.lastToast, /備考を確認できませんでした/);
+    assert.equal(app.getItemContractorNote(row), '');
+    app.queueItemContractorNote(row);
+    assert.equal(app.itemContractorNoteQueue.length, 0);
+    app.itemContractorNoteCache = {};
+    app.fetchProductCandidatesBatchForRows = async () => new Map([['one', [{ itemContractorId: 9, itemContractorNote: '他の仕入先' }]]]);
+    app.pickProductForExistingRow = (row, products) => products[0];
+    app.queueItemContractorNote(row);
+    clearTimeout(app.itemContractorNoteTimer);
+    await app.loadQueuedItemContractorNotes();
+    assert.equal(app.getItemContractorNote(row), '');
+});
+
+for (const action of ['archiveBatch', 'deleteBatch']) {
+    test(`${action} requires confirmation and returning to list does not end or delete the batch`, async () => {
+        const {app, context} = component({batch:{id:1,name:'検証分配',archived:false,revision:3}});
+        let writes=0;
+        app.waitForDistributionSaves=async()=>{};
+        app.verifyBatchHeaderRevision=()=>{};
+        app.batchRequest=async(path, options={})=>{
+            if(options.method) writes++;
+            return {...app.batchInfo};
+        };
+        await app[action]();
+        assert.equal(app.confirmVisible,true);
+        assert.equal(typeof app.confirmCallback,'function');
+        assert.equal(app.confirmBatchAction,action==='archiveBatch'?'終了にする':'分配を削除');
+        assert.equal(writes,0);
+        await app.returnToBatchList();
+        assert.equal(context.window.location.href,'/admin/distribution-adjustment');
+        assert.equal(app.confirmCallback,null);
+        app.doConfirm();
+        assert.equal(writes,0);
+        app.openConfirm('別の操作',()=>{});
+        assert.equal(app.confirmBatchAction,'');
+    });
+}
+
+test('return to list preserves the page when pending changes cannot be saved', async()=>{
+    const {app,context}=component({batch:{id:1}});
+    app.waitForDistributionSaves=async()=>{throw new Error('保存に失敗しました');};
+    await app.returnToBatchList();
+    assert.equal(context.window.location.href,undefined);
+    assert.equal(app.lastError,'保存に失敗しました');
 });
