@@ -1291,11 +1291,18 @@ class DistributionProductController extends ApiController
                 }
             }
 
-            $rows->each(function (WmsDistributionRow $row) use (&$grouped, $storeDestinationKey, $orderToContacts, $itemContractorNotes): void {
+            $allocationStocks = $modeName === 'allocation'
+                ? $this->allocationStockFieldsByRow($rows, $clientId, (int) $rowWarehouseId)
+                : collect();
+
+            $rows->each(function (WmsDistributionRow $row) use (&$grouped, $storeDestinationKey, $orderToContacts, $itemContractorNotes, $allocationStocks): void {
                 $data = is_array($row->row_data) ? $row->row_data : [];
                 if ($data === []) {
                     return;
                 }
+
+                // Stock is a live reference value, not part of the editable distribution snapshot.
+                $data = array_replace($data, $allocationStocks->get($row->id, []));
 
                 if ($row->mode === 'allocation' && $row->distribution_batch_snapshot) {
                     $batchSnapshot = json_decode($row->distribution_batch_snapshot, true, flags: JSON_THROW_ON_ERROR);
@@ -4017,6 +4024,51 @@ SQL;
             (int) ($contractor->supplier_id ?? 0),
             (int) ($contractor->warehouse_id ?? 0),
         ]);
+    }
+
+    private function allocationStockFieldsByRow(Collection $rows, int $clientId, int $warehouseId): Collection
+    {
+        if ($rows->isEmpty()) {
+            return collect();
+        }
+
+        $items = DB::connection('sakemaru')->table('items')
+            ->where('client_id', $clientId)
+            ->where(function ($query) use ($rows): void {
+                $query->whereIn('id', $rows->pluck('item_id')->filter()->unique()->all())
+                    ->orWhereIn('code', $rows->pluck('product_code')->filter()->unique()->all());
+            })
+            ->get(['id', 'code']);
+        $itemsById = $items->keyBy('id');
+        $itemsByCode = $items->keyBy(fn ($item): string => (string) $item->code);
+        $itemIds = $items->pluck('id')->all();
+        if ($itemIds === []) {
+            return collect();
+        }
+
+        $realWarehouseId = WarehouseResolver::resolveRealWarehouseId($warehouseId);
+        $stocks = $this->getStockSummariesByItem($realWarehouseId, $itemIds);
+        $incoming = $this->getIncomingSummariesByItem(WarehouseResolver::resolveAllWarehouseIds($warehouseId), $itemIds);
+
+        return $rows->mapWithKeys(function (WmsDistributionRow $row) use ($itemsById, $itemsByCode, $stocks, $incoming, $warehouseId, $realWarehouseId): array {
+            $item = filled($row->product_code) ? $itemsByCode->get((string) $row->product_code) : $itemsById->get($row->item_id);
+            if (! $item) {
+                return [];
+            }
+
+            $stock = $stocks->get($item->id, $this->emptyStockSummary());
+            $arrival = $incoming->get($item->id, []);
+
+            return [$row->id => [
+                'selectedWarehouseId' => $warehouseId,
+                'realWarehouseId' => $realWarehouseId,
+                'currentStock' => $stock['actual_quantity'],
+                'reserved' => $stock['theoretical_quantity'],
+                'reservedStock' => $stock['reserved_quantity'],
+                'incomingQuantity' => (int) ($arrival['incoming_quantity'] ?? 0),
+                'incomingCount' => (int) ($arrival['incoming_count'] ?? 0),
+            ]];
+        });
     }
 
     private function getStockSummariesByItem(int $warehouseId, array $itemIds): Collection

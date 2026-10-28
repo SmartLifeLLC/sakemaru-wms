@@ -164,6 +164,7 @@ class DistributionBatchController extends ApiController
             $row['after'] = $row['before'];
             foreach ($row['allocations'] as $key => $quantity) {
                 $row['after']['alloc_'.$key] = $quantity;
+                $row['after']['wish_'.$key] = $quantity;
             }
             $row['after_total'] = array_sum(array_filter($row['after'], fn ($key) => str_starts_with((string) $key, 'alloc_'), ARRAY_FILTER_USE_KEY));
             if ($row['after_total'] > 99999999) {
@@ -183,7 +184,7 @@ class DistributionBatchController extends ApiController
         $preview += ['token' => $token, 'revision' => $batch->revision, 'batch_id' => $batch->id,
             'user_id' => $request->user()->id, 'expires_at' => time() + 1800,
             'file_name' => mb_substr(basename($file->getClientOriginalName()), 0, 255), 'file_hash' => hash_file('sha256', $file->getRealPath()),
-            'settings' => $settings, 'execution_id' => (string) Str::uuid()];
+            'settings' => $settings, 'quantity_targets' => ['wish', 'alloc'], 'execution_id' => (string) Str::uuid()];
         Storage::disk('local')->put('distribution/previews/'.$token.'.json', json_encode($preview, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
         $preview['destinations'] = array_values(array_filter($destinations, fn ($d) => $d['allowed']));
 
@@ -203,6 +204,7 @@ class DistributionBatchController extends ApiController
         if ($previous) {
             return $this->success(json_decode($previous->summary, true));
         }
+        abort_unless(($preview['quantity_targets'] ?? null) === ['wish', 'alloc'], 409, '取込方法が更新されました。「取込内容を確認」を押して再確認してください。');
         abort_unless($preview['expires_at'] >= time() && $preview['revision'] === $batch->revision, 409, '分配またはプレビューが更新されています。再解析してください。');
         abort_if($preview['errors'] !== [] || $preview['rows'] === [], 422, '取込エラーを解消してください。');
         abort_if($preview['warnings'] !== [] && ! $request->boolean('acknowledge_warnings'), 422, '注意事項を確認してください。');
@@ -222,6 +224,7 @@ class DistributionBatchController extends ApiController
             $key = $row?->business_key ?? sha1($batch->id.':'.$id);
             foreach ($import['allocations'] as $destination => $quantity) {
                 $data['alloc_'.$destination] = $quantity;
+                $data['wish_'.$destination] = $quantity;
             }
             $data['visibleDestinationKeys'] = array_values(array_unique(array_merge(
                 $data['visibleDestinationKeys'] ?? [], array_map('strval', array_keys($import['allocations']))
