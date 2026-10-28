@@ -19,10 +19,13 @@ class DistributionExcelReaderTest extends TestCase
         parent::tearDown();
     }
 
-    private function file(array $rows, ?array $second = null): string
+    private function file(array $rows, ?array $second = null, array $merges = []): string
     {
         $book = new Spreadsheet;
         $book->getActiveSheet()->fromArray($rows, null, 'A1', true);
+        foreach ($merges as $range) {
+            $book->getActiveSheet()->mergeCells($range);
+        }
         if ($second) {
             $book->createSheet()->fromArray($second, null, 'A1', true);
         }
@@ -37,7 +40,7 @@ class DistributionExcelReaderTest extends TestCase
     private function parse(string $path, array $options = []): array
     {
         $destinations = [];
-        foreach ([1 => '本店', 2 => '二の宮店', 4 => 'サンドーム前店', 8 => 'プラザ店', 9 => 'ヴィオ店', 91 => 'センター'] as $code => $name) {
+        foreach ([1 => '本店', 2 => '二の宮店', 3 => '坂井店', 4 => 'サンドーム前店', 7 => '光陽店', 8 => 'プラザ店', 9 => 'ヴィオ店', 10 => '敦賀店', 11 => '越前店', 21 => '江守店', 22 => '小浜店', 91 => 'センター'] as $code => $name) {
             $destinations[] = ['id' => $code, 'code' => $code, 'name' => $name, 'allowed' => $code !== 91];
         }
 
@@ -58,6 +61,52 @@ class DistributionExcelReaderTest extends TestCase
         self::assertSame(['02' => 12, '04' => 0, '08' => 3, '09' => 0], $result['rows'][0]['allocations']);
         self::assertSame(15, $result['excel_total']);
         self::assertCount(2, $result['skipped']);
+    }
+
+    public function test_merged_store_quantity_skips_the_whole_row_once_before_quantity_and_duplicate_checks(): void
+    {
+        $result = $this->parse($this->file([
+            ['単品CD', '本店', '二宮', 'ＳＤ'],
+            [100001, -1, '各店発注', null],
+            [100001, 7, 8, 9],
+        ], null, ['C2:D2']));
+        self::assertSame([], $result['errors']);
+        self::assertCount(1, $result['skipped']);
+        self::assertSame(['row' => 2, 'code' => '100001', 'name' => '商品A',
+            'reason_code' => 'merged_store_quantity', 'reason' => '店舗数量が結合されています'], $result['skipped'][0]);
+        self::assertCount(1, $result['rows']);
+        self::assertSame(3, $result['rows'][0]['excel_row']);
+        self::assertSame(['01' => 7, '02' => 8, '04' => 9], $result['rows'][0]['allocations']);
+        self::assertSame(24, $result['excel_total']);
+    }
+
+    public function test_vertical_store_merge_skips_every_affected_product_row_in_case_mode(): void
+    {
+        $result = $this->parse($this->file([
+            ['単品CD', '本店', '二宮'], [100001, 2, 4], [100001, null, 6], [100001, 1, 2],
+        ], null, ['B2:B3']), ['quantity_unit' => 'case']);
+        self::assertSame([], $result['errors']);
+        self::assertSame([2, 3], array_column($result['skipped'], 'row'));
+        self::assertCount(1, $result['rows']);
+        self::assertSame(4, $result['rows'][0]['excel_row']);
+        self::assertSame(36, $result['excel_total']);
+    }
+
+    public function test_reference_merges_do_not_skip_valid_store_quantities_and_all_merged_rows_import_nothing(): void
+    {
+        $reference = $this->parse($this->file([
+            ['単品CD', '本店', '商品名', '備考'], [100001, 5, '説明', null],
+        ], null, ['C2:D2']));
+        self::assertSame([], $reference['errors']);
+        self::assertSame([], $reference['skipped']);
+        self::assertSame(5, $reference['excel_total']);
+        $merged = $this->parse($this->file([
+            ['単品CD', '本店', '二宮'], [100001, '売切り終了', null],
+        ], null, ['B2:C2']));
+        self::assertSame([], $merged['errors']);
+        self::assertSame([], $merged['rows']);
+        self::assertCount(1, $merged['skipped']);
+        self::assertSame(0, $merged['excel_total']);
     }
 
     public function test_no_store_columns_stops_instead_of_selecting_second_sheet(): void
@@ -93,6 +142,54 @@ class DistributionExcelReaderTest extends TestCase
         $mapped = $this->parse($this->file([['単品CD', '本店', null], [100001, 2, '80単位']]), ['mapping' => ['C' => 2]]);
         self::assertSame('matched', $mapped['columns'][1]['status']);
         self::assertNotEmpty($mapped['errors'], 'Explicitly mapped text must still fail quantity validation.');
+    }
+
+    public function test_purchase_header_is_a_reference_even_when_only_some_stores_are_present(): void
+    {
+        $result = $this->parse($this->file([
+            ['単品CD', '仕入', '本店'], [100001, '本部', 5],
+        ]));
+        self::assertSame([], $result['errors']);
+        self::assertSame('ignored', $result['columns'][0]['status']);
+        self::assertSame(['01' => 5], $result['rows'][0]['allocations']);
+    }
+
+    public function test_all_eleven_stores_allow_unrecognized_reference_columns_without_mapping(): void
+    {
+        $headers = ['単品CD', '仕入', '担当者メモ', null, '本店', '二宮', '坂井', 'SD前', '光陽', 'プラ', 'ビオ', '敦賀', '越前', '江守', '小浜', '独自集計'];
+        $values = [100001, '仕入元', '参考', 9999, ...array_fill(0, 11, 1), '=SUM(E2:O2)'];
+        $result = $this->parse($this->file([$headers, $values]));
+        self::assertSame([], $result['errors']);
+        self::assertSame(11, $result['excel_total']);
+        self::assertCount(11, $result['rows'][0]['allocations']);
+        $columns = array_column($result['columns'], null, 'column');
+        foreach (['B', 'C', 'D', 'P'] as $letter) {
+            self::assertSame('ignored', $columns[$letter]['status']);
+        }
+        $missingStore = $headers;
+        $missingStore[14] = '不明店';
+        $partial = $this->parse($this->file([$missingStore, $values]));
+        self::assertStringContainsString('O列', implode('', $partial['errors']));
+        self::assertStringContainsString('D列', implode('', $partial['errors']));
+        $mapped = $this->parse($this->file([$headers, $values]), ['mapping' => ['D' => 999]]);
+        self::assertStringContainsString('D列', implode('', $mapped['errors']));
+        $duplicate = $this->parse($this->file([[...$headers, '本店'], [...$values, 2]]));
+        self::assertStringContainsString('同じ店舗', implode('', $duplicate['errors']));
+        $invalidQuantity = $values;
+        $invalidQuantity[4] = -1;
+        $invalid = $this->parse($this->file([$headers, $invalidQuantity]));
+        self::assertStringContainsString('E2', implode('', $invalid['errors']));
+    }
+
+    public function test_all_eleven_store_codes_also_ignore_extra_reference_columns(): void
+    {
+        $codes = [1, 2, 3, 4, 7, 8, 9, 10, 11, 21, 22];
+        $result = $this->parse($this->file([
+            ['単品CD', '独自欄', ...$codes], [100001, 9999, ...array_fill(0, 11, 2)],
+        ]), ['store_mode' => 'code']);
+        self::assertSame([], $result['errors']);
+        self::assertSame('ignored', $result['columns'][0]['status']);
+        self::assertSame(22, $result['excel_total']);
     }
 
     public function test_code_mode_source_column_duplicates_and_unknown_columns(): void

@@ -108,6 +108,18 @@ test('Excel matrix follows destination mappings, preserves zero and distinguishe
     assert.equal(app.excelPreviewQuantity(row, store), null);
 });
 
+test('an Excel preview containing only skipped rows never submits an import', async () => {
+    const { app } = component();
+    app.excelImport.preview = { rows: [], errors: [], skipped: [{ reason_code: 'merged_store_quantity' }] };
+    app.excelImport.acknowledged = true;
+    let requests = 0;
+    app.batchRequest = async () => { requests++; throw new Error('No import should be submitted'); };
+    await app.commitExcel();
+    assert.equal(requests, 0);
+    assert.equal(app.excelImport.busy, false);
+    assert.equal(app.excelImport.error, '');
+});
+
 test('restoring an Excel column to automatic matching removes the override and requires review', () => {
     const { app } = component();
     const column = { column: 'I' };

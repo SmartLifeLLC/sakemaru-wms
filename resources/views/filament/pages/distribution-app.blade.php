@@ -619,7 +619,12 @@
             <span x-text="csvImporting ? '取込中' : 'CSV取込'"></span>
           </button>
           @if($distributionBatchForView)
-          <button @click="openExcelImport()" :disabled="!!batchInfo?.archived" class="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white">Excel取込</button>
+          <button type="button" @click="openExcelImport()" :disabled="!!batchInfo?.archived" class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 16V4m0 0L7 9m5-5l5 5M5 20h14"></path>
+            </svg>
+            <span>Excel取込</span>
+          </button>
           @endif
           <button @click="downloadCSV()" class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">
             <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -2568,7 +2573,7 @@ window.distributionApp = function distributionApp() {
     },
 
     async commitExcel() {
-      if(this.excelImport.busy || this.excelImport.needsPreview) return;
+      if(this.excelImport.busy || this.excelImport.needsPreview || !this.excelImport.preview?.rows?.length) return;
       this.excelImport.busy=true;this.excelImport.error='';
       try {
         const result=await this.batchRequest('/excel/commit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({

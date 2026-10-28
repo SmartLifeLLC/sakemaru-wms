@@ -59,10 +59,13 @@ class DistributionBatchTest extends TestCase
         ], $extra));
     }
 
-    private function spreadsheet(array $rows): UploadedFile
+    private function spreadsheet(array $rows, array $merges = []): UploadedFile
     {
         $book = new Spreadsheet;
         $book->getActiveSheet()->fromArray($rows, null, 'A1', true);
+        foreach ($merges as $range) {
+            $book->getActiveSheet()->mergeCells($range);
+        }
         $path = tempnam(sys_get_temp_dir(), 'distribution-batch-http-');
         (new Xlsx($book))->save($path);
         $book->disconnectWorksheets();
@@ -232,6 +235,53 @@ class DistributionBatchTest extends TestCase
         self::assertSame([3, 0, 30, 9, '維持する備考'], [$data['alloc_01'], $data['alloc_02'], $data['alloc_03'], $data['wish_01'], $data['memo']]);
         self::assertSame(1, DB::connection('sakemaru')->table('wms_distribution_imports')->where('distribution_batch_id', $x)->count());
         self::assertSame(2, DB::connection('sakemaru')->table('wms_distribution_rows')->where('distribution_batch_id', $x)->whereNull('deleted_at')->count());
+    }
+
+    public function test_excel_with_eleven_stores_imports_only_store_quantities_without_reference_mapping(): void
+    {
+        $batch = $this->batch();
+        $preview = $this->post('/api/distribution/batches/'.$batch.'/excel/preview', ['file' => $this->spreadsheet([
+            ['単品CD', '仕入', '独自集計', '本店', '二宮', '坂井', 'SD前', '光陽', 'プラ', 'ビオ', '敦賀', '越前', '江守', '小浜'],
+            [100567, '本部', 9999, ...range(1, 11)],
+        ]), 'quantity_unit' => 'piece', 'store_mode' => 'name'], ['Accept' => 'application/json'])->assertOk()->json('result.data');
+        self::assertSame([], $preview['errors']);
+        self::assertSame(66, $preview['excel_total']);
+        self::assertSame(11, count($preview['rows'][0]['allocations']));
+        $columns = array_column($preview['columns'], null, 'column');
+        self::assertSame('ignored', $columns['B']['status']);
+        self::assertSame('ignored', $columns['C']['status']);
+        $this->postJson('/api/distribution/batches/'.$batch.'/excel/commit', ['token' => $preview['token'], 'acknowledge_warnings' => true])->assertOk();
+        $rows = $this->getJson('/api/distribution/batches/'.$batch.'/rows')->assertOk()->json('result.data.allocation');
+        self::assertCount(1, $rows);
+        $allocations = array_filter($rows[0], fn ($key) => str_starts_with($key, 'alloc_'), ARRAY_FILTER_USE_KEY);
+        self::assertCount(11, $allocations);
+        self::assertSame(66, array_sum($allocations));
+    }
+
+    public function test_excel_merged_quantity_skips_existing_product_without_overwriting_it_and_imports_other_products(): void
+    {
+        $batch = $this->batch();
+        $item = DB::connection('sakemaru')->table('items')->where('code', 100567)->first();
+        $this->save($batch, 0, [['id' => 'keep-merged', 'itemId' => $item->id, 'productCode' => '100567',
+            'alloc_01' => 11, 'alloc_02' => 13, 'memo' => 'スキップ時は維持']])->assertOk();
+        $query = DB::connection('sakemaru')->table('wms_distribution_rows')->where('distribution_batch_id', $batch)->where('row_id', 'keep-merged');
+        $before = $query->value('row_data');
+        $preview = $this->post('/api/distribution/batches/'.$batch.'/excel/preview', ['file' => $this->spreadsheet([
+            ['単品CD', '本店', '二宮'], [100567, '各店発注', null], [100568, 3, 4],
+        ], ['B2:C2']), 'quantity_unit' => 'piece', 'store_mode' => 'name'], ['Accept' => 'application/json'])->assertOk()->json('result.data');
+        self::assertSame([], $preview['errors']);
+        self::assertSame(1, $preview['new_count']);
+        self::assertSame(0, $preview['update_count']);
+        self::assertSame(7, $preview['excel_total']);
+        self::assertSame('merged_store_quantity', $preview['skipped'][0]['reason_code']);
+        self::assertSame('100567', $preview['skipped'][0]['code']);
+        self::assertSame($item->name, $preview['skipped'][0]['name']);
+        $this->postJson('/api/distribution/batches/'.$batch.'/excel/commit', ['token' => $preview['token'], 'acknowledge_warnings' => true])->assertOk();
+        self::assertSame($before, $query->value('row_data'));
+        $this->getJson('/api/distribution/batches/'.$batch.'/rows')->assertOk()->assertJsonCount(2, 'result.data.allocation');
+        $imported = DB::connection('sakemaru')->table('wms_distribution_rows')->where('distribution_batch_id', $batch)->where('row_id', '!=', 'keep-merged')->value('row_data');
+        $data = json_decode($imported, true);
+        self::assertSame([3, 4], [$data['alloc_01'], $data['alloc_02']]);
     }
 
     public function test_changed_revision_and_generated_rows_prevent_import_and_date_changes(): void

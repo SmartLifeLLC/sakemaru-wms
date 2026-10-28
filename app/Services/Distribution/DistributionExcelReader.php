@@ -105,7 +105,7 @@ class DistributionExcelReader
                 }
             }
             $totalHeaders = array_map(self::normalize(...), ['総合計', '合計', '計', 'ケース換算']);
-            $ignored = array_merge($totalHeaders, array_map(self::normalize(...), ['表示正式名称', '商品名', '容量', '入数', '原価', '単価', '税抜', '率', 'コメント', 'コメント１', '賞味', 'ロット', '仕入先', '単位', '納品', 'ケース', '備考']));
+            $ignored = array_merge($totalHeaders, array_map(self::normalize(...), ['表示正式名称', '商品名', '容量', '入数', '原価', '単価', '税抜', '率', 'コメント', 'コメント１', '賞味', 'ロット', '仕入', '仕入先', '単位', '納品', 'ケース', '備考']));
             $seenDestinations = [];
             $storeColumns = [];
             for ($c = 1; $c <= $maxCol; $c++) {
@@ -169,10 +169,24 @@ class DistributionExcelReader
                 } elseif ($key !== '' || $hasContent) {
                     $column['status'] = 'unresolved';
                     $column['reason'] = '店舗を選択するか、対象外を指定してください';
-                    $result['errors'][] = "{$letter}列（{$header}）の対応を確認してください。";
                 }
                 $result['columns'][] = $column;
             }
+            $allStoresMatched = array_diff(array_keys(self::ALIASES), array_keys($seenDestinations)) === [];
+            foreach ($result['columns'] as &$column) {
+                if ($column['status'] !== 'unresolved') {
+                    continue;
+                }
+                // Once all eleven stores are identified, remaining automatic columns are references.
+                // Explicit mappings and duplicate/invalid store quantities still require validation.
+                if ($allStoresMatched && ! isset($settings['mapping'][$column['column']])) {
+                    $column['status'] = 'ignored';
+                    $column['reason'] = '店舗以外の参考列';
+                } else {
+                    $result['errors'][] = "{$column['column']}列（{$column['header']}）の対応を確認してください。";
+                }
+            }
+            unset($column);
             if ($storeColumns === []) {
                 $result['errors'][] = "先頭シート『{$sheet->getTitle()}』に店舗列がありません。数量を入力したシートを先頭に移して再アップロードしてください。";
 
@@ -207,6 +221,19 @@ class DistributionExcelReader
 
                     continue;
                 }
+                $mergedStoreQuantity = false;
+                foreach ($storeColumns as $c => $destination) {
+                    if ($sheet->getCell([$c, $r])->isInMergeRange()) {
+                        $mergedStoreQuantity = true;
+                        break;
+                    }
+                }
+                if ($mergedStoreQuantity) {
+                    $result['skipped'][] = ['row' => $r, 'code' => $numericCode, 'name' => $item['name'],
+                        'reason_code' => 'merged_store_quantity', 'reason' => '店舗数量が結合されています'];
+
+                    continue;
+                }
                 if (isset($seenItems[$item['id']])) {
                     $result['errors'][] = "{$r}行目：商品CD{$numericCode}は{$seenItems[$item['id']]}行目と重複しています。";
                 }
@@ -234,9 +261,6 @@ class DistributionExcelReader
                 foreach ($storeColumns as $c => $d) {
                     $cell = $sheet->getCell([$c, $r]);
                     $q = self::quantity($this->value($cell, $result));
-                    if ($cell->isInMergeRange()) {
-                        $result['errors'][] = "{$cell->getCoordinate()}：店舗数量の結合を解除してください。";
-                    }
                     if ($q === null || ($settings['quantity_unit'] === 'case' && $item['capacity_case'] <= 0)) {
                         $result['errors'][] = "{$cell->getCoordinate()}：分配数は0以上の整数、ケース入数は1以上で入力してください。";
 

@@ -113,7 +113,13 @@
                     <p x-show="excelImport.needsPreview" class="mb-2 text-amber-700">列の対応を変更しました。再確認してください。<button type="button" @click="previewExcel()" :disabled="excelImport.busy" class="ml-3 rounded bg-indigo-600 px-3 py-1 text-white">対応を反映して再確認</button></p>
                     <div class="text-red-700"><template x-for="(message,i) in excelImport.preview.errors" :key="i"><p x-text="message"></p></template></div>
                     <details x-show="excelImport.preview.warnings.length"><summary>注意事項（<span x-text="excelImport.preview.warnings.length"></span>件）</summary><template x-for="(message,i) in excelImport.preview.warnings" :key="i"><p class="text-amber-800" x-text="message"></p></template></details>
-                    <details x-show="excelImport.preview.skipped.length"><summary>スキップ行（<span x-text="excelImport.preview.skipped.length"></span>行）</summary><template x-for="row in excelImport.preview.skipped" :key="row.row"><p x-text="row.row+'行目 '+row.code+'：'+row.reason"></p></template></details>
+                    <p x-show="!excelImport.preview.errors.length && !excelImport.preview.rows.length" class="text-slate-600">取込対象の商品がありません。</p>
+                    <div role="status" class="text-slate-600">
+                        <template x-for="row in excelImport.preview.skipped.filter(row => row.reason_code === 'merged_store_quantity')" :key="row.row">
+                            <p x-text="'商品CD'+row.code+'：'+row.name+'はスキップしました。（'+row.reason+'）'"></p>
+                        </template>
+                    </div>
+                    <details x-show="excelImport.preview.skipped.some(row => row.reason_code !== 'merged_store_quantity')"><summary>スキップ行（<span x-text="excelImport.preview.skipped.filter(row => row.reason_code !== 'merged_store_quantity').length"></span>行）</summary><template x-for="row in excelImport.preview.skipped.filter(row => row.reason_code !== 'merged_store_quantity')" :key="row.row"><p x-text="row.row+'行目 '+row.code+'：'+row.reason"></p></template></details>
                 </div>
                 <div class="distribution-excel-matrix" x-init="$nextTick(() => $el.scrollTo(0,0))" tabindex="0" aria-label="商品CD・店舗別分配数の表">
                     <table :style="'min-width:'+Math.max(640,260+excelPreviewColumns().length*64)+'px'">
@@ -152,7 +158,7 @@
         <div class="distribution-excel-footer">
             <label x-show="excelImport.preview" class="distribution-excel-ack"><input type="checkbox" x-model="excelImport.acknowledged" :disabled="excelImport.busy || excelImport.needsPreview"> 店舗・数量・注意事項を確認しました</label>
             <button type="button" @click="excelImport.visible=false" :disabled="excelImport.busy" class="rounded border px-4 py-2">取り込まず閉じる</button>
-            <button type="button" @click="commitExcel()" :disabled="excelImport.busy || !excelImport.preview || excelImport.preview.errors.length || !excelImport.acknowledged || excelImport.needsPreview" class="rounded bg-red-600 px-4 py-2 text-white disabled:bg-gray-300">この内容で取り込む</button>
+            <button type="button" @click="commitExcel()" :disabled="excelImport.busy || !excelImport.preview || !excelImport.preview.rows.length || excelImport.preview.errors.length || !excelImport.acknowledged || excelImport.needsPreview" class="rounded bg-red-600 px-4 py-2 text-white disabled:bg-gray-300">この内容で取り込む</button>
         </div>
     </div>
 </div>
