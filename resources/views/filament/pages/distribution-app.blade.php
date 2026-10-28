@@ -177,7 +177,7 @@
     .distribution-batch-layout .distribution-allocation-filters input { padding-top: 0; padding-bottom: 0; }
     .distribution-batch-layout .distribution-table-frame { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 0; }
     .distribution-batch-layout .allocation-scroll { flex: 1; min-height: 0; max-height: none !important; border: 1px solid #dbe2ea; border-radius: 8px; box-shadow: none; }
-    .allocation-scroll { cursor: grab; scroll-padding-left: 708px; }
+    .allocation-scroll { cursor: grab; scroll-padding-left: 748px; }
     .allocation-scroll.is-dragging { cursor: grabbing; user-select: none; }
     .allocation-grid { table-layout: fixed; border-collapse: separate; border-spacing: 0; }
     .allocation-grid th, .allocation-grid td { box-sizing: border-box; }
@@ -185,12 +185,13 @@
     .allocation-grid .allocation-fixed { position: sticky; z-index: 2; background-color: #fff; }
     .allocation-grid thead .allocation-fixed { z-index: 3; background-color: #f8fafc; }
     .allocation-select { width: 32px; left: 0; font-size: 10px; }
-    .allocation-product { width: 400px; left: 32px; }
-    .allocation-theory { width: 56px; left: 432px; }
-    .allocation-summary { width: 56px; left: 488px; }
-    .allocation-cases { width: 52px; left: 544px; }
-    .allocation-pieces { width: 52px; left: 596px; }
-    .allocation-total { width: 60px; left: 648px; box-shadow: 2px 0 0 #94a3b8, 5px 0 8px -4px #64748b; }
+    .allocation-row-number { width: 40px; left: 32px; color: #64748b; font-variant-numeric: tabular-nums; }
+    .allocation-product { width: 400px; left: 72px; }
+    .allocation-theory { width: 56px; left: 472px; }
+    .allocation-summary { width: 56px; left: 528px; }
+    .allocation-cases { width: 52px; left: 584px; }
+    .allocation-pieces { width: 52px; left: 636px; }
+    .allocation-total { width: 60px; left: 688px; box-shadow: 2px 0 0 #94a3b8, 5px 0 8px -4px #64748b; }
     .allocation-grid tr.bg-gray-100 .allocation-fixed { background-color: #f3f4f6; }
     .allocation-grid .allocation-theory.is-short { background-color: #fee2e2; }
     .allocation-grid .allocation-total { background-color: #f8fafc; }
@@ -759,6 +760,7 @@
                   class="mt-1 rounded border-gray-300"
                   title="表示中の処理可能行を全選択" />
               </th>
+              <th class="allocation-fixed allocation-row-number p-1 text-center" scope="col">No.</th>
               <th class="date-stack-column hidden whitespace-nowrap p-1 text-left">
                 <div>発注日</div>
                 <div class="mt-0.5 text-[10px] leading-none text-neutral-400">納品希望日</div>
@@ -785,7 +787,7 @@
               <th x-show="showAllocationDetailMemoButton" x-cloak class="allocation-memo whitespace-nowrap p-1 text-center">明細備考</th>
             </tr>
           </thead>
-          <template x-for="row in getRenderableVisibleRows()" :key="row.id">
+          <template x-for="(row, rowIndex) in getRenderableVisibleRows()" :key="row.id">
             <tbody class="text-xs">
               <tr :data-allocation-row-id="row.id" :class="isAllocationTransferCompleted(row) ? 'bg-gray-100' : ''" class="divide-x divide-gray-200 border-t border-gray-200 hover:bg-neutral-50">
                 <td class="allocation-fixed allocation-select p-1 text-center">
@@ -798,6 +800,7 @@
                     class="rounded border-gray-300"
                     title="処理対象にする" />
                 </td>
+                <td class="allocation-fixed allocation-row-number p-1 text-center" x-text="rowIndex + 1"></td>
                 <!-- 発注日 / 納品希望日 -->
                 <td class="date-stack-column hidden p-1">
                   <div class="date-stack">
@@ -4448,7 +4451,7 @@ window.distributionApp = function distributionApp() {
 
     getAllocationTableMinWidth() {
       const destinationCount = this.getAllocationDisplayDestinations().length;
-      return 812 + destinationCount * 52 + (this.showAllocationDetailMemoButton ? 64 : 0);
+      return 852 + destinationCount * 52 + (this.showAllocationDetailMemoButton ? 64 : 0);
     },
 
     getDirectDisplayDestinations(rows = this.getVisibleDirectRows()) {
