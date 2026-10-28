@@ -73,6 +73,45 @@ class DistributionBatchTest extends TestCase
         $this->getJson('/api/distribution/batches/'.$id.'/picking-pdf?type=shortage&expected_revision=1')->assertStatus(422);
     }
 
+    public function test_picking_shelves_use_standard_then_active_stock_in_the_source_warehouse(): void
+    {
+        $id = $this->batch('棚番検証');
+        $this->save($id, 0, [['id' => 'shelf-row', 'productCode' => '100567', 'alloc_01' => 7]])->assertOk();
+        $db = DB::connection('sakemaru');
+        $batch = \App\Models\WmsDistributionBatch::findOrFail($id);
+        $source = \App\Services\WarehouseResolver::resolveRealWarehouseId($batch->warehouse_id);
+        $itemId = $db->table('items')->where('client_id', $batch->client_id)->where('code', '100567')->value('id');
+        $location = fn ($code, $warehouse = null) => $db->table('locations')->insertGetId([
+            'client_id' => $batch->client_id, 'warehouse_id' => $warehouse ?? $source,
+            'code1' => $code, 'code2' => '01', 'code3' => '02', 'name' => '棚番検証',
+        ]);
+        $stockId = $db->table('real_stocks')->insertGetId(['client_id' => $batch->client_id, 'warehouse_id' => $source,
+            'stock_allocation_id' => 990088, 'item_id' => $itemId, 'current_quantity' => 50, 'order_rank' => 'A']);
+        $active = $location('B');
+        $lot = $db->table('real_stock_lots')->insertGetId(['real_stock_id' => $stockId, 'location_id' => $active,
+            'current_quantity' => 50, 'status' => 'ACTIVE']);
+        // Earlier codes in empty/inactive/wrong-warehouse shelves must never be selected.
+        foreach ([['A0', 0, 'ACTIVE', null], ['A1', 99, 'INACTIVE', null], ['A2', 99, 'ACTIVE', 1]] as [$code, $qty, $status, $warehouse]) {
+            $db->table('real_stock_lots')->insert(['real_stock_id' => $stockId, 'location_id' => $location($code, $warehouse),
+                'current_quantity' => $qty, 'status' => $status]);
+        }
+        $service = new \App\Services\Distribution\DistributionPickingPdfService;
+        $rows = $service->rows($batch);
+        self::assertSame('B-01-02', $rows->first()['location_code']);
+        foreach ($service::TYPES as $type) {
+            $documents = $service->documents($rows, $type, '棚番検証');
+            self::assertSame('B-01-02', $documents[0]['items'][0]['location_code'], $type);
+        }
+        $db->table('item_incoming_default_locations')->insert(['warehouse_id' => $source, 'item_id' => $itemId,
+            'location_id' => $location('C')]);
+        self::assertSame('C-01-02', $service->rows($batch)->first()['location_code']);
+        // A blank standard shelf must not suppress the fallback.
+        $db->table('locations')->where('code1', 'C')->where('name', '棚番検証')->update(['code1' => '', 'code2' => '', 'code3' => '']);
+        self::assertSame('B-01-02', $service->rows($batch)->first()['location_code']);
+        $db->table('real_stock_lots')->where('id', $lot)->update(['current_quantity' => 0]);
+        self::assertSame('未設定', $service->rows($batch)->first()['location_code']);
+    }
+
     private function batch(string $name = '分配X'): int
     {
         return $this->postJson('/api/distribution/batches', ['name' => $name, 'shipping_date' => '2026-11-01',
@@ -319,8 +358,7 @@ class DistributionBatchTest extends TestCase
         self::assertCount(1, $preview['duplicate_warnings']);
         self::assertSame('store_quantity_message', $preview['skipped'][0]['reason_code']);
         $commit = '/api/distribution/batches/'.$batch.'/excel/commit';
-        $this->postJson($commit, ['token' => $preview['token'], 'acknowledge_warnings' => false])->assertUnprocessable();
-        $this->postJson($commit, ['token' => $preview['token'], 'acknowledge_warnings' => true])->assertOk();
+        $this->postJson($commit, ['token' => $preview['token']])->assertOk();
         $rows = $this->getJson('/api/distribution/batches/'.$batch.'/rows')->assertOk()->json('result.data.allocation');
         self::assertCount(1, $rows);
         foreach (['04' => 2, '91' => 3, '05' => 4] as $key => $quantity) {
