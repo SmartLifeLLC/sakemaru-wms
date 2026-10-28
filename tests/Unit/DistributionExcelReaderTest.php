@@ -40,13 +40,40 @@ class DistributionExcelReaderTest extends TestCase
     private function parse(string $path, array $options = []): array
     {
         $destinations = [];
-        foreach ([1 => '本店', 2 => '二の宮店', 3 => '坂井店', 4 => 'サンドーム前店', 7 => '光陽店', 8 => 'プラザ店', 9 => 'ヴィオ店', 10 => '敦賀店', 11 => '越前店', 21 => '江守店', 22 => '小浜店', 91 => 'センター'] as $code => $name) {
-            $destinations[] = ['id' => $code, 'code' => $code, 'name' => $name, 'allowed' => $code !== 91];
+        foreach ([1 => '本店', 2 => '二の宮店', 3 => '坂井店', 4 => 'サンドーム前店', 7 => '光陽店', 8 => 'プラザ店', 9 => 'ヴィオ店', 10 => '敦賀店', 11 => '越前店', 21 => '江守店', 22 => '小浜店', 91 => 'センター', 63 => '別倉庫', 100 => '本部'] as $code => $name) {
+            $destinations[] = ['id' => $code, 'code' => $code, 'name' => $name, 'allowed' => true];
         }
 
         return (new DistributionExcelReader)->parse($path, [100001 => ['id' => 42, 'code' => 100001,
             'name' => '商品A', 'capacity_case' => 12, 'is_active' => true]], $destinations,
             array_replace(['quantity_unit' => 'piece', 'store_mode' => 'name', 'mapping' => []], $options));
+    }
+
+    public function test_cd_alias_hq_other_warehouse_and_last_duplicate_wins(): void
+    {
+        $result = $this->parse($this->file([
+            ['ＣＤ', 'サンドーム', '本部', '別倉庫'],
+            [100001, 10, 20, 30], [100001, 2, null, 4], [100001, '休売となりました', 99, 99],
+        ]));
+        self::assertSame([], $result['errors']);
+        self::assertCount(1, $result['rows']);
+        self::assertSame(['04' => 2, 91 => 0, 63 => 4], $result['rows'][0]['allocations']);
+        self::assertSame(6, $result['excel_total']);
+        self::assertCount(1, $result['duplicate_warnings']);
+        self::assertStringContainsString('2行目の数量を後の3行目で上書き', $result['duplicate_warnings'][0]);
+        self::assertSame('store_quantity_message', $result['skipped'][0]['reason_code']);
+    }
+
+    public function test_date_in_last_column_does_not_change_product_code_type(): void
+    {
+        $path = $this->file([['CD', '本店', '備考'], [100001, 3, 46000]]);
+        $book = \PhpOffice\PhpSpreadsheet\IOFactory::load($path);
+        $book->getActiveSheet()->getStyle('C2')->getNumberFormat()->setFormatCode('yyyy-mm-dd');
+        (new Xlsx($book))->save($path);
+        $book->disconnectWorksheets();
+        $result = $this->parse($path);
+        self::assertCount(1, $result['rows']);
+        self::assertSame(3, $result['excel_total']);
     }
 
     public function test_first_sheet_header_aliases_blank_and_invalid_code_rows(): void
@@ -141,7 +168,8 @@ class DistributionExcelReaderTest extends TestCase
         self::assertSame(['01' => 2], $result['rows'][0]['allocations']);
         $mapped = $this->parse($this->file([['単品CD', '本店', null], [100001, 2, '80単位']]), ['mapping' => ['C' => 2]]);
         self::assertSame('matched', $mapped['columns'][1]['status']);
-        self::assertNotEmpty($mapped['errors'], 'Explicitly mapped text must still fail quantity validation.');
+        self::assertSame([], $mapped['errors']);
+        self::assertSame('store_quantity_message', $mapped['skipped'][0]['reason_code']);
     }
 
     public function test_purchase_header_is_a_reference_even_when_only_some_stores_are_present(): void
@@ -196,7 +224,7 @@ class DistributionExcelReaderTest extends TestCase
     {
         $result = $this->parse($this->file([['単品CD', '０１', 1, 91, '不明店'], [100001, 1, 2, 3, 4]]), ['store_mode' => 'code']);
         self::assertStringContainsString('同じ店舗', implode('', $result['errors']));
-        self::assertStringContainsString('対象外の倉庫に数量', implode('', $result['errors']));
+        self::assertSame(3, $result['rows'][0]['allocations'][91]);
         self::assertStringContainsString('対応を確認', implode('', $result['errors']));
         $resolved = $this->parse($this->file([['単品CD', '01', 91, 'メモ'], [100001, 0, null, '参考']]), ['store_mode' => 'code', 'mapping' => ['D' => 'ignore']]);
         self::assertSame([], $resolved['errors']);
@@ -219,8 +247,8 @@ class DistributionExcelReaderTest extends TestCase
     public function test_duplicate_product_and_invalid_quantities_are_not_silently_coerced(): void
     {
         $result = $this->parse($this->file([['単品CD', '本店', '二宮'], [100001, -1, 1.5], [100001, '12個', 100000000]]));
-        self::assertStringContainsString('重複', implode('', $result['errors']));
-        self::assertGreaterThanOrEqual(5, count($result['errors']));
+        self::assertCount(2, $result['errors']);
+        self::assertSame('store_quantity_message', $result['skipped'][0]['reason_code']);
         foreach (['', '０', '12.0', '1,200'] as $value) {
             self::assertNotNull(DistributionExcelReader::quantity($value));
         }

@@ -12,12 +12,15 @@ use RuntimeException;
 /** Parse spreadsheet data only. Never evaluate formulas, macros or external links. */
 class DistributionExcelReader
 {
+    private const STANDARD_STORE_CODES = [1, 2, 3, 4, 7, 8, 9, 10, 11, 21, 22];
+
     private const ALIASES = [
         1 => ['本店'], 2 => ['二の宮', '二宮', '二の宮店'], 3 => ['坂井', '坂井店'],
-        4 => ['SD', 'SD前', 'サンドム', 'サンドーム前', 'サンドーム前店'],
+        4 => ['SD', 'SD前', 'サンドム', 'サンドーム', 'サンドーム前', 'サンドーム前店'],
         7 => ['光陽', '光陽店'], 8 => ['プラ', 'プラザ', 'プラザ店'],
         9 => ['ビオ', 'ヴィオ', 'ビオ店'], 10 => ['敦賀', '敦賀店'],
         11 => ['越前', '越前店'], 21 => ['江守', '江守店'], 22 => ['小浜', '小浜店'],
+        71 => ['特販'], 91 => ['本部'],
     ];
 
     public static function normalize(mixed $value): string
@@ -72,12 +75,12 @@ class DistributionExcelReader
                 throw new RuntimeException('Excelは10,000行・256列以内に分けて取り込んでください。');
             }
             $result = ['sheet_name' => $sheet->getTitle(), 'header_row' => null, 'columns' => [],
-                'rows' => [], 'skipped' => [], 'errors' => [], 'warnings' => [], 'excel_total' => 0];
+                'rows' => [], 'skipped' => [], 'errors' => [], 'warnings' => [], 'duplicate_warnings' => [], 'excel_total' => 0];
             $codeColumn = null;
             for ($r = 1; $r <= $maxRow; $r++) {
                 $matches = [];
                 for ($c = 1; $c <= $maxCol; $c++) {
-                    if ($sheet->cellExists([$c, $r]) && in_array(self::normalize($sheet->getCell([$c, $r])->getValue()), ['単品CD', '自社CD'], true)) {
+                    if ($sheet->cellExists([$c, $r]) && in_array(self::normalize($sheet->getCell([$c, $r])->getValue()), ['単品CD', '自社CD', 'CD'], true)) {
                         $matches[] = $c;
                     }
                 }
@@ -91,7 +94,7 @@ class DistributionExcelReader
                 }
             }
             if (! $codeColumn) {
-                throw new RuntimeException('先頭シートに「単品CD」または「自社CD」の見出しがありません。');
+                throw new RuntimeException('先頭シートに「単品CD」「自社CD」「CD」のいずれかの見出しがありません。');
             }
             $result['code_column'] = Coordinate::stringFromColumnIndex($codeColumn);
             $result['code_header'] = (string) $sheet->getCell([$codeColumn, $result['header_row']])->getValue();
@@ -104,6 +107,8 @@ class DistributionExcelReader
                     $byName[self::normalize($alias)][] = $code;
                 }
             }
+            // The import's 本部 label explicitly means warehouse CD 91, even if another master uses that name.
+            $byName[self::normalize('本部')] = isset($byCode[91]) ? [91] : [];
             $totalHeaders = array_map(self::normalize(...), ['総合計', '合計', '計', 'ケース換算']);
             $ignored = array_merge($totalHeaders, array_map(self::normalize(...), ['表示正式名称', '商品名', '容量', '入数', '原価', '単価', '税抜', '率', 'コメント', 'コメント１', '賞味', 'ロット', '仕入', '仕入先', '単位', '納品', 'ケース', '備考']));
             $seenDestinations = [];
@@ -172,7 +177,7 @@ class DistributionExcelReader
                 }
                 $result['columns'][] = $column;
             }
-            $allStoresMatched = array_diff(array_keys(self::ALIASES), array_keys($seenDestinations)) === [];
+            $allStoresMatched = array_diff(self::STANDARD_STORE_CODES, array_keys($seenDestinations)) === [];
             foreach ($result['columns'] as &$column) {
                 if ($column['status'] !== 'unresolved') {
                     continue;
@@ -199,7 +204,7 @@ class DistributionExcelReader
                 $raw = trim((string) \Normalizer::normalize((string) ($cell->getValue() ?? ''), \Normalizer::FORM_KC));
                 $repeatedHeaders = [];
                 for ($c = 1; $c <= $maxCol; $c++) {
-                    if ($sheet->cellExists([$c, $r]) && in_array(self::normalize($sheet->getCell([$c, $r])->getValue()), ['単品CD', '自社CD'], true)) {
+                    if ($sheet->cellExists([$c, $r]) && in_array(self::normalize($sheet->getCell([$c, $r])->getValue()), ['単品CD', '自社CD', 'CD'], true)) {
                         $repeatedHeaders[] = $c;
                     }
                 }
@@ -214,6 +219,8 @@ class DistributionExcelReader
 
                     continue;
                 }
+                // PhpSpreadsheet cells are detached from their coordinate by subsequent reads.
+                $cell = $sheet->getCell([$codeColumn, $r]);
                 $numericCode = preg_match('/^\d+(?:\.0+)?$/D', $raw) && (int) $raw > 0 ? (string) (int) $raw : '';
                 $item = $items[$numericCode] ?? null;
                 if (! $item || ! $item['is_active'] || Date::isDateTime($cell) || in_array($cell->getDataType(), [DataType::TYPE_BOOL, DataType::TYPE_ERROR, DataType::TYPE_FORMULA], true)) {
@@ -234,10 +241,26 @@ class DistributionExcelReader
 
                     continue;
                 }
-                if (isset($seenItems[$item['id']])) {
-                    $result['errors'][] = "{$r}行目：商品CD{$numericCode}は{$seenItems[$item['id']]}行目と重複しています。";
+                $messages = [];
+                foreach ($storeColumns as $c => $destination) {
+                    $quantityCell = $sheet->getCell([$c, $r]);
+                    $quantityValue = $quantityCell->getValue();
+                    if ($quantityValue instanceof RichText) {
+                        $quantityValue = $quantityValue->getPlainText();
+                    }
+                    if ($quantityCell->getDataType() !== DataType::TYPE_FORMULA
+                        && $quantityCell->getDataType() !== DataType::TYPE_ERROR
+                        && is_string($quantityValue) && self::quantity($quantityValue) === null
+                        && preg_match('/[\p{L}]/u', preg_replace('/^[+-]?[0-9.]+[eE][+-]?[0-9]+$/', '', self::normalize($quantityValue)))) {
+                        $messages[] = $quantityCell->getCoordinate().'：'.$quantityValue;
+                    }
                 }
-                $seenItems[$item['id']] = $r;
+                if ($messages !== []) {
+                    $result['skipped'][] = ['row' => $r, 'code' => $numericCode, 'name' => $item['name'],
+                        'reason_code' => 'store_quantity_message', 'reason' => '数量欄にメッセージがあります（'.implode('／', $messages).'）'];
+
+                    continue;
+                }
                 if (! $sheet->getRowDimension($r)->getVisible()) {
                     $hiddenRows++;
                 }
@@ -287,7 +310,16 @@ class DistributionExcelReader
                         $result['warnings'][] = "{$r}行目 商品CD{$numericCode}：Excel総合計{$excelTotal}／取込分配合計{$row['total']}。店舗別数量から再計算した分配合計を使用します。";
                     }
                 }
-                $result['rows'][] = $row;
+                if (isset($seenItems[$item['id']])) {
+                    $index = $seenItems[$item['id']];
+                    $previous = $result['rows'][$index];
+                    $result['duplicate_warnings'][] = "商品CD{$numericCode}：{$item['name']}は重複しています。{$previous['excel_row']}行目の数量を後の{$r}行目で上書きしました。";
+                    $result['excel_total'] -= $previous['total'];
+                    $result['rows'][$index] = $row;
+                } else {
+                    $seenItems[$item['id']] = count($result['rows']);
+                    $result['rows'][] = $row;
+                }
                 $result['excel_total'] += $row['total'];
             }
             if (count($result['rows']) > 6000) {
