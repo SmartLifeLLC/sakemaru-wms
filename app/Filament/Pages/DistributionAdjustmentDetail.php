@@ -41,6 +41,7 @@ class DistributionAdjustmentDetail extends AdminPage
             ->where('warehouse_id', (int) auth()->user()->getSelectedWarehouseId())->with(['creator', 'updater'])->findOrFail($this->batchId);
 
         return ['id' => $batch->id, 'name' => $batch->name, 'shipping_date' => $batch->shipping_date?->format('Y-m-d'),
+            'responsible_department' => $batch->responsible_department, 'responsible_department_label' => $batch->responsibleDepartmentLabel(),
             'note' => $batch->note, 'is_legacy' => $batch->is_legacy, 'revision' => $batch->revision, 'archived' => (bool) $batch->archived_at,
             'creator' => $batch->is_legacy ? '既存データ移行' : $batch->creator?->name,
             'warehouse_id' => $batch->warehouse_id, 'client_id' => $batch->client_id];

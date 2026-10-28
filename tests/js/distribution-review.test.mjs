@@ -89,6 +89,37 @@ function component({ batch = null } = {}) {
 
 const keys = destinations => Array.from(destinations, destination => destination.key);
 
+test('Excel matrix follows destination mappings, preserves zero and distinguishes unresolved cells', () => {
+    const { app } = component();
+    const store = { column: 'I', status: 'matched', destination_code: 1 };
+    const unresolved = { column: 'J', status: 'unresolved', destination_code: null };
+    app.excelImport.preview = { columns: [
+        { column: 'B', status: 'ignored' }, store, unresolved,
+    ] };
+    assert.deepEqual(Array.from(app.excelPreviewColumns(), column => column.column), ['I', 'J']);
+    const row = { before: { alloc_01: 5 }, allocations: { '01': 0, '02': 7 } };
+    assert.equal(app.excelPreviewQuantity(row, store), 0);
+    assert.equal(app.excelPreviewQuantity(row, store, true), 5);
+    assert.equal(app.excelPreviewQuantity(row, unresolved), null);
+    store.destination_code = 2;
+    assert.equal(app.excelPreviewQuantity(row, store), 7);
+    assert.equal(app.excelPreviewQuantity(row, store, true), 0);
+    store.destination_code = 4;
+    assert.equal(app.excelPreviewQuantity(row, store), null);
+});
+
+test('restoring an Excel column to automatic matching removes the override and requires review', () => {
+    const { app } = component();
+    const column = { column: 'I' };
+    app.excelImport.acknowledged = true;
+    app.updateExcelPreviewMapping(column, '2');
+    assert.equal(app.excelImport.mapping.I, '2');
+    assert.equal(app.excelImport.needsPreview, true);
+    assert.equal(app.excelImport.acknowledged, false);
+    app.updateExcelPreviewMapping(column, '');
+    assert.equal(Object.hasOwn(app.excelImport.mapping, 'I'), false);
+});
+
 test('the same CSV has independent identities across batches and stable identities within a batch', () => {
     const csv = '商品CD,本店_希望\n100567,3\n';
     const first = component({ batch: { id: 1, client_id: 6, warehouse_id: 91, shipping_date: '2026-11-01' } }).app;

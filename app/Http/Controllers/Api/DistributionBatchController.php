@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Sakemaru\Auth\Services\PermissionService;
 
@@ -20,6 +21,12 @@ class DistributionBatchController extends ApiController
         $this->authorizeUser($request, $permissions);
         $query = WmsDistributionBatch::query()->where('client_id', (int) config('app.client_id'))
             ->where('warehouse_id', (int) $request->user()->getSelectedWarehouseId())->with(['creator', 'updater']);
+        $request->validate(['responsible_department' => ['nullable', Rule::in([...array_keys(WmsDistributionBatch::RESPONSIBLE_DEPARTMENTS), 'unassigned'])]], [], ['responsible_department' => '担当部署']);
+        if ($request->input('responsible_department') === 'unassigned') {
+            $query->whereNull('responsible_department');
+        } elseif ($request->filled('responsible_department')) {
+            $query->where('responsible_department', $request->input('responsible_department'));
+        }
         if ($request->filled('search')) {
             $query->where(fn ($q) => $q->where('name', 'like', '%'.mb_substr($request->string('search'), 0, 100).'%')
                 ->orWhere('note', 'like', '%'.mb_substr($request->string('search'), 0, 100).'%'));
@@ -54,12 +61,14 @@ class DistributionBatchController extends ApiController
     {
         $this->authorizeUser($request, $permissions);
         $data = $request->validate(['name' => 'required|string|max:100', 'shipping_date' => 'required|date_format:Y-m-d',
+            'responsible_department' => ['required', Rule::in(array_keys(WmsDistributionBatch::RESPONSIBLE_DEPARTMENTS))],
             'note' => 'nullable|string|max:1000', 'execution_id' => 'required|uuid'], [],
-            ['name' => '分配名', 'shipping_date' => '出荷日', 'note' => '備考']);
+            ['name' => '分配名', 'shipping_date' => '出荷日', 'note' => '備考', 'responsible_department' => '担当部署']);
         $key = 'create:'.(int) config('app.client_id').':'.(int) $request->user()->getSelectedWarehouseId().':'.$request->user()->id.':'.$data['execution_id'];
         $batch = WmsDistributionBatch::withTrashed()->firstOrCreate(['registration_key' => $key], [
             'client_id' => (int) config('app.client_id'), 'warehouse_id' => (int) $request->user()->getSelectedWarehouseId(),
             'name' => trim($data['name']), 'shipping_date' => $data['shipping_date'], 'note' => $data['note'] ?? '',
+            'responsible_department' => $data['responsible_department'],
             'created_by' => $request->user()->id, 'updated_by' => $request->user()->id,
         ]);
 
@@ -77,8 +86,9 @@ class DistributionBatchController extends ApiController
     {
         $batch = DistributionBatchService::current();
         $data = $request->validate(['name' => 'required|string|max:100', 'shipping_date' => 'nullable|required_unless:archive,true|date_format:Y-m-d',
+            'responsible_department' => ['sometimes', 'nullable', Rule::in(array_keys(WmsDistributionBatch::RESPONSIBLE_DEPARTMENTS))],
             'note' => 'nullable|string|max:1000', 'expected_revision' => 'required|integer|min:0', 'archive' => 'sometimes|boolean'], [],
-            ['name' => '分配名', 'shipping_date' => '出荷日', 'note' => '備考']);
+            ['name' => '分配名', 'shipping_date' => '出荷日', 'note' => '備考', 'responsible_department' => '担当部署']);
         if ((int) $data['expected_revision'] !== $batch->revision) {
             return $this->error('この分配は別の画面で更新されています。再読み込みしてください。', 409, 'DISTRIBUTION_REVISION_CONFLICT');
         }
@@ -88,6 +98,7 @@ class DistributionBatchController extends ApiController
             throw ValidationException::withMessages(['shipping_date' => '移動生成受付後は出荷日を変更できません。']);
         }
         $batch->update(['name' => trim($data['name']), 'shipping_date' => $data['shipping_date'], 'note' => $data['note'] ?? '',
+            'responsible_department' => $data['responsible_department'] ?? $batch->responsible_department,
             'updated_by' => $request->user()->id, 'revision' => $batch->revision + 1,
             'archived_at' => $request->boolean('archive') ? now() : null]);
 
@@ -268,6 +279,7 @@ class DistributionBatchController extends ApiController
         $queues ??= $this->queues($rows->pluck('row_data')->all());
 
         return ['id' => $batch->id, 'name' => $batch->name, 'shipping_date' => $batch->shipping_date?->format('Y-m-d'),
+            'responsible_department' => $batch->responsible_department, 'responsible_department_label' => $batch->responsibleDepartmentLabel(),
             'note' => $batch->note, 'revision' => $batch->revision, 'is_legacy' => $batch->is_legacy, 'archived' => (bool) $batch->archived_at,
             'creator' => $batch->is_legacy ? '既存データ移行' : ($batch->creator?->name ?? '不明'),
             'updater' => $batch->updater?->name ?? '既存データ移行', 'created_at' => $batch->created_at?->format('Y-m-d H:i'),

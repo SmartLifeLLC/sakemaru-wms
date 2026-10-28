@@ -43,7 +43,7 @@ class DistributionBatchScope
                 'deleted_row_ids' => 'sometimes|array|max:6000', 'deleted_row_ids.*' => 'string|max:120']);
             $auditMutation = ! $request->isMethod('GET') && ! $request->is('*/preview', '*/results');
             $beforeRows = $auditMutation ? $batch->rows()->get(['row_id', 'row_data', 'deleted_at'])->keyBy('row_id') : collect();
-            $beforeHeader = $batch->only(['name', 'shipping_date', 'note', 'deleted_at', 'archived_at']);
+            $beforeHeader = $batch->only(['name', 'shipping_date', 'note', 'responsible_department', 'deleted_at', 'archived_at']);
             $ids = collect($request->input('rows', []))->map(fn ($row) => $row['row_id'] ?? $row['id'] ?? null)
                 ->merge($request->input('deleted_row_ids', []))->merge($request->input('row_ids', []))->filter()->unique();
             if ($ids->isNotEmpty()) {
@@ -112,7 +112,7 @@ class DistributionBatchScope
                         $changes[$rowId] = ['before' => $before, 'after' => $after];
                     }
                 }
-                $afterHeader = $batch->only(['name', 'shipping_date', 'note', 'deleted_at', 'archived_at']);
+                $afterHeader = $batch->only(['name', 'shipping_date', 'note', 'responsible_department', 'deleted_at', 'archived_at']);
                 if ($beforeHeader != $afterHeader) {
                     $changes['header'] = ['before' => $beforeHeader, 'after' => $afterHeader];
                 }

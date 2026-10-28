@@ -7,15 +7,16 @@
             <button type="button" class="primary" @click="openCreate()">新規分配登録</button>
             <input x-model="search" @keydown.enter.prevent="load(1)" placeholder="分配名・備考で検索" aria-label="分配検索">
             <input type="date" x-model="date" @change="load(1)" aria-label="出荷日で絞込">
+            <select x-model="department" @change="load(1)" aria-label="担当部署で絞込" style="border:1px solid #cbd5e1;border-radius:6px;font-size:13px"><option value="">すべての担当部署</option><option value="warehouse">倉庫担当</option><option value="headquarters">本部担当</option><option value="unassigned">未設定</option></select>
             <label><input type="checkbox" x-model="mine" @change="load(1)"> 自分の分配</label>
-            <select x-model="status" @change="load(1)" aria-label="処理状況で絞込" style="border:1px solid #cbd5e1;border-radius:6px;font-size:13px"><option value="">すべての処理状況</option value="pending">未生成</option><option value="generated">生成受付済みを含む</option><option value="archived">終了</option></select><button type="button" class="secondary" @click="load(1)">検索</button>
+            <select x-model="status" @change="load(1)" aria-label="処理状況で絞込" style="border:1px solid #cbd5e1;border-radius:6px;font-size:13px"><option value="">すべての処理状況</option><option value="pending">未生成</option><option value="generated">生成受付済みを含む</option><option value="archived">終了</option></select><button type="button" class="secondary" @click="load(1)">検索</button>
         </div>
         <p class="batch-error" role="alert" x-text="error"></p>
         <p x-show="loading">分配を読み込んでいます…</p>
         <div class="batch-scroll">
-            <table><thead><tr><th>分配名</th><th>出荷日</th><th>登録者</th><th>登録日時</th><th>最終更新者</th><th>最終更新日時</th><th>商品行数</th><th>分配合計（バラ）</th><th>処理状況</th><th>備考</th><th>操作</th></tr></thead>
+            <table><thead><tr><th>分配名</th><th>担当部署</th><th>出荷日</th><th>登録者</th><th>登録日時</th><th>最終更新者</th><th>最終更新日時</th><th>商品行数</th><th>分配合計（バラ）</th><th>処理状況</th><th>備考</th><th>操作</th></tr></thead>
                 <tbody><template x-for="batch in batches" :key="batch.id"><tr>
-                    <td x-text="batch.name"></td><td x-text="batch.shipping_date || '要確認'"></td><td x-text="batch.creator"></td><td x-text="batch.created_at"></td><td x-text="batch.updater"></td><td x-text="batch.updated_at"></td><td x-text="batch.row_count"></td><td x-text="batch.total"></td><td x-text="batch.status"></td><td x-text="batch.note"></td>
+                    <td x-text="batch.name"></td><td x-text="batch.responsible_department_label"></td><td x-text="batch.shipping_date || '要確認'"></td><td x-text="batch.creator"></td><td x-text="batch.created_at"></td><td x-text="batch.updater"></td><td x-text="batch.updated_at"></td><td x-text="batch.row_count"></td><td x-text="batch.total"></td><td x-text="batch.status"></td><td x-text="batch.note"></td>
                     <td><a :href="'/admin/distribution-adjustment/'+batch.id" class="text-blue-700">詳細</a></td>
                 </tr></template></tbody>
             </table>
@@ -27,6 +28,7 @@
                 <header>新規分配登録</header><main>
                     <label>分配名（必須）<input x-model="form.name" required maxlength="100" autofocus></label>
                     <label>出荷日（必須）<input type="date" x-model="form.shipping_date" required></label>
+                    @include('filament.partials.distribution-department-field', ['departmentModel' => 'form.responsible_department', 'departmentBusy' => 'saving', 'departmentGroup' => 'create-department'])
                     <label>備考<textarea x-model="form.note" rows="3" maxlength="1000"></textarea></label>
                     <p>登録者：{{ auth()->user()?->name }}</p><p class="batch-error" x-text="formError" role="alert"></p>
                 </main><footer><button type="button" class="secondary" :disabled="saving" @click="creating=false">登録せず閉じる</button><button type="submit" class="danger" :disabled="saving">登録して商品を入力</button></footer>
@@ -35,11 +37,11 @@
     </div>
     <script>
         window.distributionBatchList = function () {
-            return {batches:[],search:'',date:'',mine:false,status:'',page:1,lastPage:1,loading:false,error:'',creating:false,saving:false,formError:'',form:{},
+            return {batches:[],search:'',date:'',mine:false,department:'',status:'',page:1,lastPage:1,loading:false,error:'',creating:false,saving:false,formError:'',form:{},
                 init(){this.load(1)},
-                openCreate(){this.form={name:'',shipping_date:{{ \Illuminate\Support\Js::from(now()->toDateString()) }},note:'',execution_id:crypto.randomUUID()};this.formError='';this.creating=true},
+                openCreate(){this.form={name:'',shipping_date:{{ \Illuminate\Support\Js::from(now()->toDateString()) }},note:'',responsible_department:'',execution_id:crypto.randomUUID()};this.formError='';this.creating=true},
                 async request(url,options={}){const response=await fetch(url,{...options,headers:{Accept:'application/json','Content-Type':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name="csrf-token"]').content,...options.headers}});const data=await response.json();if(!response.ok)throw new Error(Object.values(data.errors||{}).flat().join('\n')||data.result?.error_message||data.message||'処理に失敗しました。');return data.result.data},
-                async load(page){this.loading=true;this.error='';try{const data=await this.request('/api/distribution/batches?'+new URLSearchParams({page,search:this.search,status:this.status,shipping_date:this.date,mine:this.mine?'1':'0'}));this.batches=data.data;this.page=data.current_page;this.lastPage=data.last_page}catch(e){this.error=e.message}finally{this.loading=false}},
+                async load(page){this.loading=true;this.error='';try{const data=await this.request('/api/distribution/batches?'+new URLSearchParams({page,search:this.search,status:this.status,responsible_department:this.department,shipping_date:this.date,mine:this.mine?'1':'0'}));this.batches=data.data;this.page=data.current_page;this.lastPage=data.last_page}catch(e){this.error=e.message}finally{this.loading=false}},
                 async create(){if(this.saving)return;this.saving=true;this.formError='';try{const batch=await this.request('/api/distribution/batches',{method:'POST',body:JSON.stringify(this.form)});window.location.href='/admin/distribution-adjustment/'+batch.id}catch(e){this.formError=e.message;this.saving=false}}
             };
         };
