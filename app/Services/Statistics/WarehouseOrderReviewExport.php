@@ -16,7 +16,7 @@ class WarehouseOrderReviewExport
     private const BASE_KEYS = ['日付', '発注先CD', '発注先名', '仕入先CD', '仕入先名', 'JANCD', '単品CD', '商品名', '入数', '棚番', '発注点', '在庫CS', '在庫バラ', '受注CS', '受注バラ', '移動CS', '移動バラ', '1週', '2週', '3週', '前月'];
 
     /** @param array<array<string, mixed>> $rows */
-    public function spreadsheet(array $rows, int $warehouseCode): Spreadsheet
+    public function spreadsheet(array $rows, int $warehouseCode, ?callable $progress = null): Spreadsheet
     {
         $dates = array_values(array_unique(array_filter(array_column($rows, '入荷予定日'))));
         sort($dates);
@@ -74,6 +74,10 @@ class WarehouseOrderReviewExport
                 }
             }
             $line++;
+            $done = $line - 3;
+            if ($progress && ($done % 500 === 0 || $done === count($grouped))) {
+                $progress($done, count($grouped));
+            }
         }
         $last = max(2, $line - 1);
         foreach (['L1:M1', 'N1:O1', 'P1:Q1', 'R1:U1', 'V1:AB1'] as $range) {

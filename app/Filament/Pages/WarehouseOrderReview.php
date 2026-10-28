@@ -6,8 +6,7 @@ use App\Enums\EMenu;
 use App\Filament\Support\AdminPage;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Warehouse;
-use App\Services\Statistics\WarehouseOrderReviewExport;
-use App\Services\Statistics\WarehouseOrderReviewService;
+use App\Services\Statistics\WarehouseOrderReviewRunService;
 use BackedEnum;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
@@ -15,7 +14,6 @@ use Filament\Notifications\Notification;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Validation\ValidationException;
-use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class WarehouseOrderReview extends AdminPage
@@ -33,10 +31,31 @@ class WarehouseOrderReview extends AdminPage
 
     public array $data = [];
 
+    #[\Livewire\Attributes\Locked]
+    public ?int $runId = null;
+
+    public function getRunProperty(): ?\App\Models\WmsExportLog
+    {
+        $query = app(WarehouseOrderReviewRunService::class)->owned((int) auth()->id(), $this->clientId());
+
+        return $this->runId ? $query->find($this->runId) : null;
+    }
+
+    public function refreshRun(): void
+    {
+        abort_unless(static::canAccess(), 403);
+        unset($this->run);
+    }
+
     public function mount(): void
     {
         $defaultWarehouse = $this->warehouses()->where('code', 91)->value('id');
-        $this->form->fill(['date' => ClientSetting::systemDateYMD(), 'warehouse_id' => $defaultWarehouse]);
+        $lastRun = app(WarehouseOrderReviewRunService::class)->owned((int) auth()->id(), $this->clientId())->latest('id')->first();
+        $this->runId = $lastRun?->id;
+        $this->form->fill([
+            'date' => $lastRun?->filters['date'] ?? ClientSetting::systemDateYMD(),
+            'warehouse_id' => $lastRun?->filters['warehouse_id'] ?? $defaultWarehouse,
+        ]);
     }
 
     public static function getNavigationGroup(): ?string
@@ -79,7 +98,7 @@ class WarehouseOrderReview extends AdminPage
         return Warehouse::query()->where('client_id', $this->clientId())->where('is_virtual', false);
     }
 
-    public function export(): ?StreamedResponse
+    public function export(): void
     {
         abort_unless(static::canAccess(), 403);
         $data = $this->form->getState();
@@ -87,35 +106,33 @@ class WarehouseOrderReview extends AdminPage
         if (! $warehouse) {
             throw ValidationException::withMessages(['data.warehouse_id' => '出力できる倉庫を選択してください。']);
         }
-
-        $book = null;
-        $path = null;
         try {
-            $rows = app(WarehouseOrderReviewService::class)->rows($this->clientId(), $data['date'], (int) $warehouse->code);
-            if ($rows === []) {
-                Notification::make()->title('指定した条件の出力対象商品がありません。')->warning()->send();
-
-                return null;
-            }
-            $book = app(WarehouseOrderReviewExport::class)->spreadsheet($rows, (int) $warehouse->code);
-            $path = tempnam(sys_get_temp_dir(), 'warehouse_order_review_');
-            (new Xlsx($book))->save($path);
-            $binary = file_get_contents($path);
-            $filename = '倉庫別発注検討データ_'.$warehouse->code.'_'.str_replace('-', '', $data['date']).'.xlsx';
-
-            return response()->streamDownload(fn () => print ($binary), $filename, [
-                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            $run = app(WarehouseOrderReviewRunService::class)->start((int) auth()->id(), $this->clientId(), [
+                'date' => $data['date'], 'warehouse_id' => $warehouse->id,
+                'warehouse_code' => (int) $warehouse->code, 'warehouse_name' => $warehouse->name,
             ]);
+            $this->runId = $run->id;
+            unset($this->run);
         } catch (\Throwable $e) {
             report($e);
-            Notification::make()->title('Excelを出力できませんでした。')->body('時間をおいて再度お試しください。解消しない場合は、基準日と倉庫を管理者へお知らせください。')->danger()->send();
+            Notification::make()->title('Excelの作成を開始できませんでした。')
+                ->body('時間をおいて再度お試しください。解消しない場合は管理者へお知らせください。')->danger()->send();
+        }
+    }
+
+    public function download(): ?StreamedResponse
+    {
+        abort_unless(static::canAccess(), 403);
+        $run = $this->run;
+        abort_unless($run, 404);
+        try {
+            return app(WarehouseOrderReviewRunService::class)->download($run);
+        } catch (\Throwable $e) {
+            report($e);
+            Notification::make()->title('ファイルを取得できませんでした。')
+                ->body('もう一度Excelを作成してください。')->danger()->send();
 
             return null;
-        } finally {
-            $book?->disconnectWorksheets();
-            if ($path && is_file($path)) {
-                unlink($path);
-            }
         }
     }
 }
