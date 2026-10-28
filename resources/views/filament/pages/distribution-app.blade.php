@@ -305,9 +305,14 @@
   </div>
   @include('filament.pages.distribution-excel-import')
   <div x-show="batchEditor.visible" x-cloak class="fixed inset-0 z-[220] flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="分配情報を変更">
-    <form @submit.prevent="saveBatchInfo()" class="w-full max-w-xl overflow-hidden rounded-lg bg-white text-sm shadow-xl">
+    <form @submit.prevent="saveBatchInfo()" class="distribution-form-dialog w-full max-w-xl overflow-hidden rounded-lg bg-white text-sm shadow-xl">
       <div class="bg-slate-800 px-5 py-3 text-white">分配情報を変更</div>
-      <div class="grid gap-3 p-5"><label>分配名<input x-model="batchEditor.name" required maxlength="100" class="block w-full rounded border-gray-300"></label><label>出荷日<input type="date" x-model="batchEditor.shipping_date" required class="block rounded border-gray-300"></label><label>備考<textarea x-model="batchEditor.note" maxlength="1000" class="block w-full rounded border-gray-300"></textarea></label><p class="whitespace-pre-wrap text-red-700" x-text="batchEditor.error"></p></div>
+      <div class="grid gap-4 p-5">
+        <label class="distribution-form-label">分配名 <span class="distribution-required">必須</span><input x-model="batchEditor.name" required maxlength="100" :disabled="batchEditor.busy" class="distribution-form-input"></label>
+        <label class="distribution-form-label">出荷日 <span class="distribution-required">必須</span><input type="date" x-model="batchEditor.shipping_date" required :disabled="batchEditor.busy" class="distribution-form-input"></label>
+        <label class="distribution-form-label">備考<textarea x-model="batchEditor.note" maxlength="1000" rows="3" :disabled="batchEditor.busy" class="distribution-form-input"></textarea></label>
+        <p class="whitespace-pre-wrap text-red-700" role="alert" x-text="batchEditor.error"></p>
+      </div>
       <div class="flex justify-end gap-3 border-t px-5 py-4"><button type="button" @click="batchEditor.visible=false" :disabled="batchEditor.busy" class="rounded border px-3 py-2">変更せず閉じる</button><button :disabled="batchEditor.busy" class="rounded bg-red-600 px-3 py-2 text-white">変更する</button></div>
     </form>
   </div>
