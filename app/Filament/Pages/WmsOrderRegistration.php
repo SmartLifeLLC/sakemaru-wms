@@ -356,7 +356,27 @@ class WmsOrderRegistration extends AdminPage
         }
 
         $lineIndex = $this->contractorChangeLineIndex;
-        $line = $this->lines[$lineIndex];
+        try {
+            $line = $this->lineWithContractorChange($this->lines[$lineIndex], $contractorId, $supplierId, $itemContractorWarehouseId);
+        } catch (\InvalidArgumentException $e) {
+            $this->notifyWarning($e->getMessage());
+
+            return;
+        }
+
+        $this->lines[$lineIndex] = $line;
+        $this->closeContractorChangeModal();
+
+        Notification::make()
+            ->title('発注先を変更しました')
+            ->body($line['item_contractor_linked'] ? null : '商品に紐づかない発注先のため、この明細はFAX発注固定にしました。')
+            ->success()
+            ->send();
+    }
+
+    /** @return array<string, mixed> */
+    protected function lineWithContractorChange(array $line, int $contractorId, ?int $supplierId = null, ?int $itemContractorWarehouseId = null): array
+    {
         $itemId = (int) ($line['item_id'] ?? 0);
         $warehouseId = (int) ($line['warehouse_id'] ?? $this->warehouseId ?? 0);
         $contractor = DB::connection('sakemaru')
@@ -375,9 +395,7 @@ class WmsOrderRegistration extends AdminPage
             ]);
 
         if (! $contractor || $itemId < 1 || $warehouseId < 1) {
-            $this->notifyWarning('発注先を変更できませんでした。');
-
-            return;
+            throw new \InvalidArgumentException('発注先を変更できませんでした。');
         }
 
         $searchService = app(OrderRegistrationSearchService::class);
@@ -397,9 +415,7 @@ class WmsOrderRegistration extends AdminPage
         $supplierPartner = $supplier?->partner;
         $supplierId = (int) ($supplier?->id ?? $contractor->default_supplier_id ?? 0);
         if ($supplierId < 1) {
-            $this->notifyWarning('この発注先に紐づく仕入先がありません。');
-
-            return;
+            throw new \InvalidArgumentException('この発注先に紐づく仕入先がありません。');
         }
 
         $isEosAvailable = $isItemLinked && $searchService->isJxContractor($contractorId);
@@ -429,14 +445,7 @@ class WmsOrderRegistration extends AdminPage
         $line['purchase_unit_price'] = $purchasePrice['price'];
         $line['purchase_unit_price_source'] = $purchasePrice['source'];
 
-        $this->lines[$lineIndex] = $line;
-        $this->closeContractorChangeModal();
-
-        Notification::make()
-            ->title('発注先を変更しました')
-            ->body($isItemLinked ? null : '商品に紐づかない発注先のため、この明細はFAX発注固定にしました。')
-            ->success()
-            ->send();
+        return $line;
     }
 
     public function searchItemCandidates(): void
@@ -1291,7 +1300,7 @@ class WmsOrderRegistration extends AdminPage
                 ->get()
             : collect();
 
-        $options = $priorityItemContractors
+        $options = $priorityItemContractors->toBase()
             ->map(fn (ItemContractor $itemContractor): ?array => $this->candidateContractorChangeOptionFromItemContractor(
                 $itemContractor,
                 $selectedWarehouseId,
