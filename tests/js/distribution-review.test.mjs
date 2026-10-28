@@ -108,6 +108,18 @@ test('Excel matrix follows destination mappings, preserves zero and distinguishe
     assert.equal(app.excelPreviewQuantity(row, store), null);
 });
 
+test('Excel preview highlights a wish-only update and retains both previous quantities', () => {
+    const { app } = component();
+    const store = { status: 'matched', destination_code: 1 };
+    const row = { allocations: { '01': 6 }, before: { alloc_01: 6, wish_01: 1 } };
+    assert.equal(app.excelPreviewQuantity(row, store, true, 'wish'), 1);
+    assert.equal(app.excelPreviewQuantity(row, store, true), 6);
+    assert.equal(app.excelPreviewQuantityChanged(row, store), true);
+    row.before.wish_01 = 6;
+    assert.equal(app.excelPreviewQuantityChanged(row, store), false);
+    assert.equal(app.excelPreviewQuantityChanged(row, { status: 'unresolved' }), false);
+});
+
 test('an Excel preview containing only skipped rows never submits an import', async () => {
     const { app } = component();
     app.excelImport.preview = { rows: [], errors: [], skipped: [{ reason_code: 'merged_store_quantity' }] };

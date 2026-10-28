@@ -107,7 +107,7 @@
                 <div class="distribution-excel-summary">
                     <strong><span x-text="excelImport.preview.sheet_name"></span> ／ <span x-text="excelImport.preview.header_row"></span>行目 ／ <span x-text="excelImport.preview.excel_total"></span>バラ</strong>
                     <span>新規 <span x-text="excelImport.preview.new_count"></span>件 ／ 更新 <span x-text="excelImport.preview.update_count"></span>件 ／ 変更なし <span x-text="excelImport.preview.unchanged_count"></span>件 ／ スキップ <span x-text="excelImport.preview.skipped.length"></span>行</span>
-                    <span class="text-slate-500">数量：バラ</span>
+                    <span class="text-slate-500">希望・分配：バラ</span>
                 </div>
                 <div class="distribution-excel-messages">
                     <p x-show="excelImport.needsPreview" class="mb-2 text-amber-700">列の対応を変更しました。再確認してください。<button type="button" @click="previewExcel()" :disabled="excelImport.busy" class="ml-3 rounded bg-indigo-600 px-3 py-1 text-white">対応を反映して再確認</button></p>
@@ -145,9 +145,9 @@
                         </tr></thead>
                         <tbody><template x-for="row in excelImport.preview.rows.slice(0,200)" :key="row.excel_row"><tr>
                             <td :title="row.name"><span class="distribution-product-code" x-text="row.product_code"></span><span class="distribution-product-name" x-text="row.name"></span></td>
-                            <template x-for="column in excelPreviewColumns()" :key="column.column"><td :class="{'distribution-quantity-changed':excelPreviewQuantity(row,column)!==null && excelPreviewQuantity(row,column)!==excelPreviewQuantity(row,column,true)}">
+                            <template x-for="column in excelPreviewColumns()" :key="column.column"><td :class="{'distribution-quantity-changed':excelPreviewQuantityChanged(row,column)}">
                                 <span x-text="excelPreviewQuantity(row,column) ?? '—'"></span>
-                                <span class="distribution-quantity-before" x-show="row.action!=='新規' && excelPreviewQuantity(row,column)!==null && excelPreviewQuantity(row,column)!==excelPreviewQuantity(row,column,true)" x-text="'変更前 '+excelPreviewQuantity(row,column,true)"></span>
+                                <span class="distribution-quantity-before" x-show="row.action!=='新規' && excelPreviewQuantityChanged(row,column)" x-text="'変更前 希望 '+excelPreviewQuantity(row,column,true,'wish')+'／分配 '+excelPreviewQuantity(row,column,true)"></span>
                             </td></template>
                         </tr></template></tbody>
                     </table>

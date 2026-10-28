@@ -219,20 +219,21 @@ class DistributionBatchTest extends TestCase
         $x = $this->batch();
         $item = DB::connection('sakemaru')->table('items')->where('code', 100567)->first();
         $this->save($x, 0, [['id' => 'existing', 'itemId' => $item->id, 'productCode' => '100567',
-            'alloc_01' => 10, 'alloc_02' => 20, 'alloc_03' => 30, 'wish_01' => 9, 'memo' => '維持する備考'],
+            'alloc_01' => 10, 'alloc_02' => 20, 'alloc_03' => 30, 'wish_01' => 9, 'wish_02' => 8, 'wish_03' => 14, 'memo' => '維持する備考'],
             ['id' => 'keep-other', 'productCode' => '100568', 'alloc_01' => 4]])->assertOk();
         $preview = $this->post('/api/distribution/batches/'.$x.'/excel/preview', ['file' => $this->spreadsheet([
             ['単品ＣＤ', '本店', '二宮'], [100567, '３', null],
         ]), 'quantity_unit' => 'piece', 'store_mode' => 'name'], ['Accept' => 'application/json'])->assertOk()->json('result.data');
         self::assertSame([], $preview['errors']);
         self::assertSame(33, $preview['rows'][0]['after_total']);
+        self::assertSame([3, 0, 14], [$preview['rows'][0]['after']['wish_01'], $preview['rows'][0]['after']['wish_02'], $preview['rows'][0]['after']['wish_03']]);
         $path = '/api/distribution/batches/'.$x.'/excel/commit';
         $this->postJson($path, ['token' => $preview['token'], 'acknowledge_warnings' => true])->assertOk()->assertJsonPath('result.data.update_count', 1);
         $this->postJson($path, ['token' => $preview['token'], 'acknowledge_warnings' => true])->assertOk();
         $saved = DB::connection('sakemaru')->table('wms_distribution_rows')->where('distribution_batch_id', $x)->where('row_id', 'existing')->first();
         $data = json_decode($saved->row_data, true);
         self::assertContains('02', $data['visibleDestinationKeys']);
-        self::assertSame([3, 0, 30, 9, '維持する備考'], [$data['alloc_01'], $data['alloc_02'], $data['alloc_03'], $data['wish_01'], $data['memo']]);
+        self::assertSame([3, 0, 30, 3, 0, 14, '維持する備考'], [$data['alloc_01'], $data['alloc_02'], $data['alloc_03'], $data['wish_01'], $data['wish_02'], $data['wish_03'], $data['memo']]);
         self::assertSame(1, DB::connection('sakemaru')->table('wms_distribution_imports')->where('distribution_batch_id', $x)->count());
         self::assertSame(2, DB::connection('sakemaru')->table('wms_distribution_rows')->where('distribution_batch_id', $x)->whereNull('deleted_at')->count());
     }
@@ -256,6 +257,9 @@ class DistributionBatchTest extends TestCase
         $allocations = array_filter($rows[0], fn ($key) => str_starts_with($key, 'alloc_'), ARRAY_FILTER_USE_KEY);
         self::assertCount(11, $allocations);
         self::assertSame(66, array_sum($allocations));
+        foreach ($allocations as $key => $quantity) {
+            self::assertSame($quantity, $rows[0][str_replace('alloc_', 'wish_', $key)]);
+        }
     }
 
     public function test_excel_merged_quantity_skips_existing_product_without_overwriting_it_and_imports_other_products(): void
@@ -281,7 +285,51 @@ class DistributionBatchTest extends TestCase
         $this->getJson('/api/distribution/batches/'.$batch.'/rows')->assertOk()->assertJsonCount(2, 'result.data.allocation');
         $imported = DB::connection('sakemaru')->table('wms_distribution_rows')->where('distribution_batch_id', $batch)->where('row_id', '!=', 'keep-merged')->value('row_data');
         $data = json_decode($imported, true);
-        self::assertSame([3, 4], [$data['alloc_01'], $data['alloc_02']]);
+        self::assertSame([3, 4, 3, 4], [$data['alloc_01'], $data['alloc_02'], $data['wish_01'], $data['wish_02']]);
+    }
+
+    public function test_excel_updates_wishes_even_if_allocations_match_and_reimport_is_unchanged(): void
+    {
+        $batch = $this->batch();
+        $item = DB::connection('sakemaru')->table('items')->where('code', 100567)->first();
+        $this->save($batch, 0, [['id' => 'wish-only', 'itemId' => $item->id, 'productCode' => '100567',
+            'alloc_01' => 6, 'wish_01' => 1, 'alloc_02' => 3, 'wish_02' => 9]])->assertOk();
+        $file = [['単品CD', '本店'], [100567, 6]];
+        $preview = $this->post('/api/distribution/batches/'.$batch.'/excel/preview', ['file' => $this->spreadsheet($file),
+            'quantity_unit' => 'piece', 'store_mode' => 'name'], ['Accept' => 'application/json'])->assertOk()->json('result.data');
+        self::assertSame(1, $preview['update_count']);
+        self::assertSame(6, $preview['rows'][0]['after']['wish_01']);
+        self::assertSame(9, $preview['rows'][0]['after']['wish_02']);
+        $this->postJson('/api/distribution/batches/'.$batch.'/excel/commit', ['token' => $preview['token'], 'acknowledge_warnings' => true])->assertOk()->assertJsonPath('result.data.revision', 2);
+        $rows = $this->getJson('/api/distribution/batches/'.$batch.'/rows')->assertOk()->json('result.data.allocation');
+        self::assertSame([6, 6, 3, 9], [$rows[0]['alloc_01'], $rows[0]['wish_01'], $rows[0]['alloc_02'], $rows[0]['wish_02']]);
+        $again = $this->post('/api/distribution/batches/'.$batch.'/excel/preview', ['file' => $this->spreadsheet($file),
+            'quantity_unit' => 'piece', 'store_mode' => 'name'], ['Accept' => 'application/json'])->assertOk()->json('result.data');
+        self::assertSame(0, $again['update_count']);
+        self::assertSame(1, $again['unchanged_count']);
+        $this->postJson('/api/distribution/batches/'.$batch.'/excel/commit', ['token' => $again['token'], 'acknowledge_warnings' => true])->assertOk()->assertJsonPath('result.data.revision', 2);
+    }
+
+    public function test_excel_case_conversion_sets_both_quantities_and_old_preview_requires_refresh(): void
+    {
+        $batch = $this->batch();
+        $capacity = (int) DB::connection('sakemaru')->table('items')->where('code', 100567)->value('capacity_case');
+        $preview = $this->post('/api/distribution/batches/'.$batch.'/excel/preview', ['file' => $this->spreadsheet([
+            ['単品CD', '本店'], [100567, 2],
+        ]), 'quantity_unit' => 'case', 'store_mode' => 'name'], ['Accept' => 'application/json'])->assertOk()->json('result.data');
+        self::assertSame(2 * $capacity, $preview['rows'][0]['after']['alloc_01']);
+        self::assertSame(2 * $capacity, $preview['rows'][0]['after']['wish_01']);
+        $path = 'distribution/previews/'.$preview['token'].'.json';
+        $legacy = json_decode(Storage::disk('local')->get($path), true);
+        unset($legacy['quantity_targets']);
+        Storage::disk('local')->put($path, json_encode($legacy));
+        $this->postJson('/api/distribution/batches/'.$batch.'/excel/commit', ['token' => $preview['token'], 'acknowledge_warnings' => true])->assertStatus(409);
+        self::assertSame(0, DB::connection('sakemaru')->table('wms_distribution_rows')->where('distribution_batch_id', $batch)->count());
+        $legacy['quantity_targets'] = ['wish', 'alloc'];
+        Storage::disk('local')->put($path, json_encode($legacy));
+        $this->postJson('/api/distribution/batches/'.$batch.'/excel/commit', ['token' => $preview['token'], 'acknowledge_warnings' => true])->assertOk();
+        $rows = $this->getJson('/api/distribution/batches/'.$batch.'/rows')->assertOk()->json('result.data.allocation');
+        self::assertSame([2 * $capacity, 2 * $capacity], [$rows[0]['alloc_01'], $rows[0]['wish_01']]);
     }
 
     public function test_changed_revision_and_generated_rows_prevent_import_and_date_changes(): void
@@ -294,6 +342,77 @@ class DistributionBatchTest extends TestCase
         $this->postJson('/api/distribution/batches/'.$x.'/excel/commit', ['token' => $preview['token'], 'acknowledge_warnings' => true])->assertStatus(409);
         $this->patchJson('/api/distribution/batches/'.$x, ['name' => '変更', 'shipping_date' => '2026-11-02', 'note' => '', 'expected_revision' => 1])->assertStatus(422);
         $this->deleteJson('/api/distribution/batches/'.$x, ['expected_revision' => 1])->assertStatus(422);
+    }
+
+    public function test_excel_rows_load_live_stock_and_pending_arrivals_without_changing_imported_quantities(): void
+    {
+        $db = DB::connection('sakemaru');
+        $batch = $this->batch();
+        $items = $db->table('items')->whereIn('code', [100567, 100568])->pluck('id', 'code');
+        $db->table('real_stocks')->where('warehouse_id', 91)->whereIn('item_id', $items->values()->all())->delete();
+        $db->table('wms_order_incoming_schedules')->whereIn('item_id', $items->values()->all())->delete();
+        foreach ([[91, 990001, 80, 12], [91, 990002, 20, 5], [1, 990001, 9999, 0]] as [$warehouse, $allocation, $quantity, $reserved]) {
+            $db->table('real_stocks')->insert(['client_id' => $this->actor->client_id, 'warehouse_id' => $warehouse,
+                'stock_allocation_id' => $allocation, 'item_id' => $items[100567], 'current_quantity' => $quantity,
+                'reserved_quantity' => $reserved, 'order_rank' => 'A']);
+        }
+        foreach ([['PARTIAL', null], ['TRANSMITTED', null], ['PENDING', 123]] as [$status, $queue]) {
+            $db->table('wms_order_incoming_schedules')->insert(['warehouse_id' => 91, 'item_id' => $items[100567],
+                'expected_quantity' => 20, 'received_quantity' => 4, 'status' => $status, 'purchase_queue_id' => $queue,
+                'order_date' => '2026-11-01', 'expected_arrival_date' => '2026-11-02']);
+        }
+        $preview = $this->post('/api/distribution/batches/'.$batch.'/excel/preview', ['file' => $this->spreadsheet([
+            ['単品CD', '本店'], [100567, 6], [100568, 2],
+        ]), 'quantity_unit' => 'piece', 'store_mode' => 'name'], ['Accept' => 'application/json'])->assertOk()->json('result.data');
+        $this->postJson('/api/distribution/batches/'.$batch.'/excel/commit', ['token' => $preview['token'], 'acknowledge_warnings' => true])->assertOk();
+        $saved = $db->table('wms_distribution_rows')->where('distribution_batch_id', $batch)->pluck('row_data', 'id')->all();
+        $db->flushQueryLog();
+        $db->enableQueryLog();
+        try {
+            $result = $this->getJson('/api/distribution/batches/'.$batch.'/rows')->assertOk();
+            self::assertCount(1, array_filter($db->getQueryLog(), fn ($q) => str_contains($q['query'], 'from `real_stocks`')));
+        } finally {
+            $db->disableQueryLog();
+        }
+        $rows = collect($result->json('result.data.allocation'))->keyBy('productCode');
+        self::assertSame([100, 83, 17, 16, 1], array_map(fn ($key) => $rows[100567][$key], ['currentStock', 'reserved', 'reservedStock', 'incomingQuantity', 'incomingCount']));
+        self::assertSame([6, 6], [$rows[100567]['wish_01'], $rows[100567]['alloc_01']]);
+        self::assertSame([0, 0, 0, 0, 0], array_map(fn ($key) => $rows[100568][$key], ['currentStock', 'reserved', 'reservedStock', 'incomingQuantity', 'incomingCount']));
+        self::assertSame([2, 2], [$rows[100568]['wish_01'], $rows[100568]['alloc_01']]);
+        $db->table('real_stocks')->where('warehouse_id', 91)->where('item_id', $items[100567])->where('stock_allocation_id', 990001)->update(['current_quantity' => -10]);
+        $this->getJson('/api/distribution/batches/'.$batch.'/rows')->assertOk()->assertJsonPath('result.data.allocation.0.reserved', -7);
+        self::assertSame($saved, $db->table('wms_distribution_rows')->where('distribution_batch_id', $batch)->pluck('row_data', 'id')->all());
+        self::assertSame(1, $db->table('wms_distribution_batches')->where('id', $batch)->value('revision'));
+    }
+
+    public function test_allocation_stock_uses_real_warehouse_and_refreshes_legacy_code_only_rows_in_store_view(): void
+    {
+        $db = DB::connection('sakemaru');
+        $batch = $this->batch();
+        $item = $db->table('items')->where('code', 100567)->first();
+        $db->table('warehouses')->where('id', 91)->update(['stock_warehouse_id' => 1]);
+        $db->table('real_stocks')->where('warehouse_id', 1)->where('item_id', $item->id)->delete();
+        $db->table('real_stocks')->insert(['client_id' => $this->actor->client_id, 'warehouse_id' => 1,
+            'stock_allocation_id' => 990001, 'item_id' => $item->id, 'current_quantity' => 50, 'reserved_quantity' => 8, 'order_rank' => 'A']);
+        $marker = 'live-stock-'.Str::uuid();
+        $rows = array_map(fn ($i) => ['id' => $marker.$i, 'productCode' => '100567', 'name' => $marker,
+            'reserved' => 999, 'currentStock' => 999, 'wish_01' => 6, 'alloc_01' => 4,
+            'memo' => '維持する備考', 'supplier' => '維持する仕入先'], range(1, 40));
+        $this->save($batch, 0, $rows)->assertOk();
+        foreach (['/api/distribution/batches/'.$batch.'/rows', '/api/distribution/rows?context=store&mode=allocation&product_search='.$marker] as $url) {
+            $db->flushQueryLog();
+            $db->enableQueryLog();
+            try {
+                $result = $this->getJson($url)->assertOk()->assertJsonCount(40, 'result.data.allocation');
+                self::assertCount(1, array_filter($db->getQueryLog(), fn ($q) => str_contains($q['query'], 'from `real_stocks`')));
+            } finally {
+                $db->disableQueryLog();
+            }
+            foreach ($result->json('result.data.allocation') as $row) {
+                self::assertSame([91, 1, 50, 42, 8, 6, 4, '維持する備考', '維持する仕入先'],
+                    array_map(fn ($key) => $row[$key], ['selectedWarehouseId', 'realWarehouseId', 'currentStock', 'reserved', 'reservedStock', 'wish_01', 'alloc_01', 'memo', 'supplier']));
+            }
+        }
     }
 
     public function test_legacy_migration_retains_business_data_and_does_not_include_direct_rows(): void

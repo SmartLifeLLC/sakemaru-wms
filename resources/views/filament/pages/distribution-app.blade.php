@@ -2535,11 +2535,17 @@ window.distributionApp = function distributionApp() {
       return (this.excelImport.preview?.columns || []).filter(column => column.status === 'matched' || column.status === 'unresolved');
     },
 
-    excelPreviewQuantity(row, column, before = false) {
+    excelPreviewQuantity(row, column, before = false, kind = 'alloc') {
       if (column.status !== 'matched' || column.destination_code == null) return null;
       const key = String(column.destination_code).padStart(2, '0');
-      if (before) return Number(row.before?.['alloc_'+key] ?? 0);
+      if (before) return Number(row.before?.[kind+'_'+key] ?? 0);
       return Object.prototype.hasOwnProperty.call(row.allocations, key) ? Number(row.allocations[key]) : null;
+    },
+
+    excelPreviewQuantityChanged(row, column) {
+      const quantity = this.excelPreviewQuantity(row, column);
+      return quantity !== null && (quantity !== this.excelPreviewQuantity(row, column, true)
+        || quantity !== this.excelPreviewQuantity(row, column, true, 'wish'));
     },
 
     updateExcelPreviewMapping(column, value) {
