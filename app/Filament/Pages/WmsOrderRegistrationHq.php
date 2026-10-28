@@ -16,6 +16,7 @@ use Filament\Notifications\Notification;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
+use Livewire\Attributes\Locked;
 
 /**
  * 外部発注（本部） — 本部 91 番倉庫専用の発注登録画面。
@@ -44,6 +45,139 @@ class WmsOrderRegistrationHq extends WmsOrderRegistration
     public array $lineReferences = [];
 
     public string $bulkOrderChannel = 'FAX';
+
+    public bool $showBulkContractorChangeModal = false;
+
+    public string $bulkContractorSearch = '';
+
+    public array $bulkContractorRows = [];
+
+    #[Locked]
+    public string $bulkContractorSelectionHash = '';
+
+    public function openBulkContractorChangeModal(): void
+    {
+        if ($this->selectedVisibleRegistrationLineIndexes() === []) {
+            $this->warnHq('発注先を変更する登録リスト行を選択してください。');
+
+            return;
+        }
+
+        $this->bulkContractorSearch = '';
+        $this->bulkContractorSelectionHash = $this->currentBulkContractorSelectionHash();
+        $this->showBulkContractorChangeModal = true;
+        $this->searchBulkContractorChangeCandidates();
+    }
+
+    public function closeBulkContractorChangeModal(): void
+    {
+        $this->showBulkContractorChangeModal = false;
+        $this->bulkContractorSearch = '';
+        $this->bulkContractorRows = [];
+        $this->bulkContractorSelectionHash = '';
+    }
+
+    public function searchBulkContractorChangeCandidates(): void
+    {
+        if (! $this->showBulkContractorChangeModal) {
+            return;
+        }
+
+        $search = trim(mb_convert_kana($this->bulkContractorSearch, 'as'));
+        $this->bulkContractorRows = DB::connection('sakemaru')->table('contractors')
+            ->where('client_id', config('client.id', config('app.client_id')))
+            ->where('is_active', true)
+            ->when($search !== '', fn ($query) => $query->where(function ($query) use ($search): void {
+                $query->where('code', 'like', $search.'%')->orWhere('name', 'like', '%'.$search.'%');
+            }))
+            ->orderBy('code')->limit(50)->get(['id', 'code', 'name'])
+            ->map(fn ($row): array => (array) $row)->all();
+    }
+
+    public function applyBulkContractorChange(int $contractorId): void
+    {
+        if (! $this->showBulkContractorChangeModal || $this->bulkContractorSelectionHash === '') {
+            return;
+        }
+
+        $indexes = $this->selectedVisibleRegistrationLineIndexes();
+        if ($indexes === [] || ! hash_equals($this->bulkContractorSelectionHash, $this->currentBulkContractorSelectionHash())) {
+            $this->warnHq('選択行や明細が変更されています。一度閉じて、変更する行を選び直してください。');
+
+            return;
+        }
+
+        $contractor = DB::connection('sakemaru')->table('contractors')->where('id', $contractorId)
+            ->where('client_id', config('client.id', config('app.client_id')))->where('is_active', true)->first(['code']);
+        if (! $contractor) {
+            $this->warnHq('有効な発注先が見つかりません。発注先を検索し直してください。');
+
+            return;
+        }
+
+        $changes = [];
+        $errors = [];
+        $faxCount = 0;
+        $optionsByItem = [];
+        foreach ($indexes as $index) {
+            $line = $this->lines[$index];
+            if ((int) ($line['contractor_id'] ?? 0) === $contractorId) {
+                continue;
+            }
+
+            $label = '['.($line['item_code'] ?? '').']'.($line['item_name'] ?? '');
+            // 個別変更と同じ91倉庫優先の候補から、商品ごとの仕入先を決める。
+            $itemId = (int) ($line['item_id'] ?? 0);
+            $options = $optionsByItem[$itemId] ??= collect(parent::searchCandidateContractorChangeOptions($itemId, (string) $contractor->code))
+                ->where('contractor_id', $contractorId)->filter(fn (array $row): bool => (bool) ($row['is_selectable'] ?? false))
+                ->unique('supplier_id')->values();
+            if ($options->count() !== 1) {
+                $errors[] = $label.($options->isEmpty() ? '：仕入先を決定できません。' : '：仕入先が複数あります。個別に発注先を変更してください。');
+
+                continue;
+            }
+
+            $option = $options->first();
+            try {
+                $changes[$index] = $this->lineWithContractorChange($line, $contractorId, (int) $option['supplier_id'], $option['item_contractor_warehouse_id']);
+                if ((int) $changes[$index]['supplier_id'] !== (int) $option['supplier_id'] || (($option['is_item_linked'] ?? false) && ! $changes[$index]['item_contractor_linked'])) {
+                    throw new \InvalidArgumentException('発注先設定が変更されています。検索し直してください。');
+                }
+                if (($line['order_channel'] ?? '') === OrderChannel::EOS->value && $changes[$index]['order_channel'] === OrderChannel::FAX->value) {
+                    $faxCount++;
+                }
+            } catch (\InvalidArgumentException $e) {
+                $errors[] = $label.'：'.$e->getMessage();
+            }
+        }
+
+        if ($errors !== []) {
+            $this->warnHq("発注先を一括変更できません。明細は変更していません。\n".implode("\n", $errors));
+
+            return;
+        }
+
+        // 全明細の確認に成功するまで、登録リストへ反映しない。
+        foreach ($changes as $index => $line) {
+            $this->lines[$index] = $line;
+        }
+        if ($this->lineContractorFilter !== '' && ! collect($this->lines)->contains(fn (array $line): bool => (string) ($line['contractor_id'] ?? '') === $this->lineContractorFilter)) {
+            $this->lineContractorFilter = '';
+        }
+        $this->clearRegistrationLineSelection();
+        $this->closeBulkContractorChangeModal();
+
+        Notification::make()->title('発注先を一括変更しました')
+            ->body(number_format(count($changes)).'件を変更しました。'.($faxCount > 0 ? 'うち'.number_format($faxCount).'件は変更先でEOS発注できないため、FAX発注に変更しました。' : ''))
+            ->success()->send();
+    }
+
+    private function currentBulkContractorSelectionHash(): string
+    {
+        $lines = array_intersect_key($this->lines, array_flip($this->selectedVisibleRegistrationLineIndexes()));
+
+        return hash('sha256', json_encode($lines, JSON_THROW_ON_ERROR));
+    }
 
     /** @var array<int, int> */
     protected array $hqItemCaseCapacities = [];
