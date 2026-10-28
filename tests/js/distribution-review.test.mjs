@@ -789,11 +789,11 @@ test('transfer print groups incoming pages then outgoing pages then references',
     ]);
 });
 
-test('allocation drag scrolls horizontally and releases capture on cancellation', () => {
+test('allocation drag scrolls both axes, including vertical-only overflow, and releases capture', () => {
     const { app } = component();
     let captured = null;
     let prevented = 0;
-    const scroller = { scrollWidth: 1600, clientWidth: 1000, clientHeight: 500, scrollLeft: 120,
+    const scroller = { scrollWidth: 1600, clientWidth: 1000, scrollHeight: 1500, clientHeight: 500, scrollLeft: 120, scrollTop: 100,
         getBoundingClientRect: () => ({ left: 20, top: 100 }),
         setPointerCapture: id => { captured = id; },
         hasPointerCapture: id => captured === id,
@@ -807,19 +807,29 @@ test('allocation drag scrolls horizontally and releases capture on cancellation'
     assert.equal(captured, 4);
     app.moveAllocationDrag({ ...event, pointerId: 5, clientX: 600 });
     assert.equal(scroller.scrollLeft, 120);
-    app.moveAllocationDrag({ ...event, clientX: 600 });
+    app.moveAllocationDrag({ ...event, clientX: 600, clientY: 150 });
     assert.equal(scroller.scrollLeft, 370);
+    assert.equal(scroller.scrollTop, 150);
     app.endAllocationDrag(event);
     assert.equal(captured, null);
     assert.equal(app.allocationDrag, null);
     app.moveAllocationDrag({ ...event, clientX: 500 });
     assert.equal(scroller.scrollLeft, 370);
     assert.equal(prevented, 2);
+    scroller.scrollWidth = scroller.clientWidth;
+    scroller.scrollLeft = 0;
+    app.startAllocationDrag(event);
+    assert.equal(captured, 4);
+    app.moveAllocationDrag({ ...event, clientY: 300 });
+    assert.equal(scroller.scrollLeft, 0);
+    assert.equal(scroller.scrollTop, 50);
+    app.endAllocationDrag(event);
+    assert.equal(captured, null);
 });
 
 test('allocation drag leaves controls, native touch, and scrollbars usable', () => {
     const { app } = component();
-    const scroller = { scrollWidth: 1600, clientWidth: 1000, clientHeight: 500,
+    const scroller = { scrollWidth: 1600, clientWidth: 1000, scrollHeight: 500, clientHeight: 500,
         getBoundingClientRect: () => ({ left: 20, top: 100 }),
         setPointerCapture: () => { throw new Error('Must not capture this interaction'); },
     };
@@ -1011,4 +1021,37 @@ test('failed note lookup warns once and a different contractor note is not shown
     clearTimeout(app.itemContractorNoteTimer);
     await app.loadQueuedItemContractorNotes();
     assert.equal(app.getItemContractorNote(row), '');
+});
+
+for (const action of ['archiveBatch', 'deleteBatch']) {
+    test(`${action} requires confirmation and returning to list does not end or delete the batch`, async () => {
+        const {app, context} = component({batch:{id:1,name:'検証分配',archived:false,revision:3}});
+        let writes=0;
+        app.waitForDistributionSaves=async()=>{};
+        app.verifyBatchHeaderRevision=()=>{};
+        app.batchRequest=async(path, options={})=>{
+            if(options.method) writes++;
+            return {...app.batchInfo};
+        };
+        await app[action]();
+        assert.equal(app.confirmVisible,true);
+        assert.equal(typeof app.confirmCallback,'function');
+        assert.equal(app.confirmBatchAction,action==='archiveBatch'?'終了にする':'分配を削除');
+        assert.equal(writes,0);
+        await app.returnToBatchList();
+        assert.equal(context.window.location.href,'/admin/distribution-adjustment');
+        assert.equal(app.confirmCallback,null);
+        app.doConfirm();
+        assert.equal(writes,0);
+        app.openConfirm('別の操作',()=>{});
+        assert.equal(app.confirmBatchAction,'');
+    });
+}
+
+test('return to list preserves the page when pending changes cannot be saved', async()=>{
+    const {app,context}=component({batch:{id:1}});
+    app.waitForDistributionSaves=async()=>{throw new Error('保存に失敗しました');};
+    await app.returnToBatchList();
+    assert.equal(context.window.location.href,undefined);
+    assert.equal(app.lastError,'保存に失敗しました');
 });
