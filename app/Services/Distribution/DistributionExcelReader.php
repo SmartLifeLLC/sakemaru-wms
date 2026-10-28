@@ -93,6 +93,8 @@ class DistributionExcelReader
             if (! $codeColumn) {
                 throw new RuntimeException('先頭シートに「単品CD」または「自社CD」の見出しがありません。');
             }
+            $result['code_column'] = Coordinate::stringFromColumnIndex($codeColumn);
+            $result['code_header'] = (string) $sheet->getCell([$codeColumn, $result['header_row']])->getValue();
             $byCode = [];
             $byName = [];
             foreach ($destinations as $d) {
@@ -102,7 +104,8 @@ class DistributionExcelReader
                     $byName[self::normalize($alias)][] = $code;
                 }
             }
-            $ignored = array_map(self::normalize(...), ['表示正式名称', '商品名', '容量', '入数', '原価', '単価', '税抜', '率', 'コメント', 'コメント１', '賞味', 'ロット', '仕入先', '単位', '納品', 'ケース', '総合計', '計', 'ケース換算', '備考']);
+            $totalHeaders = array_map(self::normalize(...), ['総合計', '合計', '計', 'ケース換算']);
+            $ignored = array_merge($totalHeaders, array_map(self::normalize(...), ['表示正式名称', '商品名', '容量', '入数', '原価', '単価', '税抜', '率', 'コメント', 'コメント１', '賞味', 'ロット', '仕入先', '単位', '納品', 'ケース', '備考']));
             $seenDestinations = [];
             $storeColumns = [];
             for ($c = 1; $c <= $maxCol; $c++) {
@@ -119,14 +122,31 @@ class DistributionExcelReader
                 $code = $override !== null && $override !== 'ignore' ? (int) $override : (count($codes) === 1 ? (int) reset($codes) : null);
                 $destination = $code !== null ? ($byCode[$code] ?? null) : null;
                 $hasContent = false;
+                $referenceOnly = $key === '';
                 for ($r = $result['header_row'] + 1; $r <= $maxRow; $r++) {
-                    if ($sheet->cellExists([$c, $r]) && $sheet->getCell([$c, $r])->getValue() !== null) {
-                        $hasContent = true;
+                    if (! $sheet->cellExists([$c, $r])) {
+                        continue;
+                    }
+                    $cell = $sheet->getCell([$c, $r]);
+                    $value = $cell->getValue();
+                    $value = $value instanceof RichText ? $value->getPlainText() : $value;
+                    if ($value === null || (is_string($value) && trim($value) === '')) {
+                        continue;
+                    }
+                    $hasContent = true;
+                    // Headerless notes and case conversions of a named total are references.
+                    // Other numeric/formula columns still require explicit review.
+                    $totalConversion = $referenceOnly && is_string($value) && $cell->getDataType() === DataType::TYPE_FORMULA
+                        && preg_match('/^=\$?([A-Z]{1,3})\$?(\d+)\s*\/\s*(\d+(?:\.\d+)?)$/iD', $value, $formula)
+                        && (int) $formula[2] === $r && (float) $formula[3] > 0
+                        && in_array(self::normalize($sheet->getCell($formula[1].$result['header_row'])->getValue()), $totalHeaders, true);
+                    if (! $referenceOnly || ! is_string($value) || ($cell->getDataType() === DataType::TYPE_FORMULA && ! $totalConversion) || self::quantity($value) !== null) {
+                        $referenceOnly = false;
                         break;
                     }
                 }
                 $column = ['column' => $letter, 'header' => $header, 'destination_code' => null, 'status' => 'ignored', 'reason' => '参考・集計列'];
-                if ($override === 'ignore' || ($override === null && in_array($key, $ignored, true))) {
+                if ($override === 'ignore' || ($override === null && (in_array($key, $ignored, true) || ($key === '' && $referenceOnly)))) {
                     $result['columns'][] = $column;
 
                     continue;

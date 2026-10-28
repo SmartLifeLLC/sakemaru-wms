@@ -74,6 +74,27 @@ class DistributionExcelReaderTest extends TestCase
         self::assertStringContainsString('マスタ入数12', implode('', $result['warnings']));
     }
 
+    public function test_preview_identifies_product_column_and_ignores_headerless_notes_but_keeps_quantities_unresolved(): void
+    {
+        $result = $this->parse($this->file([
+            ['自社CD', '備考', '計', '本店', null, null],
+            [100001, '参考', 2, 2, '80単位', 3],
+        ]));
+        self::assertSame('A', $result['code_column']);
+        self::assertSame('自社CD', $result['code_header']);
+        $columns = array_column($result['columns'], null, 'column');
+        self::assertSame('ignored', $columns['B']['status']);
+        self::assertSame('ignored', $columns['C']['status']);
+        self::assertSame('matched', $columns['D']['status']);
+        self::assertSame('ignored', $columns['E']['status']);
+        self::assertSame('unresolved', $columns['F']['status']);
+        self::assertStringContainsString('F列', implode('', $result['errors']));
+        self::assertSame(['01' => 2], $result['rows'][0]['allocations']);
+        $mapped = $this->parse($this->file([['単品CD', '本店', null], [100001, 2, '80単位']]), ['mapping' => ['C' => 2]]);
+        self::assertSame('matched', $mapped['columns'][1]['status']);
+        self::assertNotEmpty($mapped['errors'], 'Explicitly mapped text must still fail quantity validation.');
+    }
+
     public function test_code_mode_source_column_duplicates_and_unknown_columns(): void
     {
         $result = $this->parse($this->file([['単品CD', '０１', 1, 91, '不明店'], [100001, 1, 2, 3, 4]]), ['store_mode' => 'code']);
@@ -83,6 +104,19 @@ class DistributionExcelReaderTest extends TestCase
         $resolved = $this->parse($this->file([['単品CD', '01', 91, 'メモ'], [100001, 0, null, '参考']]), ['store_mode' => 'code', 'mapping' => ['D' => 'ignore']]);
         self::assertSame([], $resolved['errors']);
         self::assertCount(1, $resolved['rows']);
+    }
+
+    public function test_headerless_total_case_conversion_is_reference_but_other_formulas_need_review(): void
+    {
+        $result = $this->parse($this->file([
+            ['単品CD', '本店', '計', null, null],
+            [100001, 12, '=SUM(B2:B2)', '=C2/12', '=B2*2'],
+        ]));
+        $columns = array_column($result['columns'], null, 'column');
+        self::assertSame('ignored', $columns['D']['status']);
+        self::assertSame('unresolved', $columns['E']['status']);
+        self::assertStringContainsString('E列', implode('', $result['errors']));
+        self::assertSame(12, $result['excel_total']);
     }
 
     public function test_duplicate_product_and_invalid_quantities_are_not_silently_coerced(): void

@@ -49,7 +49,7 @@ class DistributionBatchTest extends TestCase
     private function batch(string $name = '分配X'): int
     {
         return $this->postJson('/api/distribution/batches', ['name' => $name, 'shipping_date' => '2026-11-01',
-            'execution_id' => (string) Str::uuid()])->assertOk()->json('result.data.id');
+            'responsible_department' => 'warehouse', 'execution_id' => (string) Str::uuid()])->assertOk()->json('result.data.id');
     }
 
     private function save(int $batch, int $revision, array $rows, array $extra = [])
@@ -69,6 +69,55 @@ class DistributionBatchTest extends TestCase
         $this->files[] = $path;
 
         return new UploadedFile($path, '数量.xlsx', null, null, true);
+    }
+
+    public function test_department_is_required_on_registration_and_can_be_filtered(): void
+    {
+        $data = ['name' => '担当部署テスト', 'shipping_date' => '2026-11-01', 'execution_id' => (string) Str::uuid()];
+        $this->postJson('/api/distribution/batches', $data)->assertUnprocessable()->assertJsonValidationErrors('responsible_department');
+        $this->postJson('/api/distribution/batches', $data + ['responsible_department' => 'other'])->assertUnprocessable();
+        $warehouse = $this->postJson('/api/distribution/batches', $data + ['responsible_department' => 'warehouse'])
+            ->assertOk()->assertJsonPath('result.data.responsible_department_label', '倉庫担当')->json('result.data.id');
+        $data['execution_id'] = (string) Str::uuid();
+        $headquarters = $this->postJson('/api/distribution/batches', $data + ['responsible_department' => 'headquarters'])
+            ->assertOk()->assertJsonPath('result.data.responsible_department_label', '本部担当')->json('result.data.id');
+        $legacy = $this->batch('担当部署テスト・旧データ');
+        DB::connection('sakemaru')->table('wms_distribution_batches')->where('id', $legacy)->update(['responsible_department' => null]);
+        foreach (['warehouse' => $warehouse, 'headquarters' => $headquarters, 'unassigned' => $legacy] as $department => $id) {
+            $rows = $this->getJson('/api/distribution/batches?search=担当部署テスト&responsible_department='.$department)->assertOk()->json('result.data.data');
+            self::assertSame([$id], array_column($rows, 'id'));
+        }
+        $this->getJson('/api/distribution/batches?responsible_department=other')->assertUnprocessable();
+        $this->getJson('/api/distribution/batches/'.$legacy)->assertOk()->assertJsonPath('result.data.responsible_department_label', '未設定');
+    }
+
+    public function test_department_changes_are_audited_and_cannot_overwrite_a_concurrent_edit(): void
+    {
+        $batch = $this->batch();
+        $data = ['name' => '担当変更', 'shipping_date' => '2026-11-01', 'responsible_department' => 'headquarters', 'expected_revision' => 0];
+        $this->patchJson('/api/distribution/batches/'.$batch, $data)->assertOk()->assertJsonPath('result.data.revision', 1)
+            ->assertJsonPath('result.data.responsible_department', 'headquarters');
+        $event = DB::connection('sakemaru')->table('wms_distribution_batch_events')->where('distribution_batch_id', $batch)->latest('id')->first();
+        $changes = json_decode($event->changes, true);
+        self::assertSame('warehouse', $changes['header']['before']['responsible_department']);
+        self::assertSame('headquarters', $changes['header']['after']['responsible_department']);
+        $this->patchJson('/api/distribution/batches/'.$batch, array_replace($data, ['responsible_department' => 'warehouse']))->assertStatus(409);
+        $this->patchJson('/api/distribution/batches/'.$batch, array_replace($data, ['responsible_department' => 'invalid', 'expected_revision' => 1]))->assertUnprocessable();
+        unset($data['responsible_department']);
+        $data['expected_revision'] = 1;
+        $this->patchJson('/api/distribution/batches/'.$batch, $data)->assertOk()->assertJsonPath('result.data.responsible_department', 'headquarters');
+        self::assertSame(0, DB::connection('sakemaru')->table('wms_distribution_rows')->where('distribution_batch_id', $batch)->count());
+    }
+
+    public function test_existing_unassigned_department_can_archive_reopen_and_be_assigned(): void
+    {
+        $batch = $this->batch();
+        DB::connection('sakemaru')->table('wms_distribution_batches')->where('id', $batch)->update(['responsible_department' => null]);
+        $data = ['name' => '旧分配', 'shipping_date' => '2026-11-01', 'responsible_department' => null, 'expected_revision' => 0, 'archive' => true];
+        $this->patchJson('/api/distribution/batches/'.$batch, $data)->assertOk()->assertJsonPath('result.data.archived', true)->assertJsonPath('result.data.responsible_department', null);
+        $this->patchJson('/api/distribution/batches/'.$batch, array_replace($data, ['expected_revision' => 1, 'archive' => false]))->assertOk()->assertJsonPath('result.data.archived', false);
+        $this->patchJson('/api/distribution/batches/'.$batch, array_replace($data, ['expected_revision' => 2, 'archive' => false, 'responsible_department' => 'warehouse']))
+            ->assertOk()->assertJsonPath('result.data.responsible_department_label', '倉庫担当');
     }
 
     public function test_separate_batches_save_independently_and_stale_same_batch_cannot_overwrite(): void
@@ -237,7 +286,7 @@ class DistributionBatchTest extends TestCase
 
     public function test_registration_is_idempotent_and_deleted_parent_cannot_be_reused(): void
     {
-        $data = ['name' => '二重登録', 'shipping_date' => '2026-11-01', 'execution_id' => (string) Str::uuid()];
+        $data = ['name' => '二重登録', 'shipping_date' => '2026-11-01', 'responsible_department' => 'warehouse', 'execution_id' => (string) Str::uuid()];
         $x = $this->postJson('/api/distribution/batches', $data)->assertOk()->json('result.data.id');
         $this->postJson('/api/distribution/batches', $data)->assertOk()->assertJsonPath('result.data.id', $x);
         $this->deleteJson('/api/distribution/batches/'.$x, ['expected_revision' => 0])->assertOk();
