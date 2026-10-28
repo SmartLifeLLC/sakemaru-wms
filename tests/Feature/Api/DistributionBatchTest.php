@@ -238,6 +238,29 @@ class DistributionBatchTest extends TestCase
         self::assertSame(2, DB::connection('sakemaru')->table('wms_distribution_rows')->where('distribution_batch_id', $x)->whereNull('deleted_at')->count());
     }
 
+    public function test_excel_dynamic_warehouses_duplicate_overwrite_and_message_skip_are_saved_to_both_quantities(): void
+    {
+        $batch = $this->batch();
+        $preview = $this->post('/api/distribution/batches/'.$batch.'/excel/preview', ['file' => $this->spreadsheet([
+            ['ＣＤ', 'サンドーム', '本部', '武生店'],
+            [100567, 10, 20, 30], [100567, 2, 3, 4], [100568, '休売', 8, 9],
+        ]), 'quantity_unit' => 'piece', 'store_mode' => 'name'], ['Accept' => 'application/json'])->assertOk()->json('result.data');
+        self::assertSame([], $preview['errors']);
+        self::assertSame(9, $preview['excel_total']);
+        self::assertCount(1, $preview['duplicate_warnings']);
+        self::assertSame('store_quantity_message', $preview['skipped'][0]['reason_code']);
+        $commit = '/api/distribution/batches/'.$batch.'/excel/commit';
+        $this->postJson($commit, ['token' => $preview['token'], 'acknowledge_warnings' => false])->assertUnprocessable();
+        $this->postJson($commit, ['token' => $preview['token'], 'acknowledge_warnings' => true])->assertOk();
+        $rows = $this->getJson('/api/distribution/batches/'.$batch.'/rows')->assertOk()->json('result.data.allocation');
+        self::assertCount(1, $rows);
+        foreach (['04' => 2, '91' => 3, '05' => 4] as $key => $quantity) {
+            self::assertSame($quantity, $rows[0]['alloc_'.$key]);
+            self::assertSame($quantity, $rows[0]['wish_'.$key]);
+            self::assertContains((string) $key, $rows[0]['visibleDestinationKeys']);
+        }
+    }
+
     public function test_excel_with_eleven_stores_imports_only_store_quantities_without_reference_mapping(): void
     {
         $batch = $this->batch();

@@ -104,6 +104,9 @@
             <p x-show="excelImport.error" class="shrink-0 whitespace-pre-wrap text-red-700" role="alert" x-text="excelImport.error"></p>
             <div x-show="!excelImport.preview" class="distribution-excel-empty">先頭シートを取り込みます。ファイルと取込設定を選択してください。</div>
             <template x-if="excelImport.preview"><div class="flex min-h-0 flex-1 flex-col gap-3">
+                <div x-show="(excelImport.preview.duplicate_warnings || []).length" role="alert" class="shrink-0 rounded border border-red-300 bg-red-50 p-3 text-red-700" style="max-height:120px;overflow:auto">
+                    <template x-for="(message,i) in (excelImport.preview.duplicate_warnings || [])" :key="i"><p x-text="message"></p></template>
+                </div>
                 <div class="distribution-excel-summary">
                     <strong><span x-text="excelImport.preview.sheet_name"></span> ／ <span x-text="excelImport.preview.header_row"></span>行目 ／ <span x-text="excelImport.preview.excel_total"></span>バラ</strong>
                     <span>新規 <span x-text="excelImport.preview.new_count"></span>件 ／ 更新 <span x-text="excelImport.preview.update_count"></span>件 ／ 変更なし <span x-text="excelImport.preview.unchanged_count"></span>件 ／ スキップ <span x-text="excelImport.preview.skipped.length"></span>行</span>
@@ -112,14 +115,14 @@
                 <div class="distribution-excel-messages">
                     <p x-show="excelImport.needsPreview" class="mb-2 text-amber-700">列の対応を変更しました。再確認してください。<button type="button" @click="previewExcel()" :disabled="excelImport.busy" class="ml-3 rounded bg-indigo-600 px-3 py-1 text-white">対応を反映して再確認</button></p>
                     <div class="text-red-700"><template x-for="(message,i) in excelImport.preview.errors" :key="i"><p x-text="message"></p></template></div>
-                    <details x-show="excelImport.preview.warnings.length"><summary>注意事項（<span x-text="excelImport.preview.warnings.length"></span>件）</summary><template x-for="(message,i) in excelImport.preview.warnings" :key="i"><p class="text-amber-800" x-text="message"></p></template></details>
+                    <details class="text-amber-800" x-show="excelImport.preview.warnings.length"><summary>注意事項（<span x-text="excelImport.preview.warnings.length"></span>件）</summary><template x-for="(message,i) in excelImport.preview.warnings" :key="i"><p class="text-amber-800" x-text="message"></p></template></details>
                     <p x-show="!excelImport.preview.errors.length && !excelImport.preview.rows.length" class="text-slate-600">取込対象の商品がありません。</p>
-                    <div role="status" class="text-slate-600">
-                        <template x-for="row in excelImport.preview.skipped.filter(row => row.reason_code === 'merged_store_quantity')" :key="row.row">
+                    <div role="status" class="text-amber-800">
+                        <template x-for="row in excelImport.preview.skipped.filter(row => ['merged_store_quantity','store_quantity_message'].includes(row.reason_code))" :key="row.row">
                             <p x-text="'商品CD'+row.code+'：'+row.name+'はスキップしました。（'+row.reason+'）'"></p>
                         </template>
                     </div>
-                    <details x-show="excelImport.preview.skipped.some(row => row.reason_code !== 'merged_store_quantity')"><summary>スキップ行（<span x-text="excelImport.preview.skipped.filter(row => row.reason_code !== 'merged_store_quantity').length"></span>行）</summary><template x-for="row in excelImport.preview.skipped.filter(row => row.reason_code !== 'merged_store_quantity')" :key="row.row"><p x-text="row.row+'行目 '+row.code+'：'+row.reason"></p></template></details>
+                    <details class="text-amber-800" x-show="excelImport.preview.skipped.some(row => !['merged_store_quantity','store_quantity_message'].includes(row.reason_code))"><summary>スキップ行（<span x-text="excelImport.preview.skipped.filter(row => !['merged_store_quantity','store_quantity_message'].includes(row.reason_code)).length"></span>行）</summary><template x-for="row in excelImport.preview.skipped.filter(row => !['merged_store_quantity','store_quantity_message'].includes(row.reason_code))" :key="row.row"><p x-text="row.row+'行目 '+row.code+'：'+row.reason"></p></template></details>
                 </div>
                 <div class="distribution-excel-matrix" x-init="$nextTick(() => $el.scrollTo(0,0))" tabindex="0" aria-label="商品CD・店舗別分配数の表">
                     <table :style="'min-width:'+Math.max(640,260+excelPreviewColumns().length*64)+'px'">

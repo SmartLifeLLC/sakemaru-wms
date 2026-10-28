@@ -136,8 +136,8 @@ class DistributionBatchController extends ApiController
         $items = DB::connection('sakemaru')->table('items')->where('client_id', $batch->client_id)
             ->get(['id', 'code', 'name', 'capacity_case', 'is_active'])->keyBy('code')->map(fn ($row) => (array) $row)->all();
         $destinations = DB::connection('sakemaru')->table('warehouses')->where('client_id', $batch->client_id)->where('is_active', true)
-            ->get(['id', 'code', 'name'])->map(function ($d) use ($batch) {
-                $d->allowed = in_array((int) $d->code, [1, 2, 3, 4, 7, 8, 9, 10, 11, 21, 22], true) && (int) $d->id !== (int) $batch->warehouse_id;
+            ->get(['id', 'code', 'name'])->map(function ($d) {
+                $d->allowed = true;
 
                 return (array) $d;
             })->all();
@@ -207,7 +207,7 @@ class DistributionBatchController extends ApiController
         abort_unless(($preview['quantity_targets'] ?? null) === ['wish', 'alloc'], 409, '取込方法が更新されました。「取込内容を確認」を押して再確認してください。');
         abort_unless($preview['expires_at'] >= time() && $preview['revision'] === $batch->revision, 409, '分配またはプレビューが更新されています。再解析してください。');
         abort_if($preview['errors'] !== [] || $preview['rows'] === [], 422, '取込エラーを解消してください。');
-        abort_if($preview['warnings'] !== [] && ! $request->boolean('acknowledge_warnings'), 422, '注意事項を確認してください。');
+        abort_if(($preview['warnings'] !== [] || ($preview['duplicate_warnings'] ?? []) !== []) && ! $request->boolean('acknowledge_warnings'), 422, '注意事項を確認してください。');
         $nextOrder = (int) ($batch->rows()->max('sort_order') ?? -1);
         $changes = [];
         foreach ($preview['rows'] as $import) {

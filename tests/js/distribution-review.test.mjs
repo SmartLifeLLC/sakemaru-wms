@@ -738,3 +738,15 @@ test('opening a newer header never lends its revision to stale detail rows', asy
     assert.equal(app.rows[0].alloc_01,12);
     assert.match(app.lastError,/担当B/);
 });
+
+
+test('explicit HQ and other warehouses display dynamically while HQ does not create a self transfer', () => {
+    const { app } = component({batch: {id: 123, warehouse_id: 91}});
+    const destinations = [{key:'01',code:'01',id:1,name:'本店'}, {key:'91',code:'91',id:91,name:'本部',isHidden:true}, {key:'05',code:'05',id:5,name:'武生店',isHidden:true}];
+    app.getKnownDestinationPool = () => destinations;
+    app.getStoreDestinationPool = () => destinations;
+    const row = {source:'excel', visibleDestinationKeys:['01','91','05'], alloc_01:2,alloc_91:3,alloc_05:4,wish_01:2,wish_91:3,wish_05:4};
+    assert.deepEqual(keys(app.getAllocationDisplayDestinations([row])).sort(), ['01','05','91']);
+    assert.deepEqual(keys(app.getWarehouseTransferDestinationPool(row)).sort(), ['01','05']);
+    assert.equal(app.hasWarehouseTransferTargetDestination({alloc_91:3}), false);
+});

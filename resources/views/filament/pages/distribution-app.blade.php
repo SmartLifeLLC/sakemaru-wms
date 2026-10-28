@@ -5829,7 +5829,9 @@ window.distributionApp = function distributionApp() {
     },
 
     isWarehouseTransferExcludedDestination(key, destination = null) {
-      return STORE_WHOLESALE_DESTINATION_CODES.has(String(key || ''))
+      return String(key || '') === String(HQ_WAREHOUSE_CODE)
+        || (BATCH && destination?.id && Number(destination.id) === Number(BATCH.warehouse_id))
+        || STORE_WHOLESALE_DESTINATION_CODES.has(String(key || ''))
         || (destination ? this.isWholesaleDestination(destination) : false);
     },
 
