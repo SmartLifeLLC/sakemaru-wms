@@ -233,7 +233,7 @@ class DistributionBatchController extends ApiController
 
     public function commit(Request $request)
     {
-        $request->validate(['token' => 'required|string|size:64|alpha_num', 'acknowledge_warnings' => 'required|boolean']);
+        $request->validate(['token' => 'required|string|size:64|alpha_num']);
         $batch = DistributionBatchService::current();
         $path = 'distribution/previews/'.$request->input('token').'.json';
         abort_unless(Storage::disk('local')->exists($path), 422, 'プレビューが失効しました。再解析してください。');
@@ -247,7 +247,6 @@ class DistributionBatchController extends ApiController
         abort_unless(($preview['quantity_targets'] ?? null) === ['wish', 'alloc'], 409, '取込方法が更新されました。「取込内容を確認」を押して再確認してください。');
         abort_unless($preview['expires_at'] >= time() && $preview['revision'] === $batch->revision, 409, '分配またはプレビューが更新されています。再解析してください。');
         abort_if($preview['errors'] !== [] || $preview['rows'] === [], 422, '取込エラーを解消してください。');
-        abort_if(($preview['warnings'] !== [] || ($preview['duplicate_warnings'] ?? []) !== []) && ! $request->boolean('acknowledge_warnings'), 422, '注意事項を確認してください。');
         $nextOrder = (int) ($batch->rows()->max('sort_order') ?? -1);
         $changes = [];
         foreach ($preview['rows'] as $import) {

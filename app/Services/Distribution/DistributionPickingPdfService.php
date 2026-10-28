@@ -28,12 +28,7 @@ class DistributionPickingPdfService
         $jans = $db->table('item_search_information')->where('client_id', $batch->client_id)
             ->whereIn('item_id', $items->pluck('id'))->where('is_active', true)->where('is_in_use', true)
             ->where('code_type', 'JAN')->orderBy('id')->get(['item_id', 'search_string'])->unique('item_id')->keyBy('item_id');
-        $locations = $db->table('item_incoming_default_locations as d')
-            ->join('locations as l', 'd.location_id', '=', 'l.id')
-            ->leftJoin('floors as f', 'l.floor_id', '=', 'f.id')
-            ->where('d.warehouse_id', $sourceId)->whereIn('d.item_id', $items->pluck('id'))
-            ->orderBy('d.id')->get(['d.item_id', 'l.id', 'l.code1', 'l.code2', 'l.code3', 'l.floor_id', 'f.name as floor_name'])
-            ->unique('item_id')->keyBy('item_id');
+        $locations = $this->shelfLocations($batch->client_id, $sourceId, $items->pluck('id')->all());
         $warehouses = $db->table('warehouses')->where('client_id', $batch->client_id)->get(['id', 'code', 'name'])->keyBy('code');
         $courses = $db->table('delivery_courses')->where('client_id', $batch->client_id)->get(['id', 'code', 'name'])->keyBy('id');
         $defaults = $db->table('warehouse_stock_transfer_delivery_courses')->where('from_warehouse_id', $sourceId)
@@ -69,6 +64,39 @@ class DistributionPickingPdfService
         }
 
         return $rows->sortBy([['course_code', 'asc'], ['floor_id', 'asc'], ['location_code', 'asc'], ['item_code', 'asc'], ['buyer_code', 'asc']])->values();
+    }
+
+    private function shelfLocations(int $clientId, int $warehouseId, array $itemIds): Collection
+    {
+        $db = DB::connection('sakemaru');
+        $fields = ['l.id', 'l.code1', 'l.code2', 'l.code3', 'l.floor_id', 'f.name as floor_name'];
+        $hasCode = fn ($location): bool => trim(Location::formatCode($location->code1, $location->code2, $location->code3, '-')) !== '';
+        $defaults = $db->table('item_incoming_default_locations as d')
+            ->join('locations as l', 'd.location_id', '=', 'l.id')
+            ->leftJoin('floors as f', 'l.floor_id', '=', 'f.id')
+            ->where('d.warehouse_id', $warehouseId)->where('l.warehouse_id', $warehouseId)->where('l.client_id', $clientId)
+            ->whereIn('d.item_id', $itemIds)
+            ->orderBy('l.code1')->orderBy('l.code2')->orderBy('l.code3')->orderBy('d.id')
+            ->get(array_merge(['d.item_id'], $fields))->filter($hasCode)->unique('item_id')->keyBy('item_id');
+        $missingIds = array_values(array_diff($itemIds, $defaults->keys()->all()));
+        if ($missingIds === []) {
+            return $defaults;
+        }
+
+        // Match product lookup: use a live stock shelf only when no standard shelf is registered.
+        // These are reference locations, not stock allocations or picking instructions from a wave.
+        $stockLocations = $db->table('real_stock_lots as rsl')
+            ->join('real_stocks as rs', 'rs.id', '=', 'rsl.real_stock_id')
+            ->join('locations as l', 'l.id', '=', 'rsl.location_id')
+            ->leftJoin('floors as f', 'l.floor_id', '=', 'f.id')
+            ->where('rs.client_id', $clientId)->where('rs.warehouse_id', $warehouseId)
+            ->where('l.client_id', $clientId)->where('l.warehouse_id', $warehouseId)
+            ->whereIn('rs.item_id', $missingIds)->where('rsl.status', 'ACTIVE')->where('rsl.current_quantity', '>', 0)
+            ->orderBy('l.code1')->orderBy('l.code2')->orderBy('l.code3')->orderBy('l.id')
+            ->select(array_merge(['rs.item_id'], $fields))->distinct()->get()
+            ->filter($hasCode)->unique('item_id')->keyBy('item_id');
+
+        return $defaults->union($stockLocations);
     }
 
     public function documents(Collection $rows, string $type, string $name, string $date = ''): array
