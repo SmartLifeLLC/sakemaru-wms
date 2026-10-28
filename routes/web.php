@@ -1,11 +1,13 @@
 <?php
 
+use App\Http\Controllers\Api\DistributionBatchController;
 use App\Http\Controllers\Api\DistributionProductController;
 use App\Http\Controllers\Api\FloorPlanController;
 use App\Http\Controllers\Api\PickingRouteController;
 use App\Http\Controllers\ErrorInquiryController;
 use App\Http\Controllers\JxServerController;
 use App\Http\Controllers\JxTransmissionLogController;
+use App\Http\Middleware\DistributionBatchScope;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -17,6 +19,21 @@ Route::post('/admin/error-inquiries', ErrorInquiryController::class)
 
 // Floor plan API routes (accessible from admin panel without API key)
 Route::prefix('api')->middleware(['web', 'auth:web'])->group(function () {
+    Route::get('/distribution/batches', [DistributionBatchController::class, 'index']);
+    Route::post('/distribution/batches', [DistributionBatchController::class, 'store']);
+    Route::prefix('/distribution/batches/{batch}')->whereNumber('batch')->middleware(DistributionBatchScope::class)->group(function () {
+        Route::get('/', [DistributionBatchController::class, 'show']);
+        Route::patch('/', [DistributionBatchController::class, 'update']);
+        Route::delete('/', [DistributionBatchController::class, 'destroy']);
+        Route::get('/rows', [DistributionProductController::class, 'distributionRows']);
+        Route::put('/rows', [DistributionProductController::class, 'saveDistributionRows']);
+        Route::post('/excel/preview', [DistributionBatchController::class, 'preview']);
+        Route::post('/excel/commit', [DistributionBatchController::class, 'commit']);
+        Route::post('/warehouse-transfers', [DistributionProductController::class, 'createWarehouseTransfers']);
+        Route::post('/warehouse-transfers/results', [DistributionProductController::class, 'warehouseTransferResults']);
+        Route::post('/stock-transfer-slips', [DistributionProductController::class, 'createWarehouseTransfers']);
+        Route::post('/order-candidates', [DistributionProductController::class, 'createOrderCandidates']);
+    });
     Route::get('/distribution/products', DistributionProductController::class);
     Route::post('/distribution/products/batch', [DistributionProductController::class, 'resolveProductsBatch']);
     Route::get('/distribution/arrival-schedules', [DistributionProductController::class, 'arrivalSchedules']);
@@ -25,13 +42,13 @@ Route::prefix('api')->middleware(['web', 'auth:web'])->group(function () {
     Route::get('/distribution/item-contractor-note', [DistributionProductController::class, 'itemContractorNote']);
     Route::get('/distribution/hq-transfer-requests', [DistributionProductController::class, 'hqTransferRequests']);
     Route::get('/distribution/rows/export', [DistributionProductController::class, 'exportDirectDistributionRows']);
-    Route::get('/distribution/rows', [DistributionProductController::class, 'distributionRows']);
-    Route::put('/distribution/rows', [DistributionProductController::class, 'saveDistributionRows']);
+    Route::get('/distribution/rows', [DistributionProductController::class, 'distributionRows'])->middleware(DistributionBatchScope::class);
+    Route::put('/distribution/rows', [DistributionProductController::class, 'saveDistributionRows'])->middleware(DistributionBatchScope::class);
     Route::post('/distribution/rows/direct-request-printed', [DistributionProductController::class, 'markDirectRequestPrinted']);
-    Route::post('/distribution/order-candidates', [DistributionProductController::class, 'createOrderCandidates']);
-    Route::post('/distribution/stock-transfer-slips', [DistributionProductController::class, 'createStockTransferSlips']);
-    Route::post('/distribution/warehouse-transfers', [DistributionProductController::class, 'createWarehouseTransfers']);
-    Route::post('/distribution/warehouse-transfers/results', [DistributionProductController::class, 'warehouseTransferResults']);
+    Route::post('/distribution/order-candidates', [DistributionProductController::class, 'createOrderCandidates'])->middleware(DistributionBatchScope::class);
+    Route::post('/distribution/stock-transfer-slips', [DistributionProductController::class, 'createStockTransferSlips'])->middleware(DistributionBatchScope::class);
+    Route::post('/distribution/warehouse-transfers', [DistributionProductController::class, 'createWarehouseTransfers'])->middleware(DistributionBatchScope::class);
+    Route::post('/distribution/warehouse-transfers/results', [DistributionProductController::class, 'warehouseTransferResults'])->middleware(DistributionBatchScope::class);
 
     Route::middleware('sakemaru-permission:wms.floor-plan.view')->group(function () {
         Route::get('/warehouses', [FloorPlanController::class, 'getWarehouses']);

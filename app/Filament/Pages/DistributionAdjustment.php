@@ -15,7 +15,7 @@ class DistributionAdjustment extends AdminPage
 
     protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-arrows-right-left';
 
-    protected string $view = 'filament.pages.distribution-app';
+    protected string $view = 'filament.pages.distribution-batches';
 
     public static function getNavigationGroup(): ?string
     {
