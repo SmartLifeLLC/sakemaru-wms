@@ -513,6 +513,18 @@
                             </label>
                             <button type="submit" @disabled($selectedVisibleLineCount === 0) wire:loading.attr="disabled" wire:target="applyBulkOrderChannel" class="whitespace-nowrap rounded-md bg-slate-800 px-2 py-1.5 text-xs font-semibold text-white disabled:opacity-40">反映</button>
                         </form>
+                        <button
+                            type="button"
+                            wire:click="openBulkContractorChangeModal"
+                            wire:loading.attr="disabled"
+                            wire:target="openBulkContractorChangeModal"
+                            @disabled($selectedVisibleLineCount === 0)
+                            data-hq-bulk-contractor-trigger
+                            class="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+                        >
+                            <x-heroicon-o-magnifying-glass class="h-4 w-4" />
+                            発注先一括変更
+                        </button>
                     </div>
                     <div class="flex max-w-full flex-wrap items-center gap-2">
                         <button
@@ -937,6 +949,8 @@
             </div>
         </div>
     @endif
+
+    @include('filament.components.hq-order-registration-bulk-contractor-change')
 
     @if ($showLineDuplicateModal)
         @php
