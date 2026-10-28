@@ -91,6 +91,7 @@ enum EMenu: string
     case WMS_DAILY_STATS_REPORT = 'statistics.wms_daily_stats_report';
     case STATS_DAILY_SALES = 'statistics.daily_sales';
     case STATS_SALES_SUMMARIES = 'statistics.sales_summaries';
+    case WAREHOUSE_ORDER_REVIEW = 'statistics.warehouse_order_review';
 
     // ログ
     case WMS_AUTO_ORDER_EXECUTION_LOG = 'logs.auto_order_execution_log';
@@ -199,6 +200,7 @@ enum EMenu: string
             self::EARNINGS,
             self::WMS_DAILY_STATS_REPORT,
             self::STATS_DAILY_SALES,
+            self::WAREHOUSE_ORDER_REVIEW,
             self::STATS_SALES_SUMMARIES => EMenuCategory::STATISTICS,
 
             self::WMS_AUTO_ORDER_EXECUTION_LOG,
@@ -297,6 +299,7 @@ enum EMenu: string
             self::WMS_DAILY_STATS_REPORT => 'WMS日次出荷統計',
             self::STATS_DAILY_SALES => '日別商品出荷データ',
             self::STATS_SALES_SUMMARIES => '商品別出荷サマリ',
+            self::WAREHOUSE_ORDER_REVIEW => '倉庫別発注検討データ',
 
             self::WMS_PICKING_LOGS => 'ピッキングログ',
             self::WMS_JX_TRANSMISSION_LOGS => 'JX受信履歴',
@@ -396,6 +399,7 @@ enum EMenu: string
             self::WMS_DAILY_STATS_REPORT => 'heroicon-o-chart-bar-square',
             self::STATS_DAILY_SALES => 'heroicon-o-calendar-days',
             self::STATS_SALES_SUMMARIES => 'heroicon-o-chart-bar-square',
+            self::WAREHOUSE_ORDER_REVIEW => 'heroicon-o-document-arrow-down',
 
             self::WMS_PICKING_LOGS => 'heroicon-o-rectangle-stack',
             self::WMS_JX_TRANSMISSION_LOGS => 'heroicon-o-arrow-down-tray',
@@ -514,6 +518,7 @@ enum EMenu: string
             self::WMS_DAILY_STATS_REPORT => 2,
             self::STATS_DAILY_SALES => 3,
             self::STATS_SALES_SUMMARIES => 4,
+            self::WAREHOUSE_ORDER_REVIEW => 5,
 
             // ログ
             self::WMS_AUTO_ORDER_EXECUTION_LOG => 1,
