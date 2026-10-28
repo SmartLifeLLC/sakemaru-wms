@@ -213,3 +213,5 @@ Schedule::command('wms:snapshot-archive')
 
 // v2 defaults to OFF; its client/warehouse/product gates are checked again at publication.
 Schedule::command('wms:run-auto-replenishment')->everyMinute()->withoutOverlapping(10);
+
+Schedule::command('wms:prune-distribution-previews')->daily()->withoutOverlapping()->onOneServer();

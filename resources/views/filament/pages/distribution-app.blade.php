@@ -3,6 +3,7 @@
         app('debugbar')->disable();
     }
 
+    $distributionBatchForView = method_exists($this, 'getDistributionBatchForView') ? $this->getDistributionBatchForView() : null;
     $distributionToday = now()->timezone(config('app.timezone'))->toDateString();
     $distributionInitialTabForView = method_exists($this, 'getDistributionInitialTab')
         ? (string) $this->getDistributionInitialTab()
@@ -139,6 +140,9 @@
     <div class="distribution-app-shell">
         <style>
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap");
+    .allocation-product-name {width:210px;min-width:210px;max-width:210px;}
+    .allocation-product-name-text {white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;}
+    .allocation-product-name-text:focus {display:block;background:#f1f5f9;position:relative;z-index:15;}
     .distribution-app-shell { font-family: "Inter", sans-serif; width: 100%; min-width: 0; background: #f9fafb; }
     [x-cloak] { display: none !important; }
     .fi-no, .fi-no-notifications, .fi-notifications { top: 3.25rem !important; z-index: 10000 !important; }
@@ -290,6 +294,24 @@
         </style>
 
 <div x-data="distributionApp()" :inert="distributionRowsLoading || warehouseTransferCreating || transferSlipCreating || orderCandidateCreating" class="w-full min-w-0 px-3 sm:px-4 lg:px-5 text-neutral-900">
+  @if($distributionBatchForView)
+  <div class="mb-3 flex flex-wrap items-center gap-3 rounded-lg border bg-white p-3 text-sm">
+    <a href="/admin/distribution-adjustment" class="text-blue-700">一覧へ戻る</a>
+    <strong x-text="batchInfo.name"></strong><span>出荷日：<span x-text="batchInfo.shipping_date || '要確認'"></span></span>
+    <span>登録者：<span x-text="batchInfo.creator"></span></span><span x-text="batchInfo.note"></span>
+    <button @click="editBatchInfo()" :disabled="batchInfo.archived" class="rounded border px-3 py-1">分配情報を変更</button>
+    <button @click="archiveBatch()" class="rounded border px-3 py-1" x-text="batchInfo.archived ? '再開する' : '終了にする'"></button>
+    <button @click="deleteBatch()" :disabled="batchInfo.archived" class="rounded border border-red-300 px-3 py-1 text-red-700">分配を削除</button>
+  </div>
+  @include('filament.pages.distribution-excel-import')
+  <div x-show="batchEditor.visible" x-cloak class="fixed inset-0 z-[220] flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="分配情報を変更">
+    <form @submit.prevent="saveBatchInfo()" class="w-full max-w-xl overflow-hidden rounded-lg bg-white text-sm shadow-xl">
+      <div class="bg-slate-800 px-5 py-3 text-white">分配情報を変更</div>
+      <div class="grid gap-3 p-5"><label>分配名<input x-model="batchEditor.name" required maxlength="100" class="block w-full rounded border-gray-300"></label><label>出荷日<input type="date" x-model="batchEditor.shipping_date" required class="block rounded border-gray-300"></label><label>備考<textarea x-model="batchEditor.note" maxlength="1000" class="block w-full rounded border-gray-300"></textarea></label><p class="whitespace-pre-wrap text-red-700" x-text="batchEditor.error"></p></div>
+      <div class="flex justify-end gap-3 border-t px-5 py-4"><button type="button" @click="batchEditor.visible=false" :disabled="batchEditor.busy" class="rounded border px-3 py-2">変更せず閉じる</button><button :disabled="batchEditor.busy" class="rounded bg-red-600 px-3 py-2 text-white">変更する</button></div>
+    </form>
+  </div>
+  @endif
 
   <div x-show="serverRowsLoadError" x-cloak role="alert" class="my-2 flex items-center justify-between gap-3 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
     <span x-text="serverRowsLoadError"></span>
@@ -480,8 +502,9 @@
          x-transition:leave="transition ease-in duration-150"
          x-transition:leave-start="opacity-100 transform scale-100"
          x-transition:leave-end="opacity-0 transform scale-95"
-         class="relative bg-white rounded-lg shadow-xl p-4 sm:p-6 max-w-lg sm:max-w-2xl w-full" @click.stop>
-      <div class="flex items-center gap-3 mb-4">
+         class="relative bg-white rounded-lg shadow-xl p-4 sm:p-6 max-w-lg sm:max-w-2xl w-full" :style="batchInfo ? 'padding:0;overflow:hidden' : ''" @click.stop>
+      <div x-show="batchInfo" class="bg-slate-800 px-5 py-3 text-white">確認</div>
+      <div class="flex items-center gap-3 mb-4" :style="batchInfo ? 'padding:20px;margin:0' : ''">
         <template x-if="confirmModalType === 'delete'">
           <div class="flex-shrink-0 w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
             <svg class="w-7 h-7 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
@@ -493,13 +516,13 @@
           </div>
         </template>
         <div class="min-w-0 flex-1">
-          <p class="text-lg font-bold" :class="confirmModalType === 'delete' ? 'text-red-600' : 'text-yellow-600'" x-text="confirmModalType === 'delete' ? '削除確認' : '確認'"></p>
+          <p x-show="!batchInfo" class="text-lg font-bold" :class="confirmModalType === 'delete' ? 'text-red-600' : 'text-yellow-600'" x-text="confirmModalType === 'delete' ? '削除確認' : '確認'"></p>
         <p class="text-gray-700 mt-1 leading-relaxed whitespace-pre-line" x-text="confirmMessage"></p>
         </div>
       </div>
-      <div class="flex justify-end gap-3">
-        <button @click="confirmVisible = false; confirmCallback = null" class="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">キャンセル</button>
-        <button @click="doConfirm()" class="px-4 py-2 text-white rounded-lg font-medium" :class="confirmModalType === 'delete' ? 'bg-red-600 hover:bg-red-700' : 'bg-yellow-600 hover:bg-yellow-700'" x-text="confirmModalType === 'delete' ? '削除' : 'OK'"></button>
+      <div class="flex justify-end gap-3" :style="batchInfo ? 'padding:14px 20px;border-top:1px solid #e2e8f0' : ''">
+        <button @click="confirmVisible = false; confirmCallback = null" class="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium" x-text="batchInfo ? '操作せず閉じる' : 'キャンセル'"></button>
+        <button @click="doConfirm()" class="px-4 py-2 text-white rounded-lg font-medium" :class="(batchInfo || confirmModalType === 'delete') ? 'bg-red-600 hover:bg-red-700' : 'bg-yellow-600 hover:bg-yellow-700'" x-text="confirmModalType === 'delete' ? '削除' : (batchInfo ? '実行する' : 'OK')"></button>
       </div>
     </div>
   </div>
@@ -535,7 +558,7 @@
     <!-- Controls -->
     <div class="px-0 pt-1">
       <div class="mb-1 flex flex-wrap items-center gap-1.5 sm:gap-2">
-        <button @click="addRow()" class="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md bg-green-600 hover:bg-green-700 text-white font-medium shadow transition text-xs">+ 行追加</button>
+        <button @click="addRow()" :disabled="!!batchInfo?.archived" class="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md bg-green-600 hover:bg-green-700 text-white font-medium shadow transition text-xs">+ 行追加</button>
         <button x-show="false" x-cloak @click="toggleAllCheckedVisible()"
           :class="allVisibleChecked() ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' : 'bg-indigo-600 hover:bg-indigo-700 text-white'"
           class="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md font-medium shadow transition text-xs"
@@ -550,9 +573,9 @@
         <div class="flex flex-wrap items-center gap-1 text-xs">
           <span class="text-slate-500 whitespace-nowrap">出荷日</span>
           <div class="date-entry" style="width: 8.75rem; min-width: 8.75rem;">
-            <input type="text" x-model="bulkInputDate" @blur="bulkInputDate = normalizeFlexibleDate(bulkInputDate); queueBulkAllocationAutoApply()" @keydown.enter.prevent="bulkInputDate = normalizeFlexibleDate(bulkInputDate); queueBulkAllocationAutoApply(); $event.target.blur()" inputmode="numeric" placeholder="YYYY-MM-DD" class="date-entry-text w-full rounded-md border-gray-300 border px-2 py-1 text-xs shadow-sm" />
+            <input type="text" :disabled="!!batchInfo" x-model="bulkInputDate" @blur="bulkInputDate = normalizeFlexibleDate(bulkInputDate); queueBulkAllocationAutoApply()" @keydown.enter.prevent="bulkInputDate = normalizeFlexibleDate(bulkInputDate); queueBulkAllocationAutoApply(); $event.target.blur()" inputmode="numeric" placeholder="YYYY-MM-DD" class="date-entry-text w-full rounded-md border-gray-300 border px-2 py-1 text-xs shadow-sm" />
             <label class="date-entry-picker" title="カレンダー選択">
-              <input type="date" :value="bulkInputDate" @change="bulkInputDate = $event.target.value; queueBulkAllocationAutoApply()" class="date-entry-native" />
+              <input type="date" :disabled="!!batchInfo" :value="bulkInputDate" @change="bulkInputDate = $event.target.value; queueBulkAllocationAutoApply()" class="date-entry-native" />
               <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
             </label>
           </div>
@@ -578,7 +601,7 @@
 
         <div class="ml-auto flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs sm:text-sm">
           <input x-ref="allocationCsvInput" type="file" accept=".csv,text/csv" class="hidden" @change="importAllocationCsv($event)" />
-          <button @click="$refs.allocationCsvInput.click()" :disabled="csvImporting" class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">
+          <button @click="$refs.allocationCsvInput.click()" :disabled="csvImporting || !!batchInfo?.archived" class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">
             <svg x-show="csvImporting" x-cloak class="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
@@ -588,6 +611,9 @@
             </svg>
             <span x-text="csvImporting ? '取込中' : 'CSV取込'"></span>
           </button>
+          @if($distributionBatchForView)
+          <button @click="openExcelImport()" :disabled="!!batchInfo?.archived" class="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white">Excel取込</button>
+          @endif
           <button @click="downloadCSV()" class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">
             <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v12m0 0l-5-5m5 5l5-5M5 20h14"></path>
@@ -631,7 +657,7 @@
                 <div class="mt-0.5 text-[10px] leading-none text-neutral-400">仕入先</div>
               </th>
               <th class="whitespace-nowrap w-28 p-1 text-left">商品コード</th>
-              <th class="whitespace-nowrap min-w-[192px] p-1 text-left">商品名</th>
+              <th class="allocation-product-name p-1 text-left">商品名</th>
               <th class="whitespace-nowrap w-12 p-1 text-center">入数</th>
               <th class="whitespace-nowrap w-12 p-1 text-center">備考</th>
               <th class="whitespace-nowrap w-14 min-w-[3.5rem] p-1 text-center">理論</th>
@@ -725,8 +751,8 @@
                   </div>
                 </td>
                 <!-- 商品名 -->
-                <td class="p-1">
-                  <div class="px-1 py-1 whitespace-nowrap text-xs" x-text="row.name || '-'"></div>
+                <td class="allocation-product-name p-1">
+                  <div class="allocation-product-name-text px-1 py-1 text-xs" tabindex="0" :title="row.name" x-text="row.name || '-'"></div>
                 </td>
                 <!-- 入数 -->
                 <td class="p-1 text-center"><div class="px-1 py-1 whitespace-nowrap text-xs" x-text="row.unitsPerCase || ''"></div></td>
@@ -1107,7 +1133,7 @@
 @if ($distributionInitialTabForView === 'store-view')
   <!-- ==================== Store View Tab ==================== -->
   <template x-if="activeSubTab === 'store-view'">
-    <div :inert="!!serverRowsLoadError">
+    <div>
     <div class="bg-gray-50 p-0">
       <div class="hidden">
         <h1 class="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800 mb-1 sm:mb-2">店舗別分配管理</h1>
@@ -1206,7 +1232,7 @@
             </div>
             <div class="flex shrink-0 items-center gap-1.5">
               <button type="button" data-slip-action="store-slip" data-store-slip-output-button="1" @click.prevent.stop="openStoreSlipOutput()"
-                :disabled="transferSlipCreating"
+                :disabled="transferSlipCreating || !!serverRowsLoadError || distributionRowsLoading"
                 :class="hasStoreSlipOutputTarget() ? 'bg-indigo-600 hover:bg-indigo-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'"
                 class="inline-flex items-center gap-1.5 font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs disabled:cursor-not-allowed"
                 x-text="getStoreSlipOutputButtonLabel()">
@@ -1263,6 +1289,7 @@
         </div>
       </div>
 
+      <div :inert="!!serverRowsLoadError || distributionRowsLoading" :aria-busy="distributionRowsLoading">
       <!-- Individual View -->
       <template x-if="storeViewMode === 'individual'">
         <div class="space-y-1.5">
@@ -1407,6 +1434,8 @@
       <template x-if="storeViewMode === 'comparison' && selectedStores.length === 0">
         <div class="bg-white rounded-lg shadow-md p-12 text-center text-gray-500">店舗または部門を選択してください</div>
       </template>
+    </div>
+
     </div>
 
   <!-- ==================== 明細備考入力ポップアップ ==================== -->
@@ -2039,10 +2068,12 @@ if (!window.__distributionSlipActionListenerRegistered) {
 
 window.distributionApp = function distributionApp() {
   // ---------- Constants ----------
-  const STORAGE_KEY = 'alloc-ui-v4';
+  const BATCH = {{ \Illuminate\Support\Js::from($distributionBatchForView) }};
+  const BATCH_SCOPE = BATCH ? ':'+BATCH.client_id+':'+BATCH.warehouse_id+':'+BATCH.id : '';
+  const STORAGE_KEY = 'alloc-ui-v4'+BATCH_SCOPE;
   const DIRECT_STORAGE_KEY = 'direct-alloc-ui-v2';
-  const DELETED_ALLOCATION_SOURCE_KEY = 'alloc-ui-deleted-source-keys-v1';
-  const FILTER_STORAGE_KEY = 'distribution-filters-v1';
+  const DELETED_ALLOCATION_SOURCE_KEY = 'alloc-ui-deleted-source-keys-v1'+BATCH_SCOPE;
+  const FILTER_STORAGE_KEY = 'distribution-filters-v1'+BATCH_SCOPE;
   const ALLOCATION_FILTER_VERSION = 3;
   const DIRECT_FILTER_VERSION = 3;
   const STORE_FILTER_VERSION = 7;
@@ -2163,6 +2194,9 @@ window.distributionApp = function distributionApp() {
 
   return {
     // ---------- State ----------
+    batchInfo: BATCH,
+    batchEditor: {visible:false,busy:false,error:'',name:'',shipping_date:'',note:''},
+    excelImport: {visible:false,file:null,unit:'',storeMode:'',mapping:{},preview:null,busy:false,error:'',acknowledged:false,needsPreview:false},
     DESTS: DESTS,
     csvDestinations: CSV_DESTS,
     showAllocationDetailMemoButton: SHOW_ALLOCATION_DETAIL_MEMO_BUTTON,
@@ -2186,7 +2220,7 @@ window.distributionApp = function distributionApp() {
     allocationStatusFilter: 'hide',
     lockedVisibilityFilter: 'hide',
     printedFilter: 'all',
-    bulkInputDate: getTodayString(),
+    bulkInputDate: BATCH ? (BATCH.shipping_date || '') : getTodayString(),
     bulkDeliveryCourseSearch: '',
     bulkDeliveryCourseSelected: null,
     bulkDeliveryCourseOptions: [],
@@ -2419,6 +2453,110 @@ window.distributionApp = function distributionApp() {
     confirmModalType: 'confirm',
 
     // ---------- Init ----------
+    async batchRequest(path, options = {}) {
+      const response = await this.fetchWithTimeout('/api/distribution/batches/'+BATCH.id+path, {
+        ...options, headers: {Accept:'application/json', ...this.csrfHeaders(), ...(options.headers || {})},
+      }, 120000);
+      const data = await response.json();
+      if (!response.ok) throw new Error(Object.values(data.errors || {}).flat().join('\n') || data.result?.error_message || data.message || '処理に失敗しました。');
+      return data.result.data;
+    },
+
+    verifyBatchHeaderRevision(info) {
+      if (info.revision !== this.serverRowRevisions.allocation) {
+        this.serverSaveBlocked.allocation = true;
+        const message = '分配「'+info.name+'」は別の画面で更新されています（'+info.updater+' '+info.updated_at+'）。未保存内容を控え、再読み込みしてください。';
+        this.serverSaveErrors.allocation = {message};
+        throw new Error(message);
+      }
+    },
+
+    async editBatchInfo() {
+      try {
+        await this.waitForDistributionSaves('allocation');
+        const info = await this.batchRequest('');
+        this.verifyBatchHeaderRevision(info);
+        this.batchInfo = info;
+        this.batchEditor = {...info,visible:true,busy:false,error:''};
+      } catch(e) { this.openModal('エラー', e.message); }
+    },
+
+    async saveBatchInfo() {
+      if (this.batchEditor.busy) return;
+      this.batchEditor.busy = true;
+      try {
+        const info = await this.batchRequest('', {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+          name:this.batchEditor.name,shipping_date:this.batchEditor.shipping_date,note:this.batchEditor.note,expected_revision:this.batchInfo.revision,
+        })});
+        this.batchInfo = info;
+        this.bulkInputDate = info.shipping_date;
+        this.serverRowRevisions.allocation = info.revision;
+        this.batchEditor.visible = false;
+      } catch(e) { this.batchEditor.error = e.message; }
+      finally { this.batchEditor.busy = false; }
+    },
+
+    async archiveBatch() {
+      try {
+        await this.waitForDistributionSaves('allocation');
+        const info=await this.batchRequest('');
+        this.verifyBatchHeaderRevision(info);
+        const archive=!info.archived;
+        this.openConfirm('分配「'+info.name+'」を'+(archive?'終了':'再開')+'します。',async()=>{
+          try {await this.batchRequest('',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({...info,expected_revision:info.revision,archive})});window.location.reload();}
+          catch(e){this.openModal('エラー',e.message);}
+        });
+      } catch(e) {this.openModal('エラー',e.message);}
+    },
+
+    async deleteBatch() {
+      this.openConfirm('分配「'+this.batchInfo.name+'」を削除します。生成受付済みの明細がある場合は削除できません。', async () => {
+        try {
+          await this.waitForDistributionSaves('allocation');
+          await this.batchRequest('',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({expected_revision:this.serverRowRevisions.allocation})});
+          window.location.href='/admin/distribution-adjustment';
+        } catch(e) { this.openModal('エラー',e.message); }
+      });
+    },
+
+    async openExcelImport() {
+      if(this.batchInfo?.archived) {this.openModal('注意','終了した分配は変更できません。');return;}
+      try {
+        await this.waitForDistributionSaves('allocation');
+        this.excelImport={visible:true,file:null,unit:'',storeMode:'',mapping:{},preview:null,busy:false,error:'',acknowledged:false,needsPreview:false};
+        if(this.$refs.excelInput) this.$refs.excelInput.value='';
+      } catch(e) { this.openModal('エラー',e.message); }
+    },
+
+    async previewExcel() {
+      if(this.excelImport.busy) return;
+      this.excelImport.busy=true;this.excelImport.error='';this.excelImport.acknowledged=false;
+      try {
+        await this.waitForDistributionSaves('allocation');
+        const body=new FormData();body.append('file',this.excelImport.file);body.append('quantity_unit',this.excelImport.unit);
+        body.append('store_mode',this.excelImport.storeMode);body.append('mapping',JSON.stringify(this.excelImport.mapping));
+        this.excelImport.preview=await this.batchRequest('/excel/preview',{method:'POST',body});
+        this.excelImport.needsPreview=false;
+      } catch(e) {this.excelImport.error=e.message;this.excelImport.preview=null;}
+      finally {this.excelImport.busy=false;}
+    },
+
+    async commitExcel() {
+      if(this.excelImport.busy || this.excelImport.needsPreview) return;
+      this.excelImport.busy=true;this.excelImport.error='';
+      try {
+        const result=await this.batchRequest('/excel/commit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+          token:this.excelImport.preview.token,acknowledge_warnings:this.excelImport.acknowledged,
+        })});
+        this.serverRowRevisions.allocation=result.revision;
+        this.serverSaveBlocked.allocation=false;
+        await this.loadDistributionRowsFromServer({mode:'allocation',throwOnError:true});
+        this.excelImport.visible=false;
+        this.showToast('Excel取込が完了しました（新規 '+result.new_count+'件／更新 '+result.update_count+'件）');
+      } catch(e) {this.excelImport.error=e.message;}
+      finally {this.excelImport.busy=false;}
+    },
+
     init() {
       if (this.directRequestPrintMessageHandler) {
         window.removeEventListener('message', this.directRequestPrintMessageHandler);
@@ -2611,7 +2749,15 @@ window.distributionApp = function distributionApp() {
       }
     },
 
+    batchApiUrl(url) {
+      if (BATCH && /^\/api\/distribution\/(rows(?:[?]|$)|warehouse-transfers(?:[/?]|$)|stock-transfer-slips(?:[?]|$)|order-candidates(?:[?]|$))/.test(url)) {
+        return url.replace('/api/distribution/', '/api/distribution/batches/'+BATCH.id+'/');
+      }
+      return url;
+    },
+
     async fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+      url = this.batchApiUrl(url);
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
 
@@ -2839,7 +2985,7 @@ window.distributionApp = function distributionApp() {
       }
 
       if (this.serverSaveBlocked[mode]) {
-        throw new Error('別の画面で更新されています。画面を再読み込みしてください。');
+        throw new Error(BATCH ? (this.serverSaveErrors[mode]?.message || '保存結果を確認できません。再読み込みしてください。') : '別の画面で更新されています。画面を再読み込みしてください。');
       }
       if (this.serverSaveErrors[mode]) {
         throw new Error('入力内容を保存できなかったため、絞り込みを中止しました。画面を再読み込みせず、保存状態を確認してください。');
@@ -3056,7 +3202,7 @@ window.distributionApp = function distributionApp() {
     },
 
     isRowLocked(row) {
-      return this.isAllocationTransferCompleted(row);
+      return !!this.batchInfo?.archived || !!row?.distributionBatchArchived || this.isAllocationTransferCompleted(row);
     },
 
     isDirectRequestPrintLocked(row) {
@@ -3841,6 +3987,7 @@ window.distributionApp = function distributionApp() {
     },
 
     async loadHqTransferRequests() {
+      if (BATCH && !BATCH.is_legacy) return;
       this.hqTransferLoading = true;
       this.hqTransferError = '';
 
@@ -4082,7 +4229,7 @@ window.distributionApp = function distributionApp() {
 
     getAllocationTableMinWidth() {
       const destinationCount = this.getAllocationDisplayDestinations().length;
-      return 1020 + destinationCount * 60;
+      return (BATCH ? 870 : 1020) + destinationCount * 60;
     },
 
     getDirectDisplayDestinations(rows = this.getVisibleDirectRows()) {
@@ -6441,6 +6588,7 @@ window.distributionApp = function distributionApp() {
     },
 
     openStoreSlipOutput() {
+      if (this.serverRowsLoadError || this.distributionRowsLoading) return;
       try {
         this.ensureStoreSlipSelectionState();
 
@@ -6561,6 +6709,7 @@ window.distributionApp = function distributionApp() {
     },
 
     addRow() {
+      if (this.batchInfo?.archived) return;
       // Store the append sequence in row_data; sort_order continues to preserve
       // the backing array order. Imported/legacy rows keep their date ordering.
       const allocationAppendOrder = this.rows.reduce((max, row) =>
@@ -6704,7 +6853,7 @@ window.distributionApp = function distributionApp() {
       const key = this.stableHash40(JSON.stringify({
         mode: mode || (this.directRows.some(r => r === row) ? 'direct' : 'allocation'),
         source: source || 'manual',
-        sourceIdentity,
+        sourceIdentity: BATCH && source === 'csv_import' ? BATCH_SCOPE+':'+sourceIdentity : sourceIdentity,
         productCode: row.productCode || '',
         jan: row.jan || '',
         itemId: row.itemId || null,
@@ -6749,7 +6898,6 @@ window.distributionApp = function distributionApp() {
 
     async loadDistributionRowsFromServer(options = {}) {
       this.distributionRowsLoading = true;
-      if (!options.append) this.serverRowsLoadError = '';
       const localVersions = [this.allocationRowsVersion || 0, this.directRowsVersion || 0];
       try {
         const requestedServerRowsMode = options.mode || (this.activeSubTab === 'allocation'
@@ -6787,11 +6935,13 @@ window.distributionApp = function distributionApp() {
         if (!response.ok) {
           const message = payload?.result?.error_message || payload?.message || ('HTTP ' + response.status);
           if (payload?.code === 'DISTRIBUTION_ROWS_LIMIT_EXCEEDED') {
-            this.serverRowsLoadError = '分配一覧を読み込めませんでした。入力・帳票出力を停止しています。画面を再読み込みしてください。';
+            this.serverRowsLoadError = this.activeSubTab === 'store-view'
+              ? '分配データが取得上限を超えています。商品CD・商品名や確定状態で検索条件を絞り込んでください。読み込めるまで入力・帳票出力を停止しています。'
+              : '分配一覧を読み込めませんでした。入力・帳票出力を停止しています。画面を再読み込みしてください。';
             this.serverRowsLoaded = false;
             this.serverRowsPersisted = false;
             this.serverRowsReadOnly = false;
-            this.openModal('注意', message);
+            if (this.activeSubTab !== 'store-view') this.openModal('注意', message);
             if (options.throwOnError) throw new Error(message);
             return;
           }
@@ -6816,6 +6966,7 @@ window.distributionApp = function distributionApp() {
           return;
         }
 
+        this.serverRowsLoadError = '';
         const serverAllocationRows = Array.isArray(data.allocation) ? data.allocation : [];
         const serverDirectRows = Array.isArray(data.direct) ? data.direct : [];
         const revisions = data.revisions || {};
@@ -6935,7 +7086,7 @@ window.distributionApp = function distributionApp() {
 
     enqueueDistributionRowsPersistence(mode, rows, options = {}) {
       if (this.serverSaveBlocked[mode]) {
-        return Promise.reject(new Error('別の画面で更新されています。画面を再読み込みしてください。'));
+        return Promise.reject(new Error(BATCH ? (this.serverSaveErrors[mode]?.message || '保存結果を確認できません。再読み込みしてください。') : '別の画面で更新されています。画面を再読み込みしてください。'));
       }
 
       return new Promise((resolve, reject) => {
@@ -7007,6 +7158,39 @@ window.distributionApp = function distributionApp() {
       }
 
       const preparedRows = this.prepareRowsForServerPersistence(rows, mode);
+      if (!BATCH && mode === 'allocation' && this.activeSubTab === 'store-view' && preparedRows.some(row => row.distributionBatchId)) {
+        const groups = new Map();
+        for (const row of preparedRows.filter(row=>!row.distributionBatchArchived)) {
+          if (!row.distributionBatchId) throw new Error('所属が未設定の明細があります。本部分配の移行を確認してください。');
+          const id = row.distributionBatchId;
+          if (!groups.has(id)) groups.set(id, []);
+          groups.get(id).push(row);
+        }
+        for (const [batchId, groupRows] of groups) {
+          let response, result;
+          try {
+          response = await this.fetchWithTimeout('/api/distribution/batches/'+batchId+'/rows', {
+            method:'PUT', headers:{Accept:'application/json','Content-Type':'application/json',...this.csrfHeaders()},
+            body:JSON.stringify({mode:'allocation',replace:false,expected_revision:this.rows.find(row=>String(row.distributionBatchId)===String(batchId))?.distributionBatchRevision ?? groupRows[0].distributionBatchRevision,deleted_row_ids:[],rows:groupRows}),
+          },20000);
+          result = await response.json();
+          } catch(error) {
+            this.serverSaveBlocked[mode] = true;
+            error.distributionSaveOutcomeUnknown = true;
+            error.message = '分配の保存結果を確認できません。再読み込みしてください。'+error.message;
+            throw error;
+          }
+          if (!response.ok || !Number.isInteger(result.result?.data?.revision)) {
+            this.serverSaveBlocked[mode] = true;
+            const error=new Error(result.result?.error_message || result.message || '分配の保存結果を確認できません。再読み込みしてください。');
+            if(response.status>=500 || response.ok) error.distributionSaveOutcomeUnknown=true;
+            throw error;
+          }
+          this.rows.forEach(row => {if(row.distributionBatchId === batchId)row.distributionBatchRevision=result.result.data.revision});
+          if(result.result.data.resync_required_row_ids?.length) await this.reloadDistributionRowsAfterProtection(mode);
+        }
+        return;
+      }
       const persistedIds = new Set(preparedRows.map(row => String(row.id || '')).filter(Boolean));
       const deletedRowIds = (this.serverLoadedRowIds[mode] || [])
         .filter(rowId => !persistedIds.has(String(rowId)));
@@ -7636,7 +7820,7 @@ window.distributionApp = function distributionApp() {
         row.enteredDestinationKeys = row.visibleDestinationKeys;
         const csvStableKey = this.stableHash40(this.getCsvImportDuplicateKey(row) || [fileName || 'upload', rowNumber, searchCode].join(':'));
         row.sourceKey = ['csv_import', csvStableKey].join(':');
-        row.id = row.sourceKey;
+        row.id = BATCH ? 'csv_import:'+this.stableHash40(BATCH_SCOPE+':'+csvStableKey) : row.sourceKey;
         row.distributionBusinessKey = this.getDistributionBusinessKey(row, 'allocation');
 
         if (invalidQuantityFields.length > 0) {
@@ -8143,6 +8327,7 @@ window.distributionApp = function distributionApp() {
     },
 
     async importAllocationCsv(event) {
+      if(this.batchInfo?.archived) {this.openModal('注意','終了した分配は変更できません。');return;}
       const input = event?.target;
       const file = input?.files?.[0];
       if (!file) return;
@@ -8977,19 +9162,19 @@ window.distributionApp = function distributionApp() {
       const silent = !!options.silent;
 
       const rawInputDate = String(this.bulkInputDate || '').trim();
-      const inputDate = this.normalizeFlexibleDate(rawInputDate);
+      const inputDate = BATCH ? '' : this.normalizeFlexibleDate(rawInputDate);
       const hasDeliveryCourseInput = String(this.bulkDeliveryCourseSearch || '').trim() !== '';
       const selectedCourse = this.hasSelectedBulkDeliveryCourse()
         ? this.bulkDeliveryCourseSelected
         : null;
 
-      if (rawInputDate && !inputDate) {
+      if (!BATCH && rawInputDate && !inputDate) {
         if (silent) return;
         this.openModal('エラー', '入力日の日付形式を確認してください。');
         return;
       }
 
-      this.bulkInputDate = inputDate;
+      if (!BATCH) this.bulkInputDate = inputDate;
 
       if (hasDeliveryCourseInput && !selectedCourse) {
         if (silent && inputDate) {
@@ -11126,7 +11311,8 @@ window.distributionApp = function distributionApp() {
     },
 
     async postDistributionJson(url, payload) {
-      const response = await fetch(url, {
+      if (BATCH) payload = {...payload, expected_revision:this.serverRowRevisions.allocation};
+      const response = await this.fetchWithTimeout(url, {
         method: 'POST',
         headers: {
           Accept: 'application/json',
@@ -11162,7 +11348,9 @@ window.distributionApp = function distributionApp() {
         throw new Error(message);
       }
 
-      return responsePayload?.result?.data || {};
+      const result = responsePayload?.result?.data || {};
+      if (BATCH && Number.isInteger(result.revision)) this.serverRowRevisions.allocation = result.revision;
+      return result;
     },
 
     getSourceRowsForPayloadRows(sourceRows, payloadRows) {

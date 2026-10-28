@@ -33,20 +33,52 @@ for (const failure of ['http-error', 'invalid-json', 'unavailable-store', 'row-l
     });
 }
 
+test('store row limit keeps retry blocked until a filtered snapshot succeeds', async () => {
+    const { app } = component();
+    app.activeSubTab = 'store-view';
+    app.storeDistributionType = 'allocation';
+    app.fetchWithTimeout = async () => ({ ok: false, status: 409,
+        json: async () => ({ code: 'DISTRIBUTION_ROWS_LIMIT_EXCEEDED' }) });
+    await app.loadDistributionRowsFromServer();
+    assert.match(app.serverRowsLoadError, /検索条件を絞り込んで/);
+    assert.equal(app.serverRowsPersisted, false);
+    assert.equal(app.lastError, undefined);
+    app.ensureStoreSlipSelectionState = () => { throw new Error('Output must remain blocked'); };
+    app.openStoreSlipOutput();
+    assert.equal(app.lastError, undefined);
+    app.storeProductSearch = '100567';
+    let release;
+    app.fetchWithTimeout = async url => {
+        assert.equal(new URLSearchParams(url.split('?')[1]).get('product_search'), '100567');
+        await new Promise(resolve => { release = resolve; });
+        return { ok: true, json: async () => ({ result: { data: {
+            persisted: true, allocation: [], revisions: { allocation: 1 },
+        } } }) };
+    };
+    const retry = app.loadDistributionRowsFromServer();
+    assert.equal(app.distributionRowsLoading, true);
+    assert.notEqual(app.serverRowsLoadError, '');
+    release();
+    await retry;
+    assert.equal(app.serverRowsLoadError, '');
+    assert.equal(app.serverRowsPersisted, true);
+    assert.equal(app.distributionRowsLoading, false);
+});
+
 // Run the actual Alpine component, replacing only Blade's server bootstrap values.
 const blade = readFileSync(process.env.DISTRIBUTION_REVIEW_SOURCE
     || new URL('../../resources/views/filament/pages/distribution-app.blade.php', import.meta.url), 'utf8');
 const source = blade.slice(blade.indexOf('window.distributionApp = function'), blade.lastIndexOf('</script>'))
     .replace(/\{\{[^\n]+\}\}/g, 'null');
 
-function component() {
+function component({ batch = null } = {}) {
     const context = vm.createContext({
         window: { location: { search: '', hash: '' }, setTimeout, clearTimeout },
         localStorage: { setItem() {}, getItem() { return null; } },
         URLSearchParams, setTimeout, clearTimeout,
         console: { warn() {}, error() {} },
     });
-    vm.runInContext(source, context);
+    vm.runInContext(source.replace('const BATCH = null;', 'const BATCH = '+JSON.stringify(batch)+';'), context);
     const app = context.window.distributionApp();
     app.$nextTick = callback => callback();
     app.$refs = {};
@@ -56,6 +88,50 @@ function component() {
 }
 
 const keys = destinations => Array.from(destinations, destination => destination.key);
+
+test('the same CSV has independent identities across batches and stable identities within a batch', () => {
+    const csv = '商品CD,本店_希望\n100567,3\n';
+    const first = component({ batch: { id: 1, client_id: 6, warehouse_id: 91, shipping_date: '2026-11-01' } }).app;
+    const second = component({ batch: { id: 2, client_id: 6, warehouse_id: 91, shipping_date: '2026-11-01' } }).app;
+    const a = first.buildAllocationRowsFromCsv(csv, 'same.csv')[0];
+    const b = second.buildAllocationRowsFromCsv(csv, 'same.csv')[0];
+    const again = first.buildAllocationRowsFromCsv(csv, 'renamed.csv')[0];
+    assert.notEqual(a.id, b.id);
+    assert.notEqual(a.distributionBusinessKey, b.distributionBusinessKey);
+    assert.equal(a.id, again.id);
+    assert.equal(a.distributionBusinessKey, again.distributionBusinessKey);
+    assert.equal(first.filterDuplicateCsvImportRows([again], [a], 'csv_import').rows.length, 0);
+    assert.equal(second.filterDuplicateCsvImportRows([b], [], 'csv_import').rows.length, 1);
+});
+
+test('existing migrated CSV identities remain unchanged and prevent duplicate reimport', () => {
+    const csv = '商品CD,計上日,本店_希望\n100567,2026-11-01,3\n';
+    const legacy = component().app.buildAllocationRowsFromCsv(csv, 'same.csv')[0];
+    const app = component({ batch: { id: 1, client_id: 6, warehouse_id: 91, is_legacy: true } }).app;
+    const imported = app.buildAllocationRowsFromCsv(csv, 'same.csv')[0];
+    assert.equal(app.getDistributionBusinessKey(legacy, 'allocation'), legacy.distributionBusinessKey);
+    assert.equal(app.filterDuplicateCsvImportRows([imported], [legacy], 'csv_import').rows.length, 0);
+});
+
+test('a batch opens without rewriting order/delivery dates or automatically saving rows', async () => {
+    const { app } = component({ batch: { id: 1, client_id: 6, warehouse_id: 91, shipping_date: '2026-11-01' } });
+    app.rows = [app.makeAllocationRow({ id: 'row', orderDate: '2026-10-25', deliveryDate: '2026-10-27', alloc_01: 3 })];
+    let saves = 0;
+    app.saveData = () => saves++;
+    await app.applyBulkAllocationDates({ silent: true });
+    assert.equal(app.rows[0].orderDate, '2026-10-25');
+    assert.equal(app.rows[0].deliveryDate, '2026-10-27');
+    assert.equal(app.bulkInputDate, '2026-11-01');
+    assert.equal(saves, 0);
+    assert.equal(app.batchApiUrl('/api/distribution/rows?mode=allocation'), '/api/distribution/batches/1/rows?mode=allocation');
+});
+
+test('Excel rows retain explicitly supplied zero-quantity destination columns', () => {
+    const { app } = component();
+    const row = app.makeAllocationRow({ source: 'excel_import', alloc_01: 12, alloc_11: 0,
+        visibleDestinationKeys: ['01', '11'], enteredDestinationKeys: ['01', '11'] });
+    assert.deepEqual(keys(app.getAllocationDisplayDestinations([row])), ['01', '11']);
+});
 
 for (const mode of ['allocation', 'direct']) {
     test(`${mode}: a manual row retains store columns after the first quantity and after reload`, () => {
@@ -567,3 +643,43 @@ for (const [orderingCode, renderedCode] of [['01000153', '01000153'], ['00<&', '
         app.finishDirectRequestPrint(true);
     });
 }
+
+test('aggregate store saves use each batch revision without replacing other batches', async () => {
+    const { app } = component();
+    app.activeSubTab = 'store-view';
+    app.csrfHeaders = () => ({});
+    app.rows = [app.makeAllocationRow({ id:'x', distributionBatchId:1, distributionBatchRevision:2, alloc_01:12 }),
+        app.makeAllocationRow({ id:'y', distributionBatchId:2, distributionBatchRevision:7, alloc_01:24 })];
+    const requests=[];
+    app.fetchWithTimeout = async (url, options) => {
+        const payload=JSON.parse(options.body);requests.push({url,payload});
+        return {ok:true,json:async()=>({result:{data:{revision:payload.expected_revision+1}}})};
+    };
+    await app.persistDistributionRows('allocation', app.rows);
+    assert.deepEqual(requests.map(r=>[r.url,r.payload.expected_revision,r.payload.replace,r.payload.rows.length]),
+        [['/api/distribution/batches/1/rows',2,false,1],['/api/distribution/batches/2/rows',7,false,1]]);
+    await app.persistDistributionRows('allocation', app.rows);
+    assert.equal(requests[2].payload.expected_revision,3);
+    assert.equal(requests[3].payload.expected_revision,8);
+});
+
+test('an ambiguous aggregate store save blocks retries and retains entered quantities', async () => {
+    const { app } = component();app.activeSubTab='store-view';app.csrfHeaders=()=>({});
+    app.rows=[app.makeAllocationRow({id:'x',distributionBatchId:1,distributionBatchRevision:2,alloc_01:99})];
+    app.fetchWithTimeout=async()=>{throw new Error('network interrupted');};
+    await assert.rejects(app.persistDistributionRows('allocation',app.rows), e=>e.distributionSaveOutcomeUnknown===true);
+    assert.equal(app.serverSaveBlocked.allocation,true);assert.equal(app.rows[0].alloc_01,99);
+});
+
+test('opening a newer header never lends its revision to stale detail rows', async () => {
+    const {app}=component({batch:{id:1,name:'分配X',revision:2}});
+    app.serverRowRevisions.allocation=2;app.rows=[{id:'x',alloc_01:12}];
+    app.waitForDistributionSaves=async()=>{};
+    app.batchRequest=async()=>({id:1,name:'分配X',revision:3,updater:'担当B',updated_at:'2026-10-28 14:00'});
+    await app.editBatchInfo();
+    assert.equal(app.serverRowRevisions.allocation,2);
+    assert.equal(app.batchEditor.visible,false);
+    assert.equal(app.serverSaveBlocked.allocation,true);
+    assert.equal(app.rows[0].alloc_01,12);
+    assert.match(app.lastError,/担当B/);
+});
