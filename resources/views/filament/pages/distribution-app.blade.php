@@ -177,7 +177,7 @@
     .distribution-batch-layout .distribution-allocation-filters input { padding-top: 0; padding-bottom: 0; }
     .distribution-batch-layout .distribution-table-frame { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 0; }
     .distribution-batch-layout .allocation-scroll { flex: 1; min-height: 0; max-height: none !important; border: 1px solid #dbe2ea; border-radius: 8px; box-shadow: none; }
-    .allocation-scroll { cursor: grab; scroll-padding-left: 608px; }
+    .allocation-scroll { cursor: grab; scroll-padding-left: 708px; }
     .allocation-scroll.is-dragging { cursor: grabbing; user-select: none; }
     .allocation-grid { table-layout: fixed; border-collapse: separate; border-spacing: 0; }
     .allocation-grid th, .allocation-grid td { box-sizing: border-box; }
@@ -185,12 +185,12 @@
     .allocation-grid .allocation-fixed { position: sticky; z-index: 2; background-color: #fff; }
     .allocation-grid thead .allocation-fixed { z-index: 3; background-color: #f8fafc; }
     .allocation-select { width: 32px; left: 0; font-size: 10px; }
-    .allocation-product { width: 300px; left: 32px; }
-    .allocation-theory { width: 56px; left: 332px; }
-    .allocation-summary { width: 56px; left: 388px; }
-    .allocation-cases { width: 52px; left: 444px; }
-    .allocation-pieces { width: 52px; left: 496px; }
-    .allocation-total { width: 60px; left: 548px; box-shadow: 2px 0 0 #94a3b8, 5px 0 8px -4px #64748b; }
+    .allocation-product { width: 400px; left: 32px; }
+    .allocation-theory { width: 56px; left: 432px; }
+    .allocation-summary { width: 56px; left: 488px; }
+    .allocation-cases { width: 52px; left: 544px; }
+    .allocation-pieces { width: 52px; left: 596px; }
+    .allocation-total { width: 60px; left: 648px; box-shadow: 2px 0 0 #94a3b8, 5px 0 8px -4px #64748b; }
     .allocation-grid tr.bg-gray-100 .allocation-fixed { background-color: #f3f4f6; }
     .allocation-grid .allocation-theory.is-short { background-color: #fee2e2; }
     .allocation-grid .allocation-total { background-color: #f8fafc; }
@@ -363,7 +363,7 @@
   <div class="distribution-batch-header">
     <div class="distribution-batch-heading">
       <div class="distribution-batch-title">
-        <a href="/admin/distribution-adjustment">← 一覧へ戻る</a>
+        <a href="/admin/distribution-adjustment" @click.prevent="returnToBatchList()">← 一覧へ戻る</a>
         <strong x-text="batchInfo.name" :title="batchInfo.name"></strong>
         <span class="distribution-department-badge" :class="{'is-warehouse': batchInfo.responsible_department === 'warehouse', 'is-headquarters': batchInfo.responsible_department === 'headquarters'}" :aria-label="'担当部署：' + (batchInfo.responsible_department_label || '未設定')" x-text="batchInfo.responsible_department_label || '担当未設定'"></span>
       </div>
@@ -373,6 +373,7 @@
       </div>
     </div>
     <div class="distribution-batch-actions">
+      <button type="button" @click="returnToBatchList()">一覧に戻る</button>
       <button @click="editBatchInfo()" :disabled="batchInfo.archived">分配情報を変更</button>
       <button @click="archiveBatch()" x-text="batchInfo.archived ? '再開する' : '終了にする'"></button>
       <button @click="deleteBatch()" :disabled="batchInfo.archived" class="distribution-delete">分配を削除</button>
@@ -586,7 +587,7 @@
          x-transition:leave-start="opacity-100 transform scale-100"
          x-transition:leave-end="opacity-0 transform scale-95"
          class="relative bg-white rounded-lg shadow-xl p-4 sm:p-6 max-w-lg sm:max-w-2xl w-full" :style="batchInfo ? 'padding:0;overflow:hidden' : ''" @click.stop>
-      <div x-show="batchInfo" class="bg-slate-800 px-5 py-3 text-white">確認</div>
+      <div x-show="batchInfo" class="bg-slate-800 px-5 py-3 text-white" x-text="confirmBatchAction === '終了にする' ? '分配終了の確認' : (confirmBatchAction === '分配を削除' ? '分配削除の確認' : '確認')"></div>
       <div class="flex items-center gap-3 mb-4" :style="batchInfo ? 'padding:20px;margin:0' : ''">
         <template x-if="confirmModalType === 'delete'">
           <div class="flex-shrink-0 w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
@@ -601,11 +602,13 @@
         <div class="min-w-0 flex-1">
           <p x-show="!batchInfo" class="text-lg font-bold" :class="confirmModalType === 'delete' ? 'text-red-600' : 'text-yellow-600'" x-text="confirmModalType === 'delete' ? '削除確認' : '確認'"></p>
         <p class="text-gray-700 mt-1 leading-relaxed whitespace-pre-line" x-text="confirmMessage"></p>
+        <p x-show="confirmBatchAction" class="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm leading-relaxed text-blue-900">入力作業を終えて画面を離れるだけの場合は、「一覧に戻る」を押してください。分配の終了・削除は行いません。</p>
         </div>
       </div>
       <div class="flex justify-end gap-3" :style="batchInfo ? 'padding:14px 20px;border-top:1px solid #e2e8f0' : ''">
-        <button @click="confirmVisible = false; confirmCallback = null" class="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium" x-text="batchInfo ? '操作せず閉じる' : 'キャンセル'"></button>
-        <button @click="doConfirm()" class="px-4 py-2 text-white rounded-lg font-medium" :class="(batchInfo || confirmModalType === 'delete') ? 'bg-red-600 hover:bg-red-700' : 'bg-yellow-600 hover:bg-yellow-700'" x-text="confirmModalType === 'delete' ? '削除' : (batchInfo ? '実行する' : 'OK')"></button>
+        <button @click="confirmVisible = false; confirmCallback = null" class="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium" x-text="confirmBatchAction === '分配を削除' ? '削除せず閉じる' : (confirmBatchAction ? '終了せず閉じる' : (batchInfo ? '操作せず閉じる' : 'キャンセル'))"></button>
+        <button x-show="confirmBatchAction" @click="returnToBatchList()" class="px-4 py-2 border border-gray-300 rounded-lg font-medium">一覧に戻る</button>
+        <button @click="doConfirm()" class="px-4 py-2 text-white rounded-lg font-medium" :class="(batchInfo || confirmModalType === 'delete') ? 'bg-red-600 hover:bg-red-700' : 'bg-yellow-600 hover:bg-yellow-700'" x-text="confirmBatchAction || (confirmModalType === 'delete' ? '削除' : (batchInfo ? '実行する' : 'OK'))"></button>
       </div>
     </div>
   </div>
@@ -2547,6 +2550,7 @@ window.distributionApp = function distributionApp() {
     confirmMessage: '',
     confirmCallback: null,
     confirmModalType: 'confirm',
+    confirmBatchAction: '',
 
     // ---------- Init ----------
     async batchRequest(path, options = {}) {
@@ -2641,16 +2645,25 @@ window.distributionApp = function distributionApp() {
       finally { this.batchEditor.busy = false; }
     },
 
+    async returnToBatchList() {
+      try {
+        await this.waitForDistributionSaves('allocation');
+        this.confirmVisible = false;
+        this.confirmCallback = null;
+        window.location.href = '/admin/distribution-adjustment';
+      } catch (e) { this.openModal('エラー', e.message); }
+    },
+
     async archiveBatch() {
       try {
         await this.waitForDistributionSaves('allocation');
         const info=await this.batchRequest('');
         this.verifyBatchHeaderRevision(info);
         const archive=!info.archived;
-        this.openConfirm('分配「'+info.name+'」を'+(archive?'終了':'再開')+'します。',async()=>{
+        this.openConfirm('分配「'+info.name+'」を'+(archive?'終了':'再開')+'します。'+(archive?'終了すると、再開するまで明細の編集ができなくなります。':''),async()=>{
           try {await this.batchRequest('',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({...info,expected_revision:info.revision,archive})});window.location.reload();}
           catch(e){this.openModal('エラー',e.message);}
-        });
+        }, 'confirm', archive ? '終了にする' : '');
       } catch(e) {this.openModal('エラー',e.message);}
     },
 
@@ -2661,7 +2674,7 @@ window.distributionApp = function distributionApp() {
           await this.batchRequest('',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({expected_revision:this.serverRowRevisions.allocation})});
           window.location.href='/admin/distribution-adjustment';
         } catch(e) { this.openModal('エラー',e.message); }
-      });
+      }, 'delete', '分配を削除');
     },
 
     excelPreviewColumns() {
@@ -4221,7 +4234,8 @@ window.distributionApp = function distributionApp() {
       this.resultModalVisible = true;
     },
 
-    openConfirm(message, callback, type = 'confirm') {
+    openConfirm(message, callback, type = 'confirm', batchAction = '') {
+      this.confirmBatchAction = batchAction;
       this.confirmMessage = message;
       this.confirmCallback = callback;
       this.confirmModalType = type;
@@ -4403,12 +4417,15 @@ window.distributionApp = function distributionApp() {
       // Native touch scrolling and all editable/clickable controls keep their normal behavior.
       if (event.pointerType !== 'mouse' || event.button !== 0 || this.allocationDrag
         || event.target.closest('input, textarea, select, button, a, label, [contenteditable="true"]')
-        || scroller.scrollWidth <= scroller.clientWidth) return;
+        || (scroller.scrollWidth <= scroller.clientWidth && scroller.scrollHeight <= scroller.clientHeight)) return;
       const bounds = scroller.getBoundingClientRect();
       // Leave native scrollbars available, including the bottom-right corner.
       if (event.clientX >= bounds.left + scroller.clientWidth
         || event.clientY >= bounds.top + scroller.clientHeight) return;
-      this.allocationDrag = { pointerId: event.pointerId, startX: event.clientX, scrollLeft: scroller.scrollLeft };
+      this.allocationDrag = {
+        pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
+        scrollLeft: scroller.scrollLeft, scrollTop: scroller.scrollTop,
+      };
       scroller.setPointerCapture(event.pointerId);
       event.preventDefault();
     },
@@ -4417,6 +4434,7 @@ window.distributionApp = function distributionApp() {
       const drag = this.allocationDrag;
       if (!drag || event.pointerId !== drag.pointerId) return;
       event.currentTarget.scrollLeft = drag.scrollLeft + drag.startX - event.clientX;
+      event.currentTarget.scrollTop = drag.scrollTop + drag.startY - event.clientY;
       event.preventDefault();
     },
 
@@ -4430,7 +4448,7 @@ window.distributionApp = function distributionApp() {
 
     getAllocationTableMinWidth() {
       const destinationCount = this.getAllocationDisplayDestinations().length;
-      return 712 + destinationCount * 52 + (this.showAllocationDetailMemoButton ? 64 : 0);
+      return 812 + destinationCount * 52 + (this.showAllocationDetailMemoButton ? 64 : 0);
     },
 
     getDirectDisplayDestinations(rows = this.getVisibleDirectRows()) {
