@@ -191,7 +191,7 @@ class PickingListPdfService
 
             $rowData = [
                 $index + 1,
-                $item['location_code'] ?? '',
+                PickingListLocationLabel::format($item['location_code'] ?? null),
                 $item['item_code'],
                 $item['item_name'],
                 $item['packaging'] ?? '',
@@ -372,7 +372,7 @@ class PickingListPdfService
                 $item['serial_id'] ?? '',
                 $item['partner_name'] ?? '',
                 $item['salesman_name'] ?? '',
-                $item['location_code'] ?? '',
+                PickingListLocationLabel::format($item['location_code'] ?? null),
                 $item['item_code'],
                 $item['item_name'],
                 $item['packaging'] ?? '',
@@ -557,7 +557,7 @@ class PickingListPdfService
             $y = $this->currentY;
 
             $rowData = [
-                $item['location_code'],
+                PickingListLocationLabel::format($item['location_code'] ?? null),
                 $item['item_code'],
                 $this->truncateText($item['item_name'], $widths[2] - 2),
                 $item['total_pick_qty'],
@@ -740,7 +740,7 @@ class PickingListPdfService
             $y = $this->currentY;
 
             $rowData = [
-                $item['location_code'],
+                PickingListLocationLabel::format($item['location_code'] ?? null),
                 $item['item_code'],
                 $this->truncateText($item['item_name'], $widths[2] - 2),
                 $item['case_qty'] ?: '',
@@ -977,7 +977,7 @@ class PickingListPdfService
                 $item['jan_code'],
                 $this->truncateText($item['item_name'], $widths[4] - 2),
                 $this->truncateText($item['packaging'] ?? '', $widths[5] - 2),
-                $item['location_code'],
+                PickingListLocationLabel::format($item['location_code'] ?? null),
                 $item['qty_type'],
                 $item['assign_qty'],
                 '',
@@ -1440,7 +1440,7 @@ class PickingListPdfService
             // 棚番（太字）
             $this->pdf->SetFont('kozgopromedium', 'B', $shelfFontSize);
             $this->pdf->SetXY($colX, $y);
-            $this->pdf->Cell($widths[1], $rowH, (string) ($item['location_code'] ?? ''), 0, 0, 'C');
+            $this->pdf->Cell($widths[1], $rowH, PickingListLocationLabel::format($item['location_code'] ?? null), 0, 0, 'C');
             $colX += $widths[1];
 
             // 商品CD（上、太字）+ JAN（直下、小）— 行高に関わらず上端に密着配置
@@ -1806,7 +1806,7 @@ class PickingListPdfService
             // 棚番（太字）
             $this->pdf->SetFont('kozgopromedium', 'B', $shelfFontSize);
             $this->pdf->SetXY($colX, $y);
-            $this->pdf->Cell($widths[1], $rowH, (string) ($item['location_code'] ?? ''), 0, 0, 'C');
+            $this->pdf->Cell($widths[1], $rowH, PickingListLocationLabel::format($item['location_code'] ?? null), 0, 0, 'C');
             $colX += $widths[1];
 
             // 得意先（左寄せ折返し、上寄せ）
