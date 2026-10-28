@@ -311,6 +311,10 @@ class ExportService
      */
     public function getDownloadResponse(WmsExportLog $exportLog): StreamedResponse
     {
+        if ($exportLog->resource_name === \App\Services\Statistics\WarehouseOrderReviewRunService::RESOURCE) {
+            return app(\App\Services\Statistics\WarehouseOrderReviewRunService::class)->download($exportLog);
+        }
+
         $exportLog->markAsDownloaded();
 
         $format = $exportLog->format;
