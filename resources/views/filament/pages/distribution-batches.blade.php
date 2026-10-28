@@ -4,6 +4,11 @@
             .distribution-batch-list [x-cloak]{display:none!important}.distribution-batch-list .batch-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}.distribution-batch-list input,.distribution-batch-list textarea{border:1px solid #cbd5e1;border-radius:6px;padding:7px 10px;font-size:13px}.distribution-batch-list button{border-radius:6px;padding:7px 12px;font-size:13px}.distribution-batch-list button:disabled{opacity:.5;cursor:wait}.distribution-batch-list .primary{background:#059669;color:white}.distribution-batch-list .danger{background:#dc2626;color:white}.distribution-batch-list .secondary{border:1px solid #cbd5e1;background:white}.distribution-batch-list table{border-collapse:collapse;width:100%;font-size:12px;white-space:nowrap}.distribution-batch-list td,.distribution-batch-list th{padding:10px;border-bottom:1px solid #e2e8f0;text-align:left}.distribution-batch-list th{background:#f1f5f9;position:sticky;top:0}.distribution-batch-list th:last-child,.distribution-batch-list td:last-child{position:sticky;right:0;background:white;border-left:2px solid #cbd5e1;z-index:1}.distribution-batch-list th:last-child{background:#f1f5f9;z-index:2}.distribution-batch-list tr:nth-child(even){background:#f5f9ff}.distribution-batch-list .batch-scroll{overflow:auto;max-height:calc(100vh - 250px);border:1px solid #e2e8f0;border-radius:8px}.distribution-batch-list .batch-overlay{position:fixed;inset:0;z-index:200;background:#0007;display:flex;align-items:center;justify-content:center;padding:20px}.distribution-batch-list .batch-dialog{background:white;border-radius:10px;width:600px;max-width:100%;max-height:90vh;overflow:auto}.distribution-batch-list .batch-dialog header{background:#1e293b;color:white;padding:14px 20px}.distribution-batch-list .batch-dialog main{padding:20px;display:grid;gap:12px}.distribution-batch-list .batch-dialog label{display:grid;gap:5px;font-size:13px}.distribution-batch-list .batch-dialog footer{display:flex;gap:10px;justify-content:flex-end;padding:14px 20px;border-top:1px solid #e2e8f0}.distribution-batch-list .batch-error{color:#b91c1c;white-space:pre-wrap;padding:8px 0}
 
             .distribution-batch-list .batch-tools{gap:10px;margin-bottom:12px}
+            .distribution-batch-list .batch-guide-link{display:inline-flex;align-items:center;gap:6px;margin-left:auto;padding:7px 12px;border:1px solid #c7d2fe;border-radius:6px;background:#eef2ff;color:#4338ca;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap}
+            .distribution-batch-list .batch-guide-link:hover{background:#e0e7ff}
+            .distribution-batch-list .batch-guide-link:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
+            .distribution-batch-list .batch-guide-link svg{width:16px;height:16px}
+            .dark .distribution-batch-list .batch-guide-link{background:#312e81;border-color:#6366f1;color:#e0e7ff}
             .distribution-batch-list .batch-search{width:260px;max-width:100%;height:36px;background:white}
             .distribution-batch-list .batch-date{display:flex;align-items:center;gap:8px;color:#64748b;font-size:12px}
             .distribution-batch-list .batch-date input{height:36px;background:white;color:#334155}
@@ -37,6 +42,10 @@
             <input class="batch-search" x-model="search" @keydown.enter.prevent="load(1)" placeholder="分配名・備考で検索" aria-label="分配検索">
             <label class="batch-date">出荷日<input type="date" x-model="date" @change="load(1)" aria-label="出荷日で絞込"><button type="button" x-show="date" @click="date='';load(1)" aria-label="出荷日の絞り込みを解除" class="px-2">×</button></label>
             <button type="button" class="secondary" @click="load(1)">検索</button>
+            <a class="batch-guide-link" href="{{ \App\Filament\Pages\DistributionGuide::getUrl() }}" target="_blank" rel="noopener" title="分配解説を新しいタブで開く">
+                <x-heroicon-o-book-open />
+                分配解説
+            </a>
         </div>
         <div class="batch-filterbar">
             <div class="batch-filter-group" role="group" aria-label="担当部署で絞込">
