@@ -298,6 +298,7 @@
   <div class="mb-3 flex flex-wrap items-center gap-3 rounded-lg border bg-white p-3 text-sm">
     <a href="/admin/distribution-adjustment" class="text-blue-700">一覧へ戻る</a>
     <strong x-text="batchInfo.name"></strong><span>出荷日：<span x-text="batchInfo.shipping_date || '要確認'"></span></span>
+    <span>担当部署：<span x-text="batchInfo.responsible_department_label"></span></span>
     <span>登録者：<span x-text="batchInfo.creator"></span></span><span x-text="batchInfo.note"></span>
     <button @click="editBatchInfo()" :disabled="batchInfo.archived" class="rounded border px-3 py-1">分配情報を変更</button>
     <button @click="archiveBatch()" class="rounded border px-3 py-1" x-text="batchInfo.archived ? '再開する' : '終了にする'"></button>
@@ -305,9 +306,15 @@
   </div>
   @include('filament.pages.distribution-excel-import')
   <div x-show="batchEditor.visible" x-cloak class="fixed inset-0 z-[220] flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="分配情報を変更">
-    <form @submit.prevent="saveBatchInfo()" class="w-full max-w-xl overflow-hidden rounded-lg bg-white text-sm shadow-xl">
+    <form @submit.prevent="saveBatchInfo()" class="distribution-form-dialog w-full max-w-xl overflow-hidden rounded-lg bg-white text-sm shadow-xl">
       <div class="bg-slate-800 px-5 py-3 text-white">分配情報を変更</div>
-      <div class="grid gap-3 p-5"><label>分配名<input x-model="batchEditor.name" required maxlength="100" class="block w-full rounded border-gray-300"></label><label>出荷日<input type="date" x-model="batchEditor.shipping_date" required class="block rounded border-gray-300"></label><label>備考<textarea x-model="batchEditor.note" maxlength="1000" class="block w-full rounded border-gray-300"></textarea></label><p class="whitespace-pre-wrap text-red-700" x-text="batchEditor.error"></p></div>
+      <div class="grid gap-4 p-5">
+        <label class="distribution-form-label">分配名 <span class="distribution-required">必須</span><input x-model="batchEditor.name" required maxlength="100" :disabled="batchEditor.busy" class="distribution-form-input"></label>
+        <label class="distribution-form-label">出荷日 <span class="distribution-required">必須</span><input type="date" x-model="batchEditor.shipping_date" required :disabled="batchEditor.busy" class="distribution-form-input"></label>
+        @include('filament.partials.distribution-department-field', ['departmentModel' => 'batchEditor.responsible_department', 'departmentBusy' => 'batchEditor.busy', 'departmentGroup' => 'edit-department'])
+        <label class="distribution-form-label">備考<textarea x-model="batchEditor.note" maxlength="1000" rows="3" :disabled="batchEditor.busy" class="distribution-form-input"></textarea></label>
+        <p class="whitespace-pre-wrap text-red-700" role="alert" x-text="batchEditor.error"></p>
+      </div>
       <div class="flex justify-end gap-3 border-t px-5 py-4"><button type="button" @click="batchEditor.visible=false" :disabled="batchEditor.busy" class="rounded border px-3 py-2">変更せず閉じる</button><button :disabled="batchEditor.busy" class="rounded bg-red-600 px-3 py-2 text-white">変更する</button></div>
     </form>
   </div>
@@ -612,7 +619,12 @@
             <span x-text="csvImporting ? '取込中' : 'CSV取込'"></span>
           </button>
           @if($distributionBatchForView)
-          <button @click="openExcelImport()" :disabled="!!batchInfo?.archived" class="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white">Excel取込</button>
+          <button type="button" @click="openExcelImport()" :disabled="!!batchInfo?.archived" class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 16V4m0 0L7 9m5-5l5 5M5 20h14"></path>
+            </svg>
+            <span>Excel取込</span>
+          </button>
           @endif
           <button @click="downloadCSV()" class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-1 sm:py-1.5 px-2 sm:px-3 rounded-md shadow transition text-xs">
             <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -2195,8 +2207,8 @@ window.distributionApp = function distributionApp() {
   return {
     // ---------- State ----------
     batchInfo: BATCH,
-    batchEditor: {visible:false,busy:false,error:'',name:'',shipping_date:'',note:''},
-    excelImport: {visible:false,file:null,unit:'',storeMode:'',mapping:{},preview:null,busy:false,error:'',acknowledged:false,needsPreview:false},
+    batchEditor: {visible:false,busy:false,error:'',name:'',shipping_date:'',note:'',responsible_department:''},
+    excelImport: {visible:false,file:null,unit:'',storeMode:'',mapping:{},editingColumn:null,preview:null,busy:false,error:'',acknowledged:false,needsPreview:false},
     DESTS: DESTS,
     csvDestinations: CSV_DESTS,
     showAllocationDetailMemoButton: SHOW_ALLOCATION_DETAIL_MEMO_BUTTON,
@@ -2486,7 +2498,7 @@ window.distributionApp = function distributionApp() {
       this.batchEditor.busy = true;
       try {
         const info = await this.batchRequest('', {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-          name:this.batchEditor.name,shipping_date:this.batchEditor.shipping_date,note:this.batchEditor.note,expected_revision:this.batchInfo.revision,
+          name:this.batchEditor.name,shipping_date:this.batchEditor.shipping_date,note:this.batchEditor.note,responsible_department:this.batchEditor.responsible_department,expected_revision:this.batchInfo.revision,
         })});
         this.batchInfo = info;
         this.bulkInputDate = info.shipping_date;
@@ -2519,11 +2531,36 @@ window.distributionApp = function distributionApp() {
       });
     },
 
+    excelPreviewColumns() {
+      return (this.excelImport.preview?.columns || []).filter(column => column.status === 'matched' || column.status === 'unresolved');
+    },
+
+    excelPreviewQuantity(row, column, before = false, kind = 'alloc') {
+      if (column.status !== 'matched' || column.destination_code == null) return null;
+      const key = String(column.destination_code).padStart(2, '0');
+      if (before) return Number(row.before?.[kind+'_'+key] ?? 0);
+      return Object.prototype.hasOwnProperty.call(row.allocations, key) ? Number(row.allocations[key]) : null;
+    },
+
+    excelPreviewQuantityChanged(row, column) {
+      const quantity = this.excelPreviewQuantity(row, column);
+      return quantity !== null && (quantity !== this.excelPreviewQuantity(row, column, true)
+        || quantity !== this.excelPreviewQuantity(row, column, true, 'wish'));
+    },
+
+    updateExcelPreviewMapping(column, value) {
+      if (value === '') delete this.excelImport.mapping[column.column];
+      else this.excelImport.mapping[column.column] = value;
+      this.excelImport.needsPreview = true;
+      this.excelImport.acknowledged = false;
+      this.excelImport.editingColumn = null;
+    },
+
     async openExcelImport() {
       if(this.batchInfo?.archived) {this.openModal('注意','終了した分配は変更できません。');return;}
       try {
         await this.waitForDistributionSaves('allocation');
-        this.excelImport={visible:true,file:null,unit:'',storeMode:'',mapping:{},preview:null,busy:false,error:'',acknowledged:false,needsPreview:false};
+        this.excelImport={visible:true,file:null,unit:'',storeMode:'',mapping:{},editingColumn:null,preview:null,busy:false,error:'',acknowledged:false,needsPreview:false};
         if(this.$refs.excelInput) this.$refs.excelInput.value='';
       } catch(e) { this.openModal('エラー',e.message); }
     },
@@ -2542,7 +2579,7 @@ window.distributionApp = function distributionApp() {
     },
 
     async commitExcel() {
-      if(this.excelImport.busy || this.excelImport.needsPreview) return;
+      if(this.excelImport.busy || this.excelImport.needsPreview || !this.excelImport.preview?.rows?.length) return;
       this.excelImport.busy=true;this.excelImport.error='';
       try {
         const result=await this.batchRequest('/excel/commit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
@@ -5792,7 +5829,9 @@ window.distributionApp = function distributionApp() {
     },
 
     isWarehouseTransferExcludedDestination(key, destination = null) {
-      return STORE_WHOLESALE_DESTINATION_CODES.has(String(key || ''))
+      return String(key || '') === String(HQ_WAREHOUSE_CODE)
+        || (BATCH && destination?.id && Number(destination.id) === Number(BATCH.warehouse_id))
+        || STORE_WHOLESALE_DESTINATION_CODES.has(String(key || ''))
         || (destination ? this.isWholesaleDestination(destination) : false);
     },
 

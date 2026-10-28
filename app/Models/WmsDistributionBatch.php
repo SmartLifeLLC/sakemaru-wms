@@ -11,6 +11,13 @@ class WmsDistributionBatch extends WmsModel
 {
     use SoftDeletes;
 
+    public const RESPONSIBLE_DEPARTMENTS = ['warehouse' => '倉庫担当', 'headquarters' => '本部担当'];
+
+    public function responsibleDepartmentLabel(): string
+    {
+        return self::RESPONSIBLE_DEPARTMENTS[$this->responsible_department] ?? '未設定';
+    }
+
     protected $table = 'wms_distribution_batches';
 
     protected $guarded = ['id'];

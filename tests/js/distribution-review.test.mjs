@@ -89,6 +89,61 @@ function component({ batch = null } = {}) {
 
 const keys = destinations => Array.from(destinations, destination => destination.key);
 
+test('Excel matrix follows destination mappings, preserves zero and distinguishes unresolved cells', () => {
+    const { app } = component();
+    const store = { column: 'I', status: 'matched', destination_code: 1 };
+    const unresolved = { column: 'J', status: 'unresolved', destination_code: null };
+    app.excelImport.preview = { columns: [
+        { column: 'B', status: 'ignored' }, store, unresolved,
+    ] };
+    assert.deepEqual(Array.from(app.excelPreviewColumns(), column => column.column), ['I', 'J']);
+    const row = { before: { alloc_01: 5 }, allocations: { '01': 0, '02': 7 } };
+    assert.equal(app.excelPreviewQuantity(row, store), 0);
+    assert.equal(app.excelPreviewQuantity(row, store, true), 5);
+    assert.equal(app.excelPreviewQuantity(row, unresolved), null);
+    store.destination_code = 2;
+    assert.equal(app.excelPreviewQuantity(row, store), 7);
+    assert.equal(app.excelPreviewQuantity(row, store, true), 0);
+    store.destination_code = 4;
+    assert.equal(app.excelPreviewQuantity(row, store), null);
+});
+
+test('Excel preview highlights a wish-only update and retains both previous quantities', () => {
+    const { app } = component();
+    const store = { status: 'matched', destination_code: 1 };
+    const row = { allocations: { '01': 6 }, before: { alloc_01: 6, wish_01: 1 } };
+    assert.equal(app.excelPreviewQuantity(row, store, true, 'wish'), 1);
+    assert.equal(app.excelPreviewQuantity(row, store, true), 6);
+    assert.equal(app.excelPreviewQuantityChanged(row, store), true);
+    row.before.wish_01 = 6;
+    assert.equal(app.excelPreviewQuantityChanged(row, store), false);
+    assert.equal(app.excelPreviewQuantityChanged(row, { status: 'unresolved' }), false);
+});
+
+test('an Excel preview containing only skipped rows never submits an import', async () => {
+    const { app } = component();
+    app.excelImport.preview = { rows: [], errors: [], skipped: [{ reason_code: 'merged_store_quantity' }] };
+    app.excelImport.acknowledged = true;
+    let requests = 0;
+    app.batchRequest = async () => { requests++; throw new Error('No import should be submitted'); };
+    await app.commitExcel();
+    assert.equal(requests, 0);
+    assert.equal(app.excelImport.busy, false);
+    assert.equal(app.excelImport.error, '');
+});
+
+test('restoring an Excel column to automatic matching removes the override and requires review', () => {
+    const { app } = component();
+    const column = { column: 'I' };
+    app.excelImport.acknowledged = true;
+    app.updateExcelPreviewMapping(column, '2');
+    assert.equal(app.excelImport.mapping.I, '2');
+    assert.equal(app.excelImport.needsPreview, true);
+    assert.equal(app.excelImport.acknowledged, false);
+    app.updateExcelPreviewMapping(column, '');
+    assert.equal(Object.hasOwn(app.excelImport.mapping, 'I'), false);
+});
+
 test('the same CSV has independent identities across batches and stable identities within a batch', () => {
     const csv = '商品CD,本店_希望\n100567,3\n';
     const first = component({ batch: { id: 1, client_id: 6, warehouse_id: 91, shipping_date: '2026-11-01' } }).app;
@@ -682,4 +737,16 @@ test('opening a newer header never lends its revision to stale detail rows', asy
     assert.equal(app.serverSaveBlocked.allocation,true);
     assert.equal(app.rows[0].alloc_01,12);
     assert.match(app.lastError,/担当B/);
+});
+
+
+test('explicit HQ and other warehouses display dynamically while HQ does not create a self transfer', () => {
+    const { app } = component({batch: {id: 123, warehouse_id: 91}});
+    const destinations = [{key:'01',code:'01',id:1,name:'本店'}, {key:'91',code:'91',id:91,name:'本部',isHidden:true}, {key:'05',code:'05',id:5,name:'武生店',isHidden:true}];
+    app.getKnownDestinationPool = () => destinations;
+    app.getStoreDestinationPool = () => destinations;
+    const row = {source:'excel', visibleDestinationKeys:['01','91','05'], alloc_01:2,alloc_91:3,alloc_05:4,wish_01:2,wish_91:3,wish_05:4};
+    assert.deepEqual(keys(app.getAllocationDisplayDestinations([row])).sort(), ['01','05','91']);
+    assert.deepEqual(keys(app.getWarehouseTransferDestinationPool(row)).sort(), ['01','05']);
+    assert.equal(app.hasWarehouseTransferTargetDestination({alloc_91:3}), false);
 });

@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Sakemaru\Auth\Services\PermissionService;
 
@@ -20,6 +21,12 @@ class DistributionBatchController extends ApiController
         $this->authorizeUser($request, $permissions);
         $query = WmsDistributionBatch::query()->where('client_id', (int) config('app.client_id'))
             ->where('warehouse_id', (int) $request->user()->getSelectedWarehouseId())->with(['creator', 'updater']);
+        $request->validate(['responsible_department' => ['nullable', Rule::in([...array_keys(WmsDistributionBatch::RESPONSIBLE_DEPARTMENTS), 'unassigned'])]], [], ['responsible_department' => '担当部署']);
+        if ($request->input('responsible_department') === 'unassigned') {
+            $query->whereNull('responsible_department');
+        } elseif ($request->filled('responsible_department')) {
+            $query->where('responsible_department', $request->input('responsible_department'));
+        }
         if ($request->filled('search')) {
             $query->where(fn ($q) => $q->where('name', 'like', '%'.mb_substr($request->string('search'), 0, 100).'%')
                 ->orWhere('note', 'like', '%'.mb_substr($request->string('search'), 0, 100).'%'));
@@ -54,12 +61,14 @@ class DistributionBatchController extends ApiController
     {
         $this->authorizeUser($request, $permissions);
         $data = $request->validate(['name' => 'required|string|max:100', 'shipping_date' => 'required|date_format:Y-m-d',
+            'responsible_department' => ['required', Rule::in(array_keys(WmsDistributionBatch::RESPONSIBLE_DEPARTMENTS))],
             'note' => 'nullable|string|max:1000', 'execution_id' => 'required|uuid'], [],
-            ['name' => '分配名', 'shipping_date' => '出荷日', 'note' => '備考']);
+            ['name' => '分配名', 'shipping_date' => '出荷日', 'note' => '備考', 'responsible_department' => '担当部署']);
         $key = 'create:'.(int) config('app.client_id').':'.(int) $request->user()->getSelectedWarehouseId().':'.$request->user()->id.':'.$data['execution_id'];
         $batch = WmsDistributionBatch::withTrashed()->firstOrCreate(['registration_key' => $key], [
             'client_id' => (int) config('app.client_id'), 'warehouse_id' => (int) $request->user()->getSelectedWarehouseId(),
             'name' => trim($data['name']), 'shipping_date' => $data['shipping_date'], 'note' => $data['note'] ?? '',
+            'responsible_department' => $data['responsible_department'],
             'created_by' => $request->user()->id, 'updated_by' => $request->user()->id,
         ]);
 
@@ -77,8 +86,9 @@ class DistributionBatchController extends ApiController
     {
         $batch = DistributionBatchService::current();
         $data = $request->validate(['name' => 'required|string|max:100', 'shipping_date' => 'nullable|required_unless:archive,true|date_format:Y-m-d',
+            'responsible_department' => ['sometimes', 'nullable', Rule::in(array_keys(WmsDistributionBatch::RESPONSIBLE_DEPARTMENTS))],
             'note' => 'nullable|string|max:1000', 'expected_revision' => 'required|integer|min:0', 'archive' => 'sometimes|boolean'], [],
-            ['name' => '分配名', 'shipping_date' => '出荷日', 'note' => '備考']);
+            ['name' => '分配名', 'shipping_date' => '出荷日', 'note' => '備考', 'responsible_department' => '担当部署']);
         if ((int) $data['expected_revision'] !== $batch->revision) {
             return $this->error('この分配は別の画面で更新されています。再読み込みしてください。', 409, 'DISTRIBUTION_REVISION_CONFLICT');
         }
@@ -88,6 +98,7 @@ class DistributionBatchController extends ApiController
             throw ValidationException::withMessages(['shipping_date' => '移動生成受付後は出荷日を変更できません。']);
         }
         $batch->update(['name' => trim($data['name']), 'shipping_date' => $data['shipping_date'], 'note' => $data['note'] ?? '',
+            'responsible_department' => $data['responsible_department'] ?? $batch->responsible_department,
             'updated_by' => $request->user()->id, 'revision' => $batch->revision + 1,
             'archived_at' => $request->boolean('archive') ? now() : null]);
 
@@ -125,8 +136,8 @@ class DistributionBatchController extends ApiController
         $items = DB::connection('sakemaru')->table('items')->where('client_id', $batch->client_id)
             ->get(['id', 'code', 'name', 'capacity_case', 'is_active'])->keyBy('code')->map(fn ($row) => (array) $row)->all();
         $destinations = DB::connection('sakemaru')->table('warehouses')->where('client_id', $batch->client_id)->where('is_active', true)
-            ->get(['id', 'code', 'name'])->map(function ($d) use ($batch) {
-                $d->allowed = in_array((int) $d->code, [1, 2, 3, 4, 7, 8, 9, 10, 11, 21, 22], true) && (int) $d->id !== (int) $batch->warehouse_id;
+            ->get(['id', 'code', 'name'])->map(function ($d) {
+                $d->allowed = true;
 
                 return (array) $d;
             })->all();
@@ -153,6 +164,7 @@ class DistributionBatchController extends ApiController
             $row['after'] = $row['before'];
             foreach ($row['allocations'] as $key => $quantity) {
                 $row['after']['alloc_'.$key] = $quantity;
+                $row['after']['wish_'.$key] = $quantity;
             }
             $row['after_total'] = array_sum(array_filter($row['after'], fn ($key) => str_starts_with((string) $key, 'alloc_'), ARRAY_FILTER_USE_KEY));
             if ($row['after_total'] > 99999999) {
@@ -172,7 +184,7 @@ class DistributionBatchController extends ApiController
         $preview += ['token' => $token, 'revision' => $batch->revision, 'batch_id' => $batch->id,
             'user_id' => $request->user()->id, 'expires_at' => time() + 1800,
             'file_name' => mb_substr(basename($file->getClientOriginalName()), 0, 255), 'file_hash' => hash_file('sha256', $file->getRealPath()),
-            'settings' => $settings, 'execution_id' => (string) Str::uuid()];
+            'settings' => $settings, 'quantity_targets' => ['wish', 'alloc'], 'execution_id' => (string) Str::uuid()];
         Storage::disk('local')->put('distribution/previews/'.$token.'.json', json_encode($preview, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
         $preview['destinations'] = array_values(array_filter($destinations, fn ($d) => $d['allowed']));
 
@@ -192,9 +204,10 @@ class DistributionBatchController extends ApiController
         if ($previous) {
             return $this->success(json_decode($previous->summary, true));
         }
+        abort_unless(($preview['quantity_targets'] ?? null) === ['wish', 'alloc'], 409, '取込方法が更新されました。「取込内容を確認」を押して再確認してください。');
         abort_unless($preview['expires_at'] >= time() && $preview['revision'] === $batch->revision, 409, '分配またはプレビューが更新されています。再解析してください。');
         abort_if($preview['errors'] !== [] || $preview['rows'] === [], 422, '取込エラーを解消してください。');
-        abort_if($preview['warnings'] !== [] && ! $request->boolean('acknowledge_warnings'), 422, '注意事項を確認してください。');
+        abort_if(($preview['warnings'] !== [] || ($preview['duplicate_warnings'] ?? []) !== []) && ! $request->boolean('acknowledge_warnings'), 422, '注意事項を確認してください。');
         $nextOrder = (int) ($batch->rows()->max('sort_order') ?? -1);
         $changes = [];
         foreach ($preview['rows'] as $import) {
@@ -211,6 +224,7 @@ class DistributionBatchController extends ApiController
             $key = $row?->business_key ?? sha1($batch->id.':'.$id);
             foreach ($import['allocations'] as $destination => $quantity) {
                 $data['alloc_'.$destination] = $quantity;
+                $data['wish_'.$destination] = $quantity;
             }
             $data['visibleDestinationKeys'] = array_values(array_unique(array_merge(
                 $data['visibleDestinationKeys'] ?? [], array_map('strval', array_keys($import['allocations']))
@@ -268,6 +282,7 @@ class DistributionBatchController extends ApiController
         $queues ??= $this->queues($rows->pluck('row_data')->all());
 
         return ['id' => $batch->id, 'name' => $batch->name, 'shipping_date' => $batch->shipping_date?->format('Y-m-d'),
+            'responsible_department' => $batch->responsible_department, 'responsible_department_label' => $batch->responsibleDepartmentLabel(),
             'note' => $batch->note, 'revision' => $batch->revision, 'is_legacy' => $batch->is_legacy, 'archived' => (bool) $batch->archived_at,
             'creator' => $batch->is_legacy ? '既存データ移行' : ($batch->creator?->name ?? '不明'),
             'updater' => $batch->updater?->name ?? '既存データ移行', 'created_at' => $batch->created_at?->format('Y-m-d H:i'),
