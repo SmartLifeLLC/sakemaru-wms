@@ -171,7 +171,9 @@ class DemandProfileTest extends TestCase
         foreach ($graph['days'] as $day) {
             self::assertSame($service->quantity($profile, $day['date'], 1), $day['demand']);
         }
-        self::assertSame($service->quantity($profile, $graph['start'], 14), array_sum(array_column($graph['days'], 'demand')));
+        self::assertSame(InventoryProjection::horizonDays(), $graph['horizon_days']);
+        self::assertCount($graph['horizon_days'], $graph['days']);
+        self::assertSame($service->quantity($profile, $graph['start'], 14), array_sum(array_column(array_slice($graph['days'], 0, 14), 'demand')));
         $preview = app(PolicySimulationService::class)->simulate(new WmsItemReorderPolicy($policy));
         $batch = app(StrategyCalculator::class)->calculate($policy, $snapshot);
         self::assertSame($graph['days'][0]['phase'], $preview['phase']);

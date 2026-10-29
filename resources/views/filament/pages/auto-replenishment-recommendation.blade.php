@@ -78,6 +78,7 @@
 @if($safetyDays !== null && $recommended)
     <p class="ar-help"><b>おすすめ算定時：安全在庫 {{ $safetyDays }}日分 {{ number_format($basis['safety_stock_pieces']) }}バラ ＋ 通常量 {{ number_format($batch) }}バラ</b>で補充目標を算定。@if(($basis['safety_arrival_gap_adjustment_pieces'] ?? 0)>0)入荷間隔のため {{ number_format($basis['safety_arrival_gap_adjustment_pieces']) }}バラを加算。@endif</p>
 @endif
+@include('filament.pages.auto-replenishment-event-addon', ['basis' => $basis])
 @if($safetyDays !== null && $valid && ($target != ($recommended['target_stock_pieces'] ?? null) || $maximum != ($recommended['max_order_pieces'] ?? null) || $minimum != ($recommended['min_order_pieces'] ?? null)))
     <p class="ar-help">数量を手調整しています。日数の算定結果と異なるため、下の例と保存後のテストで確認してください。</p>
 @endif

@@ -29,7 +29,9 @@ class InventoryProjectionInputs
                 $shipping = ['mode' => 'SHIPMENT', 'quantities' => $service->quantities($profile)];
             }
             $snapshot['shipping_unit'] = $shipping;
-            $calendar = app(InventoryProjectionCalendar::class)->read($warehouse, (int) $form['contractor_id'], $form['channel'], $snapshot['business_date'], $snapshot['warehouse_config']);
+            $horizon = InventoryProjection::horizonDays();
+            $calendar = app(InventoryProjectionCalendar::class)->read($warehouse, (int) $form['contractor_id'], $form['channel'], $snapshot['business_date'], $snapshot['warehouse_config'],
+                max(RecommendationArrivalSchedule::LOOKAHEAD_DAYS, $horizon));
             $usesForecast = in_array($form['strategy_key'] ?? '', ['arrival_batch_v1', 'arrival_adaptive_v1'], true);
             $demand = $usesForecast || array_key_exists('demand_profile', $basis ?? []) || isset($basis['mean_daily'])
                 ? app(DemandProfile::class)->fromBasis($basis ?? [])
@@ -37,7 +39,7 @@ class InventoryProjectionInputs
 
             return ['snapshot' => array_intersect_key($snapshot, array_flip(['stock', 'incoming', 'incoming_today', 'claims', 'supply_events', 'packing_unit',
                 'quantity_type', 'capacity_case', 'business_date', 'shipping_unit', 'simulation_at'])),
-                'demand' => $demand, 'calendar' => $calendar, 'picking_lead_days' => (int) ($snapshot['route_snapshot']['effective_picking_lead_days'] ?? 0),
+                'demand' => $demand, 'calendar' => $calendar, 'horizon_days' => $horizon, 'picking_lead_days' => (int) ($snapshot['route_snapshot']['effective_picking_lead_days'] ?? 0),
                 'observed_at' => now('Asia/Tokyo')->format('m/d H:i')];
         });
     }

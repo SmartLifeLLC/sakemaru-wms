@@ -15,14 +15,26 @@ final class DemandProfile
             'end' => $end->toDateString()];
     }
 
-    public function select(array $daily, array $period): array
+    /**
+     * @param  array<int, string>  $exclude  event dates kept out of the normal level (treated as unobserved, never as zero)
+     */
+    public function select(array $daily, array $period, array $exclude = []): array
     {
+        if ($exclude) {
+            $excluded = array_flip($exclude);
+            foreach ($daily as $date => $quantity) {
+                if (isset($excluded[$date])) {
+                    $daily[$date] = null;
+                }
+            }
+        }
         $start = CarbonImmutable::parse($period['end'])->subDays(27)->toDateString();
         $recent = array_filter($daily, fn ($date) => $date >= $start && $date <= $period['end'], ARRAY_FILTER_USE_KEY);
         $values = array_filter($recent, fn ($v) => $v !== null);
         $fallback = count($values) < 14 || count(array_filter($values, fn ($v) => $v > 0)) < 3;
 
-        return ['daily' => $fallback ? $daily : $recent, 'fallback' => $fallback];
+        return ['daily' => $fallback ? $daily : $recent, 'fallback' => $fallback,
+            'excluded_days' => $exclude ? count(array_intersect_key($daily, $excluded)) : 0];
     }
 
     public function create(array $daily, bool $fallback = false): array
@@ -67,6 +79,9 @@ final class DemandProfile
                 throw_unless(is_numeric($mean) && is_finite((float) $mean) && $mean >= 0 && $mean <= 2147483647,
                     \RuntimeException::class, '曜日別の消費量を確認できません。「おすすめ設定」で再計算してください。');
             }
+            if (array_key_exists('event_forecast', $profile)) {
+                $profile['event_forecast'] = $this->validateEventForecast($profile['event_forecast'], $profile['anchor_date']);
+            }
 
             return array_replace($profile, ['legacy' => false]);
         }
@@ -109,6 +124,11 @@ final class DemandProfile
         return $quantity;
     }
 
+    /**
+     * Largest consumption over any window of the given length. Weekday-only profiles check the
+     * seven weekday starts; dated event forecasts additionally check every start within the
+     * coming week, so a weekly-refreshed setting covers each generation day until the next refresh.
+     */
     public function maximum(array $profile, int $days): int
     {
         throw_unless($days >= 0 && $days <= 56, \RuntimeException::class, '需要の計算日数を確認してください。');
@@ -120,19 +140,88 @@ final class DemandProfile
             }
             $maximum = max($maximum, (int) ceil($total - 1e-8));
         }
+        if (isset($profile['event_forecast'])) {
+            $anchor = $this->date($profile['anchor_date']);
+            for ($offset = 0; $offset < 7; $offset++) {
+                $total = $this->cumulative($profile, $anchor->addDays($offset + $days)) - $this->cumulative($profile, $anchor->addDays($offset));
+                $maximum = max($maximum, (int) ceil($total - 1e-8));
+            }
+        }
         throw_if($maximum > 2147483647, \RuntimeException::class, '期間内の消費量が上限を超えています。数量条件を確認してください。');
 
         return $maximum;
     }
 
+    /** Event demand above the weekday pattern inside [start, start + days); 0 without an event forecast. */
+    public function uplift(array $profile, string $start, int $days): float
+    {
+        throw_unless($days >= 0 && $days <= 120, \RuntimeException::class, '需要の計算日数を確認してください。');
+        if (! isset($profile['event_forecast'])) {
+            return 0.0;
+        }
+        $date = $this->date($start);
+        $total = 0.0;
+        for ($i = 0; $i < $days; $i++) {
+            $day = $date->addDays($i);
+            $dated = $profile['event_forecast']['days'][$day->toDateString()] ?? null;
+            if ($dated !== null) {
+                $total += (float) $dated - (float) $profile['weekdays'][$day->dayOfWeek]['mean'];
+            }
+        }
+
+        return $total;
+    }
+
+    /** Dated event forecast entries inside [start, start + days), for display. */
+    public function eventDays(array $profile, string $start, int $days): array
+    {
+        $rows = [];
+        if (! isset($profile['event_forecast'])) {
+            return $rows;
+        }
+        $date = $this->date($start);
+        for ($i = 0; $i < $days; $i++) {
+            $day = $date->addDays($i);
+            $key = $day->toDateString();
+            if (isset($profile['event_forecast']['days'][$key])) {
+                $rows[$key] = ['forecast' => (float) $profile['event_forecast']['days'][$key], 'weekday' => (float) $profile['weekdays'][$day->dayOfWeek]['mean']];
+            }
+        }
+
+        return $rows;
+    }
+
     public function formula(array $profile, string $start, int $days): string
     {
-        return '入荷までの消費見込：'.($profile['legacy'] ? '保存済み平均' : '曜日別の消費')."を{$days}日分合計 ＝ ".$this->quantity($profile, $start, $days).'バラ';
+        $label = $profile['legacy'] ? '保存済み平均' : (isset($profile['event_forecast']) ? 'イベント補正済みの日付別消費' : '曜日別の消費');
+
+        return "入荷までの消費見込：{$label}を{$days}日分合計 ＝ ".$this->quantity($profile, $start, $days).'バラ';
     }
 
     private function cumulative(array $profile, CarbonImmutable $date): float
     {
         $anchor = $this->date($profile['anchor_date']);
+        $forecast = $profile['event_forecast'] ?? null;
+        if ($forecast === null || $date->lte($anchor)) {
+            return $this->weekdayCumulative($profile, $anchor, $date);
+        }
+        // Dated days replace the weekday pattern from the anchor; beyond the dated range the pattern resumes.
+        $count = count($forecast['days']);
+        $end = $anchor->addDays($count);
+        $total = 0.0;
+        $until = $date->min($end);
+        for ($day = $anchor; $day->lt($until); $day = $day->addDay()) {
+            $total += (float) $forecast['days'][$day->toDateString()];
+        }
+        if ($date->gt($end)) {
+            $total += $this->weekdayCumulative($profile, $anchor, $date) - $this->weekdayCumulative($profile, $anchor, $end);
+        }
+
+        return $total;
+    }
+
+    private function weekdayCumulative(array $profile, CarbonImmutable $anchor, CarbonImmutable $date): float
+    {
         $offset = (int) $anchor->diffInDays($date, false);
         $weeks = (int) floor($offset / 7);
         $remainder = $offset - $weeks * 7;
@@ -142,6 +231,28 @@ final class DemandProfile
         }
 
         return (float) $total;
+    }
+
+    private function validateEventForecast(mixed $forecast, string $anchor): array
+    {
+        $message = 'イベント補正の予測を読み込めません。「おすすめ設定」で再計算してください。';
+        throw_unless(is_array($forecast) && ($forecast['version'] ?? '') === DemandEventForecast::VERSION
+            && ($forecast['start'] ?? null) === $anchor && is_array($forecast['days'] ?? null)
+            && count($forecast['days']) >= 1 && count($forecast['days']) <= 120 && is_array($forecast['events'] ?? null), \RuntimeException::class, $message);
+        $expected = $this->date($anchor);
+        $days = [];
+        foreach ($forecast['days'] as $date => $value) {
+            throw_unless($date === $expected->toDateString() && is_numeric($value) && is_finite((float) $value) && $value >= 0 && $value <= 2147483647,
+                \RuntimeException::class, $message);
+            $days[$date] = (float) $value;
+            $expected = $expected->addDay();
+        }
+        foreach ($forecast['events'] as $event) {
+            throw_unless(is_array($event) && is_string($event['name'] ?? null) && is_string($event['start'] ?? null) && is_string($event['end'] ?? null),
+                \RuntimeException::class, $message);
+        }
+
+        return array_replace($forecast, ['days' => $days]);
     }
 
     private function date(string $date): CarbonImmutable

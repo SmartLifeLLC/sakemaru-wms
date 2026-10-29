@@ -11,7 +11,7 @@
                 @else<span class="ar-badge {{ $warehouse->is_auto_order_enabled ? 'green' : '' }}">倉庫 {{ $warehouse->is_auto_order_enabled ? 'ON' : 'OFF' }}</span>@endif
             @endif</div>
             <nav class="ar-tabs">
-                @foreach(['settings'=>'商品別発注設定','checklist'=>'確認リスト','history'=>'自動発注履歴'] as $key=>$name)
+                @foreach(['settings'=>'商品別発注設定','checklist'=>'確認リスト','history'=>'自動発注履歴','events'=>'イベント設定'] as $key=>$name)
                     <a href="/admin/auto-order/{{ $key }}" class="{{ $screen === $key ? 'active' : '' }}">{{ $name }}</a>
                 @endforeach
             </nav>

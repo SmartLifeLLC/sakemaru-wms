@@ -699,6 +699,9 @@ class SettingsRecommendationCalculatorTest extends TestCase
         $pallets->shouldReceive('forRoute')->once()->with(6, $route)->andReturn($master);
         $pallets->shouldReceive('assertCapacity')->once()->with($master, 24);
         $this->app->instance(\App\Services\AutoReplenishment\PalletUnitService::class, $pallets);
+        $events = \Mockery::mock(\App\Services\AutoReplenishment\DemandEventRepository::class);
+        $events->shouldReceive('recommendationOptions')->once()->with(6, 143024)->andReturnNull();
+        $this->app->instance(\App\Services\AutoReplenishment\DemandEventRepository::class, $events);
         $service = new \App\Services\AutoReplenishment\SettingsRecommendationService($history, new SettingsRecommendationCalculator);
         $result = $service->recommend(6, 1, $route, ['unit_mode' => 'PIECE']);
         self::assertSame((array) $master, $result['basis']['pallet_unit']);

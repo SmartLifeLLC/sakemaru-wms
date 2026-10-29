@@ -2,6 +2,8 @@
 
 namespace App\Services\AutoReplenishment;
 
+use Carbon\CarbonImmutable;
+
 /** Pure calculation shared by the item editor and the controlled batch import. */
 final class SettingsRecommendationCalculator
 {
@@ -170,7 +172,12 @@ final class SettingsRecommendationCalculator
         }
         $protection = $lead + $reviewInterval;
         $demand = app(DemandProfile::class);
-        $selection = $demand->select($history['daily'], $history['period']);
+        $events = $this->events($options);
+        $exclude = $events ? app(DemandEventCalendar::class)->eventDates($events['events'], $history['period']['start'], $history['period']['end']) : [];
+        $selection = $demand->select($history['daily'], $history['period'], $exclude);
+        if (($selection['excluded_days'] ?? 0) > 0) {
+            $basis['warnings'][] = '承認済みイベント日 '.$selection['excluded_days'].'日を平常水準の算定から除外しました（イベント日の需要は日付別予測で加算します）。';
+        }
         $daily = $selection['daily'];
         if ($selection['fallback']) {
             $basis['warnings'][] = '直近28日の観測日が14日未満、または出荷のある日が3日未満のため、対象期間全体の観測値で算定しました。欠損日は0で補完していません。';
@@ -196,27 +203,84 @@ final class SettingsRecommendationCalculator
         }
         $profile = $demand->create($daily, $selection['fallback']);
         $profile['warnings'] = array_values(array_unique(array_merge($profile['warnings'], $history['warnings'] ?? [])));
+        $plain = $profile;
+        if ($events) {
+            // Approved events only. Without approved events or learned factors the profile stays weekday-only.
+            $profile = app(DemandEventForecast::class)->attach($profile, $events['events'], $events['factors']);
+        }
         $basis['demand_profile'] = $profile;
         $basis['demand_period'] = $profile['period'];
+        $basis['demand_events'] = ['approved' => count($events['events'] ?? []), 'in_horizon' => count($profile['event_forecast']['events'] ?? []),
+            'horizon_days' => DemandEventForecast::HORIZON_DAYS];
         $mean = $profile['mean'];
+        $sigma = $this->standardDeviation($values);
+        $variability = 0.0;
+        if ($safetyDays !== null && ! empty($options['variability_buffer']) && $mean > 0 && $sigma / $mean > 1) {
+            // Only high-variability products carry a σ√H term; the validated simulation kept five days for the rest.
+            $variability = $sigma * sqrt($protection + $safetyDays);
+        }
+        $basis += ['demand_sigma' => round($sigma, 4), 'demand_cv' => $mean > 0 ? round($sigma / $mean, 4) : null,
+            'variability_buffer_pieces' => (int) round($variability)];
+        $context = compact('useSales', 'reviewDays', 'unit', 'counts', 'registered', 'windows', 'values', 'eligible', 'protection', 'lead',
+            'reviewInterval', 'arrivalGap', 'packing', 'safetyDays', 'weekdays', 'historyReference', 'variability', 'observedLead')
+            + ['options' => $options, 'history_nominal_lead_days' => $history['nominal_lead_days'], 'own_count' => count($own), 'pool_count' => count($pool)];
+        $computed = $this->quantities($profile, $context);
+        if (! $computed['available']) {
+            return $this->unavailable($basis + $computed['basis'], $computed['reason']);
+        }
+        if (isset($profile['event_forecast'])) {
+            // Two-tier setting: the weekday-only baseline is kept beside the event-adjusted values.
+            $basis['event_adjustment'] = $this->eventAdjustment($profile, $computed, $this->quantities($plain, $context), $history, $context);
+        }
+        $basis += $computed['basis'];
+        $basis['warnings'] = array_values(array_unique(array_merge($basis['warnings'], $computed['warnings'])));
+        $basis['steps'] = $computed['steps'];
+        $basis['suggested_values'] = $computed['values'];
+
+        return ['available' => true, 'values' => $computed['values'], 'basis' => $basis];
+    }
+
+    /** Quantities for one demand profile (weekday-only or event-adjusted); pure given the shared context. */
+    private function quantities(array $profile, array $c): array
+    {
+        $demand = app(DemandProfile::class);
+        $mean = $profile['mean'];
+        $anchor = $profile['anchor_date'];
+        $useSales = $c['useSales'];
+        $reviewDays = $c['reviewDays'];
+        $unit = $c['unit'];
+        $counts = $c['counts'];
+        $registered = $c['registered'];
+        $values = $c['values'];
+        $eligible = $c['eligible'];
+        $protection = $c['protection'];
+        $lead = $c['lead'];
+        $reviewInterval = $c['reviewInterval'];
+        $arrivalGap = $c['arrivalGap'];
+        $packing = $c['packing'];
+        $safetyDays = $c['safetyDays'];
+        $weekdays = $c['weekdays'];
+        $warnings = [];
+        $fail = fn (string $reason, array $basis = []) => ['available' => false, 'reason' => $reason, 'basis' => $basis];
+        $reviewUplift = $useSales ? $demand->uplift($profile, $anchor, $reviewDays) : 0.0;
+        $normalDemand = (int) ceil($mean * $reviewDays + $reviewUplift);
         // Pick the most frequent observed quantity; tied modes use the smaller quantity.
         // Minimum and maximum are separate observed values, never both the typical batch.
-        $normal = $useSales ? $this->roundUp((int) ceil($mean * $reviewDays), $unit)
-            : (int) array_search(max($counts), $counts, true);
+        $normal = $useSales ? $this->roundUp(max(1, $normalDemand), $unit) : (int) array_search(max($counts), $counts, true);
         $min = $useSales ? $normal : (int) array_key_first($counts);
         $cap = $useSales ? $normal : (int) array_key_last($counts);
         if ($registered !== null) {
             $set = app(ShippingQuantitySet::class);
             if ($useSales) {
-                $normal = $set->floor($registered, (int) ceil($mean * $reviewDays));
+                $normal = $set->floor($registered, max(1, $normalDemand));
                 if ($normal === 0) {
-                    return $this->unavailable($basis, '売上から求めた通常量に収まる出荷数量候補がありません。補充目標を増やさず、数量候補を見直してください。');
+                    return $fail('売上から求めた通常量に収まる出荷数量候補がありません。補充目標を増やさず、数量候補を見直してください。');
                 }
                 $cap = $normal;
             }
             $min = $registered[0];
         }
-        $p95 = $this->percentile($windows, .95);
+        $p95 = $this->percentile($c['windows'], .95);
         // All lot sizes constrain order quantities, not inventory thresholds.
         $point = (int) ceil(max($p95, $mean * $protection));
         $receiptP95 = $eligible ? $this->percentile(array_column($eligible, 'pieces'), .95) : null;
@@ -229,42 +293,49 @@ final class SettingsRecommendationCalculator
         try {
             $arrivalGapDemand = $demand->maximum($profile, $arrivalGap);
         } catch (\RuntimeException) {
-            return $this->unavailable($basis, '算定数量が保存できる上限を超えています。管理者に確認してください。');
+            return $fail('算定数量が保存できる上限を超えています。管理者に確認してください。');
         }
         $arrivalGapFloor = $arrivalGapDemand + $this->roundUp($min, $unit);
         $target = max($originalTarget, $arrivalGapFloor);
+        $settings = null;
+        $safetyUplift = 0.0;
+        $safetyStart = $protection;
         if ($safetyDays !== null) {
-            $existingPoint = filter_var($options['existing_reorder_point'] ?? null, FILTER_VALIDATE_INT,
+            $existingPoint = filter_var($c['options']['existing_reorder_point'] ?? null, FILTER_VALIDATE_INT,
                 ['options' => ['min_range' => 1, 'max_range' => 2147483647]]) ?: null;
+            // Event demand already inside the sales-based normal quantity (review-days window) is not counted
+            // again: the safety window starts after the protection period or after that window, whichever is later.
+            $safetyStart = $useSales ? max($protection, $reviewDays) : $protection;
             try {
+                $safetyUplift = $demand->uplift($profile, CarbonImmutable::parse($anchor)->addDays($safetyStart)->toDateString(), $safetyDays);
                 $settings = (new SafetyStockSettings)->calculate($mean, $safetyDays, $normal, $this->roundUp($min, $unit),
                     $packing, $lead, $arrivalGap, $reviewInterval, $existingPoint,
-                    $demand->maximum($profile, $lead), $arrivalGapDemand);
+                    $demand->maximum($profile, $lead), $arrivalGapDemand, ['event_uplift' => $safetyUplift, 'variability' => $c['variability']]);
             } catch (\RuntimeException $e) {
-                return $this->unavailable($basis, $e->getMessage());
+                return $fail($e->getMessage());
             }
             $point = $settings['point'];
             $target = $settings['target'];
             $buffer = $settings['basis']['safety_stock_pieces'];
             $originalTarget = $settings['basis']['safety_requested_target_pieces'];
-            $basis += $settings['basis'];
             if ($target > $originalTarget) {
-                $basis['warnings'][] = '入荷間隔を考慮して補充目標を'.($target - $originalTarget).'バラ増やしました。';
+                $warnings[] = '入荷間隔を考慮して補充目標を'.($target - $originalTarget).'バラ増やしました。';
             }
             if ($point > $target) {
-                $basis['warnings'][] = '入荷までの出荷見込が通常量より多いため、現在庫で判定する発注点は入荷時の補充目標より大きくなります。';
+                $warnings[] = '入荷までの出荷見込が通常量より多いため、現在庫で判定する発注点は入荷時の補充目標より大きくなります。';
             }
         }
         if (max($point, $target, $cap, $min, $unit) > 2147483647) {
-            return $this->unavailable($basis, '算定数量が保存できる上限を超えています。管理者に確認してください。');
+            return $fail('算定数量が保存できる上限を超えています。管理者に確認してください。');
         }
-        $basis += ['nominal_lead_days' => $history['nominal_lead_days'], 'observed_lead_p95' => $observedLead,
-            'protection_days' => $protection, 'demand_start' => array_key_first($daily), 'observed_days' => count($values),
-            'unknown_days' => count($daily) - count($values), 'mean_daily' => round($mean, 4),
-            'window_count' => count($windows), 'demand_p95' => $p95, 'receipt_p95' => $receiptP95,
+        $basis = $settings ? $settings['basis'] : [];
+        $basis += ['nominal_lead_days' => $c['history_nominal_lead_days'] ?? $lead, 'observed_lead_p95' => $c['observedLead'] ?? null,
+            'protection_days' => $protection, 'mean_daily' => round($mean, 4),
+            'demand_p95' => $p95, 'receipt_p95' => $receiptP95,
             'batch_quantity_pieces' => $normal, 'batch_percentile' => null,
             'batch_coverage_days' => round($normal / $mean, 1),
             'batch_frequency' => $useSales ? null : $counts[$normal],
+            'batch_event_uplift_pieces' => (int) round($reviewUplift), 'safety_window_start_day' => $safetyStart,
             'minimum_quantity_pieces' => $min, 'maximum_quantity_pieces' => $cap,
             'maximum_frequency' => $useSales ? null : $counts[$cap],
             'batch_quantity_counts' => $this->quantityCounts($counts),
@@ -275,15 +346,15 @@ final class SettingsRecommendationCalculator
             'arrival_gap_target_floor_pieces' => $arrivalGapFloor,
             'weekly_order_capacity_pieces' => $cap * count($weekdays), 'weekly_demand_pieces' => round($mean * 7, 4),
             'batch_rule' => $useSales ? 'mean-demand-times-review-days' : 'observed-mode-with-historical-maximum',
-            'receipt_basis' => $useSales ? 'この倉庫の売上・出荷実績' : ($historyReference ? 'この倉庫の少数発注連携実績（参考）' : 'この倉庫の発注連携実績'),
+            'receipt_basis' => $useSales ? 'この倉庫の売上・出荷実績' : ($c['historyReference'] ? 'この倉庫の少数発注連携実績（参考）' : 'この倉庫の発注連携実績'),
             'samples' => $useSales ? [] : array_slice($eligible, 0, 3)];
         if ($cap * count($weekdays) * count($values) < array_sum($values) * 7) {
-            return $this->unavailable($basis, "最大発注数 {$cap}バラ × 週".count($weekdays).'回では、週平均 '.round($mean * 7, 1).'バラの需要を補えません。倉庫の実行曜日を増やして再計算するか、商品の数量条件を手入力で見直してください。');
+            return $fail("最大発注数 {$cap}バラ × 週".count($weekdays).'回では、週平均 '.round($mean * 7, 1).'バラの需要を補えません。倉庫の実行曜日を増やして再計算するか、商品の数量条件を手入力で見直してください。', $basis);
         }
-        $basis['steps'] = [
-            '発注連携実績：この倉庫 '.count($own).'回 / 全倉庫 '.count($pool).'回',
-            $useSales && $registered !== null ? '売上からの通常量：1日平均 '.round($mean, 2)." × {$reviewDays}日分の範囲で登録候補 {$normal}バラを選択"
-                : ($useSales ? '売上ベースの通常量：1日平均 '.round($mean, 2)." × {$reviewDays}日分を{$unit}単位に切上げ ＝ {$normal}バラ"
+        $steps = [
+            '発注連携実績：この倉庫 '.($c['own_count'] ?? 0).'回 / 全倉庫 '.($c['pool_count'] ?? 0).'回',
+            $useSales && $registered !== null ? '売上からの通常量：1日平均 '.round($mean, 2)." × {$reviewDays}日分".($reviewUplift > 0.5 ? '（イベント上乗せ '.round($reviewUplift).'バラを含む）' : '')."の範囲で登録候補 {$normal}バラを選択"
+                : ($useSales ? '売上ベースの通常量：1日平均 '.round($mean, 2)." × {$reviewDays}日分".($reviewUplift > 0.5 ? ' ＋ イベント上乗せ '.round($reviewUplift).'バラ' : '')."を{$unit}単位に切上げ ＝ {$normal}バラ"
                 : "通常の1回量：この倉庫で最も多い発注数量 {$normal}バラ（{$counts[$normal]}回。同率の場合は小さい数量）"),
             $registered !== null ? "最小発注数：登録候補の最小 {$min}バラ / 最大発注数：この倉庫の通常量・実績から {$cap}バラ"
                 : ($useSales ? "最小発注数・最大発注数：実績不足のため算定した通常量 {$normal}バラを初期値にします。"
@@ -294,19 +365,83 @@ final class SettingsRecommendationCalculator
             "補充目標：大きい方（通常量・実行間隔からの目標 {$originalTarget}、入荷間隔 {$arrivalGap}日分の曜日別需要の最大 {$arrivalGapDemand} ＋ 最小発注数 {$min}） ＝ {$target}バラ",
             '入荷までの出荷見込・既発注を考慮し、補充目標までの不足を最大発注数内で補います。目標内で最小数・単位を満たせない場合は見送ります。',
         ];
-        if ($safetyDays !== null) {
-            array_splice($basis['steps'], 4, 3, [
-                '安全在庫：1日平均 '.round($mean, 2)." × {$safetyDays}日を出力単位 {$packing} で切上げ ＝ {$buffer}バラ",
+        if ($settings) {
+            $extras = [];
+            if (abs($safetyUplift) >= 0.5) {
+                $extras[] = ' '.($safetyUplift > 0 ? '＋' : '−').' イベント上乗せ '.abs((int) round($safetyUplift))."バラ（{$safetyStart}日後からの{$safetyDays}日間）";
+            }
+            if ($c['variability'] >= 0.5) {
+                $extras[] = ' ＋ ばらつき加算 '.(int) round($c['variability']).'バラ（CV>1）';
+            }
+            array_splice($steps, 4, 3, [
+                '安全在庫：1日平均 '.round($mean, 2)." × {$safetyDays}日".implode('', $extras)."を出力単位 {$packing} で切上げ ＝ {$buffer}バラ",
                 "補充目標：安全在庫 {$buffer} ＋ 通常量 {$normal}（入荷間隔の補正を含む）＝ {$target}バラ",
-                "発注点：入荷まで{$lead}日分の曜日別消費の最大値を考慮して {$point}バラ。通常量を発注するかは実際の入荷日で再判定",
+                "発注点：入荷まで{$lead}日分の".(isset($profile['event_forecast']) ? '日付別' : '曜日別')."消費の最大値を考慮して {$point}バラ。通常量を発注するかは実際の入荷日で再判定",
             ]);
         }
         $values = ['reorder_point_pieces' => $point, 'target_stock_pieces' => $target, 'min_order_pieces' => $min,
-            'order_multiple_pieces' => $unit, 'max_order_pieces' => $cap,
-            'strategy_key' => 'arrival_adaptive_v1'];
-        $basis['suggested_values'] = $values;
+            'order_multiple_pieces' => $unit, 'max_order_pieces' => $cap, 'strategy_key' => 'arrival_adaptive_v1'];
 
-        return ['available' => true, 'values' => $values, 'basis' => $basis];
+        return ['available' => true, 'values' => $values, 'basis' => $basis, 'warnings' => $warnings, 'steps' => $steps];
+    }
+
+    /** Two-tier summary: weekday-only baseline, event add-on and the approved events inside the forecast horizon. */
+    private function eventAdjustment(array $profile, array $computed, array $baseline, array $history, array $c): array
+    {
+        $demand = app(DemandProfile::class);
+        $anchor = CarbonImmutable::parse($profile['anchor_date']);
+        $arrivals = $history['arrival_schedule']['arrival_dates'] ?? [];
+        $scheduleEnd = $history['arrival_schedule']['end'] ?? null;
+        // Settings are refreshed weekly: an event is secured now when it reaches the safety window of any generation day this week.
+        $coverageEnd = $anchor->addDays(6 + $c['protection'] + (int) ($c['safetyDays'] ?? 0))->toDateString();
+        $events = [];
+        foreach ($profile['event_forecast']['events'] as $event) {
+            // Beyond the scanned arrival schedule the last arrival before the event is unknown, not the last scanned date.
+            $before = $scheduleEnd !== null && $event['start'] > $scheduleEnd ? [] : array_values(array_filter($arrivals, fn ($d) => $d < $event['start']));
+            $days = (int) CarbonImmutable::parse($event['start'])->diffInDays(CarbonImmutable::parse($event['end'])) + 1;
+            $daily = [];
+            foreach ($demand->eventDays($profile, $event['start'], $days) as $date => $row) {
+                $daily[] = ['date' => $date, 'forecast' => round($row['forecast'], 1), 'weekday' => round($row['weekday'], 1)];
+            }
+            $events[] = $event + ['secure_by_date' => $before ? end($before) : null,
+                'days_until_start' => max(0, (int) $anchor->diffInDays(CarbonImmutable::parse($event['start']), false)),
+                'in_target' => $event['start'] <= $coverageEnd && $event['end'] >= $anchor->toDateString(), 'daily' => $daily];
+        }
+        $keys = array_flip(['reorder_point_pieces', 'target_stock_pieces', 'max_order_pieces', 'min_order_pieces']);
+        $baseValues = $baseline['available'] ? array_intersect_key($baseline['values'], $keys)
+            + ['batch_quantity_pieces' => $baseline['basis']['batch_quantity_pieces'], 'safety_stock_pieces' => $baseline['basis']['safety_stock_pieces'] ?? null] : null;
+
+        return ['version' => 'event-adjustment-v1', 'baseline' => $baseValues, 'baseline_reason' => $baseline['available'] ? null : $baseline['reason'],
+            'target_add_on_pieces' => $baseValues ? $computed['values']['target_stock_pieces'] - $baseValues['target_stock_pieces'] : null,
+            'point_add_on_pieces' => $baseValues ? $computed['values']['reorder_point_pieces'] - $baseValues['reorder_point_pieces'] : null,
+            'batch_add_on_pieces' => $baseValues ? $computed['basis']['batch_quantity_pieces'] - $baseValues['batch_quantity_pieces'] : null,
+            'coverage_end' => $coverageEnd, 'horizon_days' => count($profile['event_forecast']['days']), 'events' => $events];
+    }
+
+    private function events(array $options): ?array
+    {
+        $events = $options['demand_events'] ?? null;
+        if (! is_array($events) || empty($events['events']) || ! is_array($events['events'])) {
+            return null;
+        }
+
+        return ['events' => app(DemandEventCalendar::class)->normalize($events['events']),
+            'factors' => is_array($events['factors'] ?? null) ? $events['factors'] : []];
+    }
+
+    private function standardDeviation(array $values): float
+    {
+        $n = count($values);
+        if ($n < 2) {
+            return 0.0;
+        }
+        $mean = array_sum($values) / $n;
+        $sum = 0.0;
+        foreach ($values as $value) {
+            $sum += ($value - $mean) ** 2;
+        }
+
+        return sqrt($sum / $n);
     }
 
     private function unavailable(array $basis, string $reason): array

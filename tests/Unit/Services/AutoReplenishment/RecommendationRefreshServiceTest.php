@@ -1,0 +1,105 @@
+<?php
+
+namespace Tests\Unit\Services\AutoReplenishment;
+
+use App\Models\WmsItemReorderPolicy;
+use App\Services\AutoReplenishment\PalletUnitService;
+use App\Services\AutoReplenishment\PolicyService;
+use App\Services\AutoReplenishment\RecommendationRefreshService;
+use App\Services\AutoReplenishment\ReplenishmentGuard;
+use App\Services\AutoReplenishment\SettingsRecommendationService;
+use App\Services\AutoReplenishment\ShippingQuantityService;
+use Illuminate\Support\Facades\DB;
+use Mockery;
+use Tests\TestCase;
+
+class RecommendationRefreshServiceTest extends TestCase
+{
+    private array $basis;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        config(['database.connections.sakemaru' => ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']]);
+        DB::purge('sakemaru');
+        $db = DB::connection('sakemaru');
+        $db->statement('CREATE TABLE wms_item_reorder_policies (id INTEGER PRIMARY KEY, client_id INTEGER, warehouse_id INTEGER, item_id INTEGER, is_configured INTEGER, is_enabled INTEGER, reorder_point_pieces INTEGER, max_order_pieces INTEGER, min_order_pieces INTEGER, order_multiple_pieces INTEGER, target_stock_pieces INTEGER, channel TEXT, contractor_id INTEGER, supplier_id INTEGER, source_warehouse_id INTEGER, delivery_course_id INTEGER, strategy_key TEXT, arrival_rule TEXT, version INTEGER, updated_by INTEGER, created_at TEXT, updated_at TEXT, calculation_basis TEXT, order_unit_mode TEXT)');
+        $this->basis = ['unit_mode' => 'PIECE', 'review_days' => 7, 'safety_stock_days' => 5, 'batch_rule' => 'mean-demand-times-review-days',
+            'suggested_values' => ['reorder_point_pieces' => 100, 'target_stock_pieces' => 150, 'min_order_pieces' => 24, 'max_order_pieces' => 72, 'order_multiple_pieces' => 24],
+            'manually_adjusted_fields' => []];
+        $row = fn (int $id, int $item, array $extra = []) => array_replace(['id' => $id, 'client_id' => 6, 'warehouse_id' => 2, 'item_id' => $item, 'is_configured' => 1, 'is_enabled' => 0,
+            'reorder_point_pieces' => 100, 'target_stock_pieces' => 150, 'min_order_pieces' => 24, 'max_order_pieces' => 72, 'order_multiple_pieces' => 24,
+            'channel' => 'EOS', 'contractor_id' => 10, 'supplier_id' => 10, 'strategy_key' => 'arrival_adaptive_v1', 'version' => 3, 'order_unit_mode' => 'AUTO',
+            'calculation_basis' => json_encode($this->basis)], $extra);
+        $db->table('wms_item_reorder_policies')->insert([
+            $row(1, 101), $row(2, 102), $row(3, 103),
+            $row(4, 104, ['calculation_basis' => json_encode(['manually_adjusted_fields' => ['target_stock_pieces']] + $this->basis)]),
+            $row(5, 105, ['strategy_key' => 'threshold_capped_v1']),
+            $row(6, 106, ['calculation_basis' => null]),
+        ]);
+        $guard = Mockery::mock(ReplenishmentGuard::class);
+        $guard->shouldReceive('control')->andReturn((object) ['reset_state' => 'COMPLETE']);
+        $guard->shouldReceive('event')->andReturnNull();
+        $this->app->instance(ReplenishmentGuard::class, $guard);
+        foreach ([PalletUnitService::class, ShippingQuantityService::class] as $class) {
+            $binding = Mockery::mock($class);
+            $binding->shouldReceive('binding')->andReturnNull();
+            $this->app->instance($class, $binding);
+        }
+    }
+
+    private function recommendation(array $values): array
+    {
+        return ['available' => true, 'values' => $values + ['strategy_key' => 'arrival_adaptive_v1'], 'basis' => $this->basis + ['suggested_values' => $values]];
+    }
+
+    public function test_only_recommendation_based_adaptive_policies_without_manual_edits_are_refreshed(): void
+    {
+        $service = new RecommendationRefreshService(Mockery::mock(SettingsRecommendationService::class), Mockery::mock(PolicyService::class), app(ReplenishmentGuard::class));
+        self::assertSame([1, 2, 3], $service->candidates(6)->all());
+        self::assertSame([], $service->candidates(6, 99)->all());
+    }
+
+    public function test_changes_within_the_guard_are_saved_with_the_saved_conditions_and_larger_ones_are_held(): void
+    {
+        $recommendations = Mockery::mock(SettingsRecommendationService::class);
+        $recommendations->shouldReceive('recommend')->with(6, 2, Mockery::on(fn ($form) => $form['item_id'] === 101 && $form['shipping_unit_mode'] === 'STANDARD' && ! array_key_exists('calculation_basis', $form)),
+            ['unit_mode' => 'PIECE', 'review_days' => 7, 'safety_stock_days' => 5, 'existing_reorder_point' => 100])
+            ->once()->andReturn($this->recommendation(['reorder_point_pieces' => 130, 'target_stock_pieces' => 190, 'min_order_pieces' => 24, 'max_order_pieces' => 72, 'order_multiple_pieces' => 24]));
+        $recommendations->shouldReceive('recommend')->with(6, 2, Mockery::on(fn ($form) => $form['item_id'] === 102), Mockery::any())
+            ->once()->andReturn($this->recommendation(['reorder_point_pieces' => 100, 'target_stock_pieces' => 400, 'min_order_pieces' => 24, 'max_order_pieces' => 72, 'order_multiple_pieces' => 24]));
+        $recommendations->shouldReceive('recommend')->with(6, 2, Mockery::on(fn ($form) => $form['item_id'] === 103), Mockery::any())
+            ->once()->andReturn($this->recommendation(['reorder_point_pieces' => 100, 'target_stock_pieces' => 150, 'min_order_pieces' => 24, 'max_order_pieces' => 72, 'order_multiple_pieces' => 24]));
+        $policies = Mockery::mock(PolicyService::class);
+        $policies->shouldReceive('saveWithState')->once()
+            ->with(6, 2, Mockery::on(fn ($data) => $data['item_id'] === 101 && $data['reorder_point_pieces'] === 130 && $data['target_stock_pieces'] === 190 && $data['version'] === 3), false, 42, Mockery::type('array'))
+            ->andReturn(new WmsItemReorderPolicy(['version' => 4]));
+        $service = new RecommendationRefreshService($recommendations, $policies, app(ReplenishmentGuard::class));
+        $result = $service->refresh(6, null, 2.0, 42, true);
+        self::assertSame(['UPDATED' => 1, 'UNCHANGED' => 1, 'HELD' => 1, 'UNAVAILABLE' => 0, 'ERROR' => 0], $result['summary']);
+        self::assertSame(['reorder_point_pieces' => ['from' => 100, 'to' => 130], 'target_stock_pieces' => ['from' => 150, 'to' => 190]], $result['rows'][0]['changes']);
+        self::assertSame(4, $result['rows'][0]['version']);
+        self::assertStringContainsString('×2.67', $result['rows'][1]['reason']);
+        self::assertSame('UNCHANGED', $result['rows'][2]['outcome']);
+    }
+
+    public function test_dry_run_never_saves_and_errors_are_reported_per_policy(): void
+    {
+        $recommendations = Mockery::mock(SettingsRecommendationService::class);
+        $recommendations->shouldReceive('recommend')->with(6, 2, Mockery::on(fn ($form) => $form['item_id'] === 101), Mockery::any())
+            ->andReturn($this->recommendation(['reorder_point_pieces' => 110, 'target_stock_pieces' => 160, 'min_order_pieces' => 24, 'max_order_pieces' => 72, 'order_multiple_pieces' => 24]));
+        $recommendations->shouldReceive('recommend')->with(6, 2, Mockery::on(fn ($form) => $form['item_id'] === 102), Mockery::any())
+            ->andThrow(new \RuntimeException('商品または選択倉庫が無効です。'));
+        $recommendations->shouldReceive('recommend')->with(6, 2, Mockery::on(fn ($form) => $form['item_id'] === 103), Mockery::any())
+            ->andReturn(['available' => false, 'values' => [], 'basis' => ['reason' => '需要の観測日数が不足しています。']]);
+        $policies = Mockery::mock(PolicyService::class);
+        $policies->shouldNotReceive('saveWithState');
+        $service = new RecommendationRefreshService($recommendations, $policies, app(ReplenishmentGuard::class));
+        $result = $service->refresh(6, 2, 2.0, 42, false);
+        self::assertSame(['UPDATED' => 1, 'UNCHANGED' => 0, 'HELD' => 0, 'UNAVAILABLE' => 1, 'ERROR' => 1], $result['summary']);
+        self::assertSame('商品または選択倉庫が無効です。', $result['rows'][1]['reason']);
+        self::assertSame('需要の観測日数が不足しています。', $result['rows'][2]['reason']);
+        $this->expectException(\RuntimeException::class);
+        $service->refresh(6, null, 20.0, 42, false);
+    }
+}

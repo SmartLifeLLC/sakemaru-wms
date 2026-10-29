@@ -7,9 +7,9 @@ use Carbon\Carbon;
 /** Chart adapter for the same arrival calendar used by recommendations and execution. */
 class InventoryProjectionCalendar
 {
-    public function read(int $warehouse, int $contractor, string $channel, string $date, array $config): array
+    public function read(int $warehouse, int $contractor, string $channel, string $date, array $config, int $lookahead = RecommendationArrivalSchedule::LOOKAHEAD_DAYS): array
     {
-        $schedule = app(RecommendationArrivalSchedule::class)->calculate($warehouse, $contractor, $channel, $date, $config);
+        $schedule = app(RecommendationArrivalSchedule::class)->calculate($warehouse, $contractor, $channel, $date, $config, $lookahead);
 
         $delivery = app(ArrivalCalendar::class)->deliveryDays($contractor, $warehouse);
         $delivery['reference_assumed'] = $channel === 'FAX' && $delivery['weekdays'] === [];
