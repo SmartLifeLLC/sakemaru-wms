@@ -66,6 +66,30 @@ class DemandEventBacktestTest extends TestCase
         self::assertSame(['物流発注の出荷候補・パレット制約', '再生開始時点の既発注・入荷予定', '連携出庫実績（売上基準で算定）'], $legacy['conditions']['not_reproduced']);
     }
 
+    /** A series whose recommendation can never be computed (too little history) yields no error figure and NO_DATA, never a 0% PASS. */
+    public function test_series_without_a_computable_recommendation_give_no_data_instead_of_a_zero_error_pass(): void
+    {
+        $calendar = app(DemandEventCalendar::class);
+        $instance = $calendar->normalize([['type' => 'YEAR_END', 'start' => '2025-12-20', 'end' => '2026-01-07']])[0];
+        $upcoming = $calendar->normalize([['type' => 'YEAR_END', 'start' => '2026-12-20', 'end' => '2027-01-07']])[0];
+        $positions = ['12-30' => ['factor' => 3.0, 'factor_weekday' => 3.0]];
+        $demand = [];
+        for ($d = CarbonImmutable::parse('2025-07-01'); $d->lte(CarbonImmutable::parse('2026-02-15')); $d = $d->addDay()) {
+            $demand[$d->toDateString()] = null; // unobserved everywhere …
+        }
+        foreach (['2025-12-24', '2025-12-25', '2025-12-26'] as $date) {
+            $demand[$date] = 30; // … except three event days: demand exists, but no level can be computed
+        }
+        $series = ['client_id' => 6, 'warehouse_id' => 2, 'item_id' => 1, 'item_code' => '1', 'capacity_case' => 1, 'item_category3_id' => null, 'applied_types' => ['YEAR_END']];
+        $result = $this->backtest($instance, $positions)->run(6, $upcoming, [$series], [2 => [1 => $demand]], '2026-10-30', 1, ReplayCalendar::simple(2));
+        self::assertGreaterThan(0, $result['pooled']['base']['demand']);
+        self::assertSame(0, $result['pooled']['base']['forecast_days']);
+        self::assertNull($result['pooled']['base']['wape']);
+        self::assertSame('NO_DATA', $result['verdict']);
+        self::assertStringContainsString('算定できた系列がありません', $result['reason']);
+        self::assertNotEmpty($result['conditions']['unavailable']);
+    }
+
     public function test_category_factors_are_dropped_by_the_calculator_unless_the_fallback_is_on(): void
     {
         $daily = [];

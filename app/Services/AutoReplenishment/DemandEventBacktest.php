@@ -80,6 +80,7 @@ class DemandEventBacktest
         $calendars = ['scheduled' => 0, 'simple' => 0];
         $withConditions = 0;
         $appliedCount = 0;
+        $unavailable = []; // reason => number of series×instances whose recommendation never became available
         foreach ($instances as $instance) {
             // Leave-one-out: the factors come from data before this instance's adjusted period; the replay's level comes from the 90 days before each recalculation.
             $through = CarbonImmutable::parse($instance['start'])->subDays($instance['pre_days'] + 1)->toDateString();
@@ -123,6 +124,9 @@ class DemandEventBacktest
                 $runs = ['base' => $this->engine->run($series, $scenario, $seriesCalendar),
                     'event' => $this->engine->run($series, array_replace($scenario, ['name' => 'eventA', 'events' => [$instance], 'factors' => $factors]), $seriesCalendar)];
                 $used[$scope]++;
+                if (! array_filter($runs['base']['recalcs'], fn ($r) => $r['available'])) {
+                    $unavailable[$runs['base']['recalcs'][0]['reason'] ?? '算定不可'] = ($unavailable[$runs['base']['recalcs'][0]['reason'] ?? '算定不可'] ?? 0) + 1;
+                }
                 $calendars[$seriesCalendar->isScheduled() ? 'scheduled' : 'simple']++;
                 $withConditions += is_array($series['saved_policy']['calculation_basis'] ?? null) ? 1 : 0;
                 $key = $series['warehouse_id'].'|'.$series['item_id'];
@@ -152,7 +156,8 @@ class DemandEventBacktest
         $result['series'] = $this->compareSeries(array_filter($perSeries, fn ($r) => $r['applied']));
         $result['candidate'] = ['pooled' => ['base' => $this->finishWindows($totals['candidate']['base']), 'event' => $this->finishWindows($totals['candidate']['event'])],
             'series' => $this->compareSeries(array_filter($perSeries, fn ($r) => ! $r['applied']))];
-        $result['conditions'] = ['calendars' => $calendars, 'series_with_saved_conditions' => $withConditions, 'applied_series' => $appliedCount,
+        arsort($unavailable);
+        $result['conditions'] = ['calendars' => $calendars, 'series_with_saved_conditions' => $withConditions, 'applied_series' => $appliedCount, 'unavailable' => array_slice($unavailable, 0, 5, true),
             'pre_window_days' => self::PRE_WINDOW_DAYS, 'post_window_days' => self::POST_WINDOW_DAYS, 'quantity_rule' => '週次更新と同じ（全数量を再計算し変化幅×2のガード）', 'not_reproduced' => self::NOT_REPRODUCED];
         if ($appliedCount === 0) {
             $result['verdict'] = 'NO_DATA';
@@ -226,9 +231,10 @@ class DemandEventBacktest
 
     private function finish(array $acc): array
     {
-        return ['demand' => $acc['demand'], 'days' => $acc['days'],
-            'wape' => $acc['demand'] > 0 ? round($acc['abs_error'] / $acc['demand'], 4) : null,
-            'bias' => $acc['demand'] > 0 ? round($acc['error'] / $acc['demand'], 4) : null,
+        // No forecast on any scored day (the recommendation could not be computed for the series) → no error figure, never a 0% one.
+        return ['demand' => $acc['demand'], 'days' => $acc['days'], 'forecast_days' => $acc['forecast_days'],
+            'wape' => $acc['demand'] > 0 && $acc['forecast_days'] > 0 ? round($acc['abs_error'] / $acc['demand'], 4) : null,
+            'bias' => $acc['demand'] > 0 && $acc['forecast_days'] > 0 ? round($acc['error'] / $acc['demand'], 4) : null,
             'stockout_rate' => $acc['demand'] > 0 ? round($acc['unmet'] / $acc['demand'], 4) : null,
             'unmet' => $acc['unmet'], 'mean_stock' => $acc['days'] ? round($acc['stock_sum'] / $acc['days'], 1) : null];
     }
@@ -294,8 +300,11 @@ class DemandEventBacktest
     {
         $base = $pooled['base'];
         $event = $pooled['event'];
-        if ($base['demand'] <= 0 || $event['wape'] === null || $base['wape'] === null) {
+        if ($base['demand'] <= 0) {
             return ['NO_DATA', '過去のイベント日に実績がありません。'];
+        }
+        if ($event['wape'] === null || $base['wape'] === null) {
+            return ['NO_DATA', '過去実例の再生でおすすめ設定を算定できた系列がありません（実績期間・入荷予定の条件を確認してください）。'];
         }
         $summary = sprintf('本体：予測誤差 %.1f%%→%.1f%%、欠品率 %.2f%%→%.2f%%、平均在庫 %s→%s', $base['wape'] * 100, $event['wape'] * 100, $base['stockout_rate'] * 100, $event['stockout_rate'] * 100, $base['mean_stock'], $event['mean_stock']);
         $pre = ['base' => $base['windows']['pre'], 'event' => $event['windows']['pre']];

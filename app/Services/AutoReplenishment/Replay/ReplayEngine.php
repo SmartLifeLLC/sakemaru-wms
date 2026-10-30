@@ -145,11 +145,13 @@ final class ReplayEngine
             }
             $capacity = (int) ($series['capacity_case'] ?? 0);
             // Conditions: the scenario's, or — like the weekly refresh — the ones the operator saved with the product (unit mode, review days, safety days).
-            $savedBasis = ! empty($scenario['saved_conditions']) && is_array($series['saved_policy']['calculation_basis'] ?? null) ? $series['saved_policy']['calculation_basis'] : null;
+            // Only a basis saved by the recommendation (it carries safety_stock_days) counts as saved conditions — the same rule the weekly refresh uses to pick its candidates.
+            $savedBasis = ! empty($scenario['saved_conditions']) && is_array($series['saved_policy']['calculation_basis'] ?? null) && isset($series['saved_policy']['calculation_basis']['safety_stock_days'])
+                ? $series['saved_policy']['calculation_basis'] : null;
             $requestedUnit = $savedBasis ? (($savedBasis['unit_mode'] ?? 'AUTO') === 'PALLET' ? 'AUTO' : ($savedBasis['unit_mode'] ?? 'AUTO')) : ($scenario['unit_mode'] ?? 'CASE');
             $unitMode = $requestedUnit === 'PIECE' || $capacity <= 0 ? 'PIECE' : $requestedUnit;
             $reviewDays = $savedBasis ? (int) ($savedBasis['review_days'] ?? 7) : (int) ($scenario['review_days'] ?? 7);
-            $safetyDays = $savedBasis ? ($savedBasis['safety_stock_days'] ?? null) : ($scenario['safety_stock_days'] ?? 5);
+            $safetyDays = $savedBasis ? $savedBasis['safety_stock_days'] : ($scenario['safety_stock_days'] ?? 5);
             // Production definition (execution times included for scheduled calendars), never below the observed generation gaps.
             $reviewInterval = $calendar->reviewInterval();
             $generation = array_column($schedule['opportunities'], 'generation_date');
