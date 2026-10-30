@@ -556,11 +556,15 @@ abstract class AutoReplenishmentPage extends AdminPage
         try {
             // First time for this product: learn its event factors from its own past sales (progress streamed), so the
             // operator can set the events on this screen without a separate step. Failure to learn only means weekday-only.
-            if (($this->eventInfo['installed'] ?? false) && ! ($this->eventInfo['has_profiles'] ?? false) && (int) ($this->form['item_id'] ?? 0) > 0) {
-                try {
-                    $this->learnProductEventsNow($client);
-                } catch (\RuntimeException $e) {
-                    $this->stream(to: 'eventProgress', content: e($e->getMessage()).'<br>', replace: false);
+            if (($this->eventInfo['installed'] ?? false) && (int) ($this->form['item_id'] ?? 0) > 0) {
+                // Decided from the database, not from the component state, so a stale editor never re-learns a product that already has factors.
+                $this->eventInfo = app(\App\Services\AutoReplenishment\ItemDemandEventService::class)->productSetup($client, (int) $this->form['item_id']);
+                if (! ($this->eventInfo['has_profiles'] ?? false)) {
+                    try {
+                        $this->learnProductEventsNow($client);
+                    } catch (\RuntimeException $e) {
+                        $this->stream(to: 'eventProgress', content: e($e->getMessage()).'<br>', replace: false);
+                    }
                 }
             }
             $options = ['unit_mode' => $this->recommendationUnitMode, 'review_days' => $this->recommendationReviewDays,
