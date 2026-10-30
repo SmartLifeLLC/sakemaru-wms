@@ -1042,6 +1042,56 @@ class TransferSupplyReaderTest extends TestCase
         self::assertSame(0, $r['incoming_today']);
     }
 
+    public function test_overdue_actual_transfer_without_schedule_is_plotted_once_and_matches_batch(): void
+    {
+        $this->transfer(1, ['delivered_date' => '2026-10-16']);
+        $this->receipt(24);
+        $supply = (new TransferSupplyReader)->read(6, 1, [143024], [1], includeDates: true, availabilityDate: '2026-10-19')[143024];
+        self::assertSame(744, $supply['incoming']);
+        self::assertSame(744, $supply['incoming_today']);
+        self::assertSame([['source' => 'transfer', 'date' => '2026-10-19', 'pieces' => 744]], $supply['supply_events']);
+        $policy = array_replace(InventoryProjectionTest::policy(), ['reorder_point_pieces' => 1500,
+            'target_stock_pieces' => 2000, 'min_order_pieces' => 24, 'max_order_pieces' => 768, 'order_multiple_pieces' => 24]);
+        $input = InventoryProjectionTest::inputs();
+        $input['snapshot'] = array_replace($input['snapshot'], $supply, ['packing_unit' => 24, 'capacity_case' => 24]);
+        $graph = app(\App\Services\AutoReplenishment\InventoryProjection::class)->calculate($policy, $input);
+        $snapshot = $input['snapshot'] + ['arrival_date' => '2026-10-21', 'next_arrival_date' => '2026-10-22',
+            'route_snapshot' => ['effective_picking_lead_days' => 1]];
+        $batch = app(\App\Services\AutoReplenishment\StrategyCalculator::class)->calculate($policy, $snapshot);
+        $reader = Mockery::mock(SnapshotReader::class);
+        $reader->shouldReceive('readForSimulation')->andReturn($snapshot);
+        $simulation = (new PolicySimulationService($reader, new ProposalSafety, new LogisticsPickingDate))
+            ->simulate(new WmsItemReorderPolicy($policy));
+        self::assertSame(834, $graph['days'][0]['after_receipt']);
+        self::assertSame(0, $graph['days'][0]['pending_at_decision']);
+        self::assertSame(744, array_sum(array_column($graph['days'], 'existing_receipt')));
+        self::assertSame($batch['quantity'], $graph['days'][0]['ordered']);
+        self::assertSame($batch['formula'], $graph['days'][0]['formula']);
+        self::assertSame($batch['quantity'], $simulation['quantity_pieces']);
+        self::assertSame($batch['phase'], $simulation['phase']);
+        self::assertSame(0, (int) DB::connection('sakemaru')->table('stock_transfers')->value('is_delivered'));
+        self::assertSame(24, (int) DB::connection('sakemaru')->table('stock_transfer_lot_allocations')->sum('quantity'));
+
+        // Receipt completion moves the same pieces into stock, never into stock AND supply.
+        $this->receipt(744, 2);
+        $received = (new TransferSupplyReader)->read(6, 1, [143024], [1], includeDates: true, availabilityDate: '2026-10-19')[143024];
+        self::assertSame(0, $received['incoming']);
+        $input['snapshot'] = array_replace($input['snapshot'], $received, ['stock' => 834]);
+        $after = app(\App\Services\AutoReplenishment\InventoryProjection::class)->calculate($policy, $input);
+        self::assertSame(array_column($graph['days'], 'stock'), array_column($after['days'], 'stock'));
+        self::assertSame($graph['orders'], $after['orders']);
+    }
+
+    public function test_undated_actual_transfer_is_included_but_unexecuted_candidate_is_not_received(): void
+    {
+        $this->transfer();
+        $this->candidate(2, ['status' => 'PENDING']);
+        $r = (new TransferSupplyReader)->read(6, 1, [143024], [1], includeDates: true, availabilityDate: '2026-10-19')[143024];
+        self::assertSame(768, $r['incoming_today']);
+        self::assertSame(768, $r['claims']);
+        self::assertSame([['source' => 'transfer', 'date' => '2026-10-19', 'pieces' => 768]], $r['supply_events']);
+    }
+
     public function test_partial_external_receipt_counts_only_today_remainder_and_preserves_real_stock(): void
     {
         $this->schedule(1, ['order_source' => 'MANUAL', 'expected_quantity' => 50, 'received_quantity' => 10,

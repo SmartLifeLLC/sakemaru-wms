@@ -141,11 +141,12 @@ class TransferSupplyReader
             }
             $actual[$transfer->id] = ['transfer' => $transfer, 'lines' => $itemLines, 'valid' => $valid, 'total' => $total, 'applied' => $applied];
             $incoming += $total - $applied;
-            if ($total > $applied && $availability->isToday($transfer->delivered_date ?? null, $availabilityDate)) {
+            $arrivalDate = $availability->transferDate($transfer->delivered_date ?? null, $availabilityDate);
+            if ($total > $applied && $availability->isToday($arrivalDate, $availabilityDate)) {
                 $incomingToday += $total - $applied;
             }
             if ($includeDates && $total > $applied) {
-                $events[] = ['source' => 'transfer', 'date' => $transfer->delivered_date ?? null, 'pieces' => $total - $applied];
+                $events[] = ['source' => 'transfer', 'date' => $arrivalDate, 'pieces' => $total - $applied];
             }
         }
         $effectsByCandidate = $effects->keyBy('source_id');

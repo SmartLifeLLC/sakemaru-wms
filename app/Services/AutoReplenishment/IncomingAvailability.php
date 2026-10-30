@@ -7,6 +7,17 @@ use Carbon\CarbonImmutable;
 /** Calculation only: expected receipts never update real stock or receipt records. */
 final class IncomingAvailability
 {
+    /** Actual transfer remainder is expected supply even without a confirmed arrival schedule. */
+    public function transferDate(?string $date, ?string $businessDate): ?string
+    {
+        if ($businessDate === null) {
+            return $date;
+        }
+        $arrival = CarbonImmutable::parse($date === null || $date < $businessDate ? $businessDate : $date);
+
+        return ($arrival->isSunday() ? $arrival->addDay() : $arrival)->toDateString();
+    }
+
     public function isToday(?string $date, ?string $businessDate): bool
     {
         return $businessDate !== null && $date === $businessDate && ! CarbonImmutable::parse($businessDate)->isSunday();
