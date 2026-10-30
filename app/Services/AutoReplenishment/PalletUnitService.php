@@ -141,11 +141,17 @@ class PalletUnitService
             && (int) $row->version === (int) $row->pallet_version && (int) $row->pieces_per_pallet === (int) $row->bound_pieces,
             \RuntimeException::class, 'パレット入数が変更・削除されています。商品設定を開き直して再保存してください。');
         $this->assertCapacity($row, $capacity);
-        throw_unless((int) $policy['order_multiple_pieces'] === (int) $row->pieces_per_pallet
-            && (int) $policy['min_order_pieces'] % (int) $row->pieces_per_pallet === 0,
-            \RuntimeException::class, '商品の数量条件がパレット入数と一致しません。おすすめ設定を再計算してください。');
+        $this->assertPolicyMatches($policy, (int) $row->pieces_per_pallet);
 
         return ['mode' => 'PALLET', 'id' => (int) $row->id, 'version' => (int) $row->version, 'pieces_per_pallet' => (int) $row->pieces_per_pallet];
+    }
+
+    /** The saved quantity conditions must be expressed in whole pallets (same rule for the daily run and the past replay). */
+    public function assertPolicyMatches(array $policy, int $piecesPerPallet): void
+    {
+        throw_unless($piecesPerPallet > 0 && (int) ($policy['order_multiple_pieces'] ?? 0) === $piecesPerPallet
+            && (int) ($policy['min_order_pieces'] ?? 0) % $piecesPerPallet === 0,
+            \RuntimeException::class, '商品の数量条件がパレット入数と一致しません。おすすめ設定を再計算してください。');
     }
 
     public function assertCapacity(object $master, int $capacity): void

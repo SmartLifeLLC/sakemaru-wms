@@ -10,7 +10,7 @@ use Tests\TestCase;
 /** End-to-end run of the replay command on SQLite fixtures: reads only, writes CSV/JSON files. */
 class ReplayCommandTest extends TestCase
 {
-    private string $out;
+    protected string $out;
 
     protected function setUp(): void
     {
@@ -20,7 +20,7 @@ class ReplayCommandTest extends TestCase
         $db = DB::connection('sakemaru');
         $db->statement('CREATE TABLE warehouses (id INTEGER, client_id INTEGER, code INTEGER, name TEXT, is_active INTEGER, is_virtual INTEGER)');
         $db->statement('CREATE TABLE items (id INTEGER, client_id INTEGER, code INTEGER, name TEXT, capacity_case INTEGER, item_category3_id INTEGER)');
-        $db->statement('CREATE TABLE wms_item_reorder_policies (id INTEGER PRIMARY KEY, client_id INTEGER, warehouse_id INTEGER, item_id INTEGER, contractor_id INTEGER)');
+        $db->statement('CREATE TABLE wms_item_reorder_policies (id INTEGER PRIMARY KEY, client_id INTEGER, warehouse_id INTEGER, item_id INTEGER, contractor_id INTEGER, supplier_id INTEGER, source_warehouse_id INTEGER, delivery_course_id INTEGER, order_unit_mode TEXT, channel TEXT, strategy_key TEXT, is_configured INTEGER, reorder_point_pieces INTEGER, target_stock_pieces INTEGER, min_order_pieces INTEGER, max_order_pieces INTEGER, order_multiple_pieces INTEGER, calculation_basis TEXT)');
         $db->statement('CREATE TABLE stats_item_warehouse_daily_sales (business_date TEXT, warehouse_id INTEGER, item_id INTEGER, sales_piece_qty INTEGER)');
         $db->statement('CREATE TABLE stats_sales_csv_item_lines (id INTEGER PRIMARY KEY, client_id INTEGER, run_id INTEGER, period_type TEXT, source_system TEXT, business_date TEXT, warehouse_id INTEGER, item_id INTEGER, sales_quantity REAL)');
         $db->statement('CREATE TABLE wms_national_holidays (id INTEGER PRIMARY KEY, holiday_date TEXT, holiday_name TEXT, created_at TEXT, updated_at TEXT)');
@@ -61,7 +61,7 @@ class ReplayCommandTest extends TestCase
         $db = DB::connection('sakemaru');
         $db->enableQueryLog();
         $code = Artisan::call('wms:replay-replenishment', ['client' => 6, '--from' => '2025-10-06', '--to' => '2026-01-20', '--scenarios' => 'fixed,base,eventA',
-            '--extra-items' => 1, '--lead' => 2, '--out' => $this->out, '--warmup' => 14]);
+            '--extra-items' => 1, '--lead' => 2, '--out' => $this->out, '--warmup' => 14, '--inputs' => 'sales']); // the fixture has sales only; production inputs are covered by ReplayConditionsProviderTest
         $output = Artisan::output();
         self::assertSame(0, $code, $output);
         foreach ($db->getQueryLog() as $query) {

@@ -205,10 +205,14 @@ class ReplayEngineTest extends TestCase
         self::assertSame(1, $a['recalcs'][0]['values']['order_multiple_pieces']); // PIECE as saved, not CASE (24)
         self::assertSame(24, $b['recalcs'][0]['values']['order_multiple_pieces']);
         self::assertNotSame($a['recalcs'][0]['values']['target_stock_pieces'], $b['recalcs'][0]['values']['target_stock_pieces']); // 14-day review vs 7
-        // A product saved as PALLET falls back to AUTO, as the refresh does.
+        // A product saved as PALLET is not silently read back as AUTO when no route conditions are given: the calculator reports the
+        // production unavailability (the pallet pieces are unknown) instead of computing a case-based setting.
         $pallet = $withBasis;
         $pallet['saved_policy']['calculation_basis']['unit_mode'] = 'PALLET';
-        self::assertSame('AUTO', app(ReplayEngine::class)->run($pallet, $scenario, ReplayCalendar::simple(2))['recalcs'][0]['saved_conditions']['unit_mode']);
+        $recalc = app(ReplayEngine::class)->run($pallet, $scenario, ReplayCalendar::simple(2))['recalcs'][0];
+        self::assertSame('PALLET', $recalc['saved_conditions']['unit_mode']);
+        self::assertSame('UNAVAILABLE', $recalc['outcome']);
+        self::assertStringContainsString('パレット入数', $recalc['reason']);
     }
 
     public function test_saved_mode_uses_the_production_setting_or_skips_the_series(): void

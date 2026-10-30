@@ -143,6 +143,36 @@ class DemandEventForecastTest extends TestCase
         }
     }
 
+    public function test_factor_identity_is_storage_order_independent_and_includes_the_blend_weight(): void
+    {
+        $profile = $this->profile();
+        $events = [['type' => 'YEAR_END', 'start' => '2026-12-20', 'end' => '2027-01-05']];
+        $a = ['item' => ['YEAR_END' => ['pieces' => 10.0, 'trained_through' => '2026-01-08', 'instance_count' => 3, 'positions' => ['12-31' => ['factor' => 3.0, 'factor_weekday' => 2.5], '01-03' => ['factor' => 0.5]]]],
+            'category' => ['YEAR_END' => ['pieces' => 5000.0, 'positions' => ['12-31' => ['factor' => 2.0, 'factor_weekday' => 2.0]]]]];
+        // Same content, every level in another key order (as a JSON round trip may store it).
+        $b = ['category' => ['YEAR_END' => ['positions' => ['12-31' => ['factor_weekday' => 2.0, 'factor' => 2.0]], 'pieces' => 5000.0]],
+            'item' => ['YEAR_END' => ['positions' => ['01-03' => ['factor' => 0.5], '12-31' => ['factor_weekday' => 2.5, 'factor' => 3.0]], 'instance_count' => 3, 'trained_through' => '2026-01-08', 'pieces' => 10.0]]];
+        $forecast = app(DemandEventForecast::class);
+        $identityA = $forecast->attach($profile, $events, $a)['event_forecast']['events'][0]['factors'];
+        $identityB = $forecast->attach($profile, $events, $b)['event_forecast']['events'][0]['factors'];
+        self::assertSame(json_encode(DemandEventForecast::canonical($identityA)), json_encode(DemandEventForecast::canonical($identityB)));
+        self::assertSame(['category', 'item'], array_keys(DemandEventForecast::canonical($identityA)));
+        self::assertSame(10.0, $identityA['item']['YEAR_END']['pieces']);
+        self::assertSame('2026-01-08', $identityA['item']['YEAR_END']['trained_through']);
+        // The item pieces weight the blend with the category factor: more pieces → a different forecast → a different identity (same positions).
+        $c = $a;
+        $c['item']['YEAR_END']['pieces'] = 1000.0;
+        $withMore = $forecast->attach($profile, $events, $c)['event_forecast'];
+        self::assertNotEquals($forecast->attach($profile, $events, $a)['event_forecast']['days']['2026-12-31'], $withMore['days']['2026-12-31']);
+        self::assertNotSame(json_encode(DemandEventForecast::canonical($identityA)), json_encode(DemandEventForecast::canonical($withMore['events'][0]['factors'])));
+        self::assertSame($identityA['item']['YEAR_END']['positions_digest'], $withMore['events'][0]['factors']['item']['YEAR_END']['positions_digest']);
+        // A changed factor (2× → 3×) changes the digest.
+        $d = $a;
+        $d['item']['YEAR_END']['positions']['12-31']['factor'] = 2.0;
+        self::assertNotSame($identityA['item']['YEAR_END']['positions_digest'], $forecast->attach($profile, $events, $d)['event_forecast']['events'][0]['factors']['item']['YEAR_END']['positions_digest']);
+        self::assertSame(\App\Services\AutoReplenishment\DemandEventLearner::MODEL_VERSION, $withMore['model_version']);
+    }
+
     public function test_small_products_shrink_toward_the_category_factor(): void
     {
         $forecast = app(DemandEventForecast::class);

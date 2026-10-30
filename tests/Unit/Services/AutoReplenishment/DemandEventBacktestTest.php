@@ -63,7 +63,10 @@ class DemandEventBacktestTest extends TestCase
         // Series without the key (CLI / older callers) count as applied.
         $legacy = $backtest->run(6, $upcoming, [array_diff_key($series(1, []), ['applied_types' => 1])], [2 => [1 => $demand]], '2026-10-30', 1, $calendarSimple);
         self::assertSame('PASS', $legacy['verdict']);
-        self::assertSame(['物流発注の出荷候補・パレット制約', '再生開始時点の既発注・入荷予定', '連携出庫実績（売上基準で算定）'], $legacy['conditions']['not_reproduced']);
+        // Without a conditions provider the result states both what sales-only replay lacks and what no replay reproduces.
+        self::assertSame('sales', $legacy['conditions']['inputs']);
+        self::assertSame(array_merge(DemandEventBacktest::NOT_REPRODUCED_WITHOUT_INPUTS, DemandEventBacktest::NOT_REPRODUCED), $legacy['conditions']['not_reproduced']);
+        self::assertContains('物流発注の出荷候補・パレット制約', $legacy['conditions']['not_reproduced']);
     }
 
     /** A series whose recommendation can never be computed (too little history) yields no error figure and NO_DATA, never a 0% PASS. */
