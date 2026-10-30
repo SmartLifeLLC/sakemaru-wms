@@ -338,9 +338,6 @@ final class SettingsRecommendationCalculator
             if ($target > $originalTarget) {
                 $warnings[] = '入荷間隔を考慮して補充目標を'.($target - $originalTarget).'バラ増やしました。';
             }
-            if ($point > $target) {
-                $warnings[] = '入荷までの出荷見込が通常量より多いため、現在庫で判定する発注点は入荷時の補充目標より大きくなります。';
-            }
         }
         if (max($point, $target, $cap, $min, $unit) > 2147483647) {
             return $fail('算定数量が保存できる上限を超えています。管理者に確認してください。');
@@ -368,6 +365,18 @@ final class SettingsRecommendationCalculator
         if ($cap * count($weekdays) * count($values) < array_sum($values) * 7) {
             return $fail("最大発注数 {$cap}バラ × 週".count($weekdays).'回では、週平均 '.round($mean * 7, 1).'バラの需要を補えません。倉庫の実行曜日を増やして再計算するか、商品の数量条件を手入力で見直してください。', $basis);
         }
+        try {
+            $gap = (new ReorderPointGap)->calculate($point, $target, $mean, $min, $unit, $packing,
+                ($c['options']['unit_mode'] ?? '') === 'PALLET' ? $unit : 0, $registered, $cap);
+        } catch (\RuntimeException $e) {
+            return $fail($e->getMessage(), $basis);
+        }
+        $point = $gap['point'];
+        $basis += $gap['basis'];
+        if ($basis['reorder_point_gap_reduction'] > 0) {
+            $basis['reorder_point_preserved'] = false;
+            $warnings[] = '過剰在庫線を維持し、最低ギャップを確保するため発注点を'.$basis['reorder_point_gap_reduction'].'バラ下げました。在庫推移で安全在庫・欠品見込みを確認してください。';
+        }
         $steps = [
             '発注連携実績：この倉庫 '.($c['own_count'] ?? 0).'回 / 全倉庫 '.($c['pool_count'] ?? 0).'回',
             $useSales && $registered !== null ? '売上からの通常量：1日平均 '.round($mean, 2)." × {$reviewDays}日分".($reviewUplift > 0.5 ? '（イベント上乗せ '.round($reviewUplift).'バラを含む）' : '')."の範囲で登録候補 {$normal}バラを選択"
@@ -378,7 +387,7 @@ final class SettingsRecommendationCalculator
                     : "最小発注数：実績の最小 {$min}バラ / 最大発注数：実績の最大 {$cap}バラ（{$counts[$cap]}回）"),
             "発注単位：{$unit}バラ（出力単位 {$packing} を含む）",
             "需要保護期間：入荷まで {$lead}日 ＋ 次の実行まで最大 {$reviewInterval}日 ＝ {$protection}日",
-            "発注点：大きい方（連続{$protection}日需要P95 {$p95}、日平均 ".round($mean, 2)." × {$protection}）を総バラで切上げ ＝ {$point}",
+            "発注点：大きい方（連続{$protection}日需要P95 {$p95}、日平均 ".round($mean, 2)." × {$protection}）を総バラで切上げ ＝ {$basis['reorder_point_before_gap']}（最低ギャップ調整前）",
             "補充目標：大きい方（通常量・実行間隔からの目標 {$originalTarget}、入荷間隔 {$arrivalGap}日分の曜日別需要の最大 {$arrivalGapDemand} ＋ 最小発注数 {$min}） ＝ {$target}バラ",
             '入荷までの出荷見込・既発注を考慮し、補充目標までの不足を最大発注数内で補います。目標内で最小数・単位を満たせない場合は見送ります。',
         ];
@@ -393,9 +402,10 @@ final class SettingsRecommendationCalculator
             array_splice($steps, 4, 3, [
                 '安全在庫：1日平均 '.round($mean, 2)." × {$safetyDays}日".implode('', $extras)."を出力単位 {$packing} で切上げ ＝ {$buffer}バラ",
                 "補充目標：安全在庫 {$buffer} ＋ 通常量 {$normal}（入荷間隔の補正を含む）＝ {$target}バラ",
-                "発注点：入荷まで{$lead}日分の".(isset($profile['event_forecast']) ? '日付別' : '曜日別')."消費の最大値を考慮して {$point}バラ。通常量を発注するかは実際の入荷日で再判定",
+                "発注点：入荷まで{$lead}日分の".(isset($profile['event_forecast']) ? '日付別' : '曜日別')."消費の最大値を考慮して {$basis['reorder_point_before_gap']}バラ（最低ギャップ調整前）。通常量を発注するかは実際の入荷日で再判定",
             ]);
         }
+        $steps[] = '最低ギャップ：平均消費2日分 '.$basis['reorder_gap_demand_pieces'].'、発注可能な最小数量 '.$basis['reorder_gap_minimum_pieces'].'、パレット最小 '.$basis['reorder_gap_pallet_pieces'].'バラの最大値を出力単位で切上げ ＝ '.$basis['reorder_gap_required_pieces'].'バラ。過剰在庫線 '.$target.'は維持し、発注点 '.$basis['reorder_point_before_gap'].' → '.$point.'バラ（差 '.$basis['reorder_gap_actual_pieces'].'バラ）。';
         $values = ['reorder_point_pieces' => $point, 'target_stock_pieces' => $target, 'min_order_pieces' => $min,
             'order_multiple_pieces' => $unit, 'max_order_pieces' => $cap, 'strategy_key' => 'arrival_adaptive_v1'];
 
