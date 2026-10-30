@@ -178,7 +178,7 @@ class ReplayConditionsTest extends TestCase
         }
         // A saved maximum below one pallet: the daily calculation holds with the production reason and orders nothing (no rounding below the pallet).
         $tooSmall = $this->series($demand, 'LOGISTICS', ['shipping_unit_mode' => 'PALLET']) + ['saved_policy' => ['reorder_point_pieces' => 400, 'target_stock_pieces' => 600, 'min_order_pieces' => 960, 'max_order_pieces' => 480, 'order_multiple_pieces' => 960, 'strategy_key' => 'arrival_adaptive_v1',
-            'calculation_basis' => ['unit_mode' => 'PALLET', 'review_days' => 7, 'safety_stock_days' => 5, 'demand_profile' => ['weekdays' => array_fill(0, 7, ['mean' => 30.0, 'p95' => 60.0])]]]];
+            'calculation_basis' => ['unit_mode' => 'PALLET', 'review_days' => 7, 'safety_stock_days' => 5, 'mean_daily' => 30]]];
         $held = app(ReplayEngine::class)->run($tooSmall, $this->scenario(['mode' => 'saved', 'initial_stock' => 0, 'conditions_provider' => $pallet(960)]), ReplayCalendar::simple(2));
         self::assertSame([], $held['orders']);
         $reasons = array_unique(array_column(array_filter($held['days'], fn ($d) => $d['phase'] === 'HOLD'), 'reason'));
@@ -235,15 +235,48 @@ class ReplayConditionsTest extends TestCase
         self::assertLessThan($orderedBefore($without), $orderedBefore($with));
     }
 
+    public function test_saved_quantities_that_do_not_match_the_registered_constraint_are_refused_like_production(): void
+    {
+        $demand = $this->demand('2025-06-01', '2025-11-16', 30, 60);
+        // Saved as 192-piece multiples (min 384) while the warehouse × product is bound to a 144-piece pallet: SnapshotReader refuses this
+        // (assertBinding) and the replay must hold too — never order 384 against a 144 pallet.
+        $saved = $this->series($demand, 'LOGISTICS', ['shipping_unit_mode' => 'PALLET']) + ['saved_policy' => ['reorder_point_pieces' => 400, 'target_stock_pieces' => 1200, 'min_order_pieces' => 384, 'max_order_pieces' => 1152, 'order_multiple_pieces' => 192, 'strategy_key' => 'arrival_adaptive_v1',
+            'calculation_basis' => ['unit_mode' => 'PALLET', 'review_days' => 7, 'safety_stock_days' => 5, 'mean_daily' => 30]]];
+        $pallet = $this->provider([], ['unit_mode' => 'PALLET', 'pallet_pieces' => 144], ['mode' => 'PALLET', 'id' => 1, 'version' => 1, 'pieces_per_pallet' => 144], 24);
+        $run = app(ReplayEngine::class)->run($saved, $this->scenario(['mode' => 'saved', 'initial_stock' => 0, 'conditions_provider' => $pallet]), ReplayCalendar::simple(2));
+        self::assertSame([], $run['orders']);
+        $reasons = array_unique(array_column(array_filter($run['days'], fn ($d) => $d['phase'] === 'HOLD'), 'reason'));
+        self::assertSame(['商品の数量条件がパレット入数と一致しません。おすすめ設定を再計算してください。'], $reasons);
+        // Fixed bounds (comparison scenario) that keep a saved case multiple under a pallet binding are refused the same way.
+        $fixed = app(ReplayEngine::class)->run($saved, $this->scenario(['mode' => 'fixed', 'fixed_bounds' => true, 'saved_conditions' => true, 'initial_stock' => 0, 'conditions_provider' => $pallet]), ReplayCalendar::simple(2));
+        self::assertSame(192, $fixed['recalcs'][0]['values']['order_multiple_pieces']);
+        self::assertSame([], $fixed['orders']);
+        // Registered candidates whose common unit differs from the saved multiple: production refuses, so does the replay.
+        $shipment = $this->provider([], ['unit_mode' => 'AUTO', 'shipping_quantities' => [48, 96, 144]], ['mode' => 'SHIPMENT', 'id' => 7, 'version' => 1, 'quantities' => [48, 96, 144]], 24);
+        $savedShipment = $this->series($demand, 'LOGISTICS', ['shipping_unit_mode' => 'SHIPMENT']) + ['saved_policy' => $saved['saved_policy']];
+        $held = app(ReplayEngine::class)->run($savedShipment, $this->scenario(['mode' => 'saved', 'initial_stock' => 0, 'conditions_provider' => $shipment]), ReplayCalendar::simple(2));
+        self::assertSame([], $held['orders']);
+        self::assertContains('発注単位と出荷数量候補が一致しません。商品設定を保存し直してください。', array_column($held['days'], 'reason'));
+        // Matching conditions (multiple 144, min 288) order whole pallets.
+        $ok = $saved;
+        $ok['saved_policy'] = array_replace($ok['saved_policy'], ['min_order_pieces' => 288, 'order_multiple_pieces' => 144]);
+        $okRun = app(ReplayEngine::class)->run($ok, $this->scenario(['mode' => 'saved', 'initial_stock' => 0, 'conditions_provider' => $pallet]), ReplayCalendar::simple(2));
+        self::assertNotEmpty($okRun['orders']);
+        foreach ($okRun['orders'] as $order) {
+            self::assertSame(0, $order['pieces'] % 144);
+        }
+    }
+
     public function test_saved_mode_takes_output_unit_and_constraint_from_the_provider(): void
     {
         $demand = $this->demand('2025-06-01', '2025-11-16', 30, 60);
         $saved = $this->series($demand, 'LOGISTICS', ['shipping_unit_mode' => 'PALLET']) + ['saved_policy' => ['reorder_point_pieces' => 200, 'target_stock_pieces' => 400, 'min_order_pieces' => 96, 'max_order_pieces' => 480, 'order_multiple_pieces' => 96, 'strategy_key' => 'arrival_adaptive_v1',
-            'calculation_basis' => ['unit_mode' => 'PALLET', 'review_days' => 7, 'safety_stock_days' => 5, 'demand_profile' => ['weekdays' => array_fill(0, 7, ['mean' => 30.0, 'p95' => 60.0])]]]];
+            'calculation_basis' => ['unit_mode' => 'PALLET', 'review_days' => 7, 'safety_stock_days' => 5, 'mean_daily' => 30]]];
         $provider = $this->provider([], ['unit_mode' => 'PALLET', 'pallet_pieces' => 96], ['mode' => 'PALLET', 'id' => 1, 'version' => 1, 'pieces_per_pallet' => 96], 24);
         $run = app(ReplayEngine::class)->run($saved, $this->scenario(['mode' => 'saved', 'conditions_provider' => $provider]), ReplayCalendar::simple(2));
         self::assertSame('SAVED', $run['recalcs'][0]['outcome']);
         self::assertSame(['packing_unit' => 24, 'shipping_unit' => 'PALLET', 'order_unit' => 'ケース発注'], $run['recalcs'][0]['conditions']);
+        self::assertNotEmpty($run['orders']);
         foreach ($run['orders'] as $order) {
             self::assertSame(0, $order['pieces'] % 96);
         }

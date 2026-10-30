@@ -111,6 +111,31 @@ class ReconcileSavedRecommendationsCommand extends Command
         return WmsItemReorderPolicy::where('client_id', $client)->orderBy('warehouse_id')->orderBy('item_id')->get()->map(fn ($p) => $p->toArray())->all();
     }
 
+    /**
+     * The shipping-unit mode of this warehouse × product in the connected database (the editor binds the constraint to the local policy row).
+     *
+     * @return array{0: string, 1: string} mode and a note on where it came from
+     */
+    private function bindingMode(int $client, array $policy): array
+    {
+        if (! empty($policy['shipping_unit_mode'])) {
+            return [(string) $policy['shipping_unit_mode'], '入力行の shipping_unit_mode（'.$policy['shipping_unit_mode'].'）'];
+        }
+        $local = WmsItemReorderPolicy::where(['client_id' => $client, 'warehouse_id' => (int) $policy['warehouse_id'], 'item_id' => (int) $policy['item_id']])->first(['id']);
+        if (! $local) {
+            return ['STANDARD', 'なし（接続先に同じ倉庫×商品のポリシーが無いため STANDARD）'];
+        }
+        $mode = 'STANDARD';
+        if (app(PalletUnitService::class)->binding((int) $local->id)) {
+            $mode = 'PALLET';
+        }
+        if (($policy['channel'] ?? '') === 'LOGISTICS' && app(ShippingQuantityService::class)->binding((int) $local->id)) {
+            $mode = 'SHIPMENT';
+        }
+
+        return [$mode, '接続先ポリシー #'.$local->id.'（同じ倉庫×商品）の現在値 '.$mode];
+    }
+
     private function reconcile(int $client, array $policy, SettingsRecommendationService $recommendations, $latestSales): array
     {
         $basis = is_array($policy['calculation_basis'] ?? null) ? $policy['calculation_basis'] : null;
@@ -143,21 +168,24 @@ class ReconcileSavedRecommendationsCommand extends Command
             $form = ['item_id' => (int) $policy['item_id'], 'channel' => $policy['channel'], 'contractor_id' => $policy['contractor_id'], 'supplier_id' => $policy['supplier_id'] ?? null,
                 'source_warehouse_id' => $policy['source_warehouse_id'] ?? null, 'delivery_course_id' => $policy['delivery_course_id'] ?? null,
                 'order_unit_mode' => $policy['order_unit_mode'] ?? 'AUTO', 'strategy_key' => $policy['strategy_key'] ?? 'arrival_adaptive_v1', 'shipping_unit_mode' => 'STANDARD'];
-            $policyId = (int) ($policy['id'] ?? 0);
-            if (app(PalletUnitService::class)->binding($policyId)) {
-                $form['shipping_unit_mode'] = 'PALLET';
-            }
-            if ($policy['channel'] === 'LOGISTICS' && app(ShippingQuantityService::class)->binding($policyId)) {
-                $form['shipping_unit_mode'] = 'SHIPMENT';
-            }
+            // The quantity-constraint binding belongs to the connected database's policy of the SAME warehouse × product — never looked up by a
+            // foreign policy id (a JSON export of another environment carries that environment's ids). An explicit shipping_unit_mode in the row wins.
+            [$form['shipping_unit_mode'], $bindingNote] = $this->bindingMode($client, $policy);
             $unitMode = $basis['unit_mode'] ?? 'AUTO';
             $options = ['unit_mode' => $unitMode === 'PALLET' ? 'AUTO' : $unitMode, 'review_days' => $basis['review_days'] ?? 7, 'safety_stock_days' => $basis['safety_stock_days'],
                 'existing_reorder_point' => ! empty($basis['reorder_point_preserved']) ? (int) $policy['reorder_point_pieces'] : null, 'as_of' => $asOf];
-            $row['conditions_source'] = '保存条件（単位・発注日数・安全日数・算定日）＋現在の紐付け（'.$form['shipping_unit_mode'].'）・現在の承認イベント';
+            $row['conditions_source'] = '保存条件（単位・発注日数・安全日数・算定日）＋紐付け '.$bindingNote.'・現在の承認イベント';
             $result = $recommendations->recommend($client, (int) $policy['warehouse_id'], $form, $options);
             if (! $result['available']) {
                 return $row + ['verdict' => '再現不能', 'reason' => '再計算が不可：'.($result['basis']['reason'] ?? '算定不可')];
             }
+            // Conditions that must be identical before any value comparison counts: demand window coverage, event conditions, the warehouse
+            // schedule, the output unit, the quantity constraint. A different condition is 再現不能 even when the numbers happen to agree.
+            $conditionGaps = array_filter([$coverageNote,
+                json_encode($basis['event_adjustment']['events'] ?? null) !== json_encode($result['basis']['event_adjustment']['events'] ?? null) ? 'イベント条件（承認イベント・倍率）が保存時と異なる' : null,
+                isset($basis['review_schedule_fingerprint'], $result['basis']['review_schedule_fingerprint']) && $basis['review_schedule_fingerprint'] !== $result['basis']['review_schedule_fingerprint'] ? '倉庫の実行曜日・時刻が保存時と異なる' : null,
+                isset($basis['scope']['packing_unit']) && (int) $basis['scope']['packing_unit'] !== (int) ($result['basis']['scope']['packing_unit'] ?? 0) ? '発注単位（出力単位）が保存時と異なる' : null,
+                (isset($basis['pallet_unit']) !== isset($result['basis']['pallet_unit'])) || (isset($basis['shipping_profile']) !== isset($result['basis']['shipping_profile'])) ? '数量制約（パレット／出荷数量候補）の紐付けが保存時と異なる' : null]);
             $values = array_intersect_key($result['values'], $guarded);
             $row['recalc'] = $values + ['basis_type' => $result['basis']['basis_type'] ?? null, 'batch' => $result['basis']['batch_quantity_pieces'] ?? null];
             $diff = [];
@@ -172,19 +200,11 @@ class ReconcileSavedRecommendationsCommand extends Command
                 }
             }
             $row['diff'] = $diff;
-            if ($diff === []) {
-                return $row + ['verdict' => '一致', 'reason' => $coverageNote ? '（参考）'.$coverageNote : ''];
-            }
-            if ($coverageNote) {
-                return $row + ['verdict' => '再現不能', 'reason' => $coverageNote.'ため需要窓が保存時と異なる'];
-            }
-            $savedEvents = $basis['event_adjustment']['events'] ?? null;
-            $nowEvents = $result['basis']['event_adjustment']['events'] ?? null;
-            if (json_encode($savedEvents) !== json_encode($nowEvents)) {
-                return $row + ['verdict' => '再現不能', 'reason' => '保存時と現在でイベント条件（承認イベント・倍率）が異なるため同一入力にならない'];
+            if ($conditionGaps) {
+                return $row + ['verdict' => '再現不能', 'reason' => implode('／', $conditionGaps).'ため同一入力を確認できない（数値は'.($diff === [] ? '同じ' : '異なる').'）'];
             }
 
-            return $row + ['verdict' => '不一致', 'reason' => '同一条件で再計算した値が保存値と異なる'];
+            return $row + ['verdict' => $diff === [] ? '一致' : '不一致', 'reason' => $diff === [] ? '' : '同一条件で再計算した値が保存値と異なる'];
         } catch (\RuntimeException $e) {
             throw_if($e instanceof \Illuminate\Database\QueryException, $e);
 

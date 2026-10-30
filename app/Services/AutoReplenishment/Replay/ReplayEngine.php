@@ -142,6 +142,9 @@ final class ReplayEngine
                     'packing_unit' => $packing, 'business_date' => $date, 'arrival_date' => $arrival,
                     'next_arrival_date' => $next['arrival_date'] ?? null, 'shipping_unit' => $shippingUnit];
                 try {
+                    // Same refusal as SnapshotReader (assertBinding): quantity conditions that do not match the registered pallet /
+                    // candidates hold the order instead of ordering an unrelated multiple (saved settings, fixed bounds).
+                    $this->assertConstraint($policy, $shippingUnit);
                     $proposal = $this->strategy->calculate($policy, $snapshot);
                     $this->safety->validate($policy, $proposal, $packing, $shippingUnit);
                 } catch (\RuntimeException $e) {
@@ -280,6 +283,18 @@ final class ReplayEngine
             $log['reason'] = $e->getMessage();
 
             return ['policy' => null, 'log' => $log, 'shipping_unit' => $shippingUnit];
+        }
+    }
+
+    /** Production's binding checks against the policy's quantity conditions (PalletUnitService / ShippingQuantityService::assertPolicyMatches). */
+    private function assertConstraint(array $policy, array $shippingUnit): void
+    {
+        if (($shippingUnit['mode'] ?? 'STANDARD') === 'PALLET') {
+            throw_unless(($policy['channel'] ?? '') === 'LOGISTICS', \RuntimeException::class, 'パレット単位は物流発注（店間）で選択してください。');
+            app(\App\Services\AutoReplenishment\PalletUnitService::class)->assertPolicyMatches($policy, (int) ($shippingUnit['pieces_per_pallet'] ?? 0));
+        } elseif (($shippingUnit['mode'] ?? 'STANDARD') === 'SHIPMENT') {
+            throw_unless(($policy['channel'] ?? '') === 'LOGISTICS' && ($policy['strategy_key'] ?? '') === 'arrival_adaptive_v1', \RuntimeException::class, '出荷数量候補は物流発注（店間）の入荷時の補充目標を確認する計算方式で利用してください。');
+            app(\App\Services\AutoReplenishment\ShippingQuantityService::class)->assertPolicyMatches($policy, (array) ($shippingUnit['quantities'] ?? []));
         }
     }
 
