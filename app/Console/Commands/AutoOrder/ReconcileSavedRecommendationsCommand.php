@@ -136,6 +136,17 @@ class ReconcileSavedRecommendationsCommand extends Command
         return [$mode, '接続先ポリシー #'.$local->id.'（同じ倉庫×商品）の現在値 '.$mode];
     }
 
+    /** The events and factor sources a recommendation was adjusted with (identity only; the uplift in pieces follows the demand level). */
+    private function eventSignature(array $basis): string
+    {
+        $events = $basis['demand_profile']['event_forecast']['events'] ?? $basis['event_adjustment']['events'] ?? [];
+        $keys = array_flip(['type', 'name', 'start', 'end', 'pre_days', 'post_days', 'factor_source']);
+        $rows = array_map(fn ($e) => array_intersect_key((array) $e, $keys), is_array($events) ? $events : []);
+        usort($rows, fn ($a, $b) => strcmp(json_encode($a), json_encode($b)));
+
+        return json_encode($rows);
+    }
+
     private function reconcile(int $client, array $policy, SettingsRecommendationService $recommendations, $latestSales): array
     {
         $basis = is_array($policy['calculation_basis'] ?? null) ? $policy['calculation_basis'] : null;
@@ -182,7 +193,7 @@ class ReconcileSavedRecommendationsCommand extends Command
             // Conditions that must be identical before any value comparison counts: demand window coverage, event conditions, the warehouse
             // schedule, the output unit, the quantity constraint. A different condition is 再現不能 even when the numbers happen to agree.
             $conditionGaps = array_filter([$coverageNote,
-                json_encode($basis['event_adjustment']['events'] ?? null) !== json_encode($result['basis']['event_adjustment']['events'] ?? null) ? 'イベント条件（承認イベント・倍率）が保存時と異なる' : null,
+                $this->eventSignature($basis) !== $this->eventSignature($result['basis']) ? 'イベント条件（承認イベント・倍率の出所）が保存時と異なる' : null,
                 isset($basis['review_schedule_fingerprint'], $result['basis']['review_schedule_fingerprint']) && $basis['review_schedule_fingerprint'] !== $result['basis']['review_schedule_fingerprint'] ? '倉庫の実行曜日・時刻が保存時と異なる' : null,
                 isset($basis['scope']['packing_unit']) && (int) $basis['scope']['packing_unit'] !== (int) ($result['basis']['scope']['packing_unit'] ?? 0) ? '発注単位（出力単位）が保存時と異なる' : null,
                 (isset($basis['pallet_unit']) !== isset($result['basis']['pallet_unit'])) || (isset($basis['shipping_profile']) !== isset($result['basis']['shipping_profile'])) ? '数量制約（パレット／出荷数量候補）の紐付けが保存時と異なる' : null]);
