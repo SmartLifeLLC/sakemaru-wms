@@ -178,7 +178,7 @@ class ReconcileSavedRecommendationsCommand extends Command
             return $row + ['verdict' => '再現不能', 'reason' => '保存時の計算版が現行と異なる：'.$basis['method']];
         }
         $latest = $latestSales[$policy['warehouse_id']] ?? null;
-        $coverageNote = $latest === null || (string) $latest < $basis['period']['end'] ? '接続先DBの販売実績が算定期間末 '.$basis['period']['end'].' まで無い（最新 '.($latest ?? 'なし').'）' : null;
+        $coverageNote = $latest === null || (string) $latest < $basis['period']['end'] ? '接続先DBのPOS実績の最新日 '.($latest ?? 'なし').' が算定期間末 '.$basis['period']['end'].' より前で、保存時と同じ需要窓かを確認できない' : null;
         try {
             // The editor-equivalent route (same as the weekly refresh): saved route + the *current* quantity-constraint binding and demand events.
             $form = ['item_id' => (int) $policy['item_id'], 'channel' => $policy['channel'], 'contractor_id' => $policy['contractor_id'], 'supplier_id' => $policy['supplier_id'] ?? null,
