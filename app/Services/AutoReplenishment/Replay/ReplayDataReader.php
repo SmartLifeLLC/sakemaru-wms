@@ -4,6 +4,7 @@ namespace App\Services\AutoReplenishment\Replay;
 
 use App\Models\WmsItemReorderPolicy;
 use App\Services\AutoReplenishment\DemandEventHistoryReader;
+use App\Services\AutoReplenishment\DemandObservationExclusions;
 use App\Services\AutoReplenishment\GenerationSchedule;
 use App\Services\AutoReplenishment\PalletUnitService;
 use App\Services\AutoReplenishment\RecommendationArrivalSchedule;
@@ -120,7 +121,7 @@ class ReplayDataReader
             foreach ($rows as $row) {
                 $series[(int) $row->warehouse_id][(int) $row->item_id][$row->date] = ($series[(int) $row->warehouse_id][(int) $row->item_id][$row->date] ?? 0) + (int) round((float) $row->pieces);
             }
-            $cursor = $segmentEnd->addDay();
+            $cursor = $segmentEnd->addDay()->startOfDay();
         }
         $result = [];
         foreach ($warehouses as $warehouse) {
@@ -130,7 +131,7 @@ class ReplayDataReader
                     $key = $d->toDateString();
                     $daily[$key] = isset($observed[$warehouse][$key]) ? (int) ($series[$warehouse][$item][$key] ?? 0) : null;
                 }
-                $result[$warehouse][$item] = $daily;
+                $result[$warehouse][$item] = (new DemandObservationExclusions)->mask($client, (int) $warehouse, $daily);
             }
         }
 

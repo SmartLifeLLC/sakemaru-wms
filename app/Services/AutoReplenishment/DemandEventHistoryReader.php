@@ -67,7 +67,7 @@ class DemandEventHistoryReader
     public function productTotals(int $client, string $start, string $end, ?array $itemIds = null): array
     {
         $this->client = $client;
-        $stores = $this->storeWarehouseIds($client);
+        $stores = (new DemandObservationExclusions)->learningStores($client, $this->storeWarehouseIds($client), $start, $end);
         throw_unless($stores, \RuntimeException::class, '対象の店舗倉庫がありません。');
         $items = [];
         $observed = [];
@@ -91,7 +91,7 @@ class DemandEventHistoryReader
                     $observed[$date] = true;
                 }
             }
-            $cursor = $segmentEnd->addDay();
+            $cursor = $segmentEnd->addDay()->startOfDay();
         }
 
         return ['items' => $items, 'observed' => $observed];

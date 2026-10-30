@@ -14,7 +14,7 @@ class WeekdayDemand
         $asOf = CarbonImmutable::parse(min($businessDate, CarbonImmutable::now('Asia/Tokyo')->toDateString()));
         $period = app(DemandProfile::class)->historyPeriod($asOf->toDateString());
         $db = DB::connection('sakemaru');
-        $key = 'auto-order-weekday-demand:v2:'.hash('sha256', json_encode([$db->getDatabaseName(), $client, $warehouse, $item, $period]));
+        $key = 'auto-order-weekday-demand:v2:'.hash('sha256', json_encode([$db->getDatabaseName(), $client, $warehouse, $item, $period, config('replenishment.demand_exclusions', [])]));
 
         return Cache::store('file')->remember($key, 900, function () use ($db, $client, $warehouse, $item, $period) {
             $ids = $db->table('stock_allocations')->where(['client_id' => $client, 'code' => 1, 'is_active' => 1])->pluck('id');

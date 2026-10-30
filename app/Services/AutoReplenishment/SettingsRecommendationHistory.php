@@ -318,6 +318,6 @@ class SettingsRecommendationHistory
         }
         $daily = array_map(fn ($q) => $q === null ? null : max(0, $q), $daily);
 
-        return ['daily' => $daily, 'warnings' => $coverage ? [] : ['POS適用実績がない倉庫のため、確定売上出荷・WMS発注連携出庫で需要を算定しています。']];
+        return ['daily' => (new DemandObservationExclusions)->mask($client, $warehouse, $daily), 'warnings' => $coverage ? [] : ['POS適用実績がない倉庫のため、確定売上出荷・WMS発注連携出庫で需要を算定しています。']];
     }
 }

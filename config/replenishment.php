@@ -8,6 +8,10 @@ return [
     'chunk_size' => 200,
     // Keep existing purchasing quantities for Hana's hub; automatic ordering still starts OFF.
     'initial_reset_preserve_warehouse_codes' => ['hana' => [91]],
+    // Disaster closure: exclude from automatic-order demand statistics, never alter actual sales/stock.
+    'demand_exclusions' => [
+        ['client_id' => 6, 'warehouse_id' => 3, 'start' => '2026-09-01', 'end' => '2026-09-30', 'reason' => '坂井店・災害休業'],
+    ],
     'recommendation_not_before' => '2026-08-01',
     // Inventory projection chart span on the settings page (10 weeks); event forecasts cover 91 days.
     'projection_days' => 70,

@@ -112,6 +112,26 @@ class ReconcileSavedRecommendationsCommandTest extends TestCase
         self::assertSame('一致', $byId[8]['verdict']); // identical factors stored in another key order are the same condition
     }
 
+    public function test_old_quantity_model_is_a_condition_change_even_when_quantities_happen_to_match(): void
+    {
+        $policy = (array) DB::connection('sakemaru')->table('wms_item_reorder_policies')->where('id', 1)->first();
+        $policy['calculation_basis'] = json_decode($policy['calculation_basis'], true);
+        $service = Mockery::mock(SettingsRecommendationService::class);
+        $service->shouldReceive('recommend')->times(3)->andReturn(['available' => true,
+            'values' => $policy['calculation_basis']['suggested_values'],
+            'basis' => ['quantity_model' => 'safety-stock-days-v2', 'basis_type' => 'sales', 'batch_quantity_pieces' => 24, 'pallet_unit' => ['id' => 50]]]);
+        $command = app(\App\Console\Commands\AutoOrder\ReconcileSavedRecommendationsCommand::class);
+        $method = new \ReflectionMethod($command, 'reconcile');
+        foreach ([null, 'safety-stock-days-v1', 'safety-stock-days-v2'] as $version) {
+            $policy['calculation_basis']['quantity_model'] = $version;
+            $r = $method->invoke($command, 6, $policy, $service, [2 => '2026-10-13']);
+            self::assertSame($version === 'safety-stock-days-v2' ? '一致' : '再現不能', $r['verdict']);
+            if ($version !== 'safety-stock-days-v2') {
+                self::assertStringContainsString('数量計算版', $r['reason']);
+            }
+        }
+    }
+
     /** A JSON export of another environment carries that environment's policy ids: the binding is resolved by warehouse × product, never by id. */
     public function test_foreign_policy_ids_in_a_json_export_never_borrow_another_products_binding(): void
     {

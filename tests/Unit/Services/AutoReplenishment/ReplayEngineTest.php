@@ -64,13 +64,14 @@ class ReplayEngineTest extends TestCase
 
     public function test_replay_runs_the_real_calculator_and_strategy_and_event_factors_reduce_year_end_shortages(): void
     {
-        $demand = $this->demand('2025-07-01', '2026-01-31');
+        // v2 protects arrival gaps; use a stronger peak so the event comparison still exercises unmet demand.
+        $demand = $this->demand('2025-07-01', '2026-01-31', 5.0);
         $series = $this->series($demand);
         $calendar = ReplayCalendar::simple(2, [['2025-12-31', '2026-01-03']]);
         $events = $this->events();
         $factors = fn (int $item) => ['item' => ['YEAR_END' => ['pieces' => 5000, 'positions' => array_combine(
             ['12-25', '12-26', '12-27', '12-28', '12-29', '12-30', '12-31', '01-02', '01-03', '01-04'],
-            array_merge(array_fill(0, 7, ['factor' => 3.0, 'factor_weekday' => 3.0]), array_fill(0, 3, ['factor' => 0.5, 'factor_weekday' => 0.5])))]]];
+            array_merge(array_fill(0, 7, ['factor' => 5.0, 'factor_weekday' => 5.0]), array_fill(0, 3, ['factor' => 0.5, 'factor_weekday' => 0.5])))]]];
         $base = ['name' => 'base', 'start' => '2025-10-06', 'end' => '2026-01-25', 'mode' => 'weekly', 'unit_mode' => 'CASE', 'safety_stock_days' => 5,
             'review_days' => 7, 'variability_buffer' => false, 'events' => [], 'segment_events' => $events, 'warmup_days' => 28];
         $withEvents = array_replace($base, ['name' => 'eventA', 'events' => $events, 'factors' => $factors]);
@@ -160,7 +161,7 @@ class ReplayEngineTest extends TestCase
         $events = $this->events();
         $factors = fn (int $item) => ['item' => ['YEAR_END' => ['pieces' => 5000, 'positions' => array_combine(
             ['12-25', '12-26', '12-27', '12-28', '12-29', '12-30', '12-31', '01-02', '01-03', '01-04'],
-            array_merge(array_fill(0, 7, ['factor' => 3.0, 'factor_weekday' => 3.0]), array_fill(0, 3, ['factor' => 0.5, 'factor_weekday' => 0.5])))]]];
+            array_merge(array_fill(0, 7, ['factor' => 5.0, 'factor_weekday' => 5.0]), array_fill(0, 3, ['factor' => 0.5, 'factor_weekday' => 0.5])))]]];
         $scenario = ['name' => 'eventA', 'start' => '2025-10-06', 'end' => '2026-02-08', 'mode' => 'weekly', 'unit_mode' => 'CASE', 'safety_stock_days' => 5, 'review_days' => 7,
             'variability_buffer' => false, 'events' => $events, 'factors' => $factors, 'segment_events' => $events, 'warmup_days' => 28, 'max_change_ratio' => 2.0, 'fixed_bounds' => true];
         $result = app(ReplayEngine::class)->run($series, $scenario, $calendar);
