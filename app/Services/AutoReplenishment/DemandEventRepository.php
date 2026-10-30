@@ -82,6 +82,28 @@ class DemandEventRepository
         return ['events' => $events, 'factors' => $this->factorsFor($client, $itemId)];
     }
 
+    /**
+     * Calculator option for a product as it would be after saving the given application on the settings screen:
+     * approved events of the ticked types, with the product's candidate factors in place of its own ACTIVE ones when
+     * $previewCandidates is set (the operator has just re-learned and sees the effect before accepting). Null when nothing applies.
+     */
+    public function recommendationOptionsFor(int $client, int $itemId, array $types, bool $previewCandidates = false): ?array
+    {
+        $events = array_values(array_filter($this->approvedEvents($client), fn ($e) => in_array($e['type'], $types, true)));
+        if (! $events) {
+            return null;
+        }
+        $factors = $this->factorsFor($client, $itemId);
+        if ($previewCandidates) {
+            foreach (WmsDemandEventProfile::where(['client_id' => $client, 'stage' => WmsDemandEventProfile::CANDIDATE, 'scope_type' => 'ITEM', 'scope_id' => $itemId, 'model_version' => DemandEventLearner::MODEL_VERSION])->get() as $row) {
+                $factors['item'][$row->profile_key] = ['pieces' => (float) $row->pieces, 'positions' => is_array($row->positions) ? $row->positions : [],
+                    'instance_count' => (int) $row->instance_count, 'trained_through' => $row->trained_through?->toDateString()];
+            }
+        }
+
+        return ['events' => $events, 'factors' => $factors];
+    }
+
     private function available(): bool
     {
         return self::$installed ??= Schema::connection('sakemaru')->hasTable('wms_demand_events')

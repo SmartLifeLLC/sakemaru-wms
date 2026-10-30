@@ -42,7 +42,7 @@ class DemandEventLearningService
      * @param  array<int>|null  $itemIds  products that receive ITEM profiles (null = every product with enough pieces)
      * @return array{items: array<int, array<string, array>>, categories: array<int, array<string, array>>, instances: array, stats: array}
      */
-    public function learn(int $client, string $through, int $years = 3, ?array $itemIds = null, ?callable $progress = null, ?array $keys = null): array
+    public function learn(int $client, string $through, int $years = 3, ?array $itemIds = null, ?callable $progress = null, ?array $keys = null, ?array $onlyItems = null): array
     {
         $instances = $this->trainingInstances($through, $years);
         throw_unless($instances, \RuntimeException::class, '学習できる過去のイベントがありません。');
@@ -66,7 +66,7 @@ class DemandEventLearningService
         foreach ($instances as $instance) {
             $window = ['start' => CarbonImmutable::parse($instance['start'])->subDays(DemandEventLearner::PRE_WINDOW_MAX + $instance['pre_days'])->toDateString(),
                 'end' => min($through, CarbonImmutable::parse($instance['end'])->addDays($instance['post_days'])->toDateString())];
-            $data = $this->reader->productTotals($client, $window['start'], $window['end']);
+            $data = $this->reader->productTotals($client, $window['start'], $window['end'], $onlyItems);
             $rangesRead++;
             $dates = [];
             for ($d = CarbonImmutable::parse($window['start']); $d->toDateString() <= $window['end']; $d = $d->addDay()) {
@@ -98,7 +98,8 @@ class DemandEventLearningService
             }
             unset($data, $dates);
         }
-        $categories = $this->reader->itemCategories($client);
+        // Reading selected products only cannot vote category profiles (the category needs every member): keep the existing ones.
+        $categories = $onlyItems === null ? $this->reader->itemCategories($client) : [];
         $itemProfiles = [];
         $categoryProfiles = [];
         foreach ($ratios as $key => $byItem) {
@@ -184,6 +185,58 @@ class DemandEventLearningService
             WmsDemandEventProfile::where(['client_id' => $client, 'stage' => WmsDemandEventProfile::ACTIVE])->whereIn('profile_key', $withCandidates)->delete();
 
             return WmsDemandEventProfile::where(['client_id' => $client, 'stage' => WmsDemandEventProfile::CANDIDATE])->whereIn('profile_key', $withCandidates)
+                ->update(['stage' => WmsDemandEventProfile::ACTIVE, 'updated_at' => now()]);
+        }, 3);
+    }
+
+    /**
+     * Learn one product only (fast path for the settings screen: one bounded read per instance for that product).
+     * Returns the product's profiles keyed by profile key (standard events), or [] when nothing could be learned.
+     *
+     * @param  callable|null  $progress  fn(string $line) per instance
+     */
+    public function learnProduct(int $client, int $itemId, string $through, int $years = 3, ?callable $progress = null): array
+    {
+        $learned = $this->learn($client, $through, $years, [$itemId], $progress, null, [$itemId]);
+
+        return $learned['items'][$itemId] ?? [];
+    }
+
+    /** Save one product's profiles (ITEM scope only) in the given stage, replacing that product's rows of the same keys and stage. */
+    public function persistItem(int $client, int $itemId, array $profiles, string $through, string $stage = WmsDemandEventProfile::CANDIDATE): int
+    {
+        throw_unless(in_array($stage, [WmsDemandEventProfile::ACTIVE, WmsDemandEventProfile::CANDIDATE], true), \RuntimeException::class, '倍率の段階を確認してください。');
+
+        return DB::connection('sakemaru')->transaction(function () use ($client, $itemId, $profiles, $through, $stage) {
+            $now = now();
+            $rows = [];
+            foreach ($profiles as $key => $profile) {
+                $rows[] = ['client_id' => $client, 'profile_key' => $key, 'scope_type' => 'ITEM', 'scope_id' => $itemId, 'stage' => $stage,
+                    'positions' => json_encode($profile['positions'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
+                    'pieces' => $profile['pieces'], 'instance_count' => $profile['instance_count'], 'trained_through' => $through,
+                    'model_version' => DemandEventLearner::MODEL_VERSION, 'created_at' => $now, 'updated_at' => $now];
+            }
+            WmsDemandEventProfile::where(['client_id' => $client, 'scope_type' => 'ITEM', 'scope_id' => $itemId, 'stage' => $stage])->whereIn('profile_key', array_keys($profiles) ?: [''])->delete();
+            foreach (array_chunk($rows, 500) as $chunk) {
+                WmsDemandEventProfile::insert($chunk);
+            }
+
+            return count($rows);
+        }, 3);
+    }
+
+    /** Put one product's CANDIDATE profiles of the given keys into use (the operator accepted them on the settings screen). */
+    public function promoteItem(int $client, int $itemId, array $keys): int
+    {
+        return DB::connection('sakemaru')->transaction(function () use ($client, $itemId, $keys) {
+            $scope = ['client_id' => $client, 'scope_type' => 'ITEM', 'scope_id' => $itemId];
+            $withCandidates = WmsDemandEventProfile::where($scope + ['stage' => WmsDemandEventProfile::CANDIDATE])->whereIn('profile_key', $keys)->pluck('profile_key')->all();
+            if (! $withCandidates) {
+                return 0;
+            }
+            WmsDemandEventProfile::where($scope + ['stage' => WmsDemandEventProfile::ACTIVE])->whereIn('profile_key', $withCandidates)->delete();
+
+            return WmsDemandEventProfile::where($scope + ['stage' => WmsDemandEventProfile::CANDIDATE])->whereIn('profile_key', $withCandidates)
                 ->update(['stage' => WmsDemandEventProfile::ACTIVE, 'updated_at' => now()]);
         }, 3);
     }

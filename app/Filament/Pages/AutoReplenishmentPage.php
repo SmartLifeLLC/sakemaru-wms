@@ -17,6 +17,7 @@ use App\Services\AutoReplenishment\ReplenishmentGuard;
 use App\Services\AutoReplenishment\SettingsRecommendationService;
 use App\Services\AutoReplenishment\ShippingQuantityService;
 use App\Services\AutoReplenishment\ShippingQuantitySet;
+use Carbon\CarbonImmutable;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Locked;
@@ -137,6 +138,13 @@ abstract class AutoReplenishmentPage extends AdminPage
 
     #[Locked]
     public bool $recommendationPreferencesChanged = false;
+
+    /** この商品のイベント（settings editor）: ticks per standard type, display info, and whether freshly learned candidates are previewed. */
+    public array $eventSetup = [];
+
+    public array $eventInfo = [];
+
+    public bool $eventCandidatesPreview = false;
 
     #[Locked]
     public ?array $palletUnit = null;
@@ -274,7 +282,104 @@ abstract class AutoReplenishmentPage extends AdminPage
         $this->showItemPicker = ! $policy;
         $this->showEditor = true;
         $this->loadPalletEditor();
+        $this->loadEventSetup($clientId);
         $this->rememberEditorRoute();
+    }
+
+    /** Current application / factors / upcoming events of the editor's product (ticks = saved application). */
+    private function loadEventSetup(int $clientId): void
+    {
+        $this->eventSetup = [];
+        $this->eventInfo = [];
+        $this->eventCandidatesPreview = false;
+        $itemId = (int) ($this->form['item_id'] ?? 0);
+        if ($itemId <= 0) {
+            return;
+        }
+        $this->eventInfo = app(\App\Services\AutoReplenishment\ItemDemandEventService::class)->productSetup($clientId, $itemId);
+        foreach ($this->eventInfo['types'] ?? [] as $type => $info) {
+            $this->eventSetup[$type] = $info['applied'];
+        }
+    }
+
+    /** Standard event types ticked for this product (what the recommendation previews and what saving applies). */
+    private function tickedEventTypes(): array
+    {
+        return array_values(array_filter(array_keys(array_filter($this->eventSetup, fn ($v) => (bool) $v)), fn ($t) => in_array($t, \App\Services\AutoReplenishment\DemandEventCalendar::STANDARD_TYPES, true)));
+    }
+
+    public function updatedEventSetup(): void
+    {
+        if ($this->recommendation !== null) {
+            $this->invalidateRecommendationPreferences();
+        }
+    }
+
+    /**
+     * Learn this product's event factors from its own past sales (progress is streamed to the editor), then pre-tick the
+     * suggested events when the product has no application yet. First learning goes straight into use (nothing is replaced);
+     * a re-learning is kept as a candidate until the operator saves the setting (explicit acceptance).
+     */
+    public function learnProductEvents(): void
+    {
+        $clientId = $this->authorizeOperation('auto-replenishment-settings', 'edit');
+        abort_unless($this->showEditor && static::$screen === 'settings', 403);
+        $this->checked(fn () => $this->learnProductEventsNow($clientId));
+        if ($this->recommendation !== null) {
+            $this->invalidateRecommendationPreferences();
+        }
+    }
+
+    private function learnProductEventsNow(int $clientId): void
+    {
+        $itemId = (int) ($this->form['item_id'] ?? 0);
+        throw_if($itemId <= 0, \RuntimeException::class, '商品を選択してください。');
+        if (! ($this->eventInfo['installed'] ?? false)) {
+            $this->loadEventSetup($clientId);
+            throw_unless($this->eventInfo['installed'] ?? false, \RuntimeException::class, 'イベント設定のテーブルが未作成です。');
+        }
+        $stream = fn (string $line) => $this->stream(to: 'eventProgress', content: e($line).'<br>', replace: false);
+        $stream('この商品の過去3年のイベント実績を読んでいます…');
+        $learning = app(\App\Services\AutoReplenishment\DemandEventLearningService::class);
+        $through = CarbonImmutable::now('Asia/Tokyo')->subDay()->toDateString();
+        $profiles = $learning->learnProduct($clientId, $itemId, $through, (int) config('replenishment.demand_events.training_years', 3), $stream);
+        throw_if($profiles === [], \RuntimeException::class, 'この商品のイベント倍率を学習できませんでした（過去のイベント期間に十分な販売実績がありません）。曜日別のみで算定します。');
+        $hadActive = \App\Models\WmsDemandEventProfile::where(['client_id' => $clientId, 'scope_type' => 'ITEM', 'scope_id' => $itemId, 'stage' => \App\Models\WmsDemandEventProfile::ACTIVE])->exists();
+        $stage = $hadActive ? \App\Models\WmsDemandEventProfile::CANDIDATE : \App\Models\WmsDemandEventProfile::ACTIVE;
+        $learning->persistItem($clientId, $itemId, $profiles, $through, $stage);
+        $hadApplication = \App\Models\WmsItemDemandEvent::where(['client_id' => $clientId, 'item_id' => $itemId])->exists();
+        $this->loadEventSetup($clientId);
+        $this->eventCandidatesPreview = $hadActive;
+        if (! $hadApplication) {
+            foreach ($this->eventInfo['types'] as $type => $info) {
+                $this->eventSetup[$type] = $info['suggest'];
+            }
+        }
+        $summary = [];
+        foreach ($this->eventInfo['types'] as $type => $info) {
+            $summary[] = $info['label'].' '.($info['mean'] !== null ? number_format($info['mean'], 2).'倍／'.$info['instances'].'年' : '実績なし');
+        }
+        $stream('学習しました：'.implode('、', $summary).($hadActive ? '（候補。この設定を保存すると有効になります）' : ''));
+    }
+
+    /** Save the product's event application and accept the previewed factors; called from savePolicy after the quantities are saved. */
+    private function saveEventSetup(int $clientId, int $itemId): void
+    {
+        if (! ($this->eventInfo['installed'] ?? false)) {
+            return;
+        }
+        $types = $this->tickedEventTypes();
+        $before = array_keys(array_filter(array_map(fn ($i) => $i['applied'], $this->eventInfo['types'] ?? [])));
+        sort($before);
+        $after = $types;
+        sort($after);
+        if ($before !== $after) {
+            $this->authorizeOperation('auto-replenishment-settings', 'enable'); // changing what adjusts the quantities: same permission as approval
+            app(\App\Services\AutoReplenishment\ItemDemandEventService::class)->apply($clientId, [$itemId => $types], (int) auth()->id(), '商品設定画面から');
+        }
+        if ($this->eventCandidatesPreview && $types) {
+            app(\App\Services\AutoReplenishment\DemandEventLearningService::class)->promoteItem($clientId, $itemId, $types);
+        }
     }
 
     private function rememberEditorRoute(): void
@@ -310,6 +415,7 @@ abstract class AutoReplenishmentPage extends AdminPage
         }
         $this->form['item_id'] = $id;
         $this->updatedForm($id, 'item_id');
+        $this->loadEventSetup($clientId);
     }
 
     public function updatedForm(mixed $value, string $key): void
@@ -444,9 +550,22 @@ abstract class AutoReplenishmentPage extends AdminPage
         $this->recommendation = null;
         $this->recommendationContext = null;
         try {
-            $this->recommendation = app(SettingsRecommendationService::class)->recommend($client, (int) $this->warehouseId, $this->form,
-                ['unit_mode' => $this->recommendationUnitMode, 'review_days' => $this->recommendationReviewDays,
-                    'safety_stock_days' => $this->recommendationSafetyDays, 'existing_reorder_point' => $this->form['reorder_point_pieces'] ?? null]);
+            // First time for this product: learn its event factors from its own past sales (progress streamed), so the
+            // operator can set the events on this screen without a separate step. Failure to learn only means weekday-only.
+            if (($this->eventInfo['installed'] ?? false) && ! ($this->eventInfo['has_profiles'] ?? false) && (int) ($this->form['item_id'] ?? 0) > 0) {
+                try {
+                    $this->learnProductEventsNow($client);
+                } catch (\RuntimeException $e) {
+                    $this->stream(to: 'eventProgress', content: e($e->getMessage()).'<br>', replace: false);
+                }
+            }
+            $options = ['unit_mode' => $this->recommendationUnitMode, 'review_days' => $this->recommendationReviewDays,
+                'safety_stock_days' => $this->recommendationSafetyDays, 'existing_reorder_point' => $this->form['reorder_point_pieces'] ?? null];
+            if ($this->eventInfo['installed'] ?? false) {
+                // The events as ticked on this screen (saved or not), so the two-tier result shows what saving would do.
+                $options['demand_events'] = app(\App\Services\AutoReplenishment\DemandEventRepository::class)->recommendationOptionsFor($client, (int) ($this->form['item_id'] ?? 0), $this->tickedEventTypes(), $this->eventCandidatesPreview);
+            }
+            $this->recommendation = app(SettingsRecommendationService::class)->recommend($client, (int) $this->warehouseId, $this->form, $options);
         } catch (\Throwable $e) {
             $business = get_class($e) === \RuntimeException::class || get_class($e) === \InvalidArgumentException::class;
             if (! $business) {
@@ -505,6 +624,7 @@ abstract class AutoReplenishmentPage extends AdminPage
         foreach (['item_id', 'channel', 'contractor_id', 'supplier_id', 'source_warehouse_id', 'delivery_course_id', 'shipping_unit_mode', 'order_unit_mode'] as $field) {
             $context[$field] = (string) ($this->form[$field] ?? '');
         }
+        $context['demand_events'] = implode(',', $this->tickedEventTypes()).($this->eventCandidatesPreview ? '|candidates' : '');
 
         return $context;
     }
@@ -712,6 +832,7 @@ abstract class AutoReplenishmentPage extends AdminPage
                     'shipping_profile_version' => (int) ($this->shippingProfile['version'] ?? 0)]),
                 $enabled, (int) auth()->id(), $this->recommendation['basis'] ?? null);
         }, 3));
+        $this->checked(fn () => $this->saveEventSetup($clientId, (int) $policy->item_id));
         unset($this->selectedVersions[(string) $policy->id]);
         $this->showEditor = false;
         Notification::make()->success()->title('商品設定を'.($enabled ? 'ON' : 'OFF').'で保存しました。')->send();

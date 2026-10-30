@@ -85,10 +85,38 @@ class DemandEventHistoryReader
                 $items[(int) $row->item_id][$row->date] = ($items[(int) $row->item_id][$row->date] ?? 0) + (int) round((float) $row->pieces);
                 $observed[$row->date] = true;
             }
+            if ($itemIds !== null) {
+                // Observed days come from every product: a day the selected products did not sell is a zero, not a gap.
+                foreach ($this->observedDates($stores, $cursor->toDateString(), $segmentEnd->toDateString()) as $date) {
+                    $observed[$date] = true;
+                }
+            }
             $cursor = $segmentEnd->addDay();
         }
 
         return ['items' => $items, 'observed' => $observed];
+    }
+
+    /** Dates with any sales row over the stores in [start, end] (both sources). */
+    private function observedDates(array $stores, string $start, string $end): array
+    {
+        $dates = [];
+        if ($end >= self::WMS_STATS_FROM) {
+            $dates = DB::connection('sakemaru')->table('stats_item_warehouse_daily_sales')->whereIn('warehouse_id', $stores)
+                ->whereBetween('business_date', [max($start, self::WMS_STATS_FROM), $end])->distinct()->pluck('business_date')->map(fn ($d) => (string) $d)->all();
+        }
+        if ($start < self::WMS_STATS_FROM) {
+            $legacyEnd = min($end, CarbonImmutable::parse(self::WMS_STATS_FROM)->subDay()->toDateString());
+            $db = DB::connection('sakemaru');
+            $base = fn () => $db->table('stats_sales_csv_item_lines')->where(['source_system' => 'legacy_t2_retail', 'period_type' => 'current'])
+                ->where(fn ($q) => $q->where('client_id', $this->client)->orWhereNull('client_id'))->whereBetween('business_date', [$start, $legacyEnd]);
+            $run = $base()->groupBy('run_id')->selectRaw('run_id, COUNT(*) c')->orderByDesc('c')->orderByDesc('run_id')->value('run_id');
+            if ($run !== null) {
+                $dates = array_merge($dates, $base()->where('run_id', $run)->whereIn('warehouse_id', $stores)->distinct()->pluck('business_date')->map(fn ($d) => (string) $d)->all());
+            }
+        }
+
+        return $dates;
     }
 
     private function wmsRows(array $stores, string $start, string $end, ?array $itemIds): array
