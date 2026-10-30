@@ -146,6 +146,9 @@ abstract class AutoReplenishmentPage extends AdminPage
 
     public bool $eventCandidatesPreview = false;
 
+    /** Last learning summary for this product (kept after the streamed progress is re-rendered away). */
+    public string $eventLearnNote = '';
+
     #[Locked]
     public ?array $palletUnit = null;
 
@@ -292,6 +295,7 @@ abstract class AutoReplenishmentPage extends AdminPage
         $this->eventSetup = [];
         $this->eventInfo = [];
         $this->eventCandidatesPreview = false;
+        $this->eventLearnNote = '';
         $itemId = (int) ($this->form['item_id'] ?? 0);
         if ($itemId <= 0) {
             return;
@@ -363,7 +367,8 @@ abstract class AutoReplenishmentPage extends AdminPage
         foreach ($this->eventInfo['types'] as $type => $info) {
             $summary[] = $info['label'].' '.($info['mean'] !== null ? number_format($info['mean'], 2).'倍／'.$info['instances'].'年' : '実績なし');
         }
-        $stream('学習しました：'.implode('、', $summary).($hadActive ? '（候補。この設定を保存すると有効になります）' : ''));
+        $this->eventLearnNote = '学習しました：'.implode('、', $summary).($hadActive ? '（候補。この設定を保存すると有効になります）' : '');
+        $stream($this->eventLearnNote);
     }
 
     /** Save the product's event application and accept the previewed factors; called from savePolicy after the quantities are saved. */

@@ -145,7 +145,7 @@
                     @include('filament.pages.auto-replenishment-recommendation-actions')
                     @if(!$recommendationReady)<p class="ar-help">商品選択後に発注先・配送を自動入力します。特定できない場合は商品発注管理・移動配送コース設定を確認してください。</p>@endif
                     <p class="ar-loading" role="status" wire:loading wire:target="calculateSettings,selectRecommendationCandidate,recommendationUnitMode,recommendationReviewDays,recommendationSafetyDays,savePalletUnit,saveShippingQuantities,registerShippingHistory,form.shipping_unit_mode,form.order_unit_mode,selectItem,form.item_id,form.channel,form.contractor_id,form.supplier_id,form.source_warehouse_id,form.delivery_course_id">出荷・入荷実績を確認して、おすすめ設定を計算しています…</p>
-                    <div class="ar-event-progress ar-help" wire:stream="eventProgress" wire:loading.class="is-busy" wire:target="learnProductEvents,calculateSettings"></div>
+                    <div class="ar-event-progress ar-help" wire:stream="eventProgress" wire:loading.class="is-busy" wire:target="learnProductEvents,calculateSettings">{{ $this->eventLearnNote }}</div>
                     @if($helperItem)@include('filament.pages.auto-replenishment-projection')@endif
                     @if($this->recommendation)@include('filament.pages.auto-replenishment-candidates')@endif
                     @if($this->recommendation)
