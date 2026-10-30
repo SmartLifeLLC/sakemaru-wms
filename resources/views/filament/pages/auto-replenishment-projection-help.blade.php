@@ -34,3 +34,7 @@
 </div>
 
 @if($chart['calendar']['reference_assumed'] ?? false)<p class="ar-projection-warning">FAXの納品曜日が未設定のため、翌営業日（月〜土）入荷と仮定した参考値です。実際の納品日を確認して手動発注してください。</p>@endif
+
+@foreach(($chart['supply_warnings'] ?? []) as $warning)
+    <p>{{ $warning['message'] }}</p>
+@endforeach

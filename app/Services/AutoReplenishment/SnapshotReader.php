@@ -177,7 +177,27 @@ class SnapshotReader
             $sourceIds = $sourceMaps->keys();
             $liveSources = $db->table('wms_order_incoming_schedules')->whereIn('id', $sourceIds)
                 ->when(! $readOnly && $db->transactionLevel() > 0, fn ($q) => $q->lockForUpdate())
-                ->get(['id', 'status', 'received_quantity', 'quantity_type', 'purchase_queue_id']);
+                ->get(['id', 'warehouse_id', 'item_id', 'status', 'expected_quantity', 'received_quantity', 'quantity_type', 'purchase_queue_id']);
+            // Completed purchases already belong to current stock. A historical
+            // split/quantity mismatch is advisory, not another incoming supply.
+            if (($effect->reconciliation_required || $effect->state === 'UNKNOWN')
+                && $sourceIds->isNotEmpty() && $liveSources->count() === $sourceIds->count()
+                && $liveSources->every(fn ($row) => (int) $row->warehouse_id === (int) $effect->warehouse_id
+                    && (int) $row->item_id === (int) $effect->item_id
+                    && in_array($row->status, ['CONFIRMED', 'TRANSMITTED'], true)
+                    && (int) $row->received_quantity > 0 && $this->purchaseApplied($row, $readOnly))) {
+                $expected = $liveSources->sum(fn ($row) => $this->pieces((int) $row->expected_quantity, $row->quantity_type, $effect));
+                $received = $liveSources->sum(fn ($row) => $this->pieces((int) $row->received_quantity, $row->quantity_type, $effect));
+                $this->observation['supply_warnings'][] = [
+                    'code' => 'SETTLED_SUPPLY_RECONCILIATION', 'effect_id' => (int) $effect->id,
+                    'source_type' => $effect->source_type, 'source_id' => (int) $effect->source_id,
+                    'schedule_ids' => $sourceIds->map(fn ($id) => (int) $id)->values()->all(),
+                    'ordered_pieces' => (int) $effect->ordered_pieces, 'expected_pieces' => $expected, 'received_pieces' => $received,
+                    'message' => '在庫反映済みの入荷記録に発注・分割予定との照合差異があります（発注 '.(int) $effect->ordered_pieces.'／予定 '.$expected.'／入荷 '.$received.'バラ）。現在庫を基準に計算を続行し、この入荷は加算しません。',
+                ];
+
+                continue;
+            }
             throw_if($effect->reconciliation_required || $sourceIds->isEmpty() || $liveSources->count() !== $sourceIds->count()
                 || $liveSources->contains(fn ($row) => ! in_array($row->status, ['PENDING', 'PARTIAL', 'CONFIRMED', 'TRANSMITTED'], true)), \RuntimeException::class, '既発注供給の削除・分割・取消の照合が必要です。');
             foreach ($liveSources as $row) {
@@ -365,6 +385,7 @@ class SnapshotReader
             'source_stock_allocation_id' => $sourceAllocationId,
             'shipping_unit' => $shippingUnit,
             'master_warnings' => $warnings,
+            'supply_warnings' => $this->observation['supply_warnings'] ?? [],
             'policy' => $policy->toArray(), 'observed_at' => now()->toIso8601String(),
         ] + ($includeSupplyDates ? ['supply_events' => $supplyEvents] : [])
             + ($simulationAt ? ['simulation_at' => $simulationAt->format('Y-m-d H:i:s')] : []);
