@@ -23,7 +23,7 @@
                     <td class="num">{{ $event['days_until_start'] }}日</td>
                     <td class="num">{{ ($event['uplift_pieces'] >= 0 ? '+' : '') . number_format($event['uplift_pieces']) }}バラ</td>
                     <td class="ar-code">{{ $event['secure_by_date'] ?? '—' }}</td>
-                    <td>{{ $event['in_target'] ? '反映（安全在庫の対象期間内）' : '未反映（毎週の再計算で近づくと反映）' }}</td>
+                    <td>{{ $event['in_target'] ? '反映（安全在庫の対象期間内）' : '未反映（毎週の再計算で近づくと反映）' }}@if(!empty($event['supply_short']))<br><span class="ar-projection-risk">供給不足：開始前の入荷 {{ $event['deliveries_before_start'] }}回 × 最大発注数 ＝ {{ number_format($event['supply_capacity_pieces']) }}バラ</span>@endif</td>
                     <td>{{ ['item' => '自社実績', 'category' => 'カテゴリ', 'none' => 'なし（曜日型のまま）'][$event['factor_source']] ?? $event['factor_source'] }}</td>
                 </tr>
                 @if($event['daily'])

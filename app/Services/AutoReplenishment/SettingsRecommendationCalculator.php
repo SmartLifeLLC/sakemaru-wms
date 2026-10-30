@@ -201,7 +201,7 @@ final class SettingsRecommendationCalculator
         if (count($values) < 14 || count($windows) < 3 || count(array_filter($values, fn ($v) => $v > 0)) < 3) {
             return $this->unavailable($basis, '需要の観測日数または連続実績が不足しています。欠損日を0として算定せず、数量条件は手入力してください。');
         }
-        $profile = $demand->create($daily, $selection['fallback']);
+        $profile = $demand->create($daily, $selection['fallback'], $selection['slow'] ?? false);
         $profile['warnings'] = array_values(array_unique(array_merge($profile['warnings'], $history['warnings'] ?? [])));
         $plain = $profile;
         if ($events) {
@@ -213,11 +213,12 @@ final class SettingsRecommendationCalculator
         $basis['demand_events'] = ['approved' => count($events['events'] ?? []), 'in_horizon' => count($profile['event_forecast']['events'] ?? []),
             'horizon_days' => DemandEventForecast::HORIZON_DAYS];
         $mean = $profile['mean'];
-        $sigma = $this->standardDeviation($values);
+        // Same definition as the validated simulation: deviation from the weekday means, H = days until the next arrival (protection).
+        $sigma = $this->residualDeviation($daily, $profile);
         $variability = 0.0;
         if ($safetyDays !== null && ! empty($options['variability_buffer']) && $mean > 0 && $sigma / $mean > 1) {
             // Only high-variability products carry a σ√H term; the validated simulation kept five days for the rest.
-            $variability = $sigma * sqrt($protection + $safetyDays);
+            $variability = $sigma * sqrt($protection);
         }
         $basis += ['demand_sigma' => round($sigma, 4), 'demand_cv' => $mean > 0 ? round($sigma / $mean, 4) : null,
             'variability_buffer_pieces' => (int) round($variability)];
@@ -231,6 +232,7 @@ final class SettingsRecommendationCalculator
         if (isset($profile['event_forecast'])) {
             // Two-tier setting: the weekday-only baseline is kept beside the event-adjusted values.
             $basis['event_adjustment'] = $this->eventAdjustment($profile, $computed, $this->quantities($plain, $context), $history, $context);
+            $basis['warnings'] = array_merge($basis['warnings'], $basis['event_adjustment']['warnings']);
         }
         $basis += $computed['basis'];
         $basis['warnings'] = array_values(array_unique(array_merge($basis['warnings'], $computed['warnings'])));
@@ -392,6 +394,7 @@ final class SettingsRecommendationCalculator
         $anchor = CarbonImmutable::parse($profile['anchor_date']);
         $arrivals = $history['arrival_schedule']['arrival_dates'] ?? [];
         $scheduleEnd = $history['arrival_schedule']['end'] ?? null;
+        $warnings = [];
         // Settings are refreshed weekly: an event is secured now when it reaches the safety window of any generation day this week.
         $coverageEnd = $anchor->addDays(6 + $c['protection'] + (int) ($c['safetyDays'] ?? 0))->toDateString();
         $events = [];
@@ -403,9 +406,18 @@ final class SettingsRecommendationCalculator
             foreach ($demand->eventDays($profile, $event['start'], $days) as $date => $row) {
                 $daily[] = ['date' => $date, 'forecast' => round($row['forecast'], 1), 'weekday' => round($row['weekday'], 1)];
             }
+            // Supply capacity until the event: deliveries that arrive before the first event day × maximum per order.
+            $deliveries = count(array_filter($history['arrival_schedule']['opportunities'] ?? [], fn ($o) => ($o['arrival_date'] ?? '') < $event['start']));
+            $capacity = $deliveries * (int) $computed['values']['max_order_pieces'];
+            $short = $event['uplift_pieces'] > 0 && $event['start'] > $anchor->toDateString() && $capacity < $event['uplift_pieces'];
+            if ($short) {
+                $warnings[] = "{$event['name']}の上乗せ見込 ".number_format($event['uplift_pieces']).'バラに対し、開始前の入荷 '.$deliveries.'回 × 最大発注数 '.number_format((int) $computed['values']['max_order_pieces'])
+                    .' ＝ '.number_format($capacity).'バラしか確保できません。最大発注数または実行曜日を見直してください。';
+            }
             $events[] = $event + ['secure_by_date' => $before ? end($before) : null,
                 'days_until_start' => max(0, (int) $anchor->diffInDays(CarbonImmutable::parse($event['start']), false)),
-                'in_target' => $event['start'] <= $coverageEnd && $event['end'] >= $anchor->toDateString(), 'daily' => $daily];
+                'in_target' => $event['start'] <= $coverageEnd && $event['end'] >= $anchor->toDateString(), 'daily' => $daily,
+                'deliveries_before_start' => $deliveries, 'supply_capacity_pieces' => $capacity, 'supply_short' => $short];
         }
         $keys = array_flip(['reorder_point_pieces', 'target_stock_pieces', 'max_order_pieces', 'min_order_pieces']);
         $baseValues = $baseline['available'] ? array_intersect_key($baseline['values'], $keys)
@@ -415,7 +427,7 @@ final class SettingsRecommendationCalculator
             'target_add_on_pieces' => $baseValues ? $computed['values']['target_stock_pieces'] - $baseValues['target_stock_pieces'] : null,
             'point_add_on_pieces' => $baseValues ? $computed['values']['reorder_point_pieces'] - $baseValues['reorder_point_pieces'] : null,
             'batch_add_on_pieces' => $baseValues ? $computed['basis']['batch_quantity_pieces'] - $baseValues['batch_quantity_pieces'] : null,
-            'coverage_end' => $coverageEnd, 'horizon_days' => count($profile['event_forecast']['days']), 'events' => $events];
+            'coverage_end' => $coverageEnd, 'horizon_days' => count($profile['event_forecast']['days']), 'events' => $events, 'warnings' => $warnings];
     }
 
     private function events(array $options): ?array
@@ -429,19 +441,29 @@ final class SettingsRecommendationCalculator
             'factors' => is_array($events['factors'] ?? null) ? $events['factors'] : []];
     }
 
-    private function standardDeviation(array $values): float
+    /** Population deviation of observed days from their weekday mean (at least five observations, else 0). */
+    private function residualDeviation(array $daily, array $profile): float
     {
-        $n = count($values);
-        if ($n < 2) {
+        $residuals = [];
+        foreach ($daily as $date => $quantity) {
+            if ($quantity === null) {
+                continue;
+            }
+            $weekday = $profile['weekdays'][CarbonImmutable::parse($date)->dayOfWeek];
+            if (($weekday['days'] ?? 0) < 2) {
+                continue;
+            }
+            $residuals[] = $quantity - $weekday['mean'];
+        }
+        if (count($residuals) < 5) {
             return 0.0;
         }
-        $mean = array_sum($values) / $n;
         $sum = 0.0;
-        foreach ($values as $value) {
-            $sum += ($value - $mean) ** 2;
+        foreach ($residuals as $residual) {
+            $sum += $residual ** 2;
         }
 
-        return sqrt($sum / $n);
+        return sqrt($sum / count($residuals));
     }
 
     private function unavailable(array $basis, string $reason): array

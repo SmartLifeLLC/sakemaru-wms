@@ -60,8 +60,21 @@ class RecommendationRefreshService
                 }
             }
             $result['changes'] = $changes;
-            if (! $changes) {
+            $forecastChanged = $this->forecastFingerprint($basis) !== $this->forecastFingerprint($recommendation['basis']);
+            $result['forecast_changed'] = $forecastChanged;
+            if (! $changes && ! $forecastChanged) {
                 return array_replace($result, ['outcome' => 'UNCHANGED']);
+            }
+            if (! $changes) {
+                // Same quantities, newer demand evidence (level, anchor, event forecast): save the basis so execution uses it.
+                if (! $apply) {
+                    return array_replace($result, ['outcome' => 'FORECAST_UPDATED', 'reason' => '（確認のみ・未保存）']);
+                }
+                $saved = $this->policies->saveWithState((int) $policy->client_id, (int) $policy->warehouse_id,
+                    array_replace($form, $recommendation['values'], ['version' => (int) $policy->version]), (bool) $policy->is_enabled, $actorId, $recommendation['basis']);
+                $result['version'] = (int) $saved->version;
+
+                return array_replace($result, ['outcome' => 'FORECAST_UPDATED']);
             }
             foreach ($changes as $key => $change) {
                 $ratio = $change['from'] > 0 ? $change['to'] / $change['from'] : INF;
@@ -91,7 +104,7 @@ class RecommendationRefreshService
         throw_unless($maxChange >= 1.1 && $maxChange <= 10, \RuntimeException::class, '変化幅の上限は1.1〜10で指定してください。');
         $control = $this->guard->control($client, false);
         throw_unless($control->reset_state === 'COMPLETE', \RuntimeException::class, '初期化完了後に実行してください。');
-        $summary = ['UPDATED' => 0, 'UNCHANGED' => 0, 'HELD' => 0, 'UNAVAILABLE' => 0, 'ERROR' => 0];
+        $summary = ['UPDATED' => 0, 'FORECAST_UPDATED' => 0, 'UNCHANGED' => 0, 'HELD' => 0, 'UNAVAILABLE' => 0, 'ERROR' => 0];
         $rows = [];
         foreach ($this->candidates($client, $warehouse) as $id) {
             $policy = WmsItemReorderPolicy::where('client_id', $client)->find($id);
@@ -113,6 +126,20 @@ class RecommendationRefreshService
         }
 
         return ['summary' => $summary, 'rows' => $rows];
+    }
+
+    /** The demand evidence execution relies on: level, anchor, weekday pattern and dated event forecast. */
+    private function forecastFingerprint(array $basis): string
+    {
+        $profile = $basis['demand_profile'] ?? null;
+        if (! is_array($profile)) {
+            return 'legacy:'.json_encode($basis['mean_daily'] ?? null);
+        }
+        $weekdays = array_map(fn ($w) => round((float) ($w['mean'] ?? 0), 4), $profile['weekdays'] ?? []);
+        $events = array_map(fn ($d) => round((float) $d, 4), $profile['event_forecast']['days'] ?? []);
+
+        return hash('sha256', json_encode([$profile['anchor_date'] ?? null, $profile['period'] ?? null, round((float) ($profile['mean'] ?? 0), 4), $weekdays, $events,
+            $basis['safety_stock_pieces'] ?? null, $basis['batch_quantity_pieces'] ?? null]));
     }
 
     /** Editor-equivalent form for a saved policy (route + current shipping-unit binding). */

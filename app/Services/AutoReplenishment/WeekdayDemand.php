@@ -22,7 +22,7 @@ class WeekdayDemand
             $demand = app(SettingsRecommendationHistory::class)->dailyDemand($client, $warehouse, $item, (int) $ids->first(), $period);
 
             $selection = app(DemandProfile::class)->select($demand['daily'], $period);
-            $profile = app(DemandProfile::class)->create($selection['daily'], $selection['fallback']);
+            $profile = app(DemandProfile::class)->create($selection['daily'], $selection['fallback'], $selection['slow'] ?? false);
             $profile['warnings'] = array_merge($profile['warnings'], $demand['warnings']);
 
             return $profile;

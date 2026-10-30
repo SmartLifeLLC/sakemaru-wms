@@ -232,7 +232,8 @@ class DemandEventForecastTest extends TestCase
         return ['scope' => ['channel' => 'EOS', 'warehouse_id' => 2, 'packing_unit' => 1, 'capacity_case' => 24],
             'period' => ['start' => '2026-09-19', 'end' => '2026-12-16'], 'daily' => $daily, 'receipts' => [],
             'nominal_lead_days' => 2, 'review_interval_days' => 1, 'maximum_arrival_gap_days' => 2, 'warnings' => [],
-            'arrival_schedule' => ['arrival_dates' => ['2026-12-18', '2026-12-19', '2026-12-21', '2026-12-22', '2026-12-28', '2026-12-29', '2026-12-30', '2027-01-05']]];
+            'arrival_schedule' => ['arrival_dates' => ['2026-12-18', '2026-12-19', '2026-12-21', '2026-12-22', '2026-12-28', '2026-12-29', '2026-12-30', '2027-01-05'],
+                'end' => '2027-02-10', 'opportunities' => array_map(fn ($d) => ['generation_date' => $d, 'arrival_date' => $d], ['2026-12-18', '2026-12-19', '2026-12-21', '2026-12-22', '2026-12-28', '2026-12-29', '2026-12-30', '2027-01-05'])]];
     }
 
     public function test_recommendation_keeps_a_weekday_baseline_beside_the_event_adjusted_values(): void
@@ -267,6 +268,16 @@ class DemandEventForecastTest extends TestCase
         self::assertTrue($adjustment['events'][0]['in_target']);
         self::assertSame(3, $adjustment['events'][0]['days_until_start']);
         self::assertCount(17, $adjustment['events'][0]['daily']);
+        // Two deliveries arrive before 12/20: 2 × maximum covers the uplift here; with a single delivery it would not.
+        self::assertSame(2, $adjustment['events'][0]['deliveries_before_start']);
+        self::assertSame(2 * $adjusted['values']['max_order_pieces'], $adjustment['events'][0]['supply_capacity_pieces']);
+        self::assertFalse($adjustment['events'][0]['supply_short']);
+        $single = $this->history();
+        $single['arrival_schedule']['opportunities'] = array_slice($single['arrival_schedule']['opportunities'], 1);
+        $short = $calculator->calculate($single, $options + ['demand_events' => $events]);
+        self::assertTrue($short['basis']['event_adjustment']['events'][0]['supply_short']);
+        self::assertSame(1, $short['basis']['event_adjustment']['events'][0]['deliveries_before_start']);
+        self::assertStringContainsString('最大発注数または実行曜日', implode(' ', $short['basis']['warnings']));
         self::assertSame(['date' => '2026-12-31', 'forecast' => round($basis['mean_daily'] * 3, 1), 'weekday' => 10.0], $adjustment['events'][0]['daily'][11]);
         // Sales-based normal already carries 12/17〜12/23; the safety window follows it (12/24〜12/28, 12/26 is a Saturday).
         self::assertSame(7, $basis['safety_window_start_day']);
@@ -343,7 +354,8 @@ class DemandEventForecastTest extends TestCase
         $spiky = [];
         $i = 0;
         foreach ($history['daily'] as $date => $value) {
-            $spiky[$date] = $i++ % 7 === 0 ? 70 : 0;
+            // Irregular spikes (not weekly periodic): the deviation from the weekday means stays large.
+            $spiky[$date] = ($i++ * 7919) % 13 < 2 ? 70 : 0;
         }
         $history['daily'] = $spiky;
         $calculator = app(SettingsRecommendationCalculator::class);

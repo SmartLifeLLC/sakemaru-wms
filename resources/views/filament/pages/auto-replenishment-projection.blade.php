@@ -52,6 +52,7 @@
                 @foreach(($chart['events'] ?? []) as $event)<span class="ar-projection-event-tag">■ {{ $event['name'] }} {{ substr($event['start'],5) }}〜{{ substr($event['end'],5) }}（上乗せ {{ number_format($event['uplift_pieces']) }}バラ）</span>@endforeach
                 <span @class(['ar-projection-risk'=>$chart['shortage_days']>0])>不足見込 <b>{{ $chart['shortage_days'] }}</b> 日</span>
             </div>
+            <p class="ar-projection-caption">表示中の数量条件を固定した試算です。毎週の再計算で数量が変わる動きは含みません（イベント日の消費見込は日付別予測を使用）。</p>
             <div class="ar-projection-legend"><span class="stock">━ 在庫</span><span class="demand">■ 消費</span><span class="receipt">■ 入荷</span><span class="order">◆ 発注</span><span class="deferred">○ 発注点未満・発注なし</span><span class="point">┄ 発注点</span><span class="target">━ 補充目標</span>@if($eventSpans)<span class="ar-projection-event-tag">■ イベント期間</span>@endif<small>数量：総バラ</small></div>
             @if($weekCount > 2)
                 <div class="ar-projection-zoom" role="group" aria-label="表示する週数">

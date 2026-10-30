@@ -32,21 +32,33 @@ final class DemandProfile
         $recent = array_filter($daily, fn ($date) => $date >= $start && $date <= $period['end'], ARRAY_FILTER_USE_KEY);
         $values = array_filter($recent, fn ($v) => $v !== null);
         $fallback = count($values) < 14 || count(array_filter($values, fn ($v) => $v > 0)) < 3;
+        // Slow movers (under one piece a day) use 84 days: 28 days of mostly zeros give an unstable weekday pattern.
+        $slow = ! $fallback && array_sum($values) / count($values) < 1;
+        if ($slow) {
+            $from = CarbonImmutable::parse($period['end'])->subDays(83)->toDateString();
+            $recent = array_filter($daily, fn ($date) => $date >= $from && $date <= $period['end'], ARRAY_FILTER_USE_KEY);
+        }
 
-        return ['daily' => $fallback ? $daily : $recent, 'fallback' => $fallback,
+        return ['daily' => $fallback ? $daily : $recent, 'fallback' => $fallback, 'slow' => $slow,
             'excluded_days' => $exclude ? count(array_intersect_key($daily, $excluded)) : 0];
     }
 
-    public function create(array $daily, bool $fallback = false): array
+    public function create(array $daily, bool $fallback = false, bool $slow = false): array
     {
         $summary = app(WeekdayDemand::class)->summarize($daily);
         $period = ['start' => array_key_first($daily), 'end' => array_key_last($daily)];
+        $warnings = [];
+        if ($fallback) {
+            $warnings[] = '直近の実績が不足するため、発注実績と同じ対象期間まで需要の算定期間を広げています。';
+        } elseif ($slow) {
+            $warnings[] = '日平均1バラ未満の商品のため、直近84日で需要を算定しています。';
+        }
 
         return $summary + ['version' => 'weekday-demand-v1', 'period' => $period,
             'anchor_date' => CarbonImmutable::parse($period['end'])->addDay()->toDateString(),
             'total_pieces' => array_sum(array_column($summary['weekdays'], 'total')),
-            'selection' => $fallback ? 'history_fallback' : 'recent_28_days', 'legacy' => false,
-            'warnings' => $fallback ? ['直近の実績が不足するため、発注実績と同じ対象期間まで需要の算定期間を広げています。'] : []];
+            'selection' => $fallback ? 'history_fallback' : ($slow ? 'slow_84_days' : 'recent_28_days'), 'legacy' => false,
+            'warnings' => $warnings];
     }
 
     public function fromBasis(array $basis): array

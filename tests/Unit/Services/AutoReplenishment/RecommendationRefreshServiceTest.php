@@ -76,11 +76,36 @@ class RecommendationRefreshServiceTest extends TestCase
             ->andReturn(new WmsItemReorderPolicy(['version' => 4]));
         $service = new RecommendationRefreshService($recommendations, $policies, app(ReplenishmentGuard::class));
         $result = $service->refresh(6, null, 2.0, 42, true);
-        self::assertSame(['UPDATED' => 1, 'UNCHANGED' => 1, 'HELD' => 1, 'UNAVAILABLE' => 0, 'ERROR' => 0], $result['summary']);
+        self::assertSame(['UPDATED' => 1, 'FORECAST_UPDATED' => 0, 'UNCHANGED' => 1, 'HELD' => 1, 'UNAVAILABLE' => 0, 'ERROR' => 0], $result['summary']);
         self::assertSame(['reorder_point_pieces' => ['from' => 100, 'to' => 130], 'target_stock_pieces' => ['from' => 150, 'to' => 190]], $result['rows'][0]['changes']);
         self::assertSame(4, $result['rows'][0]['version']);
         self::assertStringContainsString('×2.67', $result['rows'][1]['reason']);
         self::assertSame('UNCHANGED', $result['rows'][2]['outcome']);
+    }
+
+    public function test_same_quantities_with_newer_demand_evidence_are_saved_without_the_change_guard(): void
+    {
+        $profile = fn (string $anchor) => ['version' => 'weekday-demand-v1', 'anchor_date' => $anchor, 'period' => ['start' => '2026-09-03', 'end' => '2026-09-30'], 'mean' => 10.0,
+            'weekdays' => array_fill(0, 7, ['mean' => 10.0, 'days' => 4, 'total' => 40, 'fallback' => false]), 'observed_days' => 28, 'missing_days' => 0, 'warnings' => []];
+        DB::connection('sakemaru')->table('wms_item_reorder_policies')->whereIn('id', [2, 3])->delete();
+        DB::connection('sakemaru')->table('wms_item_reorder_policies')->where('id', 1)->update(['calculation_basis' => json_encode($this->basis + ['demand_profile' => $profile('2026-10-01')])]);
+        $values = ['reorder_point_pieces' => 100, 'target_stock_pieces' => 150, 'min_order_pieces' => 24, 'max_order_pieces' => 72, 'order_multiple_pieces' => 24];
+        $fresh = $this->recommendation($values);
+        $fresh['basis']['demand_profile'] = $profile('2026-10-29') + ['event_forecast' => ['version' => 'event-forecast-v1', 'start' => '2026-10-29', 'days' => ['2026-10-29' => 30.0], 'events' => []]];
+        $recommendations = Mockery::mock(SettingsRecommendationService::class);
+        $recommendations->shouldReceive('recommend')->twice()->andReturn($fresh);
+        $policies = Mockery::mock(PolicyService::class);
+        $policies->shouldReceive('saveWithState')->once()
+            ->with(6, 2, Mockery::on(fn ($data) => $data['item_id'] === 101 && $data['target_stock_pieces'] === 150 && $data['version'] === 3), false, 42,
+                Mockery::on(fn ($basis) => $basis['demand_profile']['anchor_date'] === '2026-10-29'))
+            ->andReturn(new WmsItemReorderPolicy(['version' => 4]));
+        $service = new RecommendationRefreshService($recommendations, $policies, app(ReplenishmentGuard::class));
+        $dry = $service->refresh(6, null, 2.0, 42, false);
+        self::assertSame('FORECAST_UPDATED', $dry['rows'][0]['outcome']);
+        self::assertSame([], $dry['rows'][0]['changes']);
+        $applied = $service->refresh(6, null, 2.0, 42, true);
+        self::assertSame(['UPDATED' => 0, 'FORECAST_UPDATED' => 1, 'UNCHANGED' => 0, 'HELD' => 0, 'UNAVAILABLE' => 0, 'ERROR' => 0], $applied['summary']);
+        self::assertSame(4, $applied['rows'][0]['version']);
     }
 
     public function test_dry_run_never_saves_and_errors_are_reported_per_policy(): void
@@ -96,7 +121,7 @@ class RecommendationRefreshServiceTest extends TestCase
         $policies->shouldNotReceive('saveWithState');
         $service = new RecommendationRefreshService($recommendations, $policies, app(ReplenishmentGuard::class));
         $result = $service->refresh(6, 2, 2.0, 42, false);
-        self::assertSame(['UPDATED' => 1, 'UNCHANGED' => 0, 'HELD' => 0, 'UNAVAILABLE' => 1, 'ERROR' => 1], $result['summary']);
+        self::assertSame(['UPDATED' => 1, 'FORECAST_UPDATED' => 0, 'UNCHANGED' => 0, 'HELD' => 0, 'UNAVAILABLE' => 1, 'ERROR' => 1], $result['summary']);
         self::assertSame('商品または選択倉庫が無効です。', $result['rows'][1]['reason']);
         self::assertSame('需要の観測日数が不足しています。', $result['rows'][2]['reason']);
         $this->expectException(\RuntimeException::class);
