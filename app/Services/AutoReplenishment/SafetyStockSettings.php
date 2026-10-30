@@ -19,7 +19,10 @@ final class SafetyStockSettings
         throw_unless(is_finite($eventUplift) && is_finite($variability) && abs($eventUplift) + $variability <= 2147483647, \RuntimeException::class, '安全在庫の加算量を確認してください。');
         $buffer = max(0, ceil(($mean * $days + $eventUplift + $variability) / $packing) * $packing);
         $requestedTarget = $normal + $buffer;
-        $target = ceil(max($requestedTarget, ($gapConsumption ?? ceil($mean * $arrivalGap)) + $minimum) / $packing) * $packing;
+        // Keep the requested buffer after waiting for the next ordering/arrival opportunity.
+        // Previously the arrival-gap floor could consume the safety buffer itself.
+        $waitingDemand = max($gapConsumption ?? ceil($mean * $arrivalGap), ceil($mean * $reviewInterval));
+        $target = ceil(($buffer + max($normal, $minimum) + $waitingDemand) / $packing) * $packing;
         $boundary = $target - $normal + ($leadConsumption ?? floor($mean * $lead));
         $point = $boundary + 1; // Runtime orders strictly below the reorder point.
         throw_if(max($target, $point) > 2147483647, \RuntimeException::class, '算定数量が上限を超えています。安全在庫日数を減らして再計算してください。');
@@ -28,9 +31,10 @@ final class SafetyStockSettings
             && $existingPoint <= $point + ceil($mean * $reviewInterval) && $existingPoint <= $target;
 
         return ['point' => $preserved ? $existingPoint : (int) $point, 'target' => (int) $target,
-            'basis' => ['quantity_model' => 'safety-stock-days-v1', 'safety_stock_days' => $days,
+            'basis' => ['quantity_model' => 'safety-stock-days-v2', 'safety_stock_days' => $days,
                 'safety_stock_pieces' => (int) $buffer, 'safety_stock_rounding_unit' => $packing,
                 'safety_event_uplift_pieces' => (int) round($eventUplift), 'safety_variability_pieces' => (int) round($variability),
+                'safety_waiting_consumption_pieces' => (int) $waitingDemand,
                 'safety_requested_target_pieces' => (int) $requestedTarget,
                 'safety_arrival_gap_adjustment_pieces' => (int) ($target - $requestedTarget),
                 'safety_lead_days' => $lead, 'safety_lead_consumption_pieces' => (int) ($leadConsumption ?? floor($mean * $lead)), 'normal_order_stock_pieces' => (int) $boundary,

@@ -9,6 +9,16 @@ final class SettingsRecommendationCalculator
 {
     public function calculate(array $history, array $options = []): array
     {
+        $exclusions = new DemandObservationExclusions;
+        $client = (int) ($history['scope']['client_id'] ?? 0);
+        $warehouse = (int) $history['scope']['warehouse_id'];
+        $dates = array_filter(array_keys($history['daily']), fn ($date) => $exclusions->contains($client, $warehouse, $date));
+        if ($dates) {
+            $history['daily'] = $exclusions->mask($client, $warehouse, $history['daily']);
+            $history['warnings'][] = '災害・休業による除外期間 '.min($dates).'〜'.max($dates).'（'.count($dates).'日）は、需要の平均・曜日別集計に含めていません。';
+        }
+        $history['receipts'] = array_values(array_filter($history['receipts'],
+            fn ($r) => ! $exclusions->contains($client, (int) $r['warehouse_id'], $r['date'])));
         $result = $this->calculateCandidate($history, $options);
         $basis = $result['basis'];
         // A few completed receipts are useful evidence, but do not silently replace
