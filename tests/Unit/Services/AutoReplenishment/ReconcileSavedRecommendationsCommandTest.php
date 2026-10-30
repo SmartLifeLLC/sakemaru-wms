@@ -47,6 +47,9 @@ class ReconcileSavedRecommendationsCommandTest extends TestCase
             $policy(7, 7, $basis(['demand_profile' => ['event_forecast' => ['model_version' => 'event-factors-v2', 'events' => [['type' => 'YEAR_END', 'name' => '年末年始', 'start' => '2026-12-20', 'end' => '2027-01-07', 'pre_days' => 0, 'post_days' => 0, 'factor_source' => 'item',
                 'factors' => ['item' => ['YEAR_END' => ['trained_through' => '2026-01-08', 'instance_count' => 3, 'positions_digest' => 'digest-of-2x']]]]]]]])), // 再現不能: same event, factors re-learned (2× → 3×), numbers equal
         ]);
+        $db->table('items')->insert(['id' => 8, 'client_id' => 6, 'code' => 1008, 'name' => 'H']);
+        $db->table('wms_item_reorder_policies')->insert($policy(8, 8, $basis(['demand_profile' => ['event_forecast' => ['events' => [['factors' => ['item' => ['YEAR_END' => ['positions_digest' => 'digest-of-3x', 'pieces' => 120.5, 'instance_count' => 3, 'trained_through' => '2026-10-20']]],
+            'factor_source' => 'item', 'post_days' => 0, 'pre_days' => 0, 'end' => '2027-01-07', 'start' => '2026-12-20', 'name' => '年末年始', 'type' => 'YEAR_END']], 'model_version' => 'event-factors-v2']]]))); // 一致: same factors, another key order at every level
         // Local policy #1 (warehouse 2 × item 1) is bound to a pallet; a foreign export may reuse the id 1 for another product.
         $db->table('wms_pallet_units')->insert(['id' => 50, 'client_id' => 6, 'source_warehouse_id' => 91, 'item_id' => 1, 'pieces_per_pallet' => 144, 'capacity_case' => 24, 'version' => 1]);
         $db->table('wms_policy_pallet_units')->insert(['policy_id' => 1, 'pallet_unit_id' => 50, 'pallet_version' => 1, 'pieces_per_pallet' => 144]);
@@ -65,24 +68,24 @@ class ReconcileSavedRecommendationsCommandTest extends TestCase
     public function test_every_saved_policy_is_classified_and_nothing_is_written(): void
     {
         $service = Mockery::mock(SettingsRecommendationService::class);
-        $service->shouldReceive('recommend')->times(4)->withArgs(function (int $client, int $warehouse, array $form, array $options) {
+        $service->shouldReceive('recommend')->times(5)->withArgs(function (int $client, int $warehouse, array $form, array $options) {
             self::assertSame($form['item_id'] === 5 ? '2026-10-29' : '2026-10-13', $options['as_of'], 'item '.$form['item_id'].' as_of'); // the day after the saved window end
             self::assertSame(['unit_mode' => 'CASE', 'review_days' => 7, 'safety_stock_days' => 5, 'existing_reorder_point' => null], array_diff_key($options, ['as_of' => 1]));
             self::assertSame($form['item_id'] === 1 ? 'PALLET' : 'STANDARD', $form['shipping_unit_mode'], 'item '.$form['item_id'].' mode'); // the binding of the local policy of the same warehouse × product
 
-            return $client === 6 && $warehouse === 2 && in_array($form['item_id'], [1, 5, 6, 7], true);
+            return $client === 6 && $warehouse === 2 && in_array($form['item_id'], [1, 5, 6, 7, 8], true);
         })->andReturnUsing(fn ($c, $w, $form) => ['available' => true,
             'values' => ['reorder_point_pieces' => 100, 'target_stock_pieces' => $form['item_id'] === 6 ? 240 : 200, 'min_order_pieces' => 24, 'max_order_pieces' => 96, 'order_multiple_pieces' => 24, 'strategy_key' => 'arrival_adaptive_v1'],
             'basis' => ['basis_type' => 'sales', 'batch_quantity_pieces' => 24] + ($form['item_id'] === 1 ? ['pallet_unit' => ['id' => 50]] : [])
-                + ($form['item_id'] === 7 ? ['demand_profile' => ['event_forecast' => ['model_version' => 'event-factors-v2', 'events' => [['type' => 'YEAR_END', 'name' => '年末年始', 'start' => '2026-12-20', 'end' => '2027-01-07', 'pre_days' => 0, 'post_days' => 0, 'factor_source' => 'item',
-                    'factors' => ['item' => ['YEAR_END' => ['trained_through' => '2026-10-20', 'instance_count' => 3, 'positions_digest' => 'digest-of-3x']]]]]]]] : [])]);
+                + (in_array($form['item_id'], [7, 8], true) ? ['demand_profile' => ['event_forecast' => ['model_version' => 'event-factors-v2', 'events' => [['type' => 'YEAR_END', 'name' => '年末年始', 'start' => '2026-12-20', 'end' => '2027-01-07', 'pre_days' => 0, 'post_days' => 0, 'factor_source' => 'item',
+                    'factors' => ['item' => ['YEAR_END' => ['trained_through' => '2026-10-20', 'instance_count' => 3, 'pieces' => 120.5, 'positions_digest' => 'digest-of-3x']]]]]]]] : [])]);
         $this->app->instance(SettingsRecommendationService::class, $service);
         $code = Artisan::call('wms:reconcile-saved-recommendations', ['client' => 6, '--out' => $this->out]);
         self::assertSame(0, $code, Artisan::output());
         $summary = json_decode(file_get_contents($this->out.'/summary.json'), true);
-        self::assertSame(['一致' => 1, '不一致' => 1, '再現不能' => 2, '対象外' => 3], $summary['summary']);
+        self::assertSame(['一致' => 2, '不一致' => 1, '再現不能' => 2, '対象外' => 3], $summary['summary']);
         self::assertTrue($summary['environment']['read_only_verified']);
-        self::assertSame(7, $summary['environment']['policies']);
+        self::assertSame(8, $summary['environment']['policies']);
         self::assertSame(0, $summary['environment']['enabled_policies']);
         $rows = array_map('str_getcsv', file($this->out.'/reconcile.csv'));
         $header = array_shift($rows);
@@ -106,6 +109,7 @@ class ReconcileSavedRecommendationsCommandTest extends TestCase
         self::assertStringContainsString('イベント条件', $byId[7]['reason']);
         self::assertStringContainsString('数値は同じ', $byId[7]['reason']);
         self::assertStringContainsString('接続先ポリシー #1', $byId[1]['conditions_source']);
+        self::assertSame('一致', $byId[8]['verdict']); // identical factors stored in another key order are the same condition
     }
 
     /** A JSON export of another environment carries that environment's policy ids: the binding is resolved by warehouse × product, never by id. */

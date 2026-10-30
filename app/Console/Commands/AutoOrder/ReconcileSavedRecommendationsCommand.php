@@ -144,12 +144,8 @@ class ReconcileSavedRecommendationsCommand extends Command
         // model_version: the learner version the factors belong to.
         $keys = array_flip(['type', 'name', 'start', 'end', 'pre_days', 'post_days', 'factor_source', 'factors']);
         $version = $basis['demand_profile']['event_forecast']['model_version'] ?? null;
-        $rows = array_map(function ($e) use ($keys) {
-            $row = array_intersect_key((array) $e, $keys);
-            ksort($row); // stored JSON may carry another key order
-
-            return $row;
-        }, is_array($events) ? $events : []);
+        // Canonical (recursive key order, fixed float precision): stored JSON may carry another key order at any depth.
+        $rows = array_map(fn ($e) => \App\Services\AutoReplenishment\DemandEventForecast::canonical(array_intersect_key((array) $e, $keys)), is_array($events) ? $events : []);
         usort($rows, fn ($a, $b) => strcmp(json_encode($a), json_encode($b)));
 
         return json_encode(['model_version' => $version, 'events' => $rows]);

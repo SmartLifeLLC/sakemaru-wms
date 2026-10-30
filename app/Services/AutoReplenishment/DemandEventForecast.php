@@ -125,14 +125,27 @@ final class DemandEventForecast
                 if ($profile === null) {
                     continue;
                 }
-                $positions = is_array($profile['positions'] ?? null) ? $profile['positions'] : [];
-                ksort($positions);
+                // Canonical form (recursive key order, fixed float precision) so the same factors give the same digest whatever the
+                // storage key order; pieces take part because they weight the blend with category factors.
+                $positions = self::canonical(is_array($profile['positions'] ?? null) ? $profile['positions'] : []);
                 $identity[$scope][$key] = ['trained_through' => $profile['trained_through'] ?? null, 'instance_count' => (int) ($profile['instance_count'] ?? 0),
-                    'positions_digest' => hash('sha256', json_encode($positions))];
+                    'pieces' => round((float) ($profile['pieces'] ?? 0), 4), 'positions_digest' => hash('sha256', json_encode($positions))];
             }
         }
 
         return $identity;
+    }
+
+    /** Recursively key-sorted copy with floats rounded to 6 places: a comparable, storage-order-independent representation. */
+    public static function canonical(array $value): array
+    {
+        $out = [];
+        foreach ($value as $k => $v) {
+            $out[$k] = is_array($v) ? self::canonical($v) : (is_float($v) ? round($v, 6) : $v);
+        }
+        ksort($out, SORT_STRING);
+
+        return $out;
     }
 
     private function lookup(array $profiles, array $keys, string $position): ?array
