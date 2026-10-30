@@ -173,10 +173,13 @@ final class SettingsRecommendationCalculator
         $protection = $lead + $reviewInterval;
         $demand = app(DemandProfile::class);
         $events = $this->events($options);
-        $exclude = $events ? app(DemandEventCalendar::class)->eventDates($events['events'], $history['period']['start'], $history['period']['end']) : [];
+        // Shared definition: the dates an applicable event adjusts (block and pre/post days) are the dates left out of the
+        // normal level — and only for events this product has factors for, so a product without factors stays weekday-only.
+        $adjusting = $events ? app(DemandEventForecast::class)->eventsWithFactors($events['events'], $events['factors']) : [];
+        $exclude = $adjusting ? app(DemandEventCalendar::class)->adjustedDates($adjusting, $history['period']['start'], $history['period']['end']) : [];
         $selection = $demand->select($history['daily'], $history['period'], $exclude);
         if (($selection['excluded_days'] ?? 0) > 0) {
-            $basis['warnings'][] = '承認済みイベント日 '.$selection['excluded_days'].'日を平常水準の算定から除外しました（イベント日の需要は日付別予測で加算します）。';
+            $basis['warnings'][] = 'この商品に適用するイベントの補正対象日 '.$selection['excluded_days'].'日を平常水準の算定から除外しました（その需要は日付別予測で加算します）。';
         }
         $daily = $selection['daily'];
         if ($selection['fallback']) {
@@ -213,7 +216,7 @@ final class SettingsRecommendationCalculator
         $basis['demand_events'] = ['approved' => count($events['events'] ?? []), 'in_horizon' => count($profile['event_forecast']['events'] ?? []),
             'approved_in_horizon' => $events ? count(app(DemandEventCalendar::class)->within($events['events'], $profile['anchor_date'],
                 CarbonImmutable::parse($profile['anchor_date'])->addDays(DemandEventForecast::HORIZON_DAYS - 1)->toDateString())) : 0,
-            'excluded_days' => $selection['excluded_days'] ?? 0, 'horizon_days' => DemandEventForecast::HORIZON_DAYS];
+            'excluded_days' => $selection['excluded_days'] ?? 0, 'with_factors' => count($adjusting), 'horizon_days' => DemandEventForecast::HORIZON_DAYS];
         $mean = $profile['mean'];
         // Same definition as the validated simulation: deviation from the weekday means, H = days until the next arrival (protection).
         $sigma = $this->residualDeviation($daily, $profile);
@@ -416,7 +419,7 @@ final class SettingsRecommendationCalculator
                 $warnings[] = "{$event['name']}の上乗せ見込 ".number_format($event['uplift_pieces']).'バラに対し、開始前の入荷 '.$deliveries.'回 × 最大発注数 '.number_format((int) $computed['values']['max_order_pieces'])
                     .' ＝ '.number_format($capacity).'バラしか確保できません。最大発注数または実行曜日を見直してください。';
             }
-            $events[] = $event + ['secure_by_date' => $before ? end($before) : null,
+            $events[] = $event + ['segments' => $this->eventSegments($demand, $profile, $event), 'secure_by_date' => $before ? end($before) : null,
                 'days_until_start' => max(0, (int) $anchor->diffInDays(CarbonImmutable::parse($event['start']), false)),
                 'in_target' => $event['start'] <= $coverageEnd && $event['end'] >= $anchor->toDateString(), 'daily' => $daily,
                 'deliveries_before_start' => $deliveries, 'supply_capacity_pieces' => $capacity, 'supply_short' => $short];
@@ -430,6 +433,27 @@ final class SettingsRecommendationCalculator
             'point_add_on_pieces' => $baseValues ? $computed['values']['reorder_point_pieces'] - $baseValues['reorder_point_pieces'] : null,
             'batch_add_on_pieces' => $baseValues ? $computed['basis']['batch_quantity_pieces'] - $baseValues['batch_quantity_pieces'] : null,
             'coverage_end' => $coverageEnd, 'horizon_days' => count($profile['event_forecast']['days']), 'events' => $events, 'warnings' => $warnings];
+    }
+
+    /** Period-average factor per display segment: Σadjusted forecast ÷ Σweekday forecast over the segment's dates inside the horizon. */
+    private function eventSegments(DemandProfile $demand, array $profile, array $event): array
+    {
+        $rows = [];
+        foreach (app(DemandEventCalendar::class)->segments($event) as $segment) {
+            $days = (int) CarbonImmutable::parse($segment['start'])->diffInDays(CarbonImmutable::parse($segment['end'])) + 1;
+            $forecast = 0.0;
+            $weekday = 0.0;
+            $count = 0;
+            foreach ($demand->eventDays($profile, $segment['start'], $days) as $row) {
+                $forecast += $row['forecast'];
+                $weekday += $row['weekday'];
+                $count++;
+            }
+            $rows[] = $segment + ['days' => $count, 'forecast_pieces' => round($forecast, 1), 'weekday_pieces' => round($weekday, 1),
+                'factor' => $count > 0 && $weekday > 0 ? round($forecast / $weekday, 2) : null];
+        }
+
+        return $rows;
     }
 
     private function events(array $options): ?array

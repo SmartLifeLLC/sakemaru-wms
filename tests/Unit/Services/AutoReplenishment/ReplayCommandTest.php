@@ -29,6 +29,10 @@ class ReplayCommandTest extends TestCase
         $db->table('items')->insert([['id' => 143024, 'client_id' => 6, 'code' => 143024, 'name' => 'スーパードライ350', 'capacity_case' => 24, 'item_category3_id' => 3142],
             ['id' => 222, 'client_id' => 6, 'code' => 222, 'name' => '上位商品', 'capacity_case' => 6, 'item_category3_id' => 3142]]);
         $db->table('wms_item_reorder_policies')->insert(['id' => 1, 'client_id' => 6, 'warehouse_id' => 2, 'item_id' => 143024, 'contractor_id' => 10]);
+        // 年末年始 is applied to both products (the replay's eventA follows the same per-product rule as the recommendation).
+        (require base_path('database/migrations/2026_10_30_000001_create_wms_demand_events.php'))->up();
+        \App\Services\AutoReplenishment\DemandEventRepository::resetInstalledFlag();
+        $db->table('wms_item_demand_events')->insert([['client_id' => 6, 'item_id' => 143024, 'event_type' => 'YEAR_END', 'is_enabled' => 1], ['client_id' => 6, 'item_id' => 222, 'event_type' => 'YEAR_END', 'is_enabled' => 1]]);
         $rows = [];
         for ($d = CarbonImmutable::parse('2024-05-05'); $d->toDateString() <= '2026-01-31'; $d = $d->addDay()) {
             $md = $d->format('m-d');
@@ -44,6 +48,7 @@ class ReplayCommandTest extends TestCase
 
     protected function tearDown(): void
     {
+        \App\Services\AutoReplenishment\DemandEventRepository::resetInstalledFlag();
         if (isset($this->out) && is_dir($this->out)) {
             array_map('unlink', glob($this->out.'/*') ?: []);
             rmdir($this->out);
@@ -74,7 +79,12 @@ class ReplayCommandTest extends TestCase
         self::assertArrayHasKey('年末年始', $summary['base']['segments']);
         self::assertGreaterThan($summary['eventA']['segments']['年末年始']['unmet'], $summary['base']['segments']['年末年始']['unmet']);
         $conditions = json_decode(file_get_contents($this->out.'/conditions.json'), true);
-        self::assertSame('2025-01-06', $conditions['learn_through']);
+        self::assertSame('2025-01-08', $conditions['learn_through']);
+        self::assertSame(['applied', 'saved'], [$conditions['events_scope'], $conditions['constraints']]);
+        self::assertCount(9, $conditions['events']); // the three standard events of 2024〜2026 only (no 連休)
+        self::assertContains('年末年始 2025-12-20〜2026-01-07', $conditions['events']);
+        self::assertContains('ゴールデンウィーク 2025-05-03〜2025-05-06', $conditions['events']);
+        self::assertEmpty(array_filter($conditions['events'], fn ($e) => str_contains($e, '連休')));
         self::assertContains(['2025-12-31', '2026-01-03'], $conditions['stops']);
         $series = array_map('str_getcsv', file("{$this->out}/series_eventA.csv"));
         self::assertCount(3, $series);

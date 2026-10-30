@@ -47,6 +47,13 @@ class AutoReplenishmentEvents extends AdminPage
     #[Locked]
     public ?int $previewId = null;
 
+    /** 商品別の適用イベント: shown on demand; item_id (string key) => [type => bool]. */
+    public bool $showItems = false;
+
+    public array $itemEvents = [];
+
+    public string $itemFilter = '';
+
     public function getTitle(): string
     {
         return '';
@@ -176,6 +183,47 @@ class AutoReplenishmentEvents extends AdminPage
         Notification::make()->success()->title($event->name.'を「'.WmsDemandEvent::STATUSES[$status].'」にしました。')->send();
     }
 
+    public function toggleItems(): void
+    {
+        $client = $this->clientId();
+        $this->showItems = ! $this->showItems;
+        if ($this->showItems) {
+            $this->itemEvents = [];
+            foreach (app(\App\Services\AutoReplenishment\ItemDemandEventService::class)->matrix($client) as $itemId => $types) {
+                $this->itemEvents[(string) $itemId] = $types;
+            }
+        }
+    }
+
+    /** Tick the products whose own learned factors suggest the event (nothing is unticked). */
+    public function applySuggestions(): void
+    {
+        $client = $this->authorizeOperation('enable');
+        $service = app(\App\Services\AutoReplenishment\ItemDemandEventService::class);
+        $added = 0;
+        foreach ($service->suggestions($client, array_map('intval', array_keys($this->itemEvents))) as $itemId => $types) {
+            foreach ($types as $type => $info) {
+                if ($info['suggest'] && empty($this->itemEvents[(string) $itemId][$type])) {
+                    $this->itemEvents[(string) $itemId][$type] = true;
+                    $added++;
+                }
+            }
+        }
+        Notification::make()->success()->title("候補 {$added} 件にチェックを入れました。内容を確認して「商品別の適用を保存」してください。")->send();
+    }
+
+    public function saveItemEvents(): void
+    {
+        // Applying an event to a product changes what the recommendation uses: same permission as approval.
+        $client = $this->authorizeOperation('enable');
+        $applied = [];
+        foreach ($this->itemEvents as $itemId => $types) {
+            $applied[(int) $itemId] = array_keys(array_filter(array_map(fn ($v) => (bool) $v, (array) $types)));
+        }
+        $counts = $this->checked(fn () => app(\App\Services\AutoReplenishment\ItemDemandEventService::class)->apply($client, $applied, (int) auth()->id()));
+        Notification::make()->success()->title("商品別の適用を保存しました（適用 {$counts['enabled']}・解除 {$counts['disabled']}）。おすすめ設定には週次の再計算または画面の再計算で反映されます。")->send();
+    }
+
     public function preview(int $id): void
     {
         $this->clientId();
@@ -198,13 +246,54 @@ class AutoReplenishmentEvents extends AdminPage
             $trainedThrough = max($trainedThrough ?? '', (string) $row->trained_through);
         }
         $calendar = app(DemandEventCalendar::class);
-        $proposals = $calendar->proposals($this->year, app(\App\Services\AutoReplenishment\DemandEventHistoryReader::class)->holidays($this->year));
+        $proposals = $calendar->standardEvents($this->year, app(\App\Services\AutoReplenishment\DemandEventHistoryReader::class)->holidays($this->year));
         $existing = $events->map(fn ($e) => $e->type.'|'.$e->start_date->toDateString())->flip();
         $missing = array_values(array_filter($proposals, fn ($p) => ! isset($existing[$p['type'].'|'.$p['start']])));
 
         return ['installed' => true, 'events' => $events, 'profileCounts' => $profileCounts, 'trainedThrough' => $trainedThrough ?: null,
             'proposals' => $missing, 'preview' => $this->previewId ? $this->previewRows($client, $events->firstWhere('id', $this->previewId)) : null,
-            'modelVersion' => DemandEventLearner::MODEL_VERSION];
+            'modelVersion' => DemandEventLearner::MODEL_VERSION, 'itemRows' => $this->showItems ? $this->itemRows($client) : [],
+            'appliedCounts' => $this->appliedCounts($client)];
+    }
+
+    /** Applied products per standard event type. */
+    private function appliedCounts(int $client): array
+    {
+        $counts = array_fill_keys(DemandEventCalendar::STANDARD_TYPES, 0);
+        foreach (\App\Models\WmsItemDemandEvent::where(['client_id' => $client, 'is_enabled' => true])->groupBy('event_type')->selectRaw('event_type, COUNT(*) n')->get() as $row) {
+            if (isset($counts[$row->event_type])) {
+                $counts[$row->event_type] = (int) $row->n;
+            }
+        }
+
+        return $counts;
+    }
+
+    /** Products with an auto-order policy, their applicability checkboxes and the learned-factor suggestions. */
+    private function itemRows(int $client): array
+    {
+        $ids = array_map('intval', array_keys($this->itemEvents));
+        if (! $ids) {
+            return [];
+        }
+        $items = DB::connection('sakemaru')->table('items')->where('client_id', $client)->whereIn('id', $ids)->get(['id', 'code', 'name', 'item_category3_id'])->keyBy('id');
+        $categories = DB::connection('sakemaru')->table('item_categories')->whereIn('id', $items->pluck('item_category3_id')->filter()->unique()->all() ?: [-1])->pluck('name', 'id');
+        $suggestions = app(\App\Services\AutoReplenishment\ItemDemandEventService::class)->suggestions($client, $ids);
+        $filter = mb_strtolower(trim($this->itemFilter));
+        $rows = [];
+        foreach ($ids as $itemId) {
+            $item = $items[$itemId] ?? null;
+            $code = (string) ($item->code ?? $itemId);
+            $name = (string) ($item->name ?? '（商品情報なし）');
+            if ($filter !== '' && ! str_contains(mb_strtolower($code.' '.$name), $filter)) {
+                continue;
+            }
+            $rows[] = ['item_id' => $itemId, 'code' => $code, 'name' => $name, 'category' => $categories[$item->item_category3_id ?? 0] ?? '',
+                'suggestions' => $suggestions[$itemId] ?? []];
+        }
+        usort($rows, fn ($a, $b) => strcmp($a['code'], $b['code']));
+
+        return $rows;
     }
 
     /** Learned factors of the policies' products for one event: peak position and block mean. */
@@ -224,16 +313,29 @@ class AutoReplenishmentEvents extends AdminPage
         foreach ($profiles as $profile) {
             $byScope[$profile->scope_type][(int) $profile->scope_id] ??= $profile; // name-specific key sorts first in $keys
         }
+        $applied = \App\Models\WmsItemDemandEvent::where(['client_id' => $client, 'event_type' => $event->type, 'is_enabled' => true])->whereIn('item_id', $items ?: [-1])->pluck('item_id')->flip();
+        // Period-average factors (Σadjusted forecast ÷ Σweekday forecast per segment) from the latest saved recommendation of each product.
+        $segments = [];
+        $eventStart = $event->start_date->toDateString();
+        WmsItemReorderPolicy::where('client_id', $client)->whereIn('item_id', $items ?: [-1])->whereNotNull('calculation_basis')->select(['item_id', 'warehouse_id', 'calculation_basis'])
+            ->lazyById(100)->each(function ($policy) use (&$segments, $event, $eventStart) {
+                foreach ($policy->calculation_basis['event_adjustment']['events'] ?? [] as $row) {
+                    if (($row['name'] ?? '') === $event->name && ($row['start'] ?? '') === $eventStart && ! empty($row['segments'])) {
+                        $segments[(int) $policy->item_id] ??= ['warehouse_id' => (int) $policy->warehouse_id, 'segments' => $row['segments']];
+                    }
+                }
+            });
         $rows = [];
         foreach ($items as $itemId) {
             $own = $byScope['ITEM'][$itemId] ?? null;
             $category = isset($itemRows[$itemId]) ? ($byScope['CATEGORY'][(int) $itemRows[$itemId]->item_category3_id] ?? null) : null;
             $source = $own ?: $category;
             $rows[] = ['item_id' => $itemId, 'code' => $itemRows[$itemId]->code ?? '', 'name' => $itemRows[$itemId]->name ?? '（商品情報なし）',
-                'category' => $categories[$itemRows[$itemId]->item_category3_id ?? 0] ?? '', 'source' => $own ? '自社' : ($category ? 'カテゴリ' : 'なし'),
+                'category' => $categories[$itemRows[$itemId]->item_category3_id ?? 0] ?? '', 'source' => $own ? '自社' : ($category ? 'カテゴリ（参考）' : 'なし'),
+                'applied' => isset($applied[$itemId]), 'segments' => $segments[$itemId]['segments'] ?? null,
                 'summary' => $source ? $this->summarize($source->positions, $event->type) : null, 'pieces' => $own ? (float) $own->pieces : null];
         }
-        usort($rows, fn ($a, $b) => ($b['summary']['peak'] ?? 0) <=> ($a['summary']['peak'] ?? 0));
+        usort($rows, fn ($a, $b) => [$b['applied'], $b['summary']['peak'] ?? 0] <=> [$a['applied'], $a['summary']['peak'] ?? 0]);
 
         return ['event' => $event, 'rows' => $rows, 'categories' => count($byScope['CATEGORY'] ?? []), 'items' => count($byScope['ITEM'] ?? [])];
     }

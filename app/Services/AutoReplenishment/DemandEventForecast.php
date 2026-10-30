@@ -75,11 +75,19 @@ final class DemandEventForecast
         foreach ($calendar->within($events, $profile['anchor_date'], $anchor->addDays($horizon - 1)->toDateString()) as $event) {
             $name = $event['name'].'|'.$event['start'];
             $summary[] = ['type' => $event['type'], 'name' => $event['name'], 'start' => $event['start'], 'end' => $event['end'],
-                'uplift_pieces' => (int) round($uplift[$name] ?? 0), 'factor_source' => $sources[$name] ?? 'none'];
+                'pre_days' => $event['pre_days'], 'post_days' => $event['post_days'], 'uplift_pieces' => (int) round($uplift[$name] ?? 0), 'factor_source' => $sources[$name] ?? 'none'];
         }
         $profile['event_forecast'] = ['version' => self::VERSION, 'start' => $profile['anchor_date'], 'days' => $days, 'events' => $summary];
 
         return $profile;
+    }
+
+    /** Events for which the product has at least one learned factor (own or category); only these adjust the level. */
+    public function eventsWithFactors(array $events, array $factors): array
+    {
+        $keys = array_merge(array_keys($factors['item'] ?? []), array_keys($factors['category'] ?? []));
+
+        return array_values(array_filter(app(DemandEventCalendar::class)->normalize($events), fn ($e) => array_intersect($e['profile_keys'], $keys) !== []));
     }
 
     /** Blended factor for one position: own value shrunk toward the category value. */

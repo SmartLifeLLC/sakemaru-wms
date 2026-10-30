@@ -13,7 +13,7 @@ class RefreshReplenishmentRecommendationsCommand extends Command
         {--max-change= : 前回値からの変化幅の上限（倍率。既定は config replenishment.weekly_refresh.max_change_ratio）}
         {--apply : 再計算した数量を保存（指定なしは確認のみ）}';
 
-    protected $description = '保存済みのおすすめ設定を同じ条件で再計算し、承認済みイベントを反映して数量を更新する（週次）';
+    protected $description = '保存済みのおすすめ設定を同じ条件で再計算し、商品に適用した承認済みイベントを反映して数量だけを更新する（週次。ON／OFFは変えない）';
 
     public function handle(RecommendationRefreshService $service): int
     {

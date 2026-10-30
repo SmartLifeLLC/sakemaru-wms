@@ -46,7 +46,7 @@ class DemandEventServiceTest extends TestCase
         $this->migrate();
         $service = app(DemandEventService::class);
         $inserted = $service->proposeYear(6, 2026, 1);
-        self::assertGreaterThanOrEqual(4, $inserted);
+        self::assertSame(3, $inserted); // the three standard events only: 連休 is not proposed
         self::assertSame(0, $service->proposeYear(6, 2026, 1)); // idempotent
         $repository = app(DemandEventRepository::class);
         self::assertNull($repository->recommendationOptions(6, 143024));
@@ -54,6 +54,10 @@ class DemandEventServiceTest extends TestCase
         self::assertSame('DRAFT', $yearEnd->status);
         self::assertSame('2026-12-20', $yearEnd->start_date->toDateString());
         $service->setStatus(6, (int) $yearEnd->id, 'APPROVED', 7);
+        // Approved, but not yet applied to any product: the recommendation still sees nothing.
+        self::assertNull($repository->recommendationOptions(6, 143024));
+        \App\Models\WmsItemDemandEvent::create(['client_id' => 6, 'item_id' => 143024, 'event_type' => 'YEAR_END', 'is_enabled' => true]);
+        \App\Models\WmsItemDemandEvent::create(['client_id' => 6, 'item_id' => 999, 'event_type' => 'YEAR_END', 'is_enabled' => true]);
         WmsDemandEventProfile::insert([
             ['client_id' => 6, 'profile_key' => 'YEAR_END', 'scope_type' => 'ITEM', 'scope_id' => 143024, 'positions' => json_encode(['12-31' => ['factor' => 2.5, 'factor_weekday' => 2.4, 'years' => 3]]), 'pieces' => 5000, 'instance_count' => 3, 'trained_through' => '2026-10-29', 'model_version' => 'event-factors-v1'],
             ['client_id' => 6, 'profile_key' => 'YEAR_END', 'scope_type' => 'CATEGORY', 'scope_id' => 3142, 'positions' => json_encode(['12-31' => ['factor' => 2.0, 'factor_weekday' => 2.0, 'years' => 3]]), 'pieces' => 9000, 'instance_count' => 3, 'trained_through' => '2026-10-29', 'model_version' => 'event-factors-v1'],
@@ -61,9 +65,12 @@ class DemandEventServiceTest extends TestCase
         ]);
         $options = (new DemandEventRepository)->recommendationOptions(6, 143024);
         self::assertCount(1, $options['events']);
-        self::assertSame(['type' => 'YEAR_END', 'start' => '2026-12-20', 'end' => '2027-01-05'], array_intersect_key($options['events'][0], array_flip(['type', 'start', 'end'])));
+        self::assertSame(['type' => 'YEAR_END', 'start' => '2026-12-20', 'end' => '2027-01-07'], array_intersect_key($options['events'][0], array_flip(['type', 'start', 'end'])));
         self::assertSame(2.5, $options['factors']['item']['YEAR_END']['positions']['12-31']['factor']);
-        self::assertEquals(2.0, $options['factors']['category']['YEAR_END']['positions']['12-31']['factor']);
+        self::assertSame([], $options['factors']['category']); // category factors are a suggestion unless the fallback is enabled
+        config(['replenishment.demand_events.category_fallback' => true]);
+        self::assertEquals(2.0, (new DemandEventRepository)->recommendationOptions(6, 143024)['factors']['category']['YEAR_END']['positions']['12-31']['factor']);
+        config(['replenishment.demand_events.category_fallback' => false]);
         self::assertSame(5000.0, $options['factors']['item']['YEAR_END']['pieces']);
         // A product without a category only gets its own profiles; the repository never guesses a category.
         $other = (new DemandEventRepository)->recommendationOptions(6, 999);

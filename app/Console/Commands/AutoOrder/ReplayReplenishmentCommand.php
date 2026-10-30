@@ -28,7 +28,9 @@ class ReplayReplenishmentCommand extends Command
         {--extra-items=10 : 設定のある商品に加える売上上位の商品数}
         {--safety=5 : 安全在庫日数}
         {--unit=CASE : 発注単位の扱い（CASE/PIECE）}
-        {--learn-through= : イベント倍率の学習終了日（既定：開始年の1月6日）}
+        {--learn-through= : イベント倍率の学習終了日（既定：開始年の1月8日＝前年の年末年始 12/20〜1/7 まで学習）}
+        {--events=applied : eventA の対象（applied=商品別の適用イベントだけ・本体と同じ判定, standard=全商品に標準イベント3種）}
+        {--constraints=saved : 数量条件（saved=保存済みの最小・最大・単位を再現, calc=算定値のまま）}
         {--warmup=28 : 集計から除く開始日数}
         {--limit= : 系列数の上限（動作確認用）}
         {--out= : 出力フォルダ（既定 storage/app/replenishment-replay/<日時>）}';
@@ -67,12 +69,15 @@ class ReplayReplenishmentCommand extends Command
             $years = range((int) substr($from, 0, 4) - 1, (int) substr($to, 0, 4));
             $events = [];
             foreach ($years as $year) {
-                $events = array_merge($events, $calendarEvents->proposals($year, $history->holidays($year)));
+                $events = array_merge($events, $calendarEvents->standardEvents($year, $history->holidays($year)));
             }
+            throw_unless(in_array($this->option('events'), ['applied', 'standard'], true), \RuntimeException::class, '--events は applied または standard で指定してください。');
+            throw_unless(in_array($this->option('constraints'), ['saved', 'calc'], true), \RuntimeException::class, '--constraints は saved または calc で指定してください。');
+            $repository = app(\App\Services\AutoReplenishment\DemandEventRepository::class);
             $factors = fn (int $item) => ['item' => [], 'category' => []];
             $through = null;
             if (count(array_intersect($scenarioNames, ['eventA', 'eventAs'])) > 0) {
-                $through = $this->option('learn-through') ?: substr($from, 0, 4).'-01-06';
+                $through = $this->option('learn-through') ?: substr($from, 0, 4).'-01-08';
                 throw_if($through >= $from, \RuntimeException::class, "学習終了日 {$through} は再生開始日 {$from} より前にしてください（再生中の実績を学習に使わない）。");
                 $this->line("イベント倍率を学習中（{$through} まで、3年）…");
                 $learned = $learning->learn($client, $through, 3, $itemIds, fn ($line) => $this->line('  '.$line));
@@ -97,12 +102,12 @@ class ReplayReplenishmentCommand extends Command
             $initialStock = $this->option('initial-stock') === 'target' ? 'target' : (int) $this->option('initial-stock');
             $conditions = ['from' => $from, 'to' => $to, 'calendar' => $this->option('calendar'), 'lead' => (int) $this->option('lead'), 'stops' => $stops,
                 'safety_stock_days' => (int) $this->option('safety'), 'unit_mode' => $this->option('unit'), 'learn_through' => $through,
-                'max_change_ratio' => $maxChange, 'initial_stock' => $initialStock, 'channel_assumption' => 'おすすめ算定は売上基準（発注連携実績なし）・EOS相当。入荷予定は方式・発注先ごとの現在設定（current）または簡易',
+                'max_change_ratio' => $maxChange, 'initial_stock' => $initialStock, 'events_scope' => $this->option('events'), 'constraints' => $this->option('constraints'), 'channel_assumption' => 'おすすめ算定は売上基準（発注連携実績なし）・EOS相当。入荷予定は方式・発注先ごとの現在設定（current）または簡易',
                 'warmup_days' => (int) $this->option('warmup'), 'series' => count($list), 'events' => array_map(fn ($e) => $e['name'].' '.$e['start'].'〜'.$e['end'], $events)];
             file_put_contents($out.'/conditions.json', json_encode($conditions, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
             $summary = [];
             foreach ($scenarioNames as $name) {
-                $scenario = $this->scenario($name, $from, $to, $events, $factors) + ['max_change_ratio' => $maxChange, 'initial_stock' => $initialStock];
+                $scenario = $this->scenario($name, $from, $to, $events, $factors) + ['max_change_ratio' => $maxChange, 'initial_stock' => $initialStock, 'saved_constraints' => $this->option('constraints') === 'saved'];
                 $seriesFile = fopen($out."/series_{$name}.csv", 'w');
                 $daysFile = fopen($out."/days_{$name}.csv", 'w');
                 $recalcFile = fopen($out."/recalcs_{$name}.csv", 'w');
@@ -121,6 +126,11 @@ class ReplayReplenishmentCommand extends Command
                         'item_name' => (string) $item['name'], 'capacity_case' => (int) $item['capacity_case'], 'source' => $entry['source'],
                         'channel' => $entry['channel'] ?? 'EOS', 'saved_policy' => $entry['saved_policy'] ?? null,
                         'demand' => $demand[$entry['warehouse_id']][$entry['item_id']] ?? []];
+                    if ($this->option('events') === 'applied') {
+                        // Same target rule as the recommendation: only the standard events applied to this product adjust it.
+                        $types = $repository->itemEventTypes($client, (int) $entry['item_id']);
+                        $series['events'] = array_values(array_filter($events, fn ($e) => in_array($e['type'], $types, true)));
+                    }
                     $calendar = $this->calendar($reader, $calendars, $entry, (int) $this->option('lead'), $stops);
                     $result = $engine->run($series, $scenario, $calendar);
                     $m = $result['metrics'];

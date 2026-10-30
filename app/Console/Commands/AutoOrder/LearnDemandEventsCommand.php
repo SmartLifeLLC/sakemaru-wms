@@ -15,7 +15,7 @@ class LearnDemandEventsCommand extends Command
         {--items=policies : ITEMプロファイルを作る商品（policies＝自動発注設定のある商品／all＝実績のある全商品）}
         {--apply : 学習結果を wms_demand_event_profiles に保存（指定なしは集計のみ）}';
 
-    protected $description = '過去のイベント（年末年始・お盆・GW・連休）の販売実績から商品別・カテゴリ別のイベント倍率を学習する';
+    protected $description = '過去の標準イベント（年末年始・お盆・GW）の販売実績から商品別・カテゴリ別のイベント倍率を学習する（カテゴリ値は候補提示用）';
 
     public function handle(DemandEventLearningService $service): int
     {

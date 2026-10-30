@@ -24,7 +24,7 @@ class DemandEventLearningService
         $earliest = $end->subYears($years)->subDays(30)->toDateString();
         $instances = [];
         for ($year = $end->year - $years - 1; $year <= $end->year; $year++) {
-            foreach ($this->calendar->proposals($year, $this->reader->holidays($year)) as $event) {
+            foreach ($this->calendar->standardEvents($year, $this->reader->holidays($year)) as $event) {
                 // Complete instances only: the post days are learned positions too, so they must also lie before $through.
                 $complete = CarbonImmutable::parse($event['end'])->addDays($event['post_days'])->toDateString() <= $through;
                 if ($complete && $event['start'] >= $earliest) {

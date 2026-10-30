@@ -14,7 +14,7 @@ class PrepareDemandEventsCommand extends Command
         {--horizon-days= : 対象期間（既定 config replenishment.demand_events.weekly_prepare.horizon_days＝63日）}
         {--apply : 素案登録・倍率保存・検証結果と承認状態を保存（指定なしは確認のみ）}';
 
-    protected $description = '今後約9週のイベントを素案化し、倍率を学習、過去の同じイベントで検証して、合格した標準イベントを自動承認する（週次）';
+    protected $description = '今後約9週の標準イベントを素案化し、倍率を学習、過去の同じイベントで検証する（週次・既定OFF）。自動承認は設定で有効化した種別のみ（既定なし）';
 
     public function handle(DemandEventPipelineService $pipeline): int
     {

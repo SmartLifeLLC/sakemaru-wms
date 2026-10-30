@@ -53,19 +53,21 @@ class DemandEventPipelineTest extends TestCase
 
     public function test_weekly_preparation_proposes_learns_backtests_and_auto_approves_standard_events(): void
     {
+        config(['replenishment.demand_events.weekly_prepare.auto_approve_types' => ['YEAR_END', 'OBON', 'GW', 'LONG_WEEKEND']]);
         $pipeline = app(DemandEventPipelineService::class);
-        $asOf = '2026-11-16'; // Monday; 勤労感謝の日連休 (11/21), 年末年始 (12/20) and 成人の日連休 (2027-01-09) start within 63 days
+        $asOf = '2026-11-16'; // Monday; only 年末年始 (12/20) starts within 63 days — 勤労感謝の日・成人の日の連休 are not standard events and are not proposed
         $upcoming = $pipeline->upcoming(6, $asOf, 63);
-        self::assertSame(['YEAR_END', 'LONG_WEEKEND', 'LONG_WEEKEND'], array_column($upcoming['proposals'], 'type'));
-        self::assertSame(['2026-11-21', '2027-01-09'], array_column(array_values(array_filter($upcoming['proposals'], fn ($p) => $p['type'] === 'LONG_WEEKEND')), 'start'));
+        self::assertSame(['YEAR_END'], array_column($upcoming['proposals'], 'type'));
+        self::assertSame(['2026-12-20'], array_column($upcoming['proposals'], 'start'));
+        self::assertSame(['GW'], array_column($pipeline->upcoming(6, '2027-03-01', 63)['proposals'], 'type'));
+        self::assertSame(['OBON'], array_column($pipeline->upcoming(6, '2027-07-01', 63)['proposals'], 'type'));
         // Dry run: nothing written.
         $dry = $pipeline->run(6, $asOf, 63, 1, false);
         self::assertSame(0, WmsDemandEvent::count());
-        self::assertSame(['WOULD_PROPOSE', 'WOULD_PROPOSE', 'WOULD_PROPOSE'], array_column($dry['events'], 'action'));
-        // Apply: rows created, factors learned for those keys only, backtest stored, year-end approved automatically.
+        self::assertSame(['WOULD_PROPOSE'], array_column($dry['events'], 'action'));
+        // Apply: rows created, factors learned for those keys only, backtest stored, year-end approved automatically (types listed in config only).
         $result = $pipeline->run(6, $asOf, 63, 1, true);
         $yearEnd = WmsDemandEvent::where('type', 'YEAR_END')->firstOrFail();
-        $weekend = WmsDemandEvent::where('type', 'LONG_WEEKEND')->where('start_date', '2026-11-21')->firstOrFail();
         self::assertSame('APPROVED', $yearEnd->status);
         self::assertTrue($yearEnd->auto_approved);
         self::assertSame('PASS', $yearEnd->backtest['verdict']);
@@ -73,13 +75,20 @@ class DemandEventPipelineTest extends TestCase
         self::assertSame(['2023-12-20', '2024-12-20', '2025-12-20'], array_column($yearEnd->backtest['instances'], 'start'));
         self::assertLessThan($yearEnd->backtest['pooled']['base']['wape'], $yearEnd->backtest['pooled']['event']['wape']);
         self::assertSame('2026-11-15', $yearEnd->factor_trained_through->toDateString());
+        // v2 scoring: three windows pooled, per-series worsening and the replay conditions are stored with the verdict.
+        self::assertSame('event-backtest-v2', $yearEnd->backtest['version']);
+        self::assertSame(['pre', 'block', 'post'], array_keys($yearEnd->backtest['pooled']['base']['windows']));
+        self::assertSame(['2025-12-06', '2025-12-19'], [$yearEnd->backtest['instances'][2]['windows']['pre']['start'], $yearEnd->backtest['instances'][2]['windows']['pre']['end']]);
+        self::assertSame(['2026-01-08', '2026-01-21'], [$yearEnd->backtest['instances'][2]['windows']['post']['start'], $yearEnd->backtest['instances'][2]['windows']['post']['end']]);
+        self::assertGreaterThan(0, $yearEnd->backtest['pooled']['base']['windows']['post']['days']);
+        self::assertSame(1, $yearEnd->backtest['series']['scored']);
+        self::assertSame(0, $yearEnd->backtest['series']['worsened']);
+        self::assertSame(3, $yearEnd->backtest['conditions']['calendars']['simple'] + $yearEnd->backtest['conditions']['calendars']['scheduled']); // one series × three instances
+        self::assertStringContainsString('終了後', $yearEnd->backtest['reason']);
+        self::assertStringContainsString('商品×店舗', $yearEnd->backtest['reason']);
         foreach ($yearEnd->backtest['instances'] as $instance) {
             self::assertLessThan($instance['start'], $instance['learn_through']); // leave-one-out
         }
-        // The flat 連休 (factors ≈ 1) does not worsen the forecast, so it is approved too — harmless, the forecast stays the weekday pattern.
-        self::assertSame('APPROVED', $weekend->status);
-        self::assertSame('PASS', $weekend->backtest['verdict']);
-        self::assertLessThanOrEqual($weekend->backtest['pooled']['base']['wape'] + 0.02, $weekend->backtest['pooled']['event']['wape']);
         // A custom event is never approved automatically.
         $custom = app(\App\Services\AutoReplenishment\DemandEventService::class)->save(6, ['type' => 'CUSTOM', 'name' => '歳末セール', 'start_date' => '2026-12-05', 'end_date' => '2026-12-07'], 1);
         $withCustom = $pipeline->run(6, $asOf, 63, 1, true);
@@ -89,14 +98,16 @@ class DemandEventPipelineTest extends TestCase
         self::assertStringContainsString('担当者の承認', (string) $custom->fresh()->review_note);
         self::assertSame(['YEAR_END'], WmsDemandEventProfile::where('scope_type', 'ITEM')->where('profile_key', 'YEAR_END')->pluck('profile_key')->unique()->values()->all());
         self::assertGreaterThanOrEqual(1, $result['summary']['approved']);
-        // The recommendation now sees the approved event and its factors.
+        // The recommendation sees the approved event only for products it is applied to.
+        self::assertNull((new DemandEventRepository)->recommendationOptions(6, 143024));
+        \App\Models\WmsItemDemandEvent::create(['client_id' => 6, 'item_id' => 143024, 'event_type' => 'YEAR_END', 'is_enabled' => true]);
         $options = (new DemandEventRepository)->recommendationOptions(6, 143024);
-        self::assertSame(['LONG_WEEKEND', 'YEAR_END'], array_column($options['events'], 'type')); // approved rows only, by start date
+        self::assertSame(['YEAR_END'], array_column($options['events'], 'type')); // approved rows only, by start date
         self::assertEqualsWithDelta(3.0, $options['factors']['item']['YEAR_END']['positions']['12-30']['factor_weekday'], 0.05);
         // A second run keeps the approval; a re-run after a manual revert keeps DRAFT→AUTO again only on PASS.
         $again = $pipeline->run(6, $asOf, 63, 1, true);
         self::assertSame('KEPT_APPROVED', array_values(array_filter($again['events'], fn ($e) => ($e['event']['type'] ?? '') === 'YEAR_END'))[0]['action']);
-        self::assertSame(4, WmsDemandEvent::count());
+        self::assertSame(2, WmsDemandEvent::count());
         // Command output.
         $code = Artisan::call('wms:prepare-demand-events', ['client' => 6, '--as-of' => $asOf]);
         $output = Artisan::output();

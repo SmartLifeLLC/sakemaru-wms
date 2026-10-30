@@ -25,10 +25,14 @@ class DemandEventForecastTest extends TestCase
         foreach ($proposals as $proposal) {
             $byType[$proposal['type']][] = $proposal;
         }
-        self::assertSame(['start' => '2026-12-20', 'end' => '2027-01-05', 'align' => 'CALENDAR'], array_intersect_key($byType['YEAR_END'][0], array_flip(['start', 'end', 'align'])));
-        self::assertSame(['start' => '2026-08-10', 'end' => '2026-08-17'], array_intersect_key($byType['OBON'][0], array_flip(['start', 'end'])));
-        // 5/2(土)〜5/6(水・振替休日) is the non-working block containing 5/4.
-        self::assertSame(['start' => '2026-05-02', 'end' => '2026-05-06', 'pre_days' => 3, 'post_days' => 1], array_intersect_key($byType['GW'][0], array_flip(['start', 'end', 'pre_days', 'post_days'])));
+        self::assertSame(['start' => '2026-12-20', 'end' => '2027-01-07', 'align' => 'CALENDAR'], array_intersect_key($byType['YEAR_END'][0], array_flip(['start', 'end', 'align'])));
+        self::assertSame(['start' => '2026-08-03', 'end' => '2026-08-17'], array_intersect_key($byType['OBON'][0], array_flip(['start', 'end'])));
+        // 5/2(土)〜5/6(水・振替休日) is the non-working block containing 5/4; 10 days before and 2 after carry factors too.
+        self::assertSame(['start' => '2026-05-02', 'end' => '2026-05-06', 'pre_days' => 10, 'post_days' => 2], array_intersect_key($byType['GW'][0], array_flip(['start', 'end', 'pre_days', 'post_days'])));
+        self::assertSame(['OBON', 'YEAR_END', 'GW'], array_column(app(DemandEventCalendar::class)->standardEvents(2026, $this->holidays(2026)), 'type')); // calendar events first, by start
+        $calendar = app(DemandEventCalendar::class);
+        self::assertSame(17, count($calendar->adjustedDates($byType['GW'], '2026-04-01', '2026-05-31'))); // 4/22〜5/8
+        self::assertSame(5, count($calendar->eventDates($byType['GW'], '2026-04-01', '2026-05-31')));
         $longWeekends = array_column($byType['LONG_WEEKEND'], 'start', 'name');
         self::assertSame('2026-11-21', $longWeekends['勤労感謝の日連休']);
         self::assertSame('2026-09-19', $longWeekends['敬老の日・国民の休日・秋分の日連休']);
@@ -43,7 +47,7 @@ class DemandEventForecastTest extends TestCase
     {
         $calendar = app(DemandEventCalendar::class);
         $events = [
-            ['type' => 'YEAR_END', 'start' => '2026-12-20', 'end' => '2027-01-05'],
+            ['type' => 'YEAR_END', 'start' => '2026-12-20', 'end' => '2027-01-07'],
             ['type' => 'LONG_WEEKEND', 'name' => '勤労感謝の日連休', 'start' => '2026-11-21', 'end' => '2026-11-23'],
         ];
         $positions = $calendar->positions($events, '2026-11-18', 60);
@@ -53,11 +57,11 @@ class DemandEventForecastTest extends TestCase
         self::assertArrayNotHasKey('2026-11-18', $positions);
         self::assertArrayNotHasKey('2026-11-25', $positions);
         self::assertSame('12-31', $positions['2026-12-31']['position']);
-        self::assertSame('01-05', $positions['2027-01-05']['position']);
+        self::assertSame('01-07', $positions['2027-01-07']['position']);
         self::assertArrayNotHasKey('2026-12-19', $positions);
         self::assertSame(['勤労感謝の日連休', 'LONG_WEEKEND'], $positions['2026-11-21']['event']['profile_keys']);
         self::assertSame(['2026-11-21', '2026-11-22', '2026-11-23'], $calendar->eventDates($events, '2026-11-01', '2026-12-19'));
-        self::assertCount(17, $calendar->eventDates($events, '2026-12-01', '2027-01-31'));
+        self::assertCount(19, $calendar->eventDates($events, '2026-12-01', '2027-01-31'));
         // A block day of one event takes precedence over a neighbouring event's post day.
         $overlap = $calendar->positions([
             ['type' => 'LONG_WEEKEND', 'name' => 'A', 'start' => '2026-03-20', 'end' => '2026-03-22'],
@@ -254,7 +258,7 @@ class DemandEventForecastTest extends TestCase
         $noFactors = $calculator->calculate($this->history(), $options + ['demand_events' => ['events' => $events['events'], 'factors' => []]]);
         self::assertSame($plain['values'], $noFactors['values']);
         self::assertArrayNotHasKey('event_forecast', $noFactors['basis']['demand_profile']);
-        self::assertSame(['approved' => 1, 'in_horizon' => 0, 'approved_in_horizon' => 1, 'excluded_days' => 0, 'horizon_days' => 91], $noFactors['basis']['demand_events']);
+        self::assertSame(['approved' => 1, 'in_horizon' => 0, 'approved_in_horizon' => 1, 'excluded_days' => 0, 'with_factors' => 0, 'horizon_days' => 91], $noFactors['basis']['demand_events']);
         self::assertStringContainsString('学習済み倍率がないため', view('filament.pages.auto-replenishment-event-addon', ['basis' => $noFactors['basis']])->render());
         $adjusted = $calculator->calculate($this->history(), $options + ['demand_events' => $events]);
         self::assertTrue($adjusted['available']);
@@ -271,6 +275,16 @@ class DemandEventForecastTest extends TestCase
         self::assertTrue($adjustment['events'][0]['in_target']);
         self::assertSame(3, $adjustment['events'][0]['days_until_start']);
         self::assertCount(17, $adjustment['events'][0]['daily']);
+        // Period-average factors per display segment = Σadjusted forecast ÷ Σweekday forecast: 前半 12/20〜26 and ピーク 12/27〜31 carry ×3,
+        // 年始 1/1〜5 has no factor (weekday pattern). The weekday forecast here is 10 (20 on Saturdays), the mean 11.43.
+        $segments = $adjustment['events'][0]['segments'];
+        self::assertSame(['前半', 'ピーク', '年始'], array_column($segments, 'label'));
+        self::assertSame([['2026-12-20', '2026-12-26'], ['2026-12-27', '2026-12-31'], ['2027-01-01', '2027-01-05']], array_map(fn ($s) => [$s['start'], $s['end']], $segments));
+        self::assertSame([7, 5, 5], array_column($segments, 'days'));
+        self::assertEqualsWithDelta(3 * 11.43 * 7 / 80, $segments[0]['factor'], 0.05); // Σ(mean×3) ÷ Σweekday(6×10+20)
+        self::assertGreaterThan(2.0, $segments[1]['factor']);
+        self::assertSame(1.0, $segments[2]['factor']);
+        self::assertStringContainsString('前半 '.number_format($segments[0]['factor'], 2).'倍', view('filament.pages.auto-replenishment-event-addon', ['basis' => $basis])->render());
         // Two deliveries arrive before 12/20: 2 × maximum covers the uplift here; with a single delivery it would not.
         self::assertSame(2, $adjustment['events'][0]['deliveries_before_start']);
         self::assertSame(2 * $adjusted['values']['max_order_pieces'], $adjustment['events'][0]['supply_capacity_pieces']);
@@ -341,12 +355,19 @@ class DemandEventForecastTest extends TestCase
         $calculator = app(SettingsRecommendationCalculator::class);
         $options = ['unit_mode' => 'PIECE', 'safety_stock_days' => 5];
         $included = $calculator->calculate($history, $options);
-        $excluded = $calculator->calculate($history, $options + ['demand_events' => ['events' => [
-            ['type' => 'LONG_WEEKEND', 'name' => '勤労感謝の日連休', 'start' => '2026-11-21', 'end' => '2026-11-23']], 'factors' => []]]);
+        $weekend = ['type' => 'LONG_WEEKEND', 'name' => '勤労感謝の日連休', 'start' => '2026-11-21', 'end' => '2026-11-23'];
+        // Applicable event but no factor for this product: nothing is excluded (the level would have nothing to add back).
+        $noFactor = $calculator->calculate($history, $options + ['demand_events' => ['events' => [$weekend], 'factors' => []]]);
+        self::assertSame($included['basis']['mean_daily'], $noFactor['basis']['mean_daily']);
+        self::assertSame(0, $noFactor['basis']['demand_events']['excluded_days']);
+        // With a factor the whole adjusted window (pre 2 + block 3 + post 1 = 6 days) leaves the normal level.
+        $excluded = $calculator->calculate($history, $options + ['demand_events' => ['events' => [$weekend],
+            'factors' => ['item' => ['LONG_WEEKEND' => ['pieces' => 100, 'positions' => ['d1' => ['factor' => 2.0]]]]]]]);
         self::assertGreaterThan(50, $included['basis']['mean_daily']);
-        self::assertEqualsWithDelta((22 * 10 + 3 * 20) / 25, $excluded['basis']['mean_daily'], 0.01);
-        self::assertSame(25, $excluded['basis']['observed_days']);
-        self::assertStringContainsString('イベント日 3日', implode(' ', $excluded['basis']['warnings']));
+        self::assertEqualsWithDelta((19 * 10 + 3 * 20) / 22, $excluded['basis']['mean_daily'], 0.01); // 11/19〜24 excluded, 3 Saturdays remain
+        self::assertSame(22, $excluded['basis']['observed_days']);
+        self::assertSame(6, $excluded['basis']['demand_events']['excluded_days']);
+        self::assertStringContainsString('補正対象日 6日', implode(' ', $excluded['basis']['warnings']));
         // The event is in the past: no dated forecast, no adjustment block.
         self::assertArrayNotHasKey('event_adjustment', $excluded['basis']);
     }

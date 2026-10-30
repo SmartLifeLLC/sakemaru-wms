@@ -28,7 +28,7 @@ class DemandEventPipelineService
         $end = CarbonImmutable::parse($asOf)->addDays($horizonDays)->toDateString();
         $proposals = [];
         foreach (array_unique([(int) substr($asOf, 0, 4), (int) substr($end, 0, 4)]) as $year) {
-            $proposals = array_merge($proposals, $this->calendar->proposals($year, $this->history->holidays($year)));
+            $proposals = array_merge($proposals, $this->calendar->standardEvents($year, $this->history->holidays($year)));
         }
         $proposals = array_values(array_filter($proposals, fn ($p) => $p['start'] >= $asOf && $p['start'] <= $end));
         $registered = WmsDemandEvent::where('client_id', $client)->where('status', '!=', 'DISABLED')->whereBetween('start_date', [$asOf, $end])->orderBy('start_date')->get();
@@ -77,7 +77,7 @@ class DemandEventPipelineService
                 }
                 $instances = $learned ? $this->backtest->pastInstances($event, $asOf, 3) : [];
                 $demand = $instances ? $this->demandFor($client, $seriesList, $this->backtest->windows($instances)) : [];
-                $backtest = $learned ? $this->backtest->run($client, $event, $seriesList, $demand, $asOf, 3, $calendar, $progress)
+                $backtest = $learned ? $this->backtest->run($client, $event, $seriesList, $demand, $asOf, 3, $calendar ?? $this->calendarResolver(), $progress)
                     : ['version' => DemandEventBacktest::VERSION, 'event' => array_intersect_key($event, array_flip(['type', 'name', 'start', 'end'])), 'as_of' => $asOf,
                         'instances' => [], 'pooled' => null, 'verdict' => 'NO_DATA', 'reason' => '過去に同じイベントの実例がないため倍率を学習できません（曜日別のみで算定されます）。'];
                 $entry['backtest'] = $backtest;
@@ -149,10 +149,41 @@ class DemandEventPipelineService
             $item = $items[$entry['item_id']] ?? ['code' => '', 'name' => '', 'capacity_case' => 0, 'item_category3_id' => null];
             $series[] = ['client_id' => $client, 'warehouse_id' => $entry['warehouse_id'], 'warehouse_code' => (string) ($warehouses[$entry['warehouse_id']]['code'] ?? ''),
                 'item_id' => $entry['item_id'], 'item_code' => (string) $item['code'], 'item_name' => (string) $item['name'], 'capacity_case' => (int) $item['capacity_case'],
-                'item_category3_id' => $item['item_category3_id'] ?? null, 'channel' => $entry['channel'] ?? 'EOS'];
+                'item_category3_id' => $item['item_category3_id'] ?? null, 'channel' => $entry['channel'] ?? 'EOS',
+                'contractor_id' => $entry['contractor_id'] ?? null, 'saved_policy' => $entry['saved_policy'] ?? null];
         }
 
         return $series;
+    }
+
+    /**
+     * The store's own delivery calendar (today's warehouse × contractor schedule applied to the past) per series,
+     * cached per warehouse × contractor; a simple 2-day calendar when the series has no contractor or the schedule cannot be built.
+     */
+    private function calendarResolver(): \Closure
+    {
+        $cache = [];
+        $fallback = ReplayCalendar::simple(2, [['12-31', '01-03']]);
+
+        return function (array $series) use (&$cache, $fallback): ReplayCalendar {
+            $contractor = (int) ($series['contractor_id'] ?? 0);
+            if ($contractor <= 0) {
+                return $fallback;
+            }
+            $key = $series['warehouse_id'].'|'.$contractor.'|'.($series['channel'] ?? 'EOS');
+            if (! array_key_exists($key, $cache)) {
+                try {
+                    $calendar = $this->reader->scheduledCalendar((int) $series['warehouse_id'], $contractor, (string) ($series['channel'] ?? 'EOS'));
+                    $calendar->schedule(CarbonImmutable::now('Asia/Tokyo')->subYear()->toDateString(), 28); // probe once so a missing schedule falls back here, not per day
+                    $cache[$key] = $calendar;
+                } catch (\Throwable $e) {
+                    report($e);
+                    $cache[$key] = $fallback;
+                }
+            }
+
+            return $cache[$key];
+        };
     }
 
     /** Demand for the backtest windows only (merged); missing dates stay null. */

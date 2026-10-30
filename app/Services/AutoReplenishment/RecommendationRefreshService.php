@@ -53,7 +53,7 @@ class RecommendationRefreshService
             }
             $after = array_intersect_key($recommendation['values'], array_flip(self::GUARDED));
             $result['after'] = $after;
-            $guard = (new RecommendationChangeGuard)->evaluate($before, $after, $maxChange);
+            $guard = (new RecommendationChangeGuard)->evaluate($before, $after, $maxChange, is_array($basis['event_adjustment']['baseline'] ?? null) ? $basis['event_adjustment']['baseline'] : []);
             $changes = $guard['changes'];
             $result['changes'] = $changes;
             $forecastChanged = $this->forecastFingerprint($basis) !== $this->forecastFingerprint($recommendation['basis']);
@@ -119,6 +119,33 @@ class RecommendationRefreshService
         }
 
         return ['summary' => $summary, 'rows' => $rows];
+    }
+
+    /**
+     * The last applied weekly refresh for the operator: when it ran, its summary and the products held or failed,
+     * with item code/name, optionally limited to one warehouse. Null when no refresh has been applied yet.
+     */
+    public function lastReport(int $client, ?int $warehouse = null): ?array
+    {
+        $event = \Illuminate\Support\Facades\DB::connection('sakemaru')->table('wms_auto_order_events')->where(['client_id' => $client, 'event' => 'POLICY_WEEKLY_REFRESH'])
+            ->orderByDesc('id')->first(['id', 'payload', 'created_at']);
+        if (! $event) {
+            return null;
+        }
+        $payload = json_decode((string) $event->payload, true) ?: [];
+        $held = array_values(array_filter($payload['held'] ?? [], fn ($r) => $warehouse === null || (int) ($r['warehouse_id'] ?? 0) === $warehouse));
+        $items = \Illuminate\Support\Facades\DB::connection('sakemaru')->table('items')->whereIn('id', array_unique(array_map(fn ($r) => (int) ($r['item_id'] ?? 0), $held)) ?: [-1])->pluck('name', 'id');
+        $codes = \Illuminate\Support\Facades\DB::connection('sakemaru')->table('items')->whereIn('id', array_unique(array_map(fn ($r) => (int) ($r['item_id'] ?? 0), $held)) ?: [-1])->pluck('code', 'id');
+        $rows = [];
+        foreach ($held as $r) {
+            $itemId = (int) ($r['item_id'] ?? 0);
+            $rows[] = ['policy_id' => (int) ($r['policy_id'] ?? 0), 'warehouse_id' => (int) ($r['warehouse_id'] ?? 0), 'item_id' => $itemId,
+                'item_code' => (string) ($codes[$itemId] ?? $itemId), 'item_name' => (string) ($items[$itemId] ?? '（商品情報なし）'),
+                'outcome' => (string) ($r['outcome'] ?? ''), 'reason' => (string) ($r['reason'] ?? ''), 'changes' => $r['changes'] ?? []];
+        }
+
+        return ['at' => (string) $event->created_at, 'summary' => $payload['summary'] ?? [], 'max_change_ratio' => $payload['max_change_ratio'] ?? null,
+            'warehouse_id' => $payload['warehouse_id'] ?? null, 'held' => $rows];
     }
 
     /** The demand evidence execution relies on: level, anchor, weekday pattern and dated event forecast. */

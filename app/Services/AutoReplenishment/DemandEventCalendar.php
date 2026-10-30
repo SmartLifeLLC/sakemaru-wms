@@ -15,11 +15,31 @@ final class DemandEventCalendar
 {
     public const TYPES = ['YEAR_END', 'OBON', 'GW', 'LONG_WEEKEND', 'CUSTOM'];
 
+    /** The three standard events registered per product at release; 連休 and custom periods are not proposed. */
+    public const STANDARD_TYPES = ['YEAR_END', 'OBON', 'GW'];
+
+    /** Fixed standard windows (month-day). GW is the non-working block containing 5/4 plus 10 days before and 2 after. */
+    public const YEAR_END_START = '12-20';
+
+    public const YEAR_END_END = '01-07';
+
+    public const OBON_START = '08-03';
+
+    public const OBON_END = '08-17';
+
+    public const GW_PRE_DAYS = 10;
+
+    public const GW_POST_DAYS = 2;
+
+    public const MAX_PRE_POST_DAYS = 14;
+
     public const CALENDAR_TYPES = ['YEAR_END', 'OBON'];
 
     public const NAMES = ['YEAR_END' => '年末年始', 'OBON' => 'お盆', 'GW' => 'ゴールデンウィーク', 'LONG_WEEKEND' => '連休', 'CUSTOM' => '任意イベント'];
 
-    private const DEFAULT_PRE_DAYS = ['GW' => 3, 'LONG_WEEKEND' => 2, 'CUSTOM' => 2];
+    private const DEFAULT_PRE_DAYS = ['GW' => self::GW_PRE_DAYS, 'LONG_WEEKEND' => 2, 'CUSTOM' => 2];
+
+    private const DEFAULT_POST_DAYS = ['GW' => self::GW_POST_DAYS, 'LONG_WEEKEND' => 1, 'CUSTOM' => 1];
 
     /** Validate and normalize event rows (database rows, form input or fixtures). */
     public function normalize(array $events): array
@@ -33,8 +53,9 @@ final class DemandEventCalendar
             throw_if($start->gt($end) || $start->diffInDays($end) > 60, \RuntimeException::class, 'イベント期間は開始日以降・60日以内で設定してください。');
             $align = in_array($type, self::CALENDAR_TYPES, true) ? 'CALENDAR' : 'BLOCK';
             $pre = $align === 'CALENDAR' ? 0 : (int) ($event['pre_days'] ?? self::DEFAULT_PRE_DAYS[$type]);
-            $post = $align === 'CALENDAR' ? 0 : (int) ($event['post_days'] ?? 1);
-            throw_unless($pre >= 0 && $pre <= 7 && $post >= 0 && $post <= 7, \RuntimeException::class, 'イベント前後の日数は0〜7日で設定してください。');
+            $post = $align === 'CALENDAR' ? 0 : (int) ($event['post_days'] ?? self::DEFAULT_POST_DAYS[$type]);
+            throw_unless($pre >= 0 && $pre <= self::MAX_PRE_POST_DAYS && $post >= 0 && $post <= self::MAX_PRE_POST_DAYS, \RuntimeException::class,
+                'イベント前後の日数は0〜'.self::MAX_PRE_POST_DAYS.'日で設定してください。');
             $name = trim((string) ($event['name'] ?? '')) ?: self::NAMES[$type];
             $result[] = ['id' => isset($event['id']) ? (int) $event['id'] : null, 'type' => $type, 'name' => $name,
                 'start' => $start->toDateString(), 'end' => $end->toDateString(), 'align' => $align,
@@ -105,6 +126,55 @@ final class DemandEventCalendar
         return array_keys(array_filter($this->positions($events, $start, $days), fn ($p) => $p['in_block']));
     }
 
+    /**
+     * Every date an event adjusts (block days and the pre/post days that carry factors), between two dates inclusive.
+     * This is the single definition shared by the recommendation level, the factor baseline and the replay:
+     * what gets a factor is what gets excluded from the normal level.
+     */
+    public function adjustedDates(array $events, string $start, string $end): array
+    {
+        $days = (int) $this->date($start)->diffInDays($this->date($end), false) + 1;
+        if ($days <= 0) {
+            return [];
+        }
+
+        return array_keys($this->positions($events, $start, $days));
+    }
+
+    /**
+     * Display segments of one event over its adjusted dates: 年末年始 = 前半／ピーク／年始 (12/20〜26, 12/27〜31, 1/1〜7),
+     * お盆 = 前半／本体／後半 (8/3〜9, 8/10〜15, 8/16〜17), GW・連休・任意 = 前半 (pre days)／本体 (block)／後半 (post days).
+     * Used for the period-average factor shown on the screens (Σadjusted forecast ÷ Σweekday forecast per segment).
+     *
+     * @return array<int, array{key: string, label: string, start: string, end: string}>
+     */
+    public function segments(array $event): array
+    {
+        [$event] = $this->normalize([$event]);
+        $start = CarbonImmutable::parse($event['start']);
+        $end = CarbonImmutable::parse($event['end']);
+        $clip = fn (string $key, string $label, CarbonImmutable $from, CarbonImmutable $to) => $from->lte($to) ? ['key' => $key, 'label' => $label, 'start' => $from->toDateString(), 'end' => $to->toDateString()] : null;
+        $segments = match ($event['type']) {
+            'YEAR_END' => [
+                $clip('first', '前半', $start, $start->setMonth(12)->setDay(26)->min($end)),
+                $clip('peak', 'ピーク', $start->max($start->setMonth(12)->setDay(27)), $start->setMonth(12)->setDay(31)->min($end)),
+                $clip('new_year', '年始', $start->max($start->addYear()->setMonth(1)->setDay(1)), $end),
+            ],
+            'OBON' => [
+                $clip('first', '前半', $start, $start->setDay(9)->min($end)),
+                $clip('main', '本体', $start->max($start->setDay(10)), $start->setDay(15)->min($end)),
+                $clip('last', '後半', $start->max($start->setDay(16)), $end),
+            ],
+            default => [
+                $event['pre_days'] > 0 ? $clip('first', '前半', $start->subDays($event['pre_days']), $start->subDay()) : null,
+                $clip('main', '本体', $start, $end),
+                $event['post_days'] > 0 ? $clip('last', '後半', $end->addDay(), $end->addDays($event['post_days'])) : null,
+            ],
+        };
+
+        return array_values(array_filter($segments));
+    }
+
     /** Events whose block overlaps [start, end], ordered by start date. */
     public function within(array $events, string $start, string $end): array
     {
@@ -115,19 +185,29 @@ final class DemandEventCalendar
     }
 
     /**
-     * Default event proposals for one year from the national holiday calendar.
-     * 年末年始 12/20〜1/5, お盆 8/10〜8/17, GW = the non-working block containing 5/4,
-     * and every other block of three or more consecutive non-working days (土日祝).
+     * The three standard events of one year: 年末年始 12/20〜1/7 and お盆 8/3〜8/17 (calendar aligned),
+     * GW = the non-working block (土日祝) containing 5/4 with 10 days before and 2 after.
      *
      * @param  array<string, string>  $holidays  date => name
      */
-    public function proposals(int $year, array $holidays): array
+    public function standardEvents(int $year, array $holidays): array
+    {
+        return array_values(array_filter($this->proposals($year, $holidays, true), fn ($e) => in_array($e['type'], self::STANDARD_TYPES, true)));
+    }
+
+    /**
+     * Event proposals for one year from the national holiday calendar: the three standard events and,
+     * unless $standardOnly, every other block of three or more consecutive non-working days (土日祝).
+     *
+     * @param  array<string, string>  $holidays  date => name
+     */
+    public function proposals(int $year, array $holidays, bool $standardOnly = false): array
     {
         throw_unless($year >= 2000 && $year <= 2100, \RuntimeException::class, '対象年を確認してください。');
         $holidays = $this->expandHolidays($holidays);
         $proposals = [
-            ['type' => 'YEAR_END', 'name' => '年末年始', 'start' => "{$year}-12-20", 'end' => ($year + 1).'-01-05'],
-            ['type' => 'OBON', 'name' => 'お盆', 'start' => "{$year}-08-10", 'end' => "{$year}-08-17"],
+            ['type' => 'YEAR_END', 'name' => '年末年始', 'start' => "{$year}-".self::YEAR_END_START, 'end' => ($year + 1).'-'.self::YEAR_END_END],
+            ['type' => 'OBON', 'name' => 'お盆', 'start' => "{$year}-".self::OBON_START, 'end' => "{$year}-".self::OBON_END],
         ];
         $off = fn (CarbonImmutable $d) => $d->isWeekend() || isset($holidays[$d->toDateString()]);
         $date = CarbonImmutable::create($year, 1, 1);
@@ -151,8 +231,8 @@ final class DemandEventCalendar
 
                 continue;
             }
-            if ($length < 3 || $blockStart->month === 8 && $blockStart->day >= 8 && $blockStart->day <= 17
-                || $blockEnd->month === 12 && $blockEnd->day >= 20 || $blockEnd->year > $year || $blockStart->month === 1 && $blockStart->day <= 5) {
+            if ($standardOnly || $length < 3 || $blockStart->month === 8 && $blockStart->day >= 1 && $blockStart->day <= 17
+                || $blockEnd->month === 12 && $blockEnd->day >= 20 || $blockEnd->year > $year || $blockStart->month === 1 && $blockStart->day <= 7) {
                 continue;
             }
             $names = [];

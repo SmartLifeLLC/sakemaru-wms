@@ -65,7 +65,8 @@ final class ReplayEngine
                     $policy = $recalc['policy'];
                 } else {
                     // Same acceptance rule as the weekly refresh: a change beyond the ratio is held and the old setting stays in force.
-                    $guard = (new RecommendationChangeGuard)->evaluate($policy, $recalc['policy'], (float) $maxChange);
+                    $guard = (new RecommendationChangeGuard)->evaluate($policy, $recalc['policy'], (float) $maxChange,
+                        is_array($policy['calculation_basis']['event_adjustment']['baseline'] ?? null) ? $policy['calculation_basis']['event_adjustment']['baseline'] : []);
                     $log['changes'] = $guard['changes'];
                     if ($guard['held']) {
                         $log['outcome'] = 'HELD';
@@ -158,9 +159,11 @@ final class ReplayEngine
                 'maximum_arrival_gap_days' => $schedule['maximum_gap_days'], 'arrival_schedule' => $schedule];
             $options = ['unit_mode' => $unitMode, 'review_days' => $scenario['review_days'] ?? 7, 'safety_stock_days' => $scenario['safety_stock_days'] ?? 5,
                 'existing_reorder_point' => $previous['reorder_point_pieces'] ?? null, 'variability_buffer' => (bool) ($scenario['variability_buffer'] ?? false)];
-            if (! empty($scenario['events'])) {
+            // The events applied to this product: the scenario's list, or the series' own list when set (商品別の適用イベント).
+            $events = array_key_exists('events', $series) && ! empty($scenario['events']) ? $series['events'] : ($scenario['events'] ?? []);
+            if (! empty($events)) {
                 $factors = isset($scenario['factors']) ? ($scenario['factors'])((int) $series['item_id']) : [];
-                $options['demand_events'] = ['events' => $scenario['events'], 'factors' => $factors];
+                $options['demand_events'] = ['events' => $events, 'factors' => $factors];
             }
             $result = $this->calculator->calculate($history, $options);
             if (! $result['available']) {
@@ -168,10 +171,21 @@ final class ReplayEngine
 
                 return ['policy' => null, 'log' => $log];
             }
-            $policy = $result['values'] + ['calculation_basis' => $result['basis'], 'channel' => 'EOS', 'is_enabled' => true, 'packing_unit' => 1,
+            $values = $result['values'];
+            if (! empty($scenario['saved_constraints']) && is_array($series['saved_policy'] ?? null)) {
+                // The product's real order constraints (minimum, maximum, multiple) as saved by the operator; the level and target stay recalculated.
+                foreach (['min_order_pieces', 'max_order_pieces', 'order_multiple_pieces'] as $key) {
+                    if ((int) ($series['saved_policy'][$key] ?? 0) > 0) {
+                        $values[$key] = (int) $series['saved_policy'][$key];
+                    }
+                }
+                $values['min_order_pieces'] = min($values['min_order_pieces'], $values['max_order_pieces']);
+                $log['saved_constraints'] = true;
+            }
+            $policy = $values + ['calculation_basis' => $result['basis'], 'channel' => 'EOS', 'is_enabled' => true, 'packing_unit' => 1,
                 'warehouse_id' => (int) $series['warehouse_id'], 'item_id' => (int) $series['item_id']];
             $log['available'] = true;
-            $log['values'] = $result['values'];
+            $log['values'] = $values;
             $log['mean_daily'] = $result['basis']['mean_daily'] ?? null;
             $log['event_add_on'] = $result['basis']['event_adjustment']['target_add_on_pieces'] ?? 0;
             $log['selection'] = $result['basis']['demand_profile']['selection'] ?? null;

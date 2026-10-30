@@ -47,9 +47,9 @@ class DemandEventLearnerTest extends TestCase
         $series = $this->synthetic('2025-09-01', '2026-01-31');
         $result = $learner->instanceRatios($series, $yearEnd, $events);
         self::assertNotNull($result);
-        // 11/15〜12/12 minus the excluded 勤労感謝の日連休 (11/22〜24): 25 observed days, 3 Saturdays.
-        self::assertSame(25, $result['pre_days']);
-        self::assertEqualsWithDelta(280 / 25, $result['pre_mean'], 0.01);
+        // 11/15〜12/12 minus the adjusted days of 勤労感謝の日連休 (pre 11/20〜21, block 11/22〜24, post 11/25): 22 observed days, 3 Saturdays.
+        self::assertSame(22, $result['pre_days']);
+        self::assertEqualsWithDelta(250 / 22, $result['pre_mean'], 0.01);
         self::assertEqualsWithDelta(30 / $result['pre_mean'], $result['positions']['12-30']['ratio'], 0.001); // Tuesday 10 × 3
         self::assertEqualsWithDelta(3.0, $result['positions']['12-30']['ratio_weekday'], 0.001);
         self::assertEqualsWithDelta(0.5, $result['positions']['01-03']['ratio_weekday'], 0.001);
@@ -128,7 +128,7 @@ class DemandEventLearnerTest extends TestCase
         $service = new DemandEventLearningService($reader, app(DemandEventLearner::class), app(DemandEventCalendar::class));
         $instances = $service->trainingInstances('2026-10-29', 3);
         self::assertSame(['2023-12-20', '2024-12-20', '2025-12-20'], array_column(array_filter($instances, fn ($i) => $i['type'] === 'YEAR_END'), 'start'));
-        self::assertSame(['2024-08-10', '2025-08-10', '2026-08-10'], array_column(array_filter($instances, fn ($i) => $i['type'] === 'OBON'), 'start'));
+        self::assertSame(['2024-08-03', '2025-08-03', '2026-08-03'], array_column(array_filter($instances, fn ($i) => $i['type'] === 'OBON'), 'start'));
         self::assertCount(3, array_filter($instances, fn ($i) => $i['type'] === 'GW'));
         $learned = $service->learn(6, '2026-10-29', 3, [1, 3]);
         self::assertSame(3, $learned['items'][1]['YEAR_END']['instance_count']);
@@ -141,7 +141,8 @@ class DemandEventLearnerTest extends TestCase
         self::assertEqualsWithDelta(3.0, $learned['categories'][3142]['YEAR_END']['positions']['12-30']['factor_weekday'], 0.01);
         self::assertSame(2, $learned['categories'][3142]['YEAR_END']['item_count']);
         self::assertEqualsWithDelta(1.0, $learned['categories'][3122]['YEAR_END']['positions']['12-30']['factor_weekday'], 0.01);
-        self::assertArrayHasKey('LONG_WEEKEND', $learned['items'][1]);
+        self::assertArrayNotHasKey('LONG_WEEKEND', $learned['items'][1]); // only the three standard events are learned
+        self::assertEqualsCanonicalizing(['GW', 'OBON', 'YEAR_END'], array_keys($learned['items'][1]));
         self::assertGreaterThan(0, $learned['stats']['ranges_read']);
     }
 
@@ -150,7 +151,7 @@ class DemandEventLearnerTest extends TestCase
         $reader = Mockery::mock(DemandEventHistoryReader::class);
         $reader->shouldReceive('holidays')->andReturnUsing(fn (int $year) => $this->holidays($year));
         $reader->shouldReceive('itemCategories')->andReturn([1 => 3142]);
-        $through = '2025-11-24'; // the last day of 勤労感謝の日連休 2025 (11/22〜24); its post day 11/25 is after $through
+        $through = '2025-08-17'; // the last day of お盆 2025 (8/3〜17): complete only if its last day is not after $through
         $reader->shouldReceive('productTotals')->andReturnUsing(function (int $client, string $start, string $end) use ($through) {
             self::assertLessThanOrEqual($through, $end, 'reads must stop at the learning end date');
             $series = $this->synthetic($start, $end);
@@ -159,9 +160,11 @@ class DemandEventLearnerTest extends TestCase
         });
         $service = new DemandEventLearningService($reader, app(DemandEventLearner::class), app(DemandEventCalendar::class));
         $instances = $service->trainingInstances($through, 3);
-        self::assertNotContains('2025-11-22', array_column($instances, 'start')); // incomplete instance (post day beyond $through)
-        self::assertContains('2025-11-01', array_column($instances, 'start'));    // 文化の日連休 2025 (11/1〜3 + post 11/4) is complete
+        self::assertContains('2025-08-03', array_column($instances, 'start'));     // お盆 2025 ends on $through: complete
+        self::assertNotContains('2025-12-20', array_column($instances, 'start'));  // 年末年始 2025 lies after $through
+        self::assertNotContains('2025-05-03', array_column($service->trainingInstances('2025-05-07', 3), 'start')); // GW 2025 (5/3〜6 + post 5/8) is incomplete on 5/7
         $learned = $service->learn(6, $through, 3, [1]);
         self::assertArrayHasKey('YEAR_END', $learned['items'][1]);
+        self::assertArrayHasKey('OBON', $learned['items'][1]);
     }
 }

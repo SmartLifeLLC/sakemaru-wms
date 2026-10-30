@@ -17,10 +17,13 @@ return [
     // Weekly automatic recalculation of saved recommendations (approved events only). Off until enabled.
     'weekly_refresh' => ['enabled' => env('WMS_AUTO_REPLENISHMENT_WEEKLY_REFRESH', false), 'max_change_ratio' => 2.0],
     'demand_events' => ['horizon_days' => 91, 'training_years' => 3, 'learning_from' => '2021-05-01',
+        // New products: category factors are shown as a suggestion only; set true to apply them automatically.
+        'category_fallback' => false,
         // Weekly preparation of upcoming events (proposal, factor learning, backtest, approval). Off until enabled.
         'weekly_prepare' => ['enabled' => env('WMS_AUTO_REPLENISHMENT_EVENT_PREPARE', false), 'horizon_days' => 63,
             // Standard events are approved automatically when their backtest passes; custom events always need a person.
-            'auto_approve_types' => ['YEAR_END', 'OBON', 'GW', 'LONG_WEEKEND']]],
+            // Empty = every approval is a person's decision (the backtest is shown, never acted on automatically).
+            'auto_approve_types' => []]],
     'strategies' => ['threshold_v1' => App\Services\AutoReplenishment\ThresholdStrategy::class,
         'threshold_capped_v1' => App\Services\AutoReplenishment\CappedThresholdStrategy::class,
         'arrival_batch_v1' => App\Services\AutoReplenishment\ArrivalBatchStrategy::class,

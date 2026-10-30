@@ -53,10 +53,23 @@ return new class extends Migration
             $table->unique(['client_id', 'profile_key', 'scope_type', 'scope_id'], 'wms_demand_event_profiles_scope');
             $table->index(['client_id', 'scope_type', 'scope_id'], 'wms_demand_event_profiles_lookup');
         });
+        // Which standard events apply to which product (set at release, maintained by hand). No row = the event is not applied.
+        Schema::connection('sakemaru')->create('wms_item_demand_events', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('client_id');
+            $table->unsignedBigInteger('item_id');
+            $table->string('event_type', 16);
+            $table->boolean('is_enabled')->default(true);
+            $table->string('note', 255)->nullable();
+            $table->unsignedBigInteger('updated_by')->nullable();
+            $table->timestamps();
+            $table->unique(['client_id', 'item_id', 'event_type'], 'wms_item_demand_events_scope');
+        });
     }
 
     public function down(): void
     {
+        Schema::connection('sakemaru')->dropIfExists('wms_item_demand_events');
         Schema::connection('sakemaru')->dropIfExists('wms_demand_event_profiles');
         Schema::connection('sakemaru')->dropIfExists('wms_demand_events');
     }

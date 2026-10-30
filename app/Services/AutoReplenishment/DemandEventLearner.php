@@ -84,7 +84,8 @@ final class DemandEventLearner
     {
         $calendar = app(DemandEventCalendar::class);
         $start = CarbonImmutable::parse($instance['start']);
-        $excluded = array_flip($calendar->eventDates($yearEvents, $start->subDays(self::PRE_WINDOW_MAX)->toDateString(), $instance['end']));
+        // The baseline skips every date another event adjusts (block and pre/post days), same definition as the recommendation.
+        $excluded = array_flip($calendar->adjustedDates($yearEvents, $start->subDays(self::PRE_WINDOW_MAX)->toDateString(), $instance['end']));
         $span = (int) $start->subDays($instance['pre_days'])->diffInDays(CarbonImmutable::parse($instance['end'])->addDays($instance['post_days'])) + 1;
         $positions = [];
         foreach ($calendar->positions([$instance], $start->subDays($instance['pre_days'])->toDateString(), $span) as $date => $position) {

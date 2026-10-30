@@ -37,6 +37,12 @@ final class ReplayCalendar
         return new self($provider, 1, [], range(0, 6), $reviewInterval);
     }
 
+    /** True for a calendar built from the store's delivery schedule (scheduled), false for a simple lead-day calendar. */
+    public function isScheduled(): bool
+    {
+        return $this->provider !== null;
+    }
+
     /**
      * Review interval in days as the production recommendation computes it (execution times included for
      * scheduled calendars, e.g. Saturday 10:00 → Sunday 22:00 = 2 days); simple calendars derive it from the weekdays.

@@ -11,7 +11,7 @@ class ProposeDemandEventsCommand extends Command
 {
     protected $signature = 'wms:propose-demand-events {client : 対象顧客ID} {year : 対象年} {--apply : 素案を wms_demand_events に登録（状態 DRAFT）}';
 
-    protected $description = '祝日カレンダーから年のイベント素案（年末年始・お盆・GW・3連休以上）を作成する。承認は画面で行う';
+    protected $description = '年の標準イベント素案（年末年始 12/20〜1/7・お盆 8/3〜8/17・GW＝5/4を含む連続した土日祝＋前10日・後2日）を作成する。承認は画面で行う';
 
     public function handle(DemandEventService $service): int
     {
@@ -22,7 +22,7 @@ class ProposeDemandEventsCommand extends Command
             throw_if($year === false, \RuntimeException::class, '対象年を確認してください。');
             $calendar = app(\App\Services\AutoReplenishment\DemandEventCalendar::class);
             $reader = app(\App\Services\AutoReplenishment\DemandEventHistoryReader::class);
-            $proposals = $calendar->proposals($year, $reader->holidays($year));
+            $proposals = $calendar->standardEvents($year, $reader->holidays($year));
             $this->table(['種別', '名称', '期間', '前/後'], array_map(fn ($p) => [$p['type'], $p['name'], "{$p['start']}〜{$p['end']}", "{$p['pre_days']}/{$p['post_days']}"], $proposals));
             if (! $this->option('apply')) {
                 $this->warn('--apply を指定すると素案（DRAFT）として登録します。承認は自動発注のイベント設定画面で行います。');

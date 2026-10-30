@@ -152,6 +152,42 @@ class ReplayEngineTest extends TestCase
         self::assertSame(0, $free['metrics']['held_recalcs']);
     }
 
+    public function test_saved_constraints_replace_the_order_bounds_and_the_event_add_on_unwinds_without_being_held(): void
+    {
+        $demand = $this->demand('2025-07-01', '2026-02-15');
+        $series = $this->series($demand) + ['saved_policy' => ['reorder_point_pieces' => 50, 'target_stock_pieces' => 90, 'min_order_pieces' => 48, 'max_order_pieces' => 96, 'order_multiple_pieces' => 48]];
+        $calendar = ReplayCalendar::simple(2, [['2025-12-31', '2026-01-03']]);
+        $events = $this->events();
+        $factors = fn (int $item) => ['item' => ['YEAR_END' => ['pieces' => 5000, 'positions' => array_combine(
+            ['12-25', '12-26', '12-27', '12-28', '12-29', '12-30', '12-31', '01-02', '01-03', '01-04'],
+            array_merge(array_fill(0, 7, ['factor' => 3.0, 'factor_weekday' => 3.0]), array_fill(0, 3, ['factor' => 0.5, 'factor_weekday' => 0.5])))]]];
+        $scenario = ['name' => 'eventA', 'start' => '2025-10-06', 'end' => '2026-02-08', 'mode' => 'weekly', 'unit_mode' => 'CASE', 'safety_stock_days' => 5, 'review_days' => 7,
+            'variability_buffer' => false, 'events' => $events, 'factors' => $factors, 'segment_events' => $events, 'warmup_days' => 28, 'max_change_ratio' => 2.0, 'saved_constraints' => true];
+        $result = app(ReplayEngine::class)->run($series, $scenario, $calendar);
+        foreach (array_filter($result['recalcs'], fn ($r) => $r['available']) as $recalc) {
+            self::assertSame([48, 96, 48], [$recalc['values']['min_order_pieces'], $recalc['values']['max_order_pieces'], $recalc['values']['order_multiple_pieces']]);
+            self::assertTrue($recalc['saved_constraints']);
+        }
+        foreach ($result['orders'] as $order) {
+            self::assertSame(0, $order['pieces'] % 48);
+            self::assertLessThanOrEqual(96, $order['pieces']);
+        }
+        // The target rises for 年末年始 and comes back down in January: the decrease unwinds the add-on and is never held.
+        $targets = [];
+        foreach ($result['recalcs'] as $recalc) {
+            if ($recalc['available']) {
+                $targets[$recalc['date']] = $recalc['values']['target_stock_pieces'];
+            }
+        }
+        self::assertGreaterThan($targets['2025-11-24'], $targets['2025-12-22']);
+        self::assertLessThan($targets['2025-12-22'], $targets['2026-01-19']);
+        self::assertNotContains('HELD', array_column(array_filter($result['recalcs'], fn ($r) => $r['date'] >= '2026-01-01'), 'outcome'));
+        // Without saved constraints the engine keeps the calculator's own bounds.
+        $free = app(ReplayEngine::class)->run($series, array_replace($scenario, ['saved_constraints' => false]), $calendar);
+        self::assertArrayNotHasKey('saved_constraints', $free['recalcs'][0]);
+        self::assertNotSame(48, $free['recalcs'][0]['values']['min_order_pieces']); // calculator: one case (24) minimum
+    }
+
     public function test_saved_mode_uses_the_production_setting_or_skips_the_series(): void
     {
         $series = $this->series($this->demand('2025-07-01', '2025-12-15'));
