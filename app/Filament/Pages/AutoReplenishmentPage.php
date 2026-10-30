@@ -287,6 +287,13 @@ abstract class AutoReplenishmentPage extends AdminPage
         $this->loadPalletEditor();
         $this->loadEventSetup($clientId);
         $this->rememberEditorRoute();
+        // A saved setting with a demand basis shows its projection at once (the same read as after 「おすすめ設定」); the chart then follows
+        // every quantity edit. Without a basis (legacy / manual quantities) the chart waits for 「おすすめ設定」 as before.
+        $basis = $this->recommendation['basis'] ?? null;
+        if ($policy && ($this->recommendation['available'] ?? false) && is_array($basis) && (isset($basis['demand_profile']) || isset($basis['mean_daily']))
+            && (int) ($this->form['reorder_point_pieces'] ?? 0) > 0 && (int) ($this->form['max_order_pieces'] ?? 0) > 0) {
+            $this->refreshInventoryProjection(true);
+        }
     }
 
     /** Current application / factors / upcoming events of the editor's product (ticks = saved application). */
