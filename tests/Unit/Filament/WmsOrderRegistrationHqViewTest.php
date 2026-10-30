@@ -1,0 +1,362 @@
+<?php
+
+namespace Tests\Unit\Filament;
+
+use App\Enums\EMenu;
+use App\Enums\EMenuCategory;
+use App\Filament\Pages\WmsOrderRegistration;
+use App\Filament\Pages\WmsOrderRegistrationHq;
+use DOMDocument;
+use DOMXPath;
+use Illuminate\Support\Facades\Blade;
+use PHPUnit\Framework\Attributes\DataProvider;
+use ReflectionClass;
+use Tests\TestCase;
+
+class WmsOrderRegistrationHqViewTest extends TestCase
+{
+    private const PAGE_VIEW = 'views/filament/pages/wms-order-registration-hq.blade.php';
+
+    private const CANDIDATE_VIEW = 'views/filament/components/hq-order-registration-candidate-create-items.blade.php';
+
+    private const PREVIEW_VIEW = 'views/filament/components/hq-order-registration-sales-preview-edit.blade.php';
+
+    private const SELECTION_VIEW = 'views/filament/components/hq-order-registration-contractor-supplier-selection.blade.php';
+
+    public function test_hq_menu_is_registered_in_order_processing_group(): void
+    {
+        $this->assertSame('外部発注（本部）', EMenu::WMS_ORDER_REGISTRATION_HQ->label());
+        $this->assertSame(EMenuCategory::AUTO_ORDER, EMenu::WMS_ORDER_REGISTRATION_HQ->category());
+    }
+
+    public function test_new_external_order_stays_second_in_the_left_column_of_the_mega_menu(): void
+    {
+        // 発注処理は5件になり、メガメニューは2列（左→右、上→下）で並ぶ。
+        // 左列は並び順の 1・3・5 番目なので、（新）外部発注は3番目に置く。
+        $order = [
+            EMenu::WMS_STOCK_TRANSFER_CANDIDATES,
+            EMenu::WMS_ORDER_REGISTRATION_HQ,
+            EMenu::WMS_ORDER_REGISTRATION,
+            EMenu::WMS_ORDER_CANDIDATES,
+            EMenu::WMS_ORDER_CONFIRMATION_WAITING,
+        ];
+
+        $sorted = $order;
+        usort($sorted, fn (EMenu $a, EMenu $b): int => $a->sort() <=> $b->sort());
+
+        $this->assertSame($order, $sorted);
+        $this->assertCount(5, array_unique(array_map(fn (EMenu $menu): int => $menu->sort(), $order)));
+    }
+
+    public function test_existing_new_external_order_menu_is_unchanged(): void
+    {
+        $this->assertSame('（新）外部発注', EMenu::WMS_ORDER_REGISTRATION->label());
+        $this->assertSame('（新）外部発注', WmsOrderRegistration::getNavigationLabel());
+        $this->assertSame('wms-order-registration', WmsOrderRegistration::getSlug());
+    }
+
+    public function test_hq_page_is_a_separate_page_built_on_the_existing_registration(): void
+    {
+        $defaults = (new ReflectionClass(WmsOrderRegistrationHq::class))->getDefaultProperties();
+
+        $this->assertTrue(is_subclass_of(WmsOrderRegistrationHq::class, WmsOrderRegistration::class));
+        $this->assertSame('wms-order-registration-hq', WmsOrderRegistrationHq::getSlug());
+        $this->assertSame('外部発注（本部）', WmsOrderRegistrationHq::getNavigationLabel());
+        $this->assertSame(EMenu::WMS_ORDER_REGISTRATION_HQ->sort(), WmsOrderRegistrationHq::getNavigationSort());
+        $this->assertSame('filament.pages.wms-order-registration-hq', $defaults['view']);
+        $this->assertSame('wms-order-candidate', $defaults['permissionResource']);
+    }
+
+    #[DataProvider('candidateTableViews')]
+    public function test_candidate_tables_show_last_incoming_and_last_purchase(string $view): void
+    {
+        $contents = file_get_contents(resource_path($view));
+        $header = $this->candidateTableSection($contents, '<thead', '</thead>');
+        $body = $this->candidateTableSection($contents, '<tbody', '</tbody>');
+
+        foreach (['最終入荷予定日', '最終入荷予定数', '最終仕入日', '最終仕入数'] as $label) {
+            $this->assertStringContainsString('label="'.$label.'"', $header);
+        }
+
+        foreach (['納品予定数', '見込在庫', '最終発注日', '納品予定日'] as $removedLabel) {
+            $this->assertStringNotContainsString('label="'.$removedLabel.'"', $header);
+        }
+
+        $this->assertStringContainsString('last_incoming_date', $body);
+        $this->assertStringContainsString('last_incoming_case_qty', $body);
+        $this->assertStringContainsString('last_incoming_piece_qty', $body);
+        $this->assertStringContainsString('last_purchase_date', $body);
+        $this->assertStringContainsString('last_purchase_case_qty', $body);
+        $this->assertStringContainsString('last_purchase_piece_qty', $body);
+        $this->assertStringNotContainsString('projected_stock', $body);
+        $this->assertStringNotContainsString('incoming_qty', $body);
+    }
+
+    #[DataProvider('candidateTableViews')]
+    public function test_candidate_tables_keep_column_count_in_sync(string $view): void
+    {
+        $contents = file_get_contents(resource_path($view));
+        $tablePosition = strpos($contents, '<table class="logistics-candidate-table');
+        $this->assertNotFalse($tablePosition);
+        $table = substr($contents, $tablePosition);
+
+        $colgroup = $this->between($table, '<colgroup>', '</colgroup>');
+        $header = $this->between($table, '<thead', '</thead>');
+
+        $this->assertSame(substr_count($colgroup, '<col '), substr_count($header, '<th '));
+    }
+
+    #[DataProvider('candidateTableViews')]
+    public function test_expected_arrival_date_is_displayed_after_previous_month(string $view): void
+    {
+        $contents = file_get_contents(resource_path($view));
+        $header = $this->candidateTableSection($contents, '<thead', '</thead>');
+
+        $this->assertLessThan(strpos($header, 'label="予定日"'), strpos($header, 'label="前月"'));
+        $this->assertLessThan(strpos($header, 'label="1週"'), strpos($header, 'label="最終仕入日"'));
+    }
+
+    public function test_sales_preview_displays_period_total_before_weekly_sales(): void
+    {
+        $contents = file_get_contents(resource_path(self::PREVIEW_VIEW));
+        $header = $this->between($contents, '<thead', '</thead>');
+
+        $this->assertLessThan(strpos($header, 'label="1週"'), strpos($header, 'label="実績合計"'));
+        $this->assertStringContainsString("conditionValue('supplier_count')", $contents);
+    }
+
+    public function test_registration_list_uses_contractor_pulldown_instead_of_change_button(): void
+    {
+        $contents = file_get_contents(resource_path(self::PAGE_VIEW));
+
+        $this->assertStringContainsString('data-hq-contractor-picker-trigger', $contents);
+        $this->assertStringContainsString('$wire.applyLineContractorChange(', $contents);
+        $this->assertStringContainsString('$wire.searchCandidateContractorChangeOptions(', $contents);
+        $this->assertStringNotContainsString('openContractorChangeModal', $contents);
+        $this->assertStringNotContainsString('$showContractorChangeModal', $contents);
+    }
+
+    public function test_registration_list_shows_reference_columns_and_delivery_warehouse_code_only(): void
+    {
+        $contents = file_get_contents(resource_path(self::PAGE_VIEW));
+        $table = $this->between($contents, '@forelse ($visibleLines as $index => $line)', '登録リストは空です');
+        $start = strpos($contents, '<th class="whitespace-nowrap px-2 py-2 text-center">行</th>');
+        $this->assertNotFalse($start);
+        $header = substr($contents, $start, strpos($contents, '</thead>', $start) - $start);
+
+        foreach (['理論在庫', '最終入荷予定', '最終仕入', '1週', '2週', '3週', '前月', '納入先'] as $label) {
+            $this->assertStringContainsString('>'.$label.'</th>', $header);
+        }
+
+        $this->assertLessThan(strpos($header, '>総バラ数</th>'), strpos($header, '>総ケース数</th>'));
+        // 備考2列は商品名の下へ移動したため、選択列を含む見出しは24列。
+        $this->assertSame(24, substr_count($header, '<th ') + 1, '登録リストの列数が空行の colspan と合っていません。');
+        $this->assertStringContainsString('colspan="24"', $contents);
+        $this->assertStringContainsString('棚番<br>', $header);
+        $this->assertStringContainsString('>発注点</span>', $header);
+
+        // 商品CDと商品名を分離し、商品名は折り返さない。
+        $this->assertStringContainsString('>商品CD</th>', $header);
+        $this->assertStringContainsString('>商品名</th>', $header);
+        $this->assertStringContainsString('>容量x入数</th>', $header);
+        $this->assertStringNotContainsString('>規格</th>', $header);
+        $this->assertStringNotContainsString('>入数</th>', $header);
+        $this->assertStringContainsString("{{ \$line['item_code'] }}", $table);
+        $this->assertStringContainsString('whitespace-nowrap px-2 py-2 text-slate-900', $table);
+        $this->assertStringContainsString("\$reference['volume_label']", $table);
+        $this->assertStringContainsString('{{ $volumeCapacityLabel }}', $table);
+
+        // 納入先は発注先の前。発注先名は発注先CDの下に省略せず表示する（発注先名だけの列は持たない）。
+        $this->assertLessThan(strpos($header, '>発注先</th>'), strpos($header, '>納入先</th>'));
+        $this->assertStringNotContainsString('>発注先名</th>', $header);
+        $this->assertStringNotContainsString('truncate', $table);
+        $this->assertLessThan(strpos($table, 'data-hq-contractor-picker-trigger'), strpos($table, '>{{ $warehouseCode }}</span>'));
+        $this->assertLessThan(strpos($table, "{{ \$line['contractor_name'] }}</div>"), strpos($table, 'data-hq-contractor-picker-trigger'));
+
+        // 納入先はコードのみ（倉庫名はマウスオーバーのツールチップで表示）
+        $this->assertStringContainsString('x-tooltip="{ content: @js($warehouseName), theme: $store.theme }"', $table);
+        $this->assertStringContainsString('>{{ $warehouseCode }}</span>', $table);
+        $this->assertStringNotContainsString('{{ $warehouseName }}</div>', $table);
+    }
+
+    public function test_registration_totals_count_case_and_piece_inputs_separately(): void
+    {
+        $contents = file_get_contents(resource_path(self::PAGE_VIEW));
+        $calculations = '$visibleLineTotalAmount ='.$this->between($contents, '$visibleLineTotalAmount =', '$warehouseOptionsById =');
+        $lines = collect([
+            ['quantity_type' => 'CASE', 'order_quantity' => 72, 'capacity_case' => 24, 'purchase_unit_price' => 3761.04],
+            ['quantity_type' => 'CASE', 'order_quantity' => 12, 'capacity_case' => 1, 'purchase_unit_price' => 0],
+            ['quantity_type' => 'PIECE', 'order_quantity' => 12, 'capacity_case' => 24, 'purchase_unit_price' => 540],
+        ]);
+        $template = "@php\n".$calculations."\n@endphp\n".'{{ $visibleLineTotalCasesLabel }}|{{ number_format($visibleLineTotalPieces) }}|{{ number_format($visibleLineTotalAmount) }}';
+        $this->assertSame('84|12|277,275', Blade::render($template, ['visibleLines' => $lines]));
+        $this->assertSame('84|0|270,795', Blade::render($template, ['visibleLines' => $lines->take(2)]));
+        $this->assertSame('0|0|0', Blade::render($template, ['visibleLines' => collect()]));
+    }
+
+    public function test_registration_prices_follow_contractor_before_actions(): void
+    {
+        $contents = file_get_contents(resource_path(self::PAGE_VIEW));
+        $start = strpos($contents, '<th class="whitespace-nowrap px-2 py-2 text-center">行</th>');
+        $header = substr($contents, $start, strpos($contents, '</thead>', $start) - $start);
+        $this->assertLessThan(strpos($header, '>仕入原価</th>'), strpos($header, '>発注先</th>'));
+        $this->assertLessThan(strpos($header, '>合計金額</th>'), strpos($header, '>仕入原価</th>'));
+        $this->assertLessThan(strpos($header, '>操作</th>'), strpos($header, '>合計金額</th>'));
+    }
+
+    #[DataProvider('registrationNotes')]
+    public function test_rendered_registration_rows_keep_notes_within_the_24_columns(string $itemNote, string $contractorNote, int $rowCount, string $supplierNote = ''): void
+    {
+        $line = ['item_id' => 1, 'item_code' => '100001', 'item_name' => 'テスト商品', 'capacity_case' => 24,
+            'order_quantity' => 2, 'quantity_type' => 'CASE', 'warehouse_id' => 2, 'contractor_id' => 10,
+            'supplier_id' => 20, 'contractor_code' => '0010', 'contractor_name' => 'テスト発注先',
+            'is_eos_available' => true, 'order_channel' => 'EOS'];
+        $xpath = $this->renderRegistrationRows([$line, array_replace($line, ['quantity_type' => 'PIECE', 'order_quantity' => 7,
+            'is_eos_available' => false, 'order_channel' => 'FAX'])], [
+                ['item_contractor_note' => $itemNote, 'contractor_order_conditions' => $contractorNote, 'supplier_order_conditions' => $supplierNote],
+            ]);
+        $groups = $xpath->query('//tbody[@data-hq-order-item]');
+        $this->assertCount(2, $groups);
+        foreach ($groups as $index => $group) {
+            $expectedRows = $index === 0 ? $rowCount : 1;
+            $this->assertCount($expectedRows, $xpath->query('./tr', $group));
+            $cells = $xpath->query('./tr[1]/td', $group);
+            $this->assertCount(24, $cells);
+            $this->assertSame('100001', trim($cells->item(4)->textContent));
+            $this->assertSame($index === 0 ? '2' : '0.29', trim($cells->item(11)->textContent));
+            $this->assertSame($index === 0 ? '48' : '7', trim($cells->item(12)->textContent));
+            // 商品CD・商品名・容量の3列だけが備考の下段を使用する。
+            $this->assertCount(21, $xpath->query('./tr[1]/td[@rowspan="'.$expectedRows.'"]', $group));
+            if ($expectedRows === 2) {
+                $notes = $xpath->query('./tr[2]/td', $group);
+                $this->assertCount(1, $notes);
+                $this->assertSame(24, (int) $notes->item(0)->getAttribute('colspan')
+                    + $xpath->query('./tr[1]/td[@rowspan="2"]', $group)->length);
+            }
+        }
+    }
+
+    public function test_rendered_empty_registration_row_spans_all_24_columns(): void
+    {
+        $xpath = $this->renderRegistrationRows([]);
+        $this->assertCount(0, $xpath->query('//tbody[@data-hq-order-item]'));
+        $cells = $xpath->query('//tbody/tr/td');
+        $this->assertCount(1, $cells);
+        $this->assertSame('24', $cells->item(0)->getAttribute('colspan'));
+        $this->assertSame('登録リストは空です', trim($cells->item(0)->textContent));
+    }
+
+    public static function registrationNotes(): array
+    {
+        return [
+            'no notes' => ['', '', 1],
+            'item note only' => ['商品備考', '', 2],
+            'contractor note only' => ['', '発注先備考', 2],
+            'both notes' => ['商品備考', '発注先備考', 2],
+            'supplier note only' => ['', '', 2, '仕入先備考'],
+            'all notes' => ['商品備考', '発注先備考', 2, '仕入先備考'],
+        ];
+    }
+
+    private function renderRegistrationRows(array $lines, array $details = []): DOMXPath
+    {
+        $contents = file_get_contents(resource_path(self::PAGE_VIEW));
+        $rows = $this->between($contents, '@forelse ($visibleLines as $index => $line)', '@endforelse').'@endforelse';
+        $html = Blade::render('<table>'.$rows.'</table>', [
+            'visibleLines' => collect($lines), 'lineDetails' => $details, 'lineReferences' => [],
+            'formatWarehouseCode' => fn ($id) => (string) $id,
+            'warehouseNameForLine' => fn ($line) => 'テスト店',
+        ]);
+        $document = new DOMDocument;
+        $document->loadHTML('<?xml encoding="UTF-8">'.$html, LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_NONET);
+
+        return new DOMXPath($document);
+    }
+
+    public function test_hq_page_uses_hq_components_only_for_changed_parts(): void
+    {
+        $contents = file_get_contents(resource_path(self::PAGE_VIEW));
+
+        $this->assertStringContainsString("@include('filament.components.hq-order-registration-candidate-create-items'", $contents);
+        $this->assertStringContainsString("@include('filament.components.hq-order-registration-sales-preview-edit'", $contents);
+        $this->assertStringContainsString("@include('filament.components.hq-order-registration-contractor-supplier-selection'", $contents);
+        $this->assertStringNotContainsString("@include('filament.components.order-registration-candidate-create-items'", $contents);
+        $this->assertStringNotContainsString("@include('filament.components.order-registration-sales-preview-edit'", $contents);
+        $this->assertStringNotContainsString("@include('filament.components.order-registration-contractor-selection'", $contents);
+    }
+
+    public function test_modals_are_layered_above_the_mega_menu(): void
+    {
+        $contents = file_get_contents(resource_path(self::PAGE_VIEW));
+
+        // ページ本体は .fi-page-header-main-ctn（z-index: 60）の中にあり、メガメニューは z-index: 100。
+        // モーダル表示中だけ入れ物ごと前面に上げるので、全画面モーダルには data-hq-modal が必要。
+        $this->assertMatchesRegularExpression(
+            '/\.fi-page-header-main-ctn:has\(\[data-hq-modal\]\)\s*\{\s*z-index:\s*9999\s*!important;/',
+            $contents,
+        );
+
+        preg_match_all('/<div[^>]*class="fixed inset-0 flex[^"]*"[^>]*>/', $contents, $matches);
+
+        $this->assertCount(7, $matches[0]);
+        foreach ($matches[0] as $tag) {
+            $this->assertStringContainsString('data-hq-modal', $tag);
+        }
+    }
+
+    public function test_generation_modal_selects_contractors_and_linked_suppliers(): void
+    {
+        $contents = file_get_contents(resource_path(self::SELECTION_VIEW));
+
+        $this->assertStringContainsString("\$wire.\$entangle('selectedExternalOrderContractorIds')", $contents);
+        $this->assertStringContainsString("\$wire.\$entangle('selectedHqSupplierIds')", $contents);
+        $this->assertStringContainsString('data-hq-contractor-list', $contents);
+        $this->assertStringContainsString('data-hq-supplier-list', $contents);
+        $this->assertLessThan(strpos($contents, 'data-hq-supplier-list'), strpos($contents, 'data-hq-contractor-list'));
+        $this->assertStringNotContainsString('EOS発注先', $contents);
+        $this->assertStringNotContainsString('FAX発注先', $contents);
+    }
+
+    public function test_existing_views_do_not_reference_hq_components(): void
+    {
+        $existingViews = [
+            'views/filament/pages/wms-order-registration.blade.php',
+            'views/filament/components/order-registration-candidate-create-items.blade.php',
+            'views/filament/components/order-registration-sales-preview-edit.blade.php',
+            'views/filament/components/order-registration-contractor-selection.blade.php',
+        ];
+
+        foreach ($existingViews as $view) {
+            $contents = file_get_contents(resource_path($view));
+
+            $this->assertStringNotContainsString('hq-order-registration', $contents, $view);
+            $this->assertStringNotContainsString('selectedHqSupplierIds', $contents, $view);
+        }
+    }
+
+    public static function candidateTableViews(): array
+    {
+        return [
+            'candidate search' => [self::CANDIDATE_VIEW],
+            'sales preview' => [self::PREVIEW_VIEW],
+        ];
+    }
+
+    private function between(string $contents, string $start, string $end): string
+    {
+        $startPosition = strpos($contents, $start);
+        $this->assertNotFalse($startPosition);
+        $endPosition = strpos($contents, $end, $startPosition);
+        $this->assertNotFalse($endPosition);
+
+        return substr($contents, $startPosition, $endPosition - $startPosition);
+    }
+
+    private function candidateTableSection(string $contents, string $start, string $end): string
+    {
+        $tablePosition = strpos($contents, '<table class="logistics-candidate-table');
+        $this->assertNotFalse($tablePosition);
+
+        return $this->between(substr($contents, $tablePosition), $start, $end);
+    }
+}

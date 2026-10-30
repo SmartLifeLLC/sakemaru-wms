@@ -38,6 +38,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
@@ -96,6 +97,21 @@ class WmsOrderCandidatesTable
                     ->sortable()
                     ->grow(),
 
+                TextColumn::make('contractor.name')
+                    ->label('発注先')
+                    ->state(fn ($record) => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-')
+                    ->searchable()
+                    ->sortable(query: fn (EloquentBuilder $query, string $direction): EloquentBuilder => static::orderByContractorCode($query, $direction))
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('180px'),
+
+                TextColumn::make('supplier.partner_name')
+                    ->label('仕入先')
+                    ->state(fn ($record) => $record->supplier ? "[{$record->supplier->partner_code}]{$record->supplier->partner_name}" : '-')
+                    ->sortable(query: fn (EloquentBuilder $query, string $direction): EloquentBuilder => static::orderBySupplierCode($query, $direction))
+                    ->toggleable()
+                    ->width('180px'),
+
                 TextColumn::make('item.packaging')
                     ->label('規格')
                     ->alignCenter()
@@ -141,18 +157,6 @@ class WmsOrderCandidatesTable
                                 );
                             })
                     ),
-
-                TextColumn::make('contractor.name')
-                    ->label('発注先')
-                    ->state(fn ($record) => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-')
-                    ->searchable()
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
-
-                TextColumn::make('supplier.partner_name')
-                    ->label('仕入先')
-                    ->state(fn ($record) => $record->supplier ? "[{$record->supplier->partner_code}]{$record->supplier->partner_name}" : '-')
-                    ->toggleable(),
 
                 TextColumn::make('current_effective_stock')
                     ->label('理論在庫')
@@ -463,6 +467,11 @@ class WmsOrderCandidatesTable
 
                         $isEditable = $record->status === CandidateStatus::PENDING;
 
+                        // 理論在庫は real_stocks のライブ値（引当可能数）を表示する
+                        // （current_effective_stock はバッチ算出時のスナップショットのためズレる）
+                        $liveAvailableStock = $record->liveAvailableStock();
+                        $snapshotEffectiveStock = $record->current_effective_stock ?? 0;
+
                         // 手動変更判定: 算出日と現在の予定日を比較
                         $shiftedDays = (int) ($details['到着日調整'] ?? 0);
                         $isDateManuallyChanged = false;
@@ -498,7 +507,8 @@ class WmsOrderCandidatesTable
                                     'packaging' => $item?->packaging ?? '-',
                                     'capacityText' => $capacityText,
                                     'statusLabel' => $record->status->label(),
-                                    'currentEffectiveStock' => $record->current_effective_stock ?? 0,
+                                    'currentEffectiveStock' => $liveAvailableStock,
+                                    'snapshotEffectiveStock' => $snapshotEffectiveStock,
                                     'suggestedQuantity' => $record->suggested_quantity ?? 0,
                                     'orderQuantity' => $record->order_quantity ?? 0,
                                     'hasCalculationLog' => ! empty($details),
@@ -730,8 +740,7 @@ class WmsOrderCandidatesTable
                     ->label('移動候補へ変更')
                     ->icon('heroicon-o-arrows-right-left')
                     ->color('warning')
-                    ->visible(fn ($record) => $record->status === CandidateStatus::PENDING
-                        && (string) $record->contractor?->code === '9012')
+                    ->visible(fn (WmsOrderCandidate $record): bool => app(OrderCandidateToTransferCandidateService::class)->canConvert($record))
                     ->requiresConfirmation()
                     ->modalHeading('発注候補を移動候補へ変更')
                     ->modalDescription(fn ($record) => "[{$record->item_code}] {$record->item?->name}\n発注先CD9012の発注候補を、91倉庫からの移動候補に変更します。")
@@ -808,7 +817,7 @@ class WmsOrderCandidatesTable
                             $records->loadMissing('contractor');
 
                             foreach ($records as $record) {
-                                if ($record->status !== CandidateStatus::PENDING || (string) $record->contractor?->code !== '9012') {
+                                if (! $service->canConvert($record)) {
                                     $skipped++;
 
                                     continue;
@@ -936,7 +945,37 @@ class WmsOrderCandidatesTable
                         }),
                 ]),
             ])
-            ->defaultSort('batch_code', 'desc');
+            ->defaultSort(fn (EloquentBuilder $query): EloquentBuilder => static::applyDefaultOrder($query));
+    }
+
+    public static function applyDefaultOrder(EloquentBuilder $query): EloquentBuilder
+    {
+        $mainTable = static::getFilterModelTable();
+
+        $query->orderBy("{$mainTable}.batch_code", 'desc');
+        static::orderByContractorCode($query);
+        static::orderBySupplierCode($query);
+
+        return $query
+            ->orderBy("{$mainTable}.warehouse_id")
+            ->orderBy("{$mainTable}.item_code")
+            ->orderBy("{$mainTable}.id");
+    }
+
+    private static function orderByContractorCode(EloquentBuilder $query, string $direction = 'asc'): EloquentBuilder
+    {
+        $mainTable = static::getFilterModelTable();
+        $direction = strtolower($direction) === 'desc' ? 'DESC' : 'ASC';
+
+        return $query->orderByRaw("COALESCE((SELECT contractor_sort.code FROM contractors AS contractor_sort WHERE contractor_sort.id = {$mainTable}.contractor_id LIMIT 1), '') {$direction}");
+    }
+
+    private static function orderBySupplierCode(EloquentBuilder $query, string $direction = 'asc'): EloquentBuilder
+    {
+        $mainTable = static::getFilterModelTable();
+        $direction = strtolower($direction) === 'desc' ? 'DESC' : 'ASC';
+
+        return $query->orderByRaw("COALESCE((SELECT supplier_partner_sort.code FROM suppliers AS supplier_sort LEFT JOIN partners AS supplier_partner_sort ON supplier_partner_sort.id = supplier_sort.partner_id WHERE supplier_sort.id = {$mainTable}.supplier_id LIMIT 1), '') {$direction}");
     }
 
     public static function applyQuantityChange(WmsOrderCandidate $record, QuantityType $targetType, int $newQuantity, ?int $userId): string

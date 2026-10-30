@@ -46,6 +46,8 @@ class ProcessAutoSendJob implements ShouldQueue
 
     public function handle(): void
     {
+        app(\App\Services\AutoReplenishment\ReplenishmentGuard::class)->assertLegacyAllowed();
+
         ini_set('memory_limit', '-1');
 
         $progress = WmsQueueProgress::findByJobId($this->progressId);
@@ -307,7 +309,7 @@ class ProcessAutoSendJob implements ShouldQueue
         $results['steps']['jx_files'] = count($jxResult['files'] ?? []);
         $results['batch_codes'] = $jxResult['batch_codes'] ?? [];
 
-        // Step 6: JXファイル送信（仕入先単位で未送信ドキュメントを統合）
+        // Step 6: JXファイル送信（未送信ドキュメントを1件ずつ送信）
         $progress->update(['progress' => 85, 'message' => 'JXファイルを送信中...']);
 
         $transmitResult = $transmissionService->transmitPendingDocumentsForContractor($allContractorIds);

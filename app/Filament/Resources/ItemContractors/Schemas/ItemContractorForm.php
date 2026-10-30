@@ -7,9 +7,11 @@ use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Supplier;
 use App\Models\Sakemaru\Warehouse;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 
 class ItemContractorForm
@@ -18,18 +20,23 @@ class ItemContractorForm
     {
         return $schema
             ->components([
+                View::make('filament.pages.auto-replenishment-master-edit-warning')
+                    ->viewData(fn ($record) => app(\App\Services\AutoReplenishment\MasterRouteWarnings::class)
+                        ->masterEditNotice((int) auth()->user()?->client_id, 'item', $record?->getAttributes() ?? []))
+                    ->columnSpanFull(),
                 Section::make('基本情報')
                     ->schema([
                         Select::make('item_id')
                             ->label('商品')
                             ->searchable()
                             ->getSearchResultsUsing(fn (string $search) => Item::query()
-                                ->where('item_code', 'like', "%{$search}%")
-                                ->orWhere('item_name', 'like', "%{$search}%")
+                                ->where('code', 'like', "%{$search}%")
+                                ->orWhere('name', 'like', "%{$search}%")
+                                ->orderBy('code')
                                 ->limit(50)
-                                ->get()
-                                ->mapWithKeys(fn ($item) => [$item->id => "[{$item->item_code}] {$item->item_name}"]))
-                            ->getOptionLabelUsing(fn ($value) => ($item = Item::find($value)) ? "[{$item->item_code}] {$item->item_name}" : null)
+                                ->get(['id', 'code', 'name'])
+                                ->mapWithKeys(fn ($item) => [$item->id => "[{$item->code}] {$item->name}"]))
+                            ->getOptionLabelUsing(fn ($value) => ($item = Item::find($value)) ? "[{$item->code}] {$item->name}" : null)
                             ->required()
                             ->helperText('発注対象の商品を選択'),
 
@@ -56,6 +63,13 @@ class ItemContractorForm
                             ->searchable()
                             ->nullable()
                             ->helperText('仕入先（任意）'),
+
+                        Textarea::make('note')
+                            ->label('備考')
+                            ->nullable()
+                            ->rows(4)
+                            ->columnSpanFull()
+                            ->helperText('商品発注先に関するメモや備考を自由に入力できます'),
                     ])
                     ->columns(2),
 
@@ -65,6 +79,7 @@ class ItemContractorForm
                             ->label('発注点')
                             ->numeric()
                             ->default(0)
+                            ->dehydrateStateUsing(fn ($state) => $state ?? 0)
                             ->minValue(0)
                             ->suffix('個')
                             ->helperText('この数を下回ると発注を検討'),
@@ -73,6 +88,7 @@ class ItemContractorForm
                             ->label('最大在庫')
                             ->numeric()
                             ->default(0)
+                            ->dehydrateStateUsing(fn ($state) => $state ?? 0)
                             ->minValue(0)
                             ->suffix('個')
                             ->helperText('在庫の上限目安'),
@@ -81,6 +97,7 @@ class ItemContractorForm
                             ->label('最低在庫')
                             ->numeric()
                             ->default(0)
+                            ->dehydrateStateUsing(fn ($state) => $state ?? 0)
                             ->minValue(0)
                             ->suffix('個')
                             ->helperText('旧システムの最低在庫数'),
@@ -89,6 +106,7 @@ class ItemContractorForm
                             ->label('自動発注数')
                             ->numeric()
                             ->default(0)
+                            ->dehydrateStateUsing(fn ($state) => $state ?? 0)
                             ->minValue(0)
                             ->suffix('個')
                             ->helperText('設定時は不足数ではなくこの数量を発注数量に使用'),

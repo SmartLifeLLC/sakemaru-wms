@@ -32,6 +32,7 @@ class WmsOrderJxDocument extends WmsModel
         'file_path',
         'csv_path',
         'file_size',
+        'content_sha256',
         'record_count',
         'order_count',
         'encoding',
@@ -60,6 +61,15 @@ class WmsOrderJxDocument extends WmsModel
         'transmitted_by' => 'integer',
         'created_by' => 'integer',
     ];
+
+    protected static function booted(): void
+    {
+        static::updated(function (self $document): void {
+            if ($document->wasChanged('status')) {
+                app(\App\Services\AutoReplenishment\BudgetService::class)->markTransmissionState((int) $document->id, $document->status->value);
+            }
+        });
+    }
 
     public function warehouse(): BelongsTo
     {

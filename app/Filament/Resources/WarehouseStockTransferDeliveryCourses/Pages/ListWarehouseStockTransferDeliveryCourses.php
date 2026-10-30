@@ -11,6 +11,7 @@ use Filament\Actions\DeleteAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
+use Filament\Schemas\Components\View;
 use Filament\Support\Enums\Alignment;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Columns\TextColumn;
@@ -158,6 +159,9 @@ class ListWarehouseStockTransferDeliveryCourses extends ListRecords
                         'picking_lead_days' => $record->picking_lead_days,
                     ])
                     ->schema([
+                        View::make('filament.pages.auto-replenishment-master-edit-warning')
+                            ->viewData(fn ($record) => app(\App\Services\AutoReplenishment\MasterRouteWarnings::class)
+                                ->masterEditNotice((int) auth()->user()?->client_id, 'delivery', $record?->getAttributes() ?? [])),
                         Select::make('from_warehouse_id')
                             ->label('移動元倉庫')
                             ->options(fn () => Warehouse::query()

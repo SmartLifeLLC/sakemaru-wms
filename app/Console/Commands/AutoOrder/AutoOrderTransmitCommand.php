@@ -20,6 +20,8 @@ class AutoOrderTransmitCommand extends Command
 
     public function handle(): int
     {
+        app(\App\Services\AutoReplenishment\ReplenishmentGuard::class)->assertLegacyAllowed();
+
         $now = now();
         $currentTime = $now->format('H:i');
         $currentDayColumn = 'is_transmission_'.strtolower($now->format('D'));

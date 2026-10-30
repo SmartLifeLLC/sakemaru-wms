@@ -8,6 +8,7 @@
 @source '../../../../vendor/archilex/filament-filter-sets/**/*.php';
 @source '../../../../vendor/archilex/filament-filter-sets/**/*.blade.php';
 @source inline("bg-green-50 bg-green-100 bg-green-900 bg-green-950 text-green-300 text-green-700 border-green-400 border-green-600 bg-amber-50 bg-amber-100 bg-amber-900 bg-amber-950 text-amber-300 text-amber-700 border-amber-300 border-amber-600 bg-red-50 bg-red-950 text-red-700 text-red-300 border-red-200 border-red-800 select-none cursor-col-resize pointer-events-none bg-white/90 bg-white/80 bg-gray-200 dark:bg-gray-600 dark:bg-green-900/20 dark:bg-amber-900/20 dark:bg-red-900/20 text-green-600 dark:text-green-400 text-red-600 dark:text-red-400 dark:text-amber-400 text-amber-600 ring-2 ring-blue-200 ring-blue-500 ring-purple-200 ring-purple-500 border-blue-500 border-purple-500 bg-blue-50 bg-purple-50 bg-blue-100 bg-purple-100 bg-blue-800 bg-purple-800 text-blue-600 text-blue-700 text-blue-300 text-blue-400 text-blue-500 text-purple-600 text-purple-700 text-purple-300 text-purple-400 text-purple-500 dark:bg-blue-900/30 dark:bg-purple-900/30 dark:ring-blue-800 dark:ring-purple-800");
+@source inline("border-red-300 bg-red-50 text-red-800 dark:border-red-700 dark:bg-red-950 dark:text-red-200 border-orange-300 bg-orange-50 text-orange-800 dark:border-orange-700 dark:bg-orange-950 dark:text-orange-200 text-orange-600 text-orange-700 dark:text-orange-300 bg-gray-50 dark:bg-gray-800 bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700");
 
 /* モーダルスプリットビュー用のカスタムクラス */
 .modal-split-left {
@@ -68,16 +69,22 @@ html.fi {
 }
 
 /* Filament通知がページヘッダーのアクションに隠れないようにする */
+:root {
+    --wms-global-message-top: 3.25rem;
+}
+
 .fi-no,
 .fi-no-notifications,
 .fi-notifications {
     z-index: 10000 !important;
 }
 
-.fi-no {
+.fi-no,
+.fi-no-notifications,
+.fi-notifications {
     position: fixed !important;
     inset: auto auto auto 50% !important;
-    top: 0 !important;
+    top: var(--wms-global-message-top) !important;
     right: auto !important;
     bottom: auto !important;
     left: 50% !important;
@@ -88,7 +95,9 @@ html.fi {
     justify-content: flex-start !important;
     width: min(48rem, calc(100vw - 1rem)) !important;
     max-width: min(48rem, calc(100vw - 1rem)) !important;
-    padding-top: 0.25rem !important;
+    max-height: calc(100dvh - var(--wms-global-message-top) - 0.5rem) !important;
+    overflow-y: auto !important;
+    padding-top: 0 !important;
 }
 
 .fi-no-notification,
@@ -96,6 +105,14 @@ html.fi {
     pointer-events: auto !important;
     width: 100% !important;
     max-width: min(48rem, calc(100vw - 1rem)) !important;
+}
+
+.fi-no .fi-no-notification.fi-transition-enter-start,
+.fi-no .fi-notification.fi-transition-enter-start {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    transform: none !important;
 }
 
 .fi-no-notification-title,
@@ -108,6 +125,7 @@ html.fi {
 
 /* mega-menu(2.5rem)に合わせてメインコンテンツの高さを調整 */
 .fi-body.fi-body-has-topbar .fi-main-ctn {
+    height: calc(100dvh - 2.5rem) !important;
     min-height: calc(100dvh - 2.5rem) !important;
 }
 
@@ -337,6 +355,32 @@ html.fi {
 
 .fi-page-content > .grid {
     gap: 0.25rem !important;
+}
+
+.fi-page-content:has(.distribution-app-shell) {
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+}
+
+.fi-page:has(.distribution-app-shell) {
+    padding-top: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+}
+
+.fi-main:has(.distribution-app-shell) {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.distribution-app-shell {
+    min-height: calc(100dvh - 2.5rem);
+    width: 100%;
+    overflow: hidden;
+    background: #f9fafb;
 }
 
 .fi-ta-header-heading {
@@ -841,7 +885,7 @@ html.fi {
 
 .wave-modal .fi-modal-content {
     flex: 1 1 auto !important;
-    overflow-y: hidden !important;
+    overflow-y: auto !important;
     display: flex !important;
     flex-direction: column !important;
     min-height: 0 !important;
@@ -1058,6 +1102,33 @@ html.fi {
     flex-direction: row-reverse !important;
 }
 
+.specific-slip-print-modal .fi-modal-content {
+    max-height: min(68vh, calc(100vh - 12rem)) !important;
+    overflow-y: auto !important;
+    padding-block: 0.75rem !important;
+}
+
+.specific-slip-print-modal .fi-section-content {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.5rem !important;
+}
+
+.specific-slip-print-slip-card {
+    row-gap: 0.375rem !important;
+    column-gap: 0.75rem !important;
+}
+
+.specific-slip-print-slip-action {
+    align-self: stretch !important;
+}
+
+.specific-slip-print-slip-action .fi-sc-actions {
+    height: 100% !important;
+    align-items: flex-start !important;
+    justify-content: flex-end !important;
+}
+
 .sales-based-transfer-preview-modal .logistics-candidate-table {
     table-layout: fixed !important;
     width: 1280px !important;
@@ -1204,6 +1275,12 @@ html.fi {
     z-index: 30;
 }
 
+/* フィルタ展開時にページスクロールを発生させず、ドロップダウン内でスクロールする */
+.fi-ta-header-ctn .fi-ta-filters {
+    max-height: 32rem;
+    overflow-y: auto;
+}
+
 /* テーブルコンテンツ: ここだけスクロール */
 .fi-ta .fi-ta-content-ctn {
     flex: 1;
@@ -1235,6 +1312,51 @@ html.fi {
 .fi-ta-col-manager-items {
     columns: 2 !important;
     column-gap: 1.5rem !important;
+}
+
+/* 入荷予定: カラム一覧だけをスクロールし、適用ボタンを常時表示する */
+.incoming-schedules-table .fi-ta-col-manager-dropdown .fi-dropdown-panel {
+    display: flex;
+    height: min(32rem, calc(100dvh - 14rem));
+    overflow-y: hidden;
+}
+
+.incoming-schedules-table .fi-ta-col-manager,
+.incoming-schedules-table .fi-ta-col-manager-ctn {
+    min-height: 0;
+    height: 100%;
+}
+
+.incoming-schedules-table .fi-ta-col-manager {
+    flex: 1;
+}
+
+.incoming-schedules-table .fi-ta-col-manager-ctn {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.incoming-schedules-table .fi-ta-col-manager-items {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+    columns: auto !important;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    padding-right: 0.5rem;
+    scrollbar-gutter: stable;
+}
+
+.incoming-schedules-table .fi-ta-col-manager-apply-action-ctn {
+    border-top: 1px solid rgb(229, 231, 235);
+    padding-top: 1rem;
+    background-color: white;
+}
+
+.dark .incoming-schedules-table .fi-ta-col-manager-apply-action-ctn {
+    border-top-color: rgba(255, 255, 255, 0.1);
+    background-color: rgb(17, 24, 39);
 }
 
 /* 一括変更モーダル（コース・入荷日） */
@@ -1269,4 +1391,64 @@ html.fi {
 
 .incoming-cancel-modal .fi-modal-header .fi-modal-close-btn:hover {
     color: #fca5a5 !important;
+}
+
+/* Warehouse order review: export conditions and persistent generation status. */
+.warehouse-review { --wr-ink: #1e293b; --wr-muted: #64748b; --wr-line: #e2e8f0; --wr-surface: #fff; max-width: 1120px; margin-inline: auto; width: 100%; color: var(--wr-ink); }
+.dark .warehouse-review { --wr-ink: #e2e8f0; --wr-muted: #94a3b8; --wr-line: #334155; --wr-surface: #0f172a; }
+.warehouse-review .wr-intro { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; color: var(--wr-muted); font-size: 14px; }
+.warehouse-review .wr-format { flex-shrink: 0; padding: 3px 9px; border: 1px solid var(--wr-line); border-radius: 6px; font-size: 11px; font-weight: 700; letter-spacing: .06em; }
+.warehouse-review .wr-steps { display: flex; gap: 36px; margin-bottom: 24px; font-size: 13px; font-weight: 600; color: var(--wr-muted); }
+.warehouse-review .wr-steps li { display: flex; align-items: center; gap: 9px; }
+.warehouse-review .wr-steps li span { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--wr-line); font-size: 12px; }
+.warehouse-review .wr-steps .is-current { color: var(--wr-ink); }
+.warehouse-review .wr-steps .is-current span { background: #1e293b; color: #fff; }
+.warehouse-review .wr-card { border: 1px solid var(--wr-line); border-radius: 14px; background: var(--wr-surface); overflow: hidden; margin-bottom: 22px; box-shadow: 0 2px 4px rgb(15 23 42 / 2%); }
+.warehouse-review .wr-card-heading { display: flex; align-items: center; justify-content: space-between; padding: 22px 26px 0; }
+.warehouse-review h2 { font-size: 16px; font-weight: 700; line-height: 1.5; }
+.warehouse-review .wr-card-heading p, .warehouse-review .wr-result-title p { color: var(--wr-muted); font-size: 13px; margin-top: 5px; line-height: 1.7; }
+.warehouse-review .wr-heading-icon { width: 23px; height: 23px; color: var(--wr-muted); }
+.warehouse-review .wr-form { padding: 24px 26px; }
+.warehouse-review .wr-form-footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; border-top: 1px solid var(--wr-line); padding: 16px 26px; background: rgb(148 163 184 / 4%); }
+.warehouse-review .wr-form-footer p { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--wr-muted); }
+.warehouse-review .wr-form-footer p svg { width: 17px; height: 17px; flex-shrink: 0; }
+.warehouse-review .wr-result { padding: 24px 26px; }
+.warehouse-review .wr-result-top { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.warehouse-review .wr-result-title { display: flex; align-items: center; gap: 14px; }
+.warehouse-review .wr-status-icon { display: grid; place-items: center; flex-shrink: 0; height: 44px; width: 44px; border-radius: 12px; background: rgb(148 163 184 / 12%); color: var(--wr-muted); }
+.warehouse-review .wr-status-icon svg { width: 25px; height: 25px; }
+.warehouse-review .is-working .wr-status-icon { color: #2563eb; background: #eff6ff; }
+.warehouse-review .is-complete .wr-status-icon { color: #15803d; background: #f0fdf4; }
+.warehouse-review .is-failed .wr-status-icon { color: #dc2626; background: #fef2f2; }
+.warehouse-review .wr-progress { border: 1px solid #bfdbfe; background: #eff6ff; color: #1e40af; border-radius: 9px; padding: 16px 18px; margin-top: 20px; font-size: 12px; }
+.warehouse-review .wr-progress-label { display: flex; align-items: center; justify-content: space-between; font-size: 13px; margin-bottom: 10px; }
+.warehouse-review .wr-progress-track { height: 7px; border-radius: 9px; overflow: hidden; background: #dbeafe; margin-bottom: 10px; }
+.warehouse-review .wr-progress-track > div { height: 100%; border-radius: inherit; background: #2563eb; transition: width .4s ease; }
+.warehouse-review .wr-progress p { line-height: 1.8; }
+.warehouse-review .wr-file { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--wr-line); padding-top: 20px; margin-top: 20px; }
+.warehouse-review .wr-file > svg { color: #15803d; height: 28px; width: 28px; flex-shrink: 0; }
+.warehouse-review .wr-file strong { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.warehouse-review .wr-file p { font-size: 12px; color: var(--wr-muted); margin-top: 4px; }
+.warehouse-review .wr-file p span { margin-inline: 6px; }
+.warehouse-review .wr-ready { margin-left: auto; white-space: nowrap; color: #15803d; font-size: 12px; }
+.warehouse-review .wr-error, .warehouse-review .wr-empty { font-size: 13px; line-height: 1.8; margin-top: 18px; }
+.warehouse-review .wr-error { color: #dc2626; }
+.warehouse-review .wr-help { font-size: 12px; color: var(--wr-muted); padding: 0 4px; }
+.warehouse-review .wr-help summary { cursor: pointer; width: fit-content; padding: 4px 0; }
+.warehouse-review .wr-help div { line-height: 1.9; margin-top: 10px; }
+.warehouse-review .wr-help p + p { margin-top: 5px; }
+.warehouse-review .wr-spin { animation: wr-spin 2s linear infinite; }
+@keyframes wr-spin { to { transform: rotate(360deg); } }
+.dark .warehouse-review .wr-progress { background: #172554; border-color: #1e40af; color: #bfdbfe; }
+.dark .warehouse-review .wr-progress-track { background: #1e3a8a; }
+.dark .warehouse-review .wr-ready { color: #86efac; }
+@media (prefers-reduced-motion: reduce) { .warehouse-review .wr-spin { animation: none; } .warehouse-review .wr-progress-track > div { transition: none; } }
+@media (max-width: 640px) {
+    .warehouse-review .wr-steps { gap: 16px; font-size: 11px; }
+    .warehouse-review .wr-steps li { gap: 5px; }
+    .warehouse-review .wr-card-heading, .warehouse-review .wr-form { padding: 18px; }
+    .warehouse-review .wr-card-heading { padding-bottom: 0; }
+    .warehouse-review .wr-form-footer, .warehouse-review .wr-result-top { align-items: stretch; flex-direction: column; }
+    .warehouse-review .wr-form-footer, .warehouse-review .wr-result { padding: 18px; }
+    .warehouse-review .wr-ready { display: none; }
 }
