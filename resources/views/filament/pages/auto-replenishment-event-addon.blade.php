@@ -7,10 +7,10 @@
     <div class="ar-event-addon">
         <p><b>2段構え：通常条件 ＋ 直近イベントの追加発注</b>
             @if($adjustment['baseline'])
-                <span class="ar-help">通常条件のみ：発注点 {{ number_format($adjustment['baseline']['reorder_point_pieces']) }}／補充目標 {{ number_format($adjustment['baseline']['target_stock_pieces']) }}／通常量 {{ number_format($adjustment['baseline']['batch_quantity_pieces']) }}バラ →
-                イベント込み：発注点 <b>{{ number_format($basis['suggested_values']['reorder_point_pieces'] ?? 0) }}</b>（{{ ($adjustment['point_add_on_pieces'] ?? 0) >= 0 ? '+' : '' }}{{ number_format($adjustment['point_add_on_pieces'] ?? 0) }}）／補充目標 <b>{{ number_format($basis['suggested_values']['target_stock_pieces'] ?? 0) }}</b>（{{ ($adjustment['target_add_on_pieces'] ?? 0) >= 0 ? '+' : '' }}{{ number_format($adjustment['target_add_on_pieces'] ?? 0) }}）／通常量 {{ number_format($basis['batch_quantity_pieces'] ?? 0) }}バラ</span>
+                <span class="ar-help">通常条件のみ：発注点 {{ number_format($adjustment['baseline']['reorder_point_pieces']) }}／過剰在庫線 {{ number_format($adjustment['baseline']['target_stock_pieces']) }}／通常量 {{ number_format($adjustment['baseline']['batch_quantity_pieces']) }}バラ →
+                イベント込み：発注点 <b>{{ number_format($basis['suggested_values']['reorder_point_pieces'] ?? 0) }}</b>（{{ ($adjustment['point_add_on_pieces'] ?? 0) >= 0 ? '+' : '' }}{{ number_format($adjustment['point_add_on_pieces'] ?? 0) }}）／過剰在庫線 <b>{{ number_format($basis['suggested_values']['target_stock_pieces'] ?? 0) }}</b>（{{ ($adjustment['target_add_on_pieces'] ?? 0) >= 0 ? '+' : '' }}{{ number_format($adjustment['target_add_on_pieces'] ?? 0) }}）／通常量 {{ number_format($basis['batch_quantity_pieces'] ?? 0) }}バラ</span>
             @else
-                <span class="ar-help">通常条件のみの算定：{{ $adjustment['baseline_reason'] }}</span>
+                <span class="ar-help">通常条件のみの算定：{{ str_replace('補充目標', '過剰在庫線', $adjustment['baseline_reason']) }}</span>
             @endif
         </p>
         <table class="ar-event-addon-table">

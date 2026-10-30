@@ -63,7 +63,7 @@
 @endphp
 @if(!$this->recommendation['available'])
     <div class="ar-recommend-unavailable" role="status">
-        <p>{{ $basis['reason'] ?? 'おすすめ設定を計算できません。発注先と数量条件を確認してください。' }}</p>
+        <p>{{ str_replace('補充目標', '過剰在庫線', $basis['reason'] ?? 'おすすめ設定を計算できません。発注先と数量条件を確認してください。') }}</p>
         @if(isset($basis['demand_positive_days']))<p class="ar-help">売上・出荷 {{ number_format($basis['demand_positive_days']) }}日 ／ 発注に紐づく入荷・出庫 {{ number_format($receiptCount) }}回・{{ number_format($receiptDays) }}日</p>@endif
     </div>
 @endif
@@ -76,20 +76,20 @@
     </div>
 @endif
 @if($safetyDays !== null && $recommended)
-    <p class="ar-help"><b>おすすめ算定時：安全在庫 {{ $safetyDays }}日分 {{ number_format($basis['safety_stock_pieces']) }}バラ ＋ 通常量 {{ number_format($batch) }}バラ</b>で補充目標を算定。@if(($basis['safety_arrival_gap_adjustment_pieces'] ?? 0)>0)入荷間隔のため {{ number_format($basis['safety_arrival_gap_adjustment_pieces']) }}バラを加算。@endif</p>
+    <p class="ar-help"><b>おすすめ算定時：安全在庫 {{ $safetyDays }}日分 {{ number_format($basis['safety_stock_pieces']) }}バラ ＋ 通常量 {{ number_format($batch) }}バラ</b>で過剰在庫線を算定。@if(($basis['safety_arrival_gap_adjustment_pieces'] ?? 0)>0)入荷間隔のため {{ number_format($basis['safety_arrival_gap_adjustment_pieces']) }}バラを加算。@endif</p>
 @endif
 @include('filament.pages.auto-replenishment-event-addon', ['basis' => $basis])
 @if($safetyDays !== null && $valid && ($target != ($recommended['target_stock_pieces'] ?? null) || $maximum != ($recommended['max_order_pieces'] ?? null) || $minimum != ($recommended['min_order_pieces'] ?? null)))
     <p class="ar-help">数量を手調整しています。日数の算定結果と異なるため、下の例と保存後のテストで確認してください。</p>
 @endif
 @if($safetyExample !== null)
-    <p class="ar-example">例：{{ $lead }}日後入荷・既発注0・現在庫 {{ number_format($exampleStock) }}バラ → @if($safetyExample['phase']==='READY')@if(($basis['scope']['order_unit']['quantity_type'] ?? '') === 'CASE'){{ number_format(intdiv($safetyExample['quantity'], $packing)) }}ケース（{{ number_format($safetyExample['quantity']) }}バラ）発注。@else{{ number_format($safetyExample['quantity']) }}バラ発注。@endif@else{{ $safetyExample['reason'] }}@endif</p>
+    <p class="ar-example">例：{{ $lead }}日後入荷・既発注0・現在庫 {{ number_format($exampleStock) }}バラ → @if($safetyExample['phase']==='READY')@if(($basis['scope']['order_unit']['quantity_type'] ?? '') === 'CASE'){{ number_format(intdiv($safetyExample['quantity'], $packing)) }}ケース（{{ number_format($safetyExample['quantity']) }}バラ）発注。@else{{ number_format($safetyExample['quantity']) }}バラ発注。@endif@else{{ str_replace('補充目標', '過剰在庫線', $safetyExample['reason']) }}@endif</p>
 @elseif($valid && ($adaptive || $arrivalGuard))
     @if($adaptive && $example !== null && $example >= $roundedMinimum)
         <p class="ar-example">数量例（入数はおすすめ算定時）：補充前見込0・既発注0 → 最大 {{ number_format($maximum) }}・{{ $registeredCandidates !== null ? '登録済み出荷数量候補' : '発注単位 '.number_format($multiple) }}の範囲で {{ number_format($example) }}バラ。</p>
     @elseif($arrivalGuard && $roundedMinimum !== null && $roundedMinimum <= min($maximum,$target))
         <p class="ar-example">数量例（入数はおすすめ算定時）：補充前見込0・既発注0 ＋ 固定 {{ number_format($roundedMinimum) }} ＝ {{ number_format($roundedMinimum) }}バラ（目標 {{ number_format($target) }}以内）。</p>
-    @elseif($multiple)<p class="ar-help ar-quantity-caution">補充目標内で最小発注数・発注単位を満たせない設定です。数量条件を見直してください。</p>@endif
+    @elseif($multiple)<p class="ar-help ar-quantity-caution">過剰在庫線内で最小発注数・発注単位を満たせない設定です。数量条件を見直してください。</p>@endif
 
 @elseif(!$valid)
     <p class="ar-help">数量条件が未入力または不正なため、数量例は表示できません。</p>
@@ -103,11 +103,11 @@
         @include('filament.pages.auto-replenishment-supply-note')
         <p><b>現在の設定</b>（入力中・保存で反映）</p>
         @if($valid)
-            <p>発注点 {{ number_format($point) }} ／ 最小 {{ number_format($minimum) }} ／ 最大 {{ number_format($maximum) }} ／ 単位 {{ number_format($unit) }} ／ 補充目標 {{ number_format($target) }}バラ@if($mean > 0)（約{{ number_format($target / $mean,1) }}日分）@endif。</p>
+            <p>発注点 {{ number_format($point) }} ／ 最小 {{ number_format($minimum) }} ／ 最大 {{ number_format($maximum) }} ／ 単位 {{ number_format($unit) }} ／ 過剰在庫線 {{ number_format($target) }}バラ@if($mean > 0)（約{{ number_format($target / $mean,1) }}日分）@endif。</p>
             @if($adaptive)
                 <p>通常量をまとめて発注。次回の入荷までに欠品が見込まれる場合のみ小口で補充します。目標・最大数・最小数・単位を守ります。</p>
             @elseif($arrivalGuard)
-                <p>1回量は最小発注数を単位に合わせた固定数量です。補充後見込が補充目標を超える場合は見送ります。</p>
+                <p>1回量は最小発注数を単位に合わせた固定数量です。補充後見込が過剰在庫線を超える場合は見送ります。</p>
             @elseif($strategy === 'threshold_capped_v1')
                 <p>不足数を最小数・単位に合わせ、最大発注数内の数量を発注します。残りは既発注を含めて次回再判定します。</p>
             @elseif($strategy === 'threshold_v1')
@@ -132,13 +132,13 @@
             @endif
             @if($safetyDays !== null)
                 <p>安全在庫日数は発注間隔ではありません。通常量をまとめて発注し、既発注も考慮します。</p>
-                <p>発注点は補充目標・通常量・入荷まで{{ $basis['safety_lead_days'] }}日の消費見込@if(isset($basis['safety_lead_consumption_pieces']))（曜日別の最大 {{ number_format($basis['safety_lead_consumption_pieces']) }}バラ）@endifから算定。@if($basis['reorder_point_preserved'] ?? false)整合する既存の発注点を維持しました。@endif</p>
-                @if(($recommended['reorder_point_pieces'] ?? 0)>($recommended['target_stock_pieces'] ?? 0))<p class="ar-help">入荷までの出荷見込が通常量より多いため、現在庫で判定する発注点は入荷時の補充目標より大きくなっています。</p>@endif
+                <p>発注点は過剰在庫線・通常量・入荷まで{{ $basis['safety_lead_days'] }}日の消費見込@if(isset($basis['safety_lead_consumption_pieces']))（曜日別の最大 {{ number_format($basis['safety_lead_consumption_pieces']) }}バラ）@endifから算定。@if($basis['reorder_point_preserved'] ?? false)整合する既存の発注点を維持しました。@endif</p>
+                @if(($recommended['reorder_point_pieces'] ?? 0)>($recommended['target_stock_pieces'] ?? 0))<p class="ar-help">入荷までの出荷見込が通常量より多いため、現在庫で判定する発注点は入荷時の過剰在庫線より大きくなっています。</p>@endif
                 @if($point && $point < ($basis['normal_order_stock_pieces'] ?? 0)+1)<p class="ar-help ar-quantity-caution">入力中の発注点は算定した発注水準より低く、発注が遅くなる場合があります。</p>@endif
             @elseif($arrivalGap !== null)
-                <p>補充目標には、{{ ($this->form['channel'] ?? '') === 'FAX' ? '参考条件' : '既存設定' }}での入荷間隔 最大{{ number_format($arrivalGap) }}日分の需要 ＋ 最小1回分も反映します。入荷遅延による不足を防げるとは限りません。</p>
+                <p>過剰在庫線には、{{ ($this->form['channel'] ?? '') === 'FAX' ? '参考条件' : '既存設定' }}での入荷間隔 最大{{ number_format($arrivalGap) }}日分の需要 ＋ 最小1回分も反映します。入荷遅延による不足を防げるとは限りません。</p>
             @elseif(isset($basis['review_interval_days']))
-                <p>発注点は入荷まで＋次の実行まで最大{{ $basis['review_interval_days'] }}日を考慮。補充目標は「通常量＋1日分」と「次の実行までの需要＋最小1回分」の大きい方です。</p>
+                <p>発注点は入荷まで＋次の実行まで最大{{ $basis['review_interval_days'] }}日を考慮。過剰在庫線は「通常量＋1日分」と「次の実行までの需要＋最小1回分」の大きい方です。</p>
             @endif
             <p class="ar-help">日数換算は目安です。{{ $basis['unit_basis'] ?? '' }}</p>
             @if(str_contains(implode('', $basis['warnings'] ?? []),'直近28'))<p class="ar-help">直近の実績が少ないため、期間を広げて算定しています。</p>@endif
@@ -165,5 +165,5 @@
 @endif
 
 @if(!empty($basis['shipping_quantities']))
-    <p class="ar-help"><b>出荷数量候補：</b>{{ implode('・', $basis['shipping_quantities']) }}バラ。店舗の通常量を基準に、最大発注数・入荷時の補充目標内で選択します。満載への切上げや候補の合算は行いません。</p>
+    <p class="ar-help"><b>出荷数量候補：</b>{{ implode('・', $basis['shipping_quantities']) }}バラ。店舗の通常量を基準に、最大発注数・入荷時の過剰在庫線内で選択します。満載への切上げや候補の合算は行いません。</p>
 @endif

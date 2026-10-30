@@ -55,7 +55,7 @@ class RecommendationExplanationViewTest extends TestCase
             'order_multiple_pieces' => 4, 'target_stock_pieces' => 20]);
         unset($recommendation['values']);
         Livewire::test(RecommendationExplanationFixture::class, compact('form', 'recommendation'))
-            ->assertSee('最大 10 ／ 単位 4 ／ 補充目標 20バラ')->assertSee('約20.0日分')
+            ->assertSee('最大 10 ／ 単位 4 ／ 過剰在庫線 20バラ')->assertSee('約20.0日分')
             ->assertSee('最大 10・発注単位 4の範囲で 8バラ')
             ->assertSee('実績の最小 6 ／ 最大 12バラ（2回）');
     }
@@ -81,7 +81,7 @@ class RecommendationExplanationViewTest extends TestCase
             ->set('form.min_order_pieces', 4)
             ->set('form.target_stock_pieces', '')
             ->set('form.reorder_point_pieces', 8)
-            ->assertSee('補充目標 8バラ')->assertSee('約8.0日分')
+            ->assertSee('過剰在庫線 8バラ')->assertSee('約8.0日分')
             ->assertSee('固定 4 ＝ 4バラ（目標 8以内）')
             ->assertDontSee('通常量をまとめて発注。')
             ->set('form.strategy_key', 'threshold_v1')
@@ -98,7 +98,7 @@ class RecommendationExplanationViewTest extends TestCase
         Livewire::test(RecommendationExplanationFixture::class, compact('form', 'recommendation'))
             ->assertSee('最大 20・発注単位 12の範囲で 12バラ')
             ->set('form.target_stock_pieces', 11)
-            ->assertSee('補充目標内で最小発注数・発注単位を満たせない設定です')
+            ->assertSee('過剰在庫線内で最小発注数・発注単位を満たせない設定です')
             ->assertDontSee('数量例（入数はおすすめ算定時）：');
     }
 
@@ -108,7 +108,7 @@ class RecommendationExplanationViewTest extends TestCase
         $recommendation['basis']['review_interval_days'] = 2;
         Livewire::test(RecommendationExplanationFixture::class, ['form' => $recommendation['values'], 'recommendation' => $recommendation])
             ->assertSee('次の実行まで最大2日')
-            ->assertSee('補充目標は「通常量＋1日分」と「次の実行までの需要＋最小1回分」の大きい方です。')
+            ->assertSee('過剰在庫線は「通常量＋1日分」と「次の実行までの需要＋最小1回分」の大きい方です。')
             ->assertSee('数量例（入数はおすすめ算定時）');
     }
 
