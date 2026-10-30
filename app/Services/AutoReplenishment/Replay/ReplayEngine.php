@@ -246,8 +246,9 @@ final class ReplayEngine
                 $options['demand_events'] = ['events' => $events, 'factors' => $factors]; // category factors are dropped by the calculator unless category_fallback is on
             }
             $result = $this->calculator->calculate($history, $options);
+            // unit_mode: the effective one (the calculator lets the master output unit override a requested CASE/PIECE, as production does); requested kept beside it.
             $log['conditions'] = ['period' => $period, 'receipts' => count($receipts), 'basis_type' => $result['basis']['basis_type'] ?? null,
-                'unit_mode' => $options['unit_mode'], 'packing_unit' => $packing, 'order_unit' => $orderUnit['label'] ?? null, 'shipping_unit' => $shippingUnit['mode'],
+                'unit_mode' => $result['basis']['unit_mode'] ?? $options['unit_mode'], 'requested_unit_mode' => $options['unit_mode'], 'packing_unit' => $packing, 'order_unit' => $orderUnit['label'] ?? null, 'shipping_unit' => $shippingUnit['mode'],
                 'channel' => $channel, 'masters_as_of' => $cond['masters_as_of'] ?? null];
             if (! $result['available']) {
                 $log['reason'] = $result['basis']['reason'] ?? '算定不可';
