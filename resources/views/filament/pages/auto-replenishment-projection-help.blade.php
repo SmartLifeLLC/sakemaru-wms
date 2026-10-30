@@ -10,7 +10,7 @@
                 下回り {{ number_format($assessment['shortfall_pieces']) }}バラ@if($assessment['shortfall_days'] !== null)（平均消費 {{ number_format($assessment['shortfall_days'], 2) }}日分）@endif。
             @endif
         </p>
-        <p>判定基準：安全在庫日数3日以上。安全在庫の下回りが平均消費量1日分以下なら許容、1日分超または欠品見込みは要見直し。在庫ゼロ以下も要見直しです。日数表示は小数2桁ですが、判定には丸め前の値を使います。</p>
+        <p>判定基準：安全在庫日数2日以上。安全在庫の下回りが平均消費量1日分以下なら許容、1日分超または欠品見込みは要見直し。在庫ゼロ以下も要見直しです。日数表示は小数2桁ですが、判定には丸め前の値を使います。</p>
     @endif
 
     <strong>{{ !empty($chart['demand']['legacy']) ? '各曜日の消費見込（保存済み平均・バラ／日）' : '曜日別の平均消費量（バラ／日）' }}</strong>
