@@ -23,6 +23,12 @@ return new class extends Migration
             $table->unsignedTinyInteger('post_days')->default(0);
             $table->string('status', 12)->default('DRAFT');
             $table->string('note', 255)->nullable();
+            // Weekly pipeline: learned-factor version bound to the event, backtest on past instances, automatic approval flag.
+            $table->date('factor_trained_through')->nullable();
+            $table->json('backtest')->nullable();
+            $table->boolean('auto_approved')->default(false);
+            $table->string('review_note', 255)->nullable();
+            $table->timestamp('prepared_at')->nullable();
             $table->unsignedBigInteger('approved_by')->nullable();
             $table->timestamp('approved_at')->nullable();
             $table->unsignedBigInteger('created_by')->nullable();

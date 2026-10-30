@@ -121,6 +121,16 @@ class AutoReplenishmentEvents extends AdminPage
         Notification::make()->success()->title("{$this->year}年のイベント素案を{$inserted}件追加しました。承認すると算定に反映されます。")->send();
     }
 
+    /** Weekly preparation on demand: proposals, factors, backtest and automatic approval for the planning horizon. */
+    public function prepare(): void
+    {
+        $client = $this->authorizeOperation('enable');
+        $result = $this->checked(fn () => app(\App\Services\AutoReplenishment\DemandEventPipelineService::class)->run($client, CarbonImmutable::now('Asia/Tokyo')->toDateString(),
+            (int) config('replenishment.demand_events.weekly_prepare.horizon_days', 63), (int) auth()->id(), true));
+        $s = $result['summary'];
+        Notification::make()->success()->title("今後のイベント {$s['upcoming']} 件を準備：自動承認 {$s['approved']}・要確認 {$s['needs_review']}・差し戻し {$s['reverted']}".($s['skipped'] ? "・対象外 {$s['skipped']}" : ''))->send();
+    }
+
     public function create(): void
     {
         $this->authorizeOperation('edit');

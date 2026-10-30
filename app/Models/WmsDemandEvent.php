@@ -9,8 +9,8 @@ class WmsDemandEvent extends WmsModel
 
     protected $guarded = [];
 
-    protected $casts = ['start_date' => 'date:Y-m-d', 'end_date' => 'date:Y-m-d', 'approved_at' => 'datetime',
-        'pre_days' => 'integer', 'post_days' => 'integer', 'year' => 'integer'];
+    protected $casts = ['start_date' => 'date:Y-m-d', 'end_date' => 'date:Y-m-d', 'approved_at' => 'datetime', 'prepared_at' => 'datetime',
+        'pre_days' => 'integer', 'post_days' => 'integer', 'year' => 'integer', 'backtest' => 'array', 'auto_approved' => 'boolean', 'factor_trained_through' => 'date:Y-m-d'];
 
     /** Row shape consumed by DemandEventCalendar. */
     public function toCalendarEvent(): array

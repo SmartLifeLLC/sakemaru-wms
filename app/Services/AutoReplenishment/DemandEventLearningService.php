@@ -41,12 +41,18 @@ class DemandEventLearningService
      * @param  array<int>|null  $itemIds  products that receive ITEM profiles (null = every product with enough pieces)
      * @return array{items: array<int, array<string, array>>, categories: array<int, array<string, array>>, instances: array, stats: array}
      */
-    public function learn(int $client, string $through, int $years = 3, ?array $itemIds = null, ?callable $progress = null): array
+    public function learn(int $client, string $through, int $years = 3, ?array $itemIds = null, ?callable $progress = null, ?array $keys = null): array
     {
         $instances = $this->trainingInstances($through, $years);
         throw_unless($instances, \RuntimeException::class, '学習できる過去のイベントがありません。');
         $namedCounts = array_count_values(array_column(array_filter($instances, fn ($i) => $i['type'] === 'LONG_WEEKEND'), 'name'));
         $allEvents = $instances;
+        if ($keys !== null) {
+            // Only the instances that feed the requested profile keys (an upcoming event's name or type); other events
+            // still define the exclusion windows through $allEvents.
+            $instances = array_values(array_filter($instances, fn ($i) => array_intersect($this->learner->profileKeys($i, $namedCounts), $keys) !== []));
+            throw_unless($instances, \RuntimeException::class, '対象イベントの過去実例がありません：'.implode('・', $keys));
+        }
         $keep = $itemIds === null ? null : array_flip($itemIds);
         $ratios = [];   // key => item => compact instance ratios (positions + pieces only)
         $pieces = [];   // item => total actual pieces seen
@@ -111,10 +117,13 @@ class DemandEventLearningService
                 'category_profiles' => array_sum(array_map('count', $categoryProfiles))]];
     }
 
-    /** Replace the client's learned profiles (one model version) inside a transaction. */
-    public function persist(int $client, array $learned, string $through): int
+    /**
+     * Replace the client's learned profiles inside a transaction: all of them, or only the given profile keys
+     * (weekly refresh of upcoming events leaves the other keys untouched).
+     */
+    public function persist(int $client, array $learned, string $through, ?array $keys = null): int
     {
-        return DB::connection('sakemaru')->transaction(function () use ($client, $learned, $through) {
+        return DB::connection('sakemaru')->transaction(function () use ($client, $learned, $through, $keys) {
             $rows = [];
             $now = now();
             foreach (['items' => 'ITEM', 'categories' => 'CATEGORY'] as $group => $scope) {
@@ -127,7 +136,10 @@ class DemandEventLearningService
                     }
                 }
             }
-            WmsDemandEventProfile::where('client_id', $client)->delete();
+            if ($keys !== null) {
+                $rows = array_values(array_filter($rows, fn ($r) => in_array($r['profile_key'], $keys, true)));
+            }
+            WmsDemandEventProfile::where('client_id', $client)->when($keys !== null, fn ($q) => $q->whereIn('profile_key', $keys))->delete();
             foreach (array_chunk($rows, 500) as $chunk) {
                 WmsDemandEventProfile::insert($chunk);
             }
