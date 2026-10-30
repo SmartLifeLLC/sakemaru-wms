@@ -146,8 +146,8 @@ abstract class AutoReplenishmentPage extends AdminPage
 
     public bool $eventCandidatesPreview = false;
 
-    /** 詳細設定 sub-dialog of the editor (発注単位・発注数量・イベント・発注方法・発注先). */
-    public bool $showAdvanced = false;
+    /** Last learning summary for this product (kept after the streamed progress is re-rendered away). */
+    public string $eventLearnNote = '';
 
     #[Locked]
     public ?array $palletUnit = null;
@@ -283,7 +283,6 @@ abstract class AutoReplenishmentPage extends AdminPage
         $this->itemSearch = '';
         $this->itemJanSearch = '';
         $this->showItemPicker = ! $policy;
-        $this->showAdvanced = false;
         $this->showEditor = true;
         $this->loadPalletEditor();
         $this->loadEventSetup($clientId);
@@ -296,6 +295,7 @@ abstract class AutoReplenishmentPage extends AdminPage
         $this->eventSetup = [];
         $this->eventInfo = [];
         $this->eventCandidatesPreview = false;
+        $this->eventLearnNote = '';
         $itemId = (int) ($this->form['item_id'] ?? 0);
         if ($itemId <= 0) {
             return;
@@ -342,7 +342,12 @@ abstract class AutoReplenishmentPage extends AdminPage
             $this->loadEventSetup($clientId);
             throw_unless($this->eventInfo['installed'] ?? false, \RuntimeException::class, 'イベント設定のテーブルが未作成です。');
         }
-        $stream = fn (string $line) => $this->stream(to: 'eventProgress', content: e($line).'<br>', replace: false);
+        $stream = function (string $line): void {
+            // The progress is shown on both tabs (基本情報 next to the おすすめ設定 button, 詳細設定 under the learn button).
+            foreach (['eventProgress', 'eventProgressAdvanced'] as $target) {
+                $this->stream(to: $target, content: e($line).'<br>', replace: false);
+            }
+        };
         $stream('この商品の過去3年のイベント実績を読んでいます…');
         $learning = app(\App\Services\AutoReplenishment\DemandEventLearningService::class);
         $through = CarbonImmutable::now('Asia/Tokyo')->subDay()->toDateString();
@@ -352,18 +357,18 @@ abstract class AutoReplenishmentPage extends AdminPage
         $stage = $hadActive ? \App\Models\WmsDemandEventProfile::CANDIDATE : \App\Models\WmsDemandEventProfile::ACTIVE;
         $learning->persistItem($clientId, $itemId, $profiles, $through, $stage);
         $hadApplication = \App\Models\WmsItemDemandEvent::where(['client_id' => $clientId, 'item_id' => $itemId])->exists();
+        $ticks = $this->eventSetup; // unsaved ticks on the screen survive a re-learning
         $this->loadEventSetup($clientId);
         $this->eventCandidatesPreview = $hadActive;
-        if (! $hadApplication) {
-            foreach ($this->eventInfo['types'] as $type => $info) {
-                $this->eventSetup[$type] = $info['suggest'];
-            }
+        foreach ($this->eventInfo['types'] as $type => $info) {
+            $this->eventSetup[$type] = $hadApplication ? (bool) ($ticks[$type] ?? $info['applied']) : $info['suggest'];
         }
         $summary = [];
         foreach ($this->eventInfo['types'] as $type => $info) {
             $summary[] = $info['label'].' '.($info['mean'] !== null ? number_format($info['mean'], 2).'倍／'.$info['instances'].'年' : '実績なし');
         }
-        $stream('学習しました：'.implode('、', $summary).($hadActive ? '（候補。この設定を保存すると有効になります）' : ''));
+        $this->eventLearnNote = '学習しました：'.implode('、', $summary).($hadActive ? '（候補。この設定を保存すると有効になります）' : '');
+        $stream($this->eventLearnNote);
     }
 
     /** Save the product's event application and accept the previewed factors; called from savePolicy after the quantities are saved. */
@@ -564,6 +569,7 @@ abstract class AutoReplenishmentPage extends AdminPage
                         $this->learnProductEventsNow($client);
                     } catch (\RuntimeException $e) {
                         $this->stream(to: 'eventProgress', content: e($e->getMessage()).'<br>', replace: false);
+                        $this->stream(to: 'eventProgressAdvanced', content: e($e->getMessage()).'<br>', replace: false);
                     }
                 }
             }
