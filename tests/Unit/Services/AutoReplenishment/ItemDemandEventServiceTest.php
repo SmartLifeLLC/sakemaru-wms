@@ -117,6 +117,18 @@ class ItemDemandEventServiceTest extends TestCase
         file_put_contents($csv, "item_code,events\n# 缶ビール\n300,GW|OBON\n20000,\n");
         self::assertSame(0, Artisan::call('wms:set-item-demand-events', ['client' => 6, '--csv' => $csv, '--apply' => true]), Artisan::output());
         self::assertEqualsCanonicalizing(['GW', 'OBON'], (new DemandEventRepository)->itemEventTypes(6, 300));
+        // Export → review → register: the CSV the command writes is accepted by --csv as is.
+        $export = tempnam(sys_get_temp_dir(), 'ex');
+        self::assertSame(0, Artisan::call('wms:set-item-demand-events', ['client' => 6, '--export' => $export]), Artisan::output());
+        $lines = array_map('str_getcsv', array_filter(explode("\n", ltrim(file_get_contents($export), "\xEF\xBB\xBF"))));
+        self::assertSame(['item_code', 'events', 'item_name', 'current', 'year_end_mean', 'year_end_years', 'obon_mean', 'obon_years', 'gw_mean', 'gw_years', 'suggested'], $lines[0]);
+        $byCode = collect(array_slice($lines, 1))->keyBy(0);
+        self::assertSame(['YEAR_END', 'YEAR_END', '1.8', '3'], [$byCode['143024'][1], $byCode['143024'][10], $byCode['143024'][4], $byCode['143024'][5]]); // current application wins, suggestion shown
+        self::assertSame(['OBON|GW', 'OBON|GW', ''], [$byCode['300'][1], $byCode['300'][3], $byCode['300'][10]]); // standard order
+        self::assertSame(['', ''], [$byCode['20000'][1], $byCode['20000'][10]]); // own mean 1.2 → no suggestion
+        self::assertSame(0, Artisan::call('wms:set-item-demand-events', ['client' => 6, '--csv' => $export, '--apply' => true]), Artisan::output());
+        self::assertSame(['YEAR_END'], (new DemandEventRepository)->itemEventTypes(6, 143024));
+        unlink($export);
         // An ambiguous 商品CD is refused.
         DB::connection('sakemaru')->table('items')->insert(['id' => 301, 'client_id' => 6, 'code' => 300, 'name' => '水（別ID）', 'item_category3_id' => null]);
         self::assertSame(1, Artisan::call('wms:set-item-demand-events', ['client' => 6, '--csv' => $csv, '--apply' => true]));
