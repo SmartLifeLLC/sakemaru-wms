@@ -4,12 +4,61 @@
         $title = ['settings'=>'商品別発注設定','checklist'=>'自動発注確認リスト','history'=>'自動発注履歴'][$screen];
         $labels = ['READY'=>'生成対象','NO_ORDER'=>'発注不要','HOLD'=>'保留','INCOMING_CREATED'=>'JX生成待ち','TRANSFER_PREPARED'=>'移動確定待ち','FAILED_RETRYABLE'=>'工程再開が必要','EOS_JX_READY'=>'JX生成完了','TRANSFER_QUEUED'=>'移動作成待ち','TRANSFER_PROCESSING'=>'移動作成中','TRANSFER_CREATED'=>'移動作成完了','RECONCILIATION_REQUIRED'=>'照合待ち','STOPPED'=>'停止','ABORTED'=>'未公開処理中止'];
     @endphp
-    <div class="ar-shell" @if($run?->status === 'RUNNING') wire:poll.3s @endif>
+    <div class="ar-shell {{ $screen === 'settings' ? 'ar-settings-list' : '' }}" @if($run?->status === 'RUNNING') wire:poll.3s @endif>
         <main class="ar-main">
-            <div class="ar-title"><div><small>発注 / 自動発注</small><h1>{{ $title }}</h1></div>@if($warehouse)
-                @if($screen === 'settings')<button class="ar-warehouse-status {{ $warehouse->is_auto_order_enabled ? 'is-on' : '' }}" wire:click="editWarehouse" @disabled(!$control || $control->reset_state !== 'COMPLETE')><span>この倉庫の自動発注</span><strong>{{ $warehouse->is_auto_order_enabled ? 'ON' : 'OFF' }}</strong><span>設定する →</span></button>
-                @else<span class="ar-badge {{ $warehouse->is_auto_order_enabled ? 'green' : '' }}">倉庫 {{ $warehouse->is_auto_order_enabled ? 'ON' : 'OFF' }}</span>@endif
-            @endif</div>
+            <div class="ar-title">
+                <div>@if($screen !== 'settings')<small>発注 / 自動発注</small>@endif<h1>{{ $title }}</h1></div>
+                @if($warehouse)
+                    @if($screen === 'settings')
+                        <div class="ar-header-actions" aria-label="自動発注の設定操作">
+                            @if(count($this->selectedVersions))
+                                <button class="ar-btn primary" wire:click="confirmSelectedState(true)" @disabled($selectedOffCount === 0)>選択{{ count($this->selectedVersions) }}件をON</button>
+                                <button class="ar-btn" wire:click="confirmSelectedState(false)" @disabled($selectedOnCount === 0)>選択{{ count($this->selectedVersions) }}件をOFF</button>
+                                <button class="ar-btn" wire:click="clearSelection">選択を解除</button>
+                            @endif
+                            <span class="ar-badge {{ $control?->enabled && config('replenishment.enabled') ? 'green' : '' }}">全体 {{ $control?->enabled && config('replenishment.enabled') ? 'ON' : 'OFF' }}</span>
+                            <button class="ar-btn" wire:click="requestConfirmation('{{ $control?->enabled ? 'global-off' : 'global-on' }}')" @disabled(!$control || $control->reset_state !== 'COMPLETE')>全体 {{ $control?->enabled ? 'OFFにする' : 'ONにする' }}</button>
+                            <button class="ar-btn primary" wire:click="editPolicy" @disabled(!$control || $control->reset_state !== 'COMPLETE')>商品設定を追加</button>
+                            <button class="ar-warehouse-status {{ $warehouse->is_auto_order_enabled ? 'is-on' : '' }}" wire:click="editWarehouse" @disabled(!$control || $control->reset_state !== 'COMPLETE')><span>この倉庫の自動発注</span><strong>{{ $warehouse->is_auto_order_enabled ? 'ON' : 'OFF' }}</strong><span>設定 →</span></button>
+                            <details class="ar-list-help" wire:key="settings-list-help" x-data @click.outside="$el.open = false" @keydown.escape.window="if ($el.open) { $el.open = false; $el.querySelector('summary').focus() }">
+                                <summary class="ar-btn">解説@if(!$control || $control->reset_state !== 'COMPLETE') <span class="ar-badge amber">初期化未完了</span>@endif @if($weeklyRefresh && $weeklyRefresh['held']) <span class="ar-badge amber">保留 {{ count($weeklyRefresh['held']) }}件</span>@endif</summary>
+                                <div class="ar-list-help-content">
+                                    <strong>解説・運用状況</strong>
+                                    @if(!$control || $control->reset_state !== 'COMPLETE')
+                                        <p>初回リリースの設定初期化が未完了です。初期化完了後に商品を設定してください。</p>
+                                    @elseif(!$control->enabled || !config('replenishment.enabled'))
+                                        <p>全体の自動発注は停止中です。設定・試算は利用できます。</p>
+                                    @endif
+                                    @if($control?->reset_completed_at)<p>初回初期化完了 {{ \Carbon\Carbon::parse($control->reset_completed_at)->format('Y/m/d H:i') }}</p>@endif
+                                    <p>商品のON／OFFは「設定を編集」で変更できます。数量はすべて総バラ・最大発注数は1回の上限です。</p>
+                                    @if($weeklyRefresh)
+                                        @php $wr = $weeklyRefresh; $ws = $wr['summary']; $outcomeLabels = ['HELD' => '保留', 'ERROR' => 'エラー', 'UNAVAILABLE' => '算定不可']; @endphp
+                                        <div class="ar-notice {{ $wr['held'] ? 'warn' : '' }}">
+                                            <b>週次の再計算</b>（最終 {{ \Carbon\Carbon::parse($wr['at'])->format('Y/m/d H:i') }}）：更新 {{ ($ws['UPDATED'] ?? 0) + ($ws['FORECAST_UPDATED'] ?? 0) }}・変更なし {{ $ws['UNCHANGED'] ?? 0 }}・保留 {{ $ws['HELD'] ?? 0 }}・算定不可 {{ $ws['UNAVAILABLE'] ?? 0 }}・エラー {{ $ws['ERROR'] ?? 0 }}（全倉庫）。
+                                            再計算は数量条件だけを変え、商品のON／OFFは変えません。保留された商品は前回の設定のまま動いています。
+                                            @if($wr['held'])
+                                                <details style="margin-top:6px"><summary style="cursor:pointer">この倉庫で保留・エラーになった商品 {{ count($wr['held']) }}件（理由）</summary>
+                                                    <table style="margin-top:6px;font-size:12px;border-collapse:collapse">
+                                                        <thead><tr><th style="text-align:left;padding:2px 8px">商品CD</th><th style="text-align:left;padding:2px 8px">商品名</th><th style="text-align:left;padding:2px 8px">結果</th><th style="text-align:left;padding:2px 8px">理由</th></tr></thead>
+                                                        <tbody>
+                                                        @foreach($wr['held'] as $h)
+                                                            <tr><td class="ar-code" style="padding:2px 8px">{{ $h['item_code'] }}</td><td style="padding:2px 8px">{{ $h['item_name'] }}</td><td style="padding:2px 8px">{{ $outcomeLabels[$h['outcome']] ?? $h['outcome'] }}</td><td style="padding:2px 8px;white-space:normal">{{ $h['reason'] }}</td></tr>
+                                                        @endforeach
+                                                        </tbody>
+                                                    </table>
+                                                    <span class="ar-help">保留の解消：対象商品の「設定を編集」→「おすすめ設定を反映」で新しい数量を確認して保存するか、現状のままにします（翌週も再計算されます）。</span>
+                                                </details>
+                                            @else この倉庫で保留・エラーになった商品はありません。@endif
+                                        </div>
+                                    @endif
+                                </div>
+                            </details>
+                        </div>
+                    @else
+                        <span class="ar-badge {{ $warehouse->is_auto_order_enabled ? 'green' : '' }}">倉庫 {{ $warehouse->is_auto_order_enabled ? 'ON' : 'OFF' }}</span>
+                    @endif
+                @endif
+            </div>
             <nav class="ar-tabs">
                 @foreach(['settings'=>'商品別発注設定','checklist'=>'確認リスト','history'=>'自動発注履歴','events'=>'イベント設定'] as $key=>$name)
                     <a href="/admin/auto-order/{{ $key }}" class="{{ $screen === $key ? 'active' : '' }}">{{ $name }}</a>
@@ -21,50 +70,18 @@
             @if(!$warehouse)
                 <div class="ar-notice warn">右上の倉庫選択から、自動発注を管理する実倉庫を選択してください。</div>
             @else
-            @if(!$control || $control->reset_state !== 'COMPLETE')
-                <div class="ar-notice warn">初回リリースの設定初期化が未完了です。初期化完了後に商品を設定してください。</div>
-            @elseif(!$control->enabled || !config('replenishment.enabled'))
-                <div class="ar-notice">全体の自動発注は停止中です。設定・試算は利用できます。</div>
-            @endif
-            @if($control?->reset_completed_at)<p class="ar-help">初回初期化完了 {{ \Carbon\Carbon::parse($control->reset_completed_at)->format('Y/m/d H:i') }} / 全体 {{ $control->enabled ? 'ON' : 'OFF' }}</p>@endif
-            @if($screen === 'settings')
-                <div class="ar-toolbar">
-                    <span>商品のON／OFFは「設定を編集」で変更できます。</span>
-                    @if(count($this->selectedVersions))
-                        <button class="ar-btn primary" wire:click="confirmSelectedState(true)" @disabled($selectedOffCount === 0)>選択{{ count($this->selectedVersions) }}件をON</button>
-                        <button class="ar-btn" wire:click="confirmSelectedState(false)" @disabled($selectedOnCount === 0)>選択{{ count($this->selectedVersions) }}件をOFF</button>
-                        <button class="ar-btn" wire:click="clearSelection">選択を解除</button>
-                    @endif
-                    <button class="ar-btn" wire:click="exportCsv">このページをCSV出力</button>
-                    <button class="ar-btn" wire:click="$set('showCsv', true)" @disabled(!$control || $control->reset_state !== 'COMPLETE')>CSV取込</button>
-                    <button class="ar-btn" wire:click="editWarehouse" @disabled(!$control || $control->reset_state !== 'COMPLETE')>倉庫の自動発注設定</button>
-                    <button class="ar-btn" wire:click="requestConfirmation('{{ $control?->enabled ? 'global-off' : 'global-on' }}')" @disabled(!$control || $control->reset_state !== 'COMPLETE')>全体 {{ $control?->enabled ? 'OFFにする' : 'ONにする' }}</button>
-                    <button class="ar-btn primary" wire:click="editPolicy" @disabled(!$control || $control->reset_state !== 'COMPLETE')>商品設定を追加</button>
-                </div>
-                @if($weeklyRefresh)
-                    @php $wr = $weeklyRefresh; $ws = $wr['summary']; $outcomeLabels = ['HELD' => '保留', 'ERROR' => 'エラー', 'UNAVAILABLE' => '算定不可']; @endphp
-                    <div class="ar-notice {{ $wr['held'] ? 'warn' : '' }}">
-                        <b>週次の再計算</b>（最終 {{ \Carbon\Carbon::parse($wr['at'])->format('Y/m/d H:i') }}）：更新 {{ ($ws['UPDATED'] ?? 0) + ($ws['FORECAST_UPDATED'] ?? 0) }}・変更なし {{ $ws['UNCHANGED'] ?? 0 }}・保留 {{ $ws['HELD'] ?? 0 }}・算定不可 {{ $ws['UNAVAILABLE'] ?? 0 }}・エラー {{ $ws['ERROR'] ?? 0 }}（全倉庫）。
-                        再計算は数量条件だけを変え、商品のON／OFFは変えません。保留された商品は前回の設定のまま動いています。
-                        @if($wr['held'])
-                            <details style="margin-top:6px"><summary style="cursor:pointer">この倉庫で保留・エラーになった商品 {{ count($wr['held']) }}件（理由）</summary>
-                                <table style="margin-top:6px;font-size:12px;border-collapse:collapse">
-                                    <thead><tr><th style="text-align:left;padding:2px 8px">商品CD</th><th style="text-align:left;padding:2px 8px">商品名</th><th style="text-align:left;padding:2px 8px">結果</th><th style="text-align:left;padding:2px 8px">理由</th></tr></thead>
-                                    <tbody>
-                                    @foreach($wr['held'] as $h)
-                                        <tr><td class="ar-code" style="padding:2px 8px">{{ $h['item_code'] }}</td><td style="padding:2px 8px">{{ $h['item_name'] }}</td><td style="padding:2px 8px">{{ $outcomeLabels[$h['outcome']] ?? $h['outcome'] }}</td><td style="padding:2px 8px;white-space:normal">{{ $h['reason'] }}</td></tr>
-                                    @endforeach
-                                    </tbody>
-                                </table>
-                                <span class="ar-help">保留の解消：対象商品の「設定を編集」→「おすすめ設定を反映」で新しい数量を確認して保存するか、現状のままにします（翌週も再計算されます）。</span>
-                            </details>
-                        @else この倉庫で保留・エラーになった商品はありません。@endif
-                    </div>
+            @if($screen !== 'settings')
+                @if(!$control || $control->reset_state !== 'COMPLETE')
+                    <div class="ar-notice warn">初回リリースの設定初期化が未完了です。初期化完了後に商品を設定してください。</div>
+                @elseif(!$control->enabled || !config('replenishment.enabled'))
+                    <div class="ar-notice">全体の自動発注は停止中です。設定・試算は利用できます。</div>
                 @endif
-            @elseif($screen === 'checklist')
+                @if($control?->reset_completed_at)<p class="ar-help">初回初期化完了 {{ \Carbon\Carbon::parse($control->reset_completed_at)->format('Y/m/d H:i') }} / 全体 {{ $control->enabled ? 'ON' : 'OFF' }}</p>@endif
+            @endif
+            @if($screen === 'checklist')
                 <div class="ar-toolbar"><div><b>試算・未実行</b> @if($run) / {{ $run->created_at->format('m/d H:i') }} / {{ $run->status === 'RUNNING' ? '計算中' : '試算完了' }} @endif</div><button class="ar-btn" wire:click="exportCsv">このページをCSV出力</button><button class="ar-btn primary" wire:click="preview" wire:loading.attr="disabled" @disabled(!$control || $control->reset_state !== 'COMPLETE')>再チェック</button></div>
                 <div class="ar-notice">倉庫・商品がOFFでも試算できます。発注・JX・倉庫移動データは生成しません。正常な自動発注に毎回の手動承認は不要です。</div>
-            @else
+            @elseif($screen === 'history')
                 <div class="ar-notice">自動発注で生成したデータだけを表示します。EOSは入荷予定とJXの生成、物流は倉庫移動データの作成で完了です。JX送信・入荷の状態は別に確認できます。</div>
             @endif
             @foreach($errors->get('operation') as $error)<div class="ar-notice warn">{{ $error }}</div>@endforeach
@@ -79,7 +96,7 @@
             </div>
             @if($screen === 'history')<div class="ar-toolbar"><button class="ar-btn" wire:click="$set('historyView','lines')">商品明細</button><button class="ar-btn" wire:click="$set('historyView','runs')">実行履歴</button>@if($this->historyRunId)<button class="ar-btn" wire:click="$set('historyRunId',null)">実行の絞込を解除</button>@endif</div>@endif
             @if($screen === 'checklist' && $run)<nav class="ar-tabs" aria-label="判定結果の絞込">@foreach([''=>'すべて','READY'=>'生成対象','NO_ORDER'=>'発注不要','HOLD'=>'保留・設定不備'] as $key=>$name)<button type="button" class="ar-btn {{ $this->status === $key ? 'primary' : '' }}" wire:click="$set('status','{{ $key }}')">{{ $name }} {{ $key === '' ? $phaseCounts->sum() : ($phaseCounts[$key] ?? 0) }}</button>@endforeach</nav>@endif
-            <section class="ar-card"><header><b>[{{ $warehouse?->code }}] {{ $warehouse?->name }}</b><span>{{ $screen === 'settings' ? '数量はすべて総バラ・最大発注数は1回の上限' : '100件ごとに表示' }}</span></header>
+            <section class="ar-card"><header><b>[{{ $warehouse?->code }}] {{ $warehouse?->name }}</b><span>{{ $screen === 'settings' ? '総バラ' : '100件ごとに表示' }}</span></header>
                 @if($screen === 'history' && $this->historyView === 'runs')
                 <div class="ar-table-wrap"><table><thead><tr><th>実行ID</th><th>実行日時</th><th>結果</th><th>対象商品</th><th>生成</th><th>保留</th><th>失敗</th><th class="ar-sticky">操作</th></tr></thead><tbody>
                     @forelse($rows as $row)<tr><td class="ar-code">{{ $row->run_key }}</td><td>{{ $row->created_at->format('m/d H:i') }}</td><td>{{ ['RUNNING'=>'処理中','PARTIAL'=>'一部未完了','COMPLETED'=>'完了','NO_OP'=>'対象なし','FAILED'=>'失敗'][$row->status] ?? $row->status }}</td><td>{{ $row->scanned_count }}</td><td>{{ $row->generated_count }}</td><td>{{ $row->held_count }}</td><td>{{ $row->failed_count }}</td><td class="ar-sticky"><button class="ar-row-btn" wire:click="openRun({{ $row->id }})">生成明細</button></td></tr>@empty<tr><td colspan="8"><div class="ar-empty">自動発注の実行履歴はまだありません。</div></td></tr>@endforelse
@@ -96,7 +113,7 @@
                                 <td class="ar-code">{{ $row->contractor_code ?? '—' }}</td><td>{{ $row->contractor_name ?? '—' }}</td><td class="ar-code">{{ $row->source_code ?? '—' }}</td><td>{{ $row->source_name ?? '—' }}</td>
                                 @foreach(['reorder_point_pieces','max_order_pieces','min_order_pieces','order_multiple_pieces'] as $col)<td class="num">{{ $row->$col === null ? '未設定' : number_format($row->$col) }}</td>@endforeach
                                 <td>{{ $row->updated_at->format('m/d H:i') }}</td><td>@if(!$row->is_configured)<span class="ar-badge">未設定</span>@else<button class="ar-switch {{ $row->is_enabled ? 'on' : '' }}" wire:click="editPolicy({{ $row->id }})" aria-label="商品{{ $row->item_code }}の自動発注設定を編集" title="設定画面でON／OFFを変更">{{ $row->is_enabled ? 'ON' : 'OFF' }}</button>@endif</td>
-                                <td class="ar-sticky"><div class="ar-row-actions"><button class="ar-row-btn" wire:click="editPolicy({{ $row->id }})">設定を編集</button><button type="button" class="ar-row-btn" wire:click="openPolicyTest({{ $row->id }})" aria-label="商品{{ $row->item_code }}の自動発注をテスト">テスト</button></div></td>
+                                <td class="ar-sticky"><div class="ar-row-actions"><button class="ar-row-btn" wire:click="editPolicy({{ $row->id }})">設定を編集</button></div></td>
                             @else
                                 <td class="num">{{ $row->stock ?? '—' }}</td><td class="num">{{ $row->incoming ?? '—' }}</td><td class="num">{{ $row->claims ?? '—' }}</td><td class="num">{{ number_format($row->quantity_pieces) }}</td><td class="ar-code">{{ $row->contractor_code ?? '—' }}</td><td>{{ $row->contractor_name ?? '—' }}</td>
                                 <td>{{ $row->output_arrival ? \Carbon\Carbon::createFromFormat('ymd', $row->output_arrival)->format('m/d') : (($row->transfer_arrival ?: $row->arrival_date) ? \Carbon\Carbon::parse($row->transfer_arrival ?: $row->arrival_date)->timezone('Asia/Tokyo')->format('m/d') : '—') }}</td>
@@ -108,7 +125,7 @@
                             @endif
                         </tr>
                     @empty<tr><td colspan="{{ $screen === 'settings' ? 15 : ($screen === 'history' ? 15 : 13) }}"><div class="ar-empty"><b>{{ $screen === 'settings' ? '商品別発注設定はまだありません' : '表示するデータがありません' }}</b><p>{{ $screen === 'settings' ? '商品設定を追加し、発注条件を登録してください。' : ($screen === 'checklist' ? '商品を設定して再チェックしてください。' : '自動生成した履歴は、関連データの削除後もここに残ります。') }}</p></div></td></tr>@endforelse
-                </tbody></table></div>@endif<footer>{{ $rows->links() }}</footer>
+                </tbody></table></div>@endif @if($screen !== 'settings' || $rows->hasPages())<footer>{{ $rows->links() }}</footer>@endif
             </section>
             @endif
         </main>
