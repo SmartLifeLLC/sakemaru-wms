@@ -17,6 +17,7 @@ class SetItemDemandEventsCommand extends Command
         {--key=code : --item と CSV の商品の指定方法（code=商品CD, id=items.id）}
         {--from-learned : 学習済み倍率からの候補（自社実績の本体平均 1.3倍以上・2年以上）を表示。登録には --apply --accept-candidates}
         {--accept-candidates : --from-learned の候補を検証済み一覧の代わりにそのまま登録する（初回登録は検証済みの明示一覧を推奨）}
+        {--export= : 候補一覧をCSVに書き出す（商品CD,events,商品名,現在の適用,年末年始,お盆,GW の学習値）。events 列を見直して --csv で登録する}
         {--apply : 変更を保存（未指定は表示のみ）}';
 
     protected $description = '商品ごとに適用する標準イベント（年末年始・お盆・GW）を登録する。適用したイベントだけが、その商品のおすすめ設定・倍率学習の基準・過去再生に使われる';
@@ -28,6 +29,9 @@ class SetItemDemandEventsCommand extends Command
             throw_unless($client === app(ReplenishmentGuard::class)->clientId(), \RuntimeException::class, '配備先の顧客IDと対象が一致しません。');
             throw_unless(in_array($this->option('key'), ['code', 'id'], true), \RuntimeException::class, '--key は code または id で指定してください。');
             $current = $service->matrix($client);
+            if ($this->option('export')) {
+                return $this->export($service, $client, $current, (string) $this->option('export'));
+            }
             $applied = $this->requested($service, $client, $current);
             throw_if($applied === [], \RuntimeException::class, '対象がありません。--item と --events、--csv、--from-learned のいずれかを指定してください。');
             $items = DB::connection('sakemaru')->table('items')->where('client_id', $client)->whereIn('id', array_keys($applied))->get(['id', 'code', 'name'])->keyBy('id');
@@ -53,6 +57,38 @@ class SetItemDemandEventsCommand extends Command
 
             return self::FAILURE;
         }
+    }
+
+    /**
+     * Candidate list as a CSV the operator reviews and registers with --csv: one row per product with an auto-order policy,
+     * events = suggested types (own factors, block mean ≥ 1.3 over ≥ 2 years) or the current application when it is already set.
+     */
+    private function export(ItemDemandEventService $service, int $client, array $current, string $path): int
+    {
+        $ids = array_keys($current);
+        $items = DB::connection('sakemaru')->table('items')->where('client_id', $client)->whereIn('id', $ids ?: [-1])->get(['id', 'code', 'name'])->keyBy('id');
+        $suggestions = $service->suggestions($client, $ids);
+        $handle = fopen($path, 'w');
+        throw_unless($handle, \RuntimeException::class, 'CSVを書き出せません：'.$path);
+        fwrite($handle, "\xEF\xBB\xBF");
+        fputcsv($handle, ['item_code', 'events', 'item_name', 'current', 'year_end_mean', 'year_end_years', 'obon_mean', 'obon_years', 'gw_mean', 'gw_years', 'suggested']);
+        $rows = 0;
+        $suggested = 0;
+        foreach ($ids as $itemId) {
+            $now = array_keys(array_filter($current[$itemId] ?? []));
+            $hint = array_keys(array_filter($suggestions[$itemId] ?? [], fn ($t) => $t['suggest']));
+            $events = $now ?: $hint;
+            $cell = fn (string $type, string $key) => isset($suggestions[$itemId][$type][$key]) && $suggestions[$itemId][$type][$key] !== null ? $suggestions[$itemId][$type][$key] : '';
+            fputcsv($handle, [$items[$itemId]->code ?? $itemId, implode('|', $events), $items[$itemId]->name ?? '', implode('|', $now),
+                $cell('YEAR_END', 'mean'), $cell('YEAR_END', 'instances'), $cell('OBON', 'mean'), $cell('OBON', 'instances'), $cell('GW', 'mean'), $cell('GW', 'instances'), implode('|', $hint)]);
+            $rows++;
+            $suggested += $hint ? 1 : 0;
+        }
+        fclose($handle);
+        $this->info("{$rows} 商品を書き出しました（候補あり {$suggested} 商品）：{$path}");
+        $this->line('events 列を見直して（空欄＝適用なし）、php artisan wms:set-item-demand-events '.$client.' --csv='.$path.' で確認、--apply で登録します。');
+
+        return self::SUCCESS;
     }
 
     /** item_id => [types] from the options; unknown products (no policy) are rejected. */
