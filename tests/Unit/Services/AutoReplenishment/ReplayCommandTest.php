@@ -36,7 +36,8 @@ class ReplayCommandTest extends TestCase
         $rows = [];
         for ($d = CarbonImmutable::parse('2024-05-05'); $d->toDateString() <= '2026-01-31'; $d = $d->addDay()) {
             $md = $d->format('m-d');
-            $peak = $md >= '12-25' && $md <= '12-31' ? 3 : 1;
+            // v2 protects arrival gaps; use a stronger peak so the event comparison still exercises unmet demand.
+            $peak = $md >= '12-25' && $md <= '12-31' ? 5 : 1;
             $rows[] = ['business_date' => $d->toDateString(), 'warehouse_id' => 2, 'item_id' => 143024, 'sales_piece_qty' => ($d->isSaturday() ? 48 : 24) * $peak];
             $rows[] = ['business_date' => $d->toDateString(), 'warehouse_id' => 2, 'item_id' => 222, 'sales_piece_qty' => 6 * $peak];
         }

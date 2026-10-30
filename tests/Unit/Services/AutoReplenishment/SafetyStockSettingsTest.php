@@ -55,31 +55,33 @@ class SafetyStockSettingsTest extends TestCase
             'quantity_type' => 'CASE', 'capacity_case' => 24, 'route_snapshot' => ['effective_picking_lead_days' => 1]];
     }
 
-    public function test_five_days_reproduces_the_proposal_without_expanding_to_a_pallet(): void
+    public function test_five_days_adds_arrival_waiting_consumption_without_expanding_to_a_pallet(): void
     {
         $r = self::recommendation();
         self::assertTrue($r['available']);
-        self::assertSame(['reorder_point_pieces' => 1920, 'target_stock_pieces' => 3072, 'min_order_pieces' => 384,
+        self::assertSame(['reorder_point_pieces' => 2690, 'target_stock_pieces' => 3888, 'min_order_pieces' => 384,
             'order_multiple_pieces' => 192, 'max_order_pieces' => 1728, 'strategy_key' => 'arrival_adaptive_v1'], $r['values']);
         self::assertSame(5, $r['basis']['safety_stock_days']);
         self::assertSame(1344, $r['basis']['safety_stock_pieces']);
         self::assertSame(1728, $r['basis']['batch_quantity_pieces']);
         // The two-day weekday forecast rounds up to 529, rather than truncating the mean to 528.
-        self::assertSame(1873, $r['basis']['normal_order_stock_pieces']);
-        self::assertTrue($r['basis']['reorder_point_preserved']);
+        self::assertSame(2689, $r['basis']['normal_order_stock_pieces']);
+        self::assertFalse($r['basis']['reorder_point_preserved']);
+        self::assertSame('safety-stock-days-v2', $r['basis']['quantity_model']);
+        self::assertSame(816, $r['basis']['safety_arrival_gap_adjustment_pieces']);
     }
 
     public function test_reorder_gate_and_target_are_calculated_together_and_old_inverted_gate_is_replaced(): void
     {
         foreach ([null, 1000, 3274] as $existing) {
             $r = self::recommendation(['existing_reorder_point' => $existing]);
-            self::assertSame(1874, $r['values']['reorder_point_pieces']);
-            self::assertSame(3072, $r['values']['target_stock_pieces']);
+            self::assertSame(2690, $r['values']['reorder_point_pieces']);
+            self::assertSame(3888, $r['values']['target_stock_pieces']);
             self::assertFalse($r['basis']['reorder_point_preserved']);
         }
         $larger = self::recommendation(['safety_stock_days' => 6]);
-        self::assertSame(3336, $larger['values']['target_stock_pieces']);
-        self::assertSame(2138, $larger['values']['reorder_point_pieces']);
+        self::assertSame(4152, $larger['values']['target_stock_pieces']);
+        self::assertSame(2954, $larger['values']['reorder_point_pieces']);
         self::assertSame(1728, $larger['basis']['batch_quantity_pieces']);
     }
 
@@ -98,17 +100,17 @@ class SafetyStockSettingsTest extends TestCase
         $h = self::history();
         $h['maximum_arrival_gap_days'] = 20;
         $r = self::recommendation([], $h);
-        self::assertSame(5688, $r['values']['target_stock_pieces']);
-        self::assertSame(2616, $r['basis']['safety_arrival_gap_adjustment_pieces']);
+        self::assertSame(8376, $r['values']['target_stock_pieces']);
+        self::assertSame(5304, $r['basis']['safety_arrival_gap_adjustment_pieces']);
         self::assertStringContainsString('入荷間隔', implode('', $r['basis']['warnings']));
         $h = self::history();
         $h['nominal_lead_days'] = 10;
         $r = self::recommendation([], $h);
-        self::assertSame(3072, $r['values']['target_stock_pieces']);
-        self::assertSame(3990, $r['values']['reorder_point_pieces']);
+        self::assertSame(3888, $r['values']['target_stock_pieces']);
+        self::assertSame(4806, $r['values']['reorder_point_pieces']);
         self::assertStringContainsString('入荷までの出荷見込が通常量より多い', implode('', $r['basis']['warnings']));
         $r = app(SettingsRecommendationCalculator::class)->calculate(self::history(), ['safety_stock_days' => 5, 'unit_mode' => 'PALLET', 'pallet_pieces' => 576]);
-        self::assertSame(3072, $r['values']['target_stock_pieces']);
+        self::assertSame(3888, $r['values']['target_stock_pieces']);
         self::assertSame(576, $r['values']['order_multiple_pieces']);
     }
 
@@ -120,7 +122,7 @@ class SafetyStockSettingsTest extends TestCase
         foreach ([3, 5] as $days) {
             $r = app(SettingsRecommendationCalculator::class)->calculate($h, ['safety_stock_days' => $days, 'review_days' => 7, 'unit_mode' => 'CASE']);
             self::assertSame(1872, $r['basis']['batch_quantity_pieces']);
-            self::assertSame($days === 3 ? 2688 : 3216, $r['values']['target_stock_pieces']);
+            self::assertSame($days === 3 ? 3504 : 4032, $r['values']['target_stock_pieces']);
         }
         $h['scope']['packing_unit'] = 1;
         $r = app(SettingsRecommendationCalculator::class)->calculate($h, ['safety_stock_days' => 5, 'unit_mode' => 'PIECE']);
@@ -132,7 +134,7 @@ class SafetyStockSettingsTest extends TestCase
     {
         $r = self::recommendation();
         $policy = $this->policy($r);
-        foreach ([[1872, 0, 0, 1728], [1873, 0, 0, 1728], [1874, 0, 0, 0], [3000, 0, 0, 0], [1872, 1728, 0, 0], [1872, 0, 1728, 0], [-6, 0, 0, 1728]] as [$stock, $incoming, $claims, $expected]) {
+        foreach ([[2688, 0, 0, 1728], [2689, 0, 0, 1728], [2690, 0, 0, 0], [3000, 0, 0, 0], [1872, 1728, 0, 0], [1872, 0, 1728, 0], [-6, 0, 0, 1728]] as [$stock, $incoming, $claims, $expected]) {
             $snapshot = $this->snapshot($stock, $incoming, $claims);
             $batch = app(StrategyCalculator::class)->calculate($policy, $snapshot);
             $reader = Mockery::mock(SnapshotReader::class);
@@ -190,8 +192,9 @@ class SafetyStockSettingsTest extends TestCase
         $r = self::recommendation();
         $boundary = app(\App\Services\AutoReplenishment\SafetyStockSettings::class)->normalOrderBoundary(1920, 3072, 1728, 528, 1728);
         self::assertSame(-384, $boundary);
-        $at = app(StrategyCalculator::class)->calculate($this->policy($r), $this->snapshot($boundary, 1728));
-        $above = app(StrategyCalculator::class)->calculate($this->policy($r), $this->snapshot($boundary + 1, 1728));
+        $legacyPolicy = array_replace($this->policy($r), ['reorder_point_pieces' => 1920, 'target_stock_pieces' => 3072]);
+        $at = app(StrategyCalculator::class)->calculate($legacyPolicy, $this->snapshot($boundary, 1728));
+        $above = app(StrategyCalculator::class)->calculate($legacyPolicy, $this->snapshot($boundary + 1, 1728));
         self::assertSame(1728, $at['quantity']);
         self::assertLessThan(1728, $above['quantity']);
         self::assertStringContainsString('現在庫 -384バラ以下', implode('', $at['formula']));
@@ -228,7 +231,7 @@ class SafetyStockSettingsTest extends TestCase
         DB::connection('sakemaru')->beforeExecuting(fn () => throw new \RuntimeException('No DB queries allowed for recommendation rendering'));
         Livewire::test(SafetyStockViewFixture::class, ['form' => $form, 'recommendation' => $recommendation])
             ->assertSee('安全在庫日数')->assertSee('安全在庫 5日分 1,344バラ')
-            ->assertSee('現在庫 1,873バラ')->assertSee('1,728バラ発注')
+            ->assertSee('現在庫 2,689バラ')->assertSee('1,728バラ発注')
             ->set('form.max_order_pieces', 1152)->assertSee('1,152バラ発注')
             ->set('form.max_order_pieces', '')->assertSee('数量例は表示できません');
     }
