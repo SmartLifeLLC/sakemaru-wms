@@ -202,6 +202,7 @@ class InventoryProjectionTest extends TestCase
         $input['calendar']['arrivals'] = [];
         $policy = self::policy();
         $policy['calculation_basis']['safety_stock_pieces'] = 30;
+        $policy['calculation_basis']['safety_stock_days'] = 3;
         foreach ([[146, 6, true], [140, 0, true], [400, 260, false]] as [$initial, $minimum, $risk]) {
             $input['snapshot']['stock'] = $initial;
             $r = (new InventoryProjection)->calculate($policy, $input);
