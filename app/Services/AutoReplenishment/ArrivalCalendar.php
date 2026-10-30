@@ -9,6 +9,9 @@ use Illuminate\Support\Facades\DB;
 /** Automatic replenishment only. Manual orders and JX retain their existing calendar. */
 class ArrivalCalendar
 {
+    /** JxOrderArrivalDateAdjustmentService::earliestArrivalDates accepts at most this many order dates per call. */
+    public const BATCH_SIZE = 56;
+
     public function earliestArrivalDate(int $contractor, int $warehouse, Carbon $orderDate): ?Carbon
     {
         return $this->earliestArrivalDates($contractor, $warehouse, ['current' => $orderDate])['current'];
@@ -20,7 +23,7 @@ class ArrivalCalendar
         return $this->resolve($contractor, $warehouse, $orderDates, true);
     }
 
-    /** Bounded master reads for up to 56 opportunities; no persistent cache. */
+    /** Bounded master reads, 56 opportunities per batch (longer horizons — the 10-week chart, the replay calendar — are read in batches); no persistent cache. */
     public function earliestArrivalDates(int $contractor, int $warehouse, array $orderDates): array
     {
         return $this->resolve($contractor, $warehouse, $orderDates, false);
@@ -28,9 +31,13 @@ class ArrivalCalendar
 
     private function resolve(int $contractor, int $warehouse, array $orderDates, bool $referenceOnly): array
     {
-        $arrivals = app(JxOrderArrivalDateAdjustmentService::class)->earliestArrivalDates($contractor, $warehouse, $orderDates);
         if ($orderDates === []) {
             return [];
+        }
+        $adjustment = app(JxOrderArrivalDateAdjustmentService::class);
+        $arrivals = [];
+        foreach (array_chunk($orderDates, self::BATCH_SIZE, true) as $chunk) {
+            $arrivals += $adjustment->earliestArrivalDates($contractor, $warehouse, $chunk);
         }
         $delivery = $this->deliveryDays($contractor, $warehouse);
         // All weekdays OFF is common for manually arranged FAX orders. Do not

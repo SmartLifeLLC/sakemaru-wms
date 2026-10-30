@@ -2,12 +2,12 @@
 
 namespace Tests\Unit\Services\AutoReplenishment;
 
+use App\Models\WmsItemReorderPolicy;
 use App\Services\AutoOrder\JxOrderArrivalDateAdjustmentService;
 use App\Services\AutoReplenishment\ArrivalCalendar;
 use App\Services\AutoReplenishment\InventoryProjectionCalendar;
-use App\Services\AutoReplenishment\RecommendationArrivalSchedule;
 use App\Services\AutoReplenishment\LogisticsArrivalDateService;
-use App\Models\WmsItemReorderPolicy;
+use App\Services\AutoReplenishment\RecommendationArrivalSchedule;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -68,6 +68,30 @@ class ArrivalCalendarTest extends TestCase
         self::assertSame('2026-10-27', app(LogisticsArrivalDateService::class)->resolve(
             new WmsItemReorderPolicy(['contractor_id' => 1021, 'warehouse_id' => 1]), '2026-10-24')->toDateString());
         self::assertSame('2026-10-25', app(JxOrderArrivalDateAdjustmentService::class)->earliestArrivalDate(1021, 1, $date)->toDateString());
+    }
+
+    /** The 10-week chart (70 days) and the replay calendar (120 days) exceed the 56-date batch of the JX adjustment service: read in batches, same results. */
+    public function test_longer_horizons_are_read_in_batches_and_match_the_single_date_resolution(): void
+    {
+        $this->sundayRoute();
+        $calendar = app(ArrivalCalendar::class);
+        foreach ([70, 120] as $days) {
+            $schedule = app(RecommendationArrivalSchedule::class)->calculate(1, 1021, 'EOS', '2026-10-24', [], $days);
+            self::assertCount($days, $schedule['opportunities']); // every day is a generation day with an empty config
+            foreach ($schedule['opportunities'] as $opportunity) {
+                self::assertSame($opportunity['arrival_date'], $calendar->earliestArrivalDate(1021, 1, Carbon::parse($opportunity['order_base_date']))->toDateString());
+            }
+        }
+        $graph = app(InventoryProjectionCalendar::class)->read(1, 1021, 'EOS', '2026-10-24', [], 70);
+        self::assertSame('2026-10-27', $graph['arrivals']['2026-10-24']);
+        self::assertCount(70, $graph['arrivals']);
+        // The adjustment service itself keeps its 56-date bound; the calendar is what chunks.
+        $dates = [];
+        for ($i = 0; $i < 57; $i++) {
+            $dates["d{$i}"] = Carbon::parse('2026-10-24')->addDays($i);
+        }
+        $this->expectException(\InvalidArgumentException::class);
+        app(JxOrderArrivalDateAdjustmentService::class)->earliestArrivalDates(1021, 1, $dates);
     }
 
     public function test_shift_rechecks_both_contractor_and_warehouse_holidays_with_bounded_selects(): void
