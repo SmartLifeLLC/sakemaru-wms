@@ -147,10 +147,16 @@ class ShippingQuantityService
             \RuntimeException::class, '出荷数量候補が変更・削除されています。商品設定を開き直して保存してください。');
         $this->assertCapacity($row, $capacity);
         $quantities = $this->quantities($row);
-        throw_unless((int) $policy['order_multiple_pieces'] === app(ShippingQuantitySet::class)->gcd($quantities),
-            \RuntimeException::class, '発注単位と出荷数量候補が一致しません。商品設定を保存し直してください。');
+        $this->assertPolicyMatches($policy, $quantities);
 
         return ['mode' => 'SHIPMENT', 'id' => (int) $row->id, 'version' => (int) $row->version, 'quantities' => $quantities];
+    }
+
+    /** The saved order multiple must be the common unit of the registered candidates (same rule for the daily run and the past replay). */
+    public function assertPolicyMatches(array $policy, array $quantities): void
+    {
+        throw_unless($quantities !== [] && (int) ($policy['order_multiple_pieces'] ?? 0) === app(ShippingQuantitySet::class)->gcd($quantities),
+            \RuntimeException::class, '発注単位と出荷数量候補が一致しません。商品設定を保存し直してください。');
     }
 
     public function assertCapacity(object $profile, int $capacity): void

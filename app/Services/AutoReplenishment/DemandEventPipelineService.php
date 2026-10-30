@@ -40,8 +40,13 @@ class DemandEventPipelineService
     /**
      * @return array{events: array<int, array>, summary: array}
      */
-    public function run(int $client, string $asOf, int $horizonDays, int $actorId, bool $apply, ?callable $progress = null, ?ReplayCalendar $calendar = null): array
+    /**
+     * @param  callable|false|null  $conditions  Backtest inputs beyond sales: null = the production conditions (linked receipts, output unit,
+     *                                           pallet / shipping-quantity constraint per warehouse × product); false = sales only; or a provider.
+     */
+    public function run(int $client, string $asOf, int $horizonDays, int $actorId, bool $apply, ?callable $progress = null, ?ReplayCalendar $calendar = null, callable|false|null $conditions = null): array
     {
+        $conditions = $conditions === null ? $this->reader->conditionsProvider($client) : ($conditions ?: null);
         $upcoming = $this->upcoming($client, $asOf, $horizonDays);
         $autoTypes = (array) config('replenishment.demand_events.weekly_prepare.auto_approve_types', []);
         $report = [];
@@ -78,7 +83,7 @@ class DemandEventPipelineService
                 }
                 $instances = $learned ? $this->backtest->pastInstances($event, $asOf, 3) : [];
                 $demand = $instances ? $this->demandFor($client, $seriesList, $this->backtest->windows($instances)) : [];
-                $backtest = $learned ? $this->backtest->run($client, $event, $seriesList, $demand, $asOf, 3, $calendar ?? $this->calendarResolver(), $progress)
+                $backtest = $learned ? $this->backtest->run($client, $event, $seriesList, $demand, $asOf, 3, $calendar ?? $this->calendarResolver(), $progress, $conditions)
                     : ['version' => DemandEventBacktest::VERSION, 'event' => array_intersect_key($event, array_flip(['type', 'name', 'start', 'end'])), 'as_of' => $asOf,
                         'instances' => [], 'pooled' => null, 'verdict' => 'NO_DATA', 'reason' => '過去に同じイベントの実例がないため倍率を学習できません（曜日別のみで算定されます）。'];
                 $entry['backtest'] = $backtest;
@@ -161,6 +166,7 @@ class DemandEventPipelineService
                 'item_id' => $entry['item_id'], 'item_code' => (string) $item['code'], 'item_name' => (string) $item['name'], 'capacity_case' => (int) $item['capacity_case'],
                 'item_category3_id' => $item['item_category3_id'] ?? null, 'channel' => $entry['channel'] ?? 'EOS',
                 'contractor_id' => $entry['contractor_id'] ?? null, 'saved_policy' => $entry['saved_policy'] ?? null,
+                'policy_id' => $entry['policy_id'] ?? null, 'route' => $entry['route'] ?? null,
                 'applied_types' => array_keys(array_filter($applied[(int) $entry['item_id']] ?? []))];
         }
 

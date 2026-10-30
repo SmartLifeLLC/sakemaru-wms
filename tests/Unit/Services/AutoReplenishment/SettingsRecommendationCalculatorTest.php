@@ -693,7 +693,7 @@ class SettingsRecommendationCalculatorTest extends TestCase
         $h['receipts'][1]['pieces'] = 48;
         $route = ['shipping_unit_mode' => 'PALLET', 'channel' => 'LOGISTICS', 'item_id' => 143024, 'source_warehouse_id' => 91];
         $history = \Mockery::mock(\App\Services\AutoReplenishment\SettingsRecommendationHistory::class);
-        $history->shouldReceive('read')->once()->with(6, 1, $route)->andReturn($h);
+        $history->shouldReceive('read')->once()->with(6, 1, $route, null)->andReturn($h);
         $master = (object) ['id' => 19, 'pieces_per_pallet' => 24, 'version' => 2, 'capacity_case' => 24];
         $pallets = \Mockery::mock(\App\Services\AutoReplenishment\PalletUnitService::class);
         $pallets->shouldReceive('forRoute')->once()->with(6, $route)->andReturn($master);
