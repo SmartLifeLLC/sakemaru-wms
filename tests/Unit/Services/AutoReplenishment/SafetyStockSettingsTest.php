@@ -85,13 +85,28 @@ class SafetyStockSettingsTest extends TestCase
         self::assertSame(1728, $larger['basis']['batch_quantity_pieces']);
     }
 
+    public function test_two_days_is_accepted_and_preserves_the_normal_order_quantity(): void
+    {
+        $two = self::recommendation(['safety_stock_days' => '2', 'existing_reorder_point' => null]);
+        $five = self::recommendation(['existing_reorder_point' => null]);
+        self::assertTrue($two['available']);
+        self::assertSame(2, $two['basis']['safety_stock_days']);
+        self::assertSame(552, $two['basis']['safety_stock_pieces']);
+        self::assertSame(3096, $two['values']['target_stock_pieces']);
+        self::assertSame(1898, $two['values']['reorder_point_pieces']);
+        foreach (['min_order_pieces', 'max_order_pieces', 'order_multiple_pieces', 'strategy_key'] as $key) {
+            self::assertSame($five['values'][$key], $two['values'][$key]);
+        }
+        self::assertSame($five['basis']['batch_quantity_pieces'], $two['basis']['batch_quantity_pieces']);
+    }
+
     public function test_invalid_safety_days_do_not_return_values(): void
     {
-        foreach ([null, '', 0, 1, 2, -1, 29, '1.5', 'abc'] as $days) {
+        foreach ([null, '', 0, 1, -1, 29, '1.5', 'abc'] as $days) {
             $r = self::recommendation(['safety_stock_days' => $days]);
             self::assertFalse($r['available']);
             self::assertSame([], $r['values']);
-            self::assertStringContainsString('安全在庫日数は3〜28日の整数', $r['basis']['reason']);
+            self::assertStringContainsString('安全在庫日数は2〜28日の整数', $r['basis']['reason']);
         }
     }
 

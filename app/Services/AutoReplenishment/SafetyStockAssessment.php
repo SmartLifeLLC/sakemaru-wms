@@ -14,9 +14,9 @@ final class SafetyStockAssessment
         if ($shortageDays > 0 || $minimum <= 0) {
             $status = 'REVIEW';
             $reason = '欠品または在庫ゼロ以下の見込みがあるため、設定の見直しが必要です。';
-        } elseif ($safetyDays !== null && $safetyDays < 3) {
+        } elseif ($safetyDays !== null && $safetyDays < 2) {
             $status = 'REVIEW';
-            $reason = '安全在庫日数を3日以上にして、おすすめ設定で再計算してください。';
+            $reason = '安全在庫日数を2日以上にして、おすすめ設定で再計算してください。';
         } elseif (! $known) {
             $status = 'UNASSESSED';
             $reason = '安全在庫の判定根拠が不足しています。おすすめ設定で再計算してください。';
