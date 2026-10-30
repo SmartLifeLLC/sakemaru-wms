@@ -855,7 +855,9 @@ abstract class AutoReplenishmentPage extends AdminPage
         }, 3));
         $this->checked(fn () => $this->saveEventSetup($clientId, (int) $policy->item_id));
         unset($this->selectedVersions[(string) $policy->id]);
-        $this->showEditor = false;
+        // Stay in the editor on the saved state (new version, saved basis, applied events, projection) so the operator can keep adjusting;
+        // 「設定せず閉じる」 closes it.
+        $this->editPolicy((int) $policy->id);
         Notification::make()->success()->title('商品設定を'.($enabled ? 'ON' : 'OFF').'で保存しました。')->send();
     }
 
