@@ -42,9 +42,9 @@ final class SettingsRecommendationCalculator
             'warnings' => $history['warnings'] ?? [], 'calculated_at' => now()->toIso8601String()];
         $safetyDays = null;
         if (array_key_exists('safety_stock_days', $options)) {
-            $safetyDays = filter_var($options['safety_stock_days'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 28]]);
+            $safetyDays = filter_var($options['safety_stock_days'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 3, 'max_range' => 28]]);
             if ($safetyDays === false) {
-                return $this->unavailable($basis, '安全在庫日数は1〜28日の整数で入力してください。');
+                return $this->unavailable($basis, '安全在庫日数は3〜28日の整数で入力してください。');
             }
         }
         $registered = isset($options['shipping_quantities']) ? app(ShippingQuantitySet::class)->normalize($options['shipping_quantities']) : null;

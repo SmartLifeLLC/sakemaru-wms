@@ -35,6 +35,20 @@ class InventoryProjectionTest extends TestCase
             'picking_lead_days' => 1, 'observed_at' => '10/19 10:00'];
     }
 
+    public function test_settled_supply_warning_is_visible_in_help_without_changing_projection_quantities(): void
+    {
+        $input = self::inputs();
+        $baseline = (new InventoryProjection)->calculate(self::policy(), $input);
+        $warning = ['code' => 'SETTLED_SUPPLY_RECONCILIATION', 'message' => '在庫反映済みの照合差異です。現在庫を基準に計算を続行します。'];
+        $input['snapshot']['supply_warnings'] = [$warning];
+        $chart = (new InventoryProjection)->calculate(self::policy(), $input);
+        self::assertSame($baseline['days'], $chart['days']);
+        self::assertSame($baseline['orders'], $chart['orders']);
+        self::assertSame([$warning], $chart['supply_warnings']);
+        \Livewire\Livewire::test(SupplyWarningProjectionHelpFixture::class, ['chart' => $chart])
+            ->assertSee($warning['message']);
+    }
+
     public function test_weekday_average_includes_observed_zero_and_excludes_missing_feeds(): void
     {
         $r = (new WeekdayDemand)->summarize(['2026-10-05' => 10, '2026-10-12' => 0, '2026-10-19' => null, '2026-10-06' => 30]);
@@ -188,6 +202,7 @@ class InventoryProjectionTest extends TestCase
         $input['calendar']['arrivals'] = [];
         $policy = self::policy();
         $policy['calculation_basis']['safety_stock_pieces'] = 30;
+        $policy['calculation_basis']['safety_stock_days'] = 3;
         foreach ([[146, 6, true], [140, 0, true], [400, 260, false]] as [$initial, $minimum, $risk]) {
             $input['snapshot']['stock'] = $initial;
             $r = (new InventoryProjection)->calculate($policy, $input);
@@ -203,5 +218,17 @@ class InventoryProjectionTest extends TestCase
         self::assertSame(-6, $r['minimum_stock']);
         self::assertSame('2026-10-19', $r['minimum_stock_date']);
         self::assertSame('入荷前', $r['minimum_stock_timing']);
+    }
+}
+
+class SupplyWarningProjectionHelpFixture extends \Livewire\Component
+{
+    public array $form = ['channel' => 'EOS'];
+
+    public array $chart = [];
+
+    public function render()
+    {
+        return '<div>@include("filament.pages.auto-replenishment-projection-help", ["chart" => $this->chart])</div>';
     }
 }

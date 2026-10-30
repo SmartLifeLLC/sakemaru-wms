@@ -38,7 +38,7 @@ class TransferSupplyReaderTest extends TestCase
             'trades' => "id INTEGER PRIMARY KEY, client_id INTEGER DEFAULT 6, is_active INTEGER DEFAULT 1, is_latest INTEGER DEFAULT 1, trade_category TEXT DEFAULT 'STOCK_TRANSFER', trade_direction TEXT DEFAULT 'NORMAL', is_returned INTEGER DEFAULT 0",
             'trade_items' => "id INTEGER PRIMARY KEY, trade_id INTEGER, client_id INTEGER DEFAULT 6, item_id INTEGER DEFAULT 143024, stock_allocation_id INTEGER DEFAULT 1, is_active INTEGER DEFAULT 1, quantity INTEGER DEFAULT 768, quantity_type TEXT DEFAULT 'PIECE', capacity_case INTEGER DEFAULT 24, capacity_carton INTEGER DEFAULT 6, total_piece_quantity INTEGER DEFAULT 768, has_shortage INTEGER DEFAULT 0",
             'stock_transfer_lot_allocations' => 'id INTEGER PRIMARY KEY, stock_transfer_id INTEGER, trade_item_id INTEGER, quantity INTEGER, to_real_stock_lot_id INTEGER, is_set_component INTEGER DEFAULT 0',
-            'wms_replenishment_effects' => "id INTEGER PRIMARY KEY, client_id INTEGER DEFAULT 6, warehouse_id INTEGER DEFAULT 1, item_id INTEGER DEFAULT 143024, source_type TEXT DEFAULT 'transfer', source_id INTEGER, stock_transfer_id INTEGER, queue_id INTEGER, state TEXT DEFAULT 'OPEN', capacity_case INTEGER DEFAULT 24, capacity_carton INTEGER DEFAULT 6, reconciliation_required INTEGER DEFAULT 0",
+            'wms_replenishment_effects' => "id INTEGER PRIMARY KEY, client_id INTEGER DEFAULT 6, warehouse_id INTEGER DEFAULT 1, item_id INTEGER DEFAULT 143024, source_type TEXT DEFAULT 'transfer', source_id INTEGER, stock_transfer_id INTEGER, queue_id INTEGER, state TEXT DEFAULT 'OPEN', ordered_pieces INTEGER DEFAULT 0, capacity_case INTEGER DEFAULT 24, capacity_carton INTEGER DEFAULT 6, reconciliation_required INTEGER DEFAULT 0",
             'wms_replenishment_effect_sources' => 'id INTEGER PRIMARY KEY, effect_id INTEGER, incoming_schedule_id INTEGER, stock_applied_pieces INTEGER DEFAULT 0',
             'wms_stock_transfer_candidates' => "id INTEGER PRIMARY KEY, satellite_warehouse_id INTEGER DEFAULT 1, hub_warehouse_id INTEGER DEFAULT 91, item_id INTEGER DEFAULT 143024, transfer_quantity INTEGER DEFAULT 768, quantity_type TEXT DEFAULT 'PIECE', status TEXT DEFAULT 'EXECUTED', created_at TEXT DEFAULT '2026-10-01 00:00:00'",
             'wms_order_incoming_schedules' => "id INTEGER PRIMARY KEY, warehouse_id INTEGER DEFAULT 1, item_id INTEGER DEFAULT 143024, transfer_candidate_id INTEGER, order_candidate_id INTEGER, source_incoming_schedule_id INTEGER, source_warehouse_id INTEGER, stock_transfer_id INTEGER, order_source TEXT DEFAULT 'TRANSFER', expected_quantity INTEGER DEFAULT 768, received_quantity INTEGER DEFAULT 0, quantity_type TEXT DEFAULT 'PIECE', status TEXT DEFAULT 'PENDING', purchase_queue_id INTEGER, expected_arrival_date TEXT",
@@ -597,6 +597,93 @@ class TransferSupplyReaderTest extends TestCase
         $this->insert('wms_replenishment_effect_sources', ['id' => 1, 'effect_id' => 1, 'incoming_schedule_id' => 1]);
         self::assertSame(96, $this->snapshot()['incoming_external']);
         self::assertSame('RECEIPT_PENDING', DB::connection('sakemaru')->table('wms_replenishment_effects')->where('id', 1)->value('state'));
+    }
+
+    private function settledSplitMismatch(): void
+    {
+        $this->insert('wms_order_candidates', ['id' => 1, 'order_quantity' => 2, 'quantity_type' => 'CASE', 'status' => 'EXECUTED']);
+        $this->insert('wms_replenishment_effects', ['id' => 1, 'source_type' => 'order', 'source_id' => 1,
+            'state' => 'UNKNOWN', 'reconciliation_required' => 1, 'capacity_case' => 4, 'ordered_pieces' => 8]);
+        foreach ([1, 2] as $id) {
+            $this->insert('purchase_create_queue', ['id' => $id, 'status' => 'FINISHED', 'is_success' => 1, 'slip_number' => 'P'.$id]);
+            $this->schedule($id, ['order_source' => 'MANUAL', 'order_candidate_id' => $id === 1 ? 1 : null,
+                'source_incoming_schedule_id' => $id === 2 ? 1 : null, 'expected_quantity' => 2,
+                'received_quantity' => $id, 'quantity_type' => 'CASE', 'status' => 'TRANSMITTED', 'purchase_queue_id' => $id]);
+            $this->insert('wms_replenishment_effect_sources', ['id' => $id, 'effect_id' => 1, 'incoming_schedule_id' => $id]);
+        }
+    }
+
+    public function test_settled_split_mismatch_warns_without_holding_or_changing_current_stock(): void
+    {
+        $this->settledSplitMismatch();
+        $snapshot = $this->snapshot();
+        self::assertSame(100, $snapshot['stock']);
+        self::assertSame(0, $snapshot['incoming']);
+        self::assertSame(0, $snapshot['claims']);
+        self::assertSame(8, $snapshot['supply_warnings'][0]['ordered_pieces']);
+        self::assertSame(16, $snapshot['supply_warnings'][0]['expected_pieces']);
+        self::assertSame(12, $snapshot['supply_warnings'][0]['received_pieces']);
+        self::assertSame($snapshot['supply_warnings'], $this->reader->lastObservation()['supply_warnings']);
+        $db = DB::connection('sakemaru');
+        $before = [];
+        foreach (['real_stocks', 'wms_order_candidates', 'wms_order_incoming_schedules', 'wms_replenishment_effects', 'wms_replenishment_effect_sources', 'purchase_create_queue'] as $table) {
+            $before[$table] = $db->table($table)->orderBy('id')->get()->toJson();
+        }
+        $policy = new WmsItemReorderPolicy(['client_id' => 6, 'warehouse_id' => 1, 'item_id' => 143024,
+            'contractor_id' => 10, 'supplier_id' => 10, 'channel' => 'EOS', 'strategy_key' => 'threshold_v1',
+            'reorder_point_pieces' => 150, 'target_stock_pieces' => 200, 'min_order_pieces' => 1,
+            'max_order_pieces' => 100, 'order_multiple_pieces' => 1]);
+        $test = app(PolicySimulationService::class)->simulate($policy);
+        self::assertNotSame('HOLD', $test['phase']);
+        self::assertSame($snapshot['supply_warnings'], $test['supply_warnings']);
+        self::assertContains($snapshot['supply_warnings'][0]['message'], $test['formula']);
+        // Exercise the production reader, including final-confirmation locking.
+        $db->statement('CREATE TABLE item_prices (id INTEGER, item_id INTEGER, is_active INTEGER, start_date TEXT)');
+        $execution = $db->transaction(fn () => (new SnapshotReader)->read($policy, excludeLineId: 999));
+        self::assertSame($snapshot['supply_warnings'], $execution['supply_warnings']);
+        self::assertSame(100, $execution['stock']);
+        self::assertSame(0, $execution['incoming']);
+        foreach ($before as $table => $json) {
+            self::assertSame($json, $db->table($table)->orderBy('id')->get()->toJson(), $table);
+        }
+    }
+
+    public function test_settled_mismatch_does_not_discard_other_outstanding_orders(): void
+    {
+        $this->settledSplitMismatch();
+        $this->insert('wms_order_candidates', ['id' => 3, 'order_quantity' => 20, 'status' => 'EXECUTED']);
+        $this->schedule(3, ['order_source' => 'MANUAL', 'order_candidate_id' => 3, 'expected_quantity' => 20, 'received_quantity' => 0]);
+        $snapshot = $this->snapshot();
+        self::assertSame(20, $snapshot['incoming']);
+        self::assertSame(0, $snapshot['claims']);
+        self::assertCount(1, $snapshot['supply_warnings']);
+    }
+
+    #[DataProvider('unsettledMismatchCases')]
+    public function test_unsettled_or_broken_supply_is_not_treated_as_stock_applied(string $table, array $changes, bool $remove): void
+    {
+        $this->settledSplitMismatch();
+        $q = DB::connection('sakemaru')->table($table)->where('id', 2);
+        $remove ? $q->delete() : $q->update($changes);
+        $this->expectExceptionMessage('既発注供給の削除・分割・取消の照合が必要');
+        $this->snapshot();
+    }
+
+    public static function unsettledMismatchCases(): array
+    {
+        return [
+            'purchase processing' => ['purchase_create_queue', ['status' => 'PROCESSING'], false],
+            'purchase failed' => ['purchase_create_queue', ['is_success' => 0], false],
+            'purchase without document' => ['purchase_create_queue', ['slip_number' => null], false],
+            'missing queue' => ['purchase_create_queue', [], true],
+            'unreceived remainder' => ['wms_order_incoming_schedules', ['status' => 'PARTIAL'], false],
+            'pending receipt' => ['wms_order_incoming_schedules', ['status' => 'PENDING'], false],
+            'cancelled receipt' => ['wms_order_incoming_schedules', ['status' => 'CANCELLED'], false],
+            'missing receipt' => ['wms_order_incoming_schedules', [], true],
+            'different warehouse' => ['wms_order_incoming_schedules', ['warehouse_id' => 2], false],
+            'different item' => ['wms_order_incoming_schedules', ['item_id' => 211351], false],
+            'zero receipt' => ['wms_order_incoming_schedules', ['received_quantity' => 0], false],
+        ];
     }
 
     public function test_external_partial_receipt_waits_for_actual_stock_application(): void

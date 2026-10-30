@@ -87,11 +87,11 @@ class SafetyStockSettingsTest extends TestCase
 
     public function test_invalid_safety_days_do_not_return_values(): void
     {
-        foreach ([null, '', 0, -1, 29, '1.5', 'abc'] as $days) {
+        foreach ([null, '', 0, 1, 2, -1, 29, '1.5', 'abc'] as $days) {
             $r = self::recommendation(['safety_stock_days' => $days]);
             self::assertFalse($r['available']);
             self::assertSame([], $r['values']);
-            self::assertStringContainsString('安全在庫日数は1〜28日の整数', $r['basis']['reason']);
+            self::assertStringContainsString('安全在庫日数は3〜28日の整数', $r['basis']['reason']);
         }
     }
 
