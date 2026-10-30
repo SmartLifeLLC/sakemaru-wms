@@ -144,7 +144,7 @@ final class ReplayEngine
                 try {
                     // Same refusal as SnapshotReader (assertBinding): quantity conditions that do not match the registered pallet /
                     // candidates hold the order instead of ordering an unrelated multiple (saved settings, fixed bounds).
-                    $this->assertConstraint($policy, $shippingUnit);
+                    $this->assertConstraint($policy, $shippingUnit, (int) ($series['capacity_case'] ?? 0));
                     $proposal = $this->strategy->calculate($policy, $snapshot);
                     $this->safety->validate($policy, $proposal, $packing, $shippingUnit);
                 } catch (\RuntimeException $e) {
@@ -287,12 +287,30 @@ final class ReplayEngine
     }
 
     /** Production's binding checks against the policy's quantity conditions (PalletUnitService / ShippingQuantityService::assertPolicyMatches). */
-    private function assertConstraint(array $policy, array $shippingUnit): void
+    private function assertConstraint(array $policy, array $shippingUnit, int $capacity): void
     {
-        if (($shippingUnit['mode'] ?? 'STANDARD') === 'PALLET') {
+        $mode = $shippingUnit['mode'] ?? 'STANDARD';
+        if ($mode === 'STANDARD') {
+            return;
+        }
+        if (array_key_exists('binding', $shippingUnit)) {
+            // The policy's binding row is known (production inputs): run the production check itself — a binding whose version or pieces
+            // no longer match the master, a deleted binding, a capacity change or a non-matching quantity condition all hold the order.
+            throw_unless(is_array($shippingUnit['binding']), \RuntimeException::class, $mode === 'PALLET'
+                ? 'パレット入数が変更・削除されています。商品設定を開き直して再保存してください。' : '出荷数量候補が変更・削除されています。商品設定を開き直して保存してください。');
+            $row = (object) $shippingUnit['binding'];
+            if ($mode === 'PALLET') {
+                app(\App\Services\AutoReplenishment\PalletUnitService::class)->assertBinding($row, $policy, $capacity);
+            } else {
+                app(\App\Services\AutoReplenishment\ShippingQuantityService::class)->assertBinding($row, $policy, $capacity);
+            }
+
+            return;
+        }
+        if ($mode === 'PALLET') {
             throw_unless(($policy['channel'] ?? '') === 'LOGISTICS', \RuntimeException::class, 'パレット単位は物流発注（店間）で選択してください。');
             app(\App\Services\AutoReplenishment\PalletUnitService::class)->assertPolicyMatches($policy, (int) ($shippingUnit['pieces_per_pallet'] ?? 0));
-        } elseif (($shippingUnit['mode'] ?? 'STANDARD') === 'SHIPMENT') {
+        } else {
             throw_unless(($policy['channel'] ?? '') === 'LOGISTICS' && ($policy['strategy_key'] ?? '') === 'arrival_adaptive_v1', \RuntimeException::class, '出荷数量候補は物流発注（店間）の入荷時の補充目標を確認する計算方式で利用してください。');
             app(\App\Services\AutoReplenishment\ShippingQuantityService::class)->assertPolicyMatches($policy, (array) ($shippingUnit['quantities'] ?? []));
         }

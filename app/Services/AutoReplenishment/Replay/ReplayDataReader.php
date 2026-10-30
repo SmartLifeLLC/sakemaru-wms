@@ -208,10 +208,20 @@ class ReplayDataReader
             $constraint = $constraints[$key] ??= $recommendations->unitConstraints($client, $route);
             $orderUnit = $history->orderUnit($client, $item, $channel, $source, (string) ($route['order_unit_mode'] ?? 'AUTO'), $asOf);
             $options = $recommendations->constrainedOptions($constraint, (int) $item->capacity_case, []);
+            // The policy's binding row (bound version / pieces) as SnapshotReader reads it: the daily step runs the production assertBinding
+            // against it, so a stale binding holds the order in the replay exactly as it does in production.
+            $shippingUnit = $constraint['shipping_unit'];
+            if ($constraint['mode'] === 'PALLET' && ! empty($series['policy_id'])) {
+                $binding = app(PalletUnitService::class)->bindings($client, $warehouseId, [$itemId], false)->get((int) $series['policy_id']);
+                $shippingUnit['binding'] = $binding ? (array) $binding : null;
+            } elseif ($constraint['mode'] === 'SHIPMENT' && ! empty($series['policy_id'])) {
+                $binding = app(ShippingQuantityService::class)->bindings($client, $warehouseId, [$itemId], false)->get((int) $series['policy_id']);
+                $shippingUnit['binding'] = $binding ? (array) $binding : null;
+            }
 
             return $results[$cacheKey] = ['receipts' => $history->linkedReceipts($client, $itemId, $channel, $contractor, $supplier, $source, $allocation, $period),
                 'order_unit' => $orderUnit, 'packing_unit' => (int) $orderUnit['packing_unit'], 'options' => $options,
-                'shipping_unit' => $constraint['shipping_unit'], 'basis' => $constraint['basis'],
+                'shipping_unit' => $shippingUnit, 'basis' => $constraint['basis'],
                 'scope' => ['channel' => $channel, 'contractor_id' => $contractor, 'supplier_id' => $supplier, 'source_warehouse_id' => $source ?: null,
                     'delivery_course_id' => $channel === 'LOGISTICS' ? (int) ($route['delivery_course_id'] ?? 0) ?: null : null, 'order_unit_mode' => (string) ($route['order_unit_mode'] ?? 'AUTO')],
                 'masters_as_of' => $today];

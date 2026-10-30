@@ -44,7 +44,8 @@ class ReconcileSavedRecommendationsCommandTest extends TestCase
             $policy(4, 4, $basis(['manually_adjusted_fields' => ['max_order_pieces']])),               // 対象外: hand-adjusted
             $policy(5, 5, $basis(['period' => ['start' => '2026-08-01', 'end' => '2026-10-28']])),     // 再現不能: local sales end 10/13
             $policy(6, 6, $basis()),                                                                    // 不一致 (the mock returns another target)
-            $policy(7, 7, $basis(['event_adjustment' => ['events' => [['type' => 'YEAR_END', 'start' => '2026-12-20']]]])), // 再現不能: event conditions differ now (numbers equal)
+            $policy(7, 7, $basis(['demand_profile' => ['event_forecast' => ['model_version' => 'event-factors-v2', 'events' => [['type' => 'YEAR_END', 'name' => '年末年始', 'start' => '2026-12-20', 'end' => '2027-01-07', 'pre_days' => 0, 'post_days' => 0, 'factor_source' => 'item',
+                'factors' => ['item' => ['YEAR_END' => ['trained_through' => '2026-01-08', 'instance_count' => 3, 'positions_digest' => 'digest-of-2x']]]]]]]])), // 再現不能: same event, factors re-learned (2× → 3×), numbers equal
         ]);
         // Local policy #1 (warehouse 2 × item 1) is bound to a pallet; a foreign export may reuse the id 1 for another product.
         $db->table('wms_pallet_units')->insert(['id' => 50, 'client_id' => 6, 'source_warehouse_id' => 91, 'item_id' => 1, 'pieces_per_pallet' => 144, 'capacity_case' => 24, 'version' => 1]);
@@ -72,7 +73,9 @@ class ReconcileSavedRecommendationsCommandTest extends TestCase
             return $client === 6 && $warehouse === 2 && in_array($form['item_id'], [1, 5, 6, 7], true);
         })->andReturnUsing(fn ($c, $w, $form) => ['available' => true,
             'values' => ['reorder_point_pieces' => 100, 'target_stock_pieces' => $form['item_id'] === 6 ? 240 : 200, 'min_order_pieces' => 24, 'max_order_pieces' => 96, 'order_multiple_pieces' => 24, 'strategy_key' => 'arrival_adaptive_v1'],
-            'basis' => ['basis_type' => 'sales', 'batch_quantity_pieces' => 24] + ($form['item_id'] === 1 ? ['pallet_unit' => ['id' => 50]] : [])]);
+            'basis' => ['basis_type' => 'sales', 'batch_quantity_pieces' => 24] + ($form['item_id'] === 1 ? ['pallet_unit' => ['id' => 50]] : [])
+                + ($form['item_id'] === 7 ? ['demand_profile' => ['event_forecast' => ['model_version' => 'event-factors-v2', 'events' => [['type' => 'YEAR_END', 'name' => '年末年始', 'start' => '2026-12-20', 'end' => '2027-01-07', 'pre_days' => 0, 'post_days' => 0, 'factor_source' => 'item',
+                    'factors' => ['item' => ['YEAR_END' => ['trained_through' => '2026-10-20', 'instance_count' => 3, 'positions_digest' => 'digest-of-3x']]]]]]]] : [])]);
         $this->app->instance(SettingsRecommendationService::class, $service);
         $code = Artisan::call('wms:reconcile-saved-recommendations', ['client' => 6, '--out' => $this->out]);
         self::assertSame(0, $code, Artisan::output());

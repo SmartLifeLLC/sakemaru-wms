@@ -140,7 +140,10 @@ class ReconcileSavedRecommendationsCommand extends Command
     private function eventSignature(array $basis): string
     {
         $events = $basis['demand_profile']['event_forecast']['events'] ?? $basis['event_adjustment']['events'] ?? [];
-        $keys = array_flip(['type', 'name', 'start', 'end', 'pre_days', 'post_days', 'factor_source']);
+        // factors: training end, instances and a digest of the learned positions per profile (a changed factor is a different condition);
+        // model_version: the learner version the factors belong to.
+        $keys = array_flip(['type', 'name', 'start', 'end', 'pre_days', 'post_days', 'factor_source', 'factors']);
+        $version = $basis['demand_profile']['event_forecast']['model_version'] ?? null;
         $rows = array_map(function ($e) use ($keys) {
             $row = array_intersect_key((array) $e, $keys);
             ksort($row); // stored JSON may carry another key order
@@ -149,7 +152,7 @@ class ReconcileSavedRecommendationsCommand extends Command
         }, is_array($events) ? $events : []);
         usort($rows, fn ($a, $b) => strcmp(json_encode($a), json_encode($b)));
 
-        return json_encode($rows);
+        return json_encode(['model_version' => $version, 'events' => $rows]);
     }
 
     private function reconcile(int $client, array $policy, SettingsRecommendationService $recommendations, $latestSales): array
@@ -198,7 +201,7 @@ class ReconcileSavedRecommendationsCommand extends Command
             // Conditions that must be identical before any value comparison counts: demand window coverage, event conditions, the warehouse
             // schedule, the output unit, the quantity constraint. A different condition is 再現不能 even when the numbers happen to agree.
             $conditionGaps = array_filter([$coverageNote,
-                $this->eventSignature($basis) !== $this->eventSignature($result['basis']) ? 'イベント条件（承認イベント・倍率の出所）が保存時と異なる' : null,
+                $this->eventSignature($basis) !== $this->eventSignature($result['basis']) ? 'イベント条件（承認イベント・倍率の出所・倍率の学習版／学習終了日／内容）が保存時と異なる' : null,
                 isset($basis['review_schedule_fingerprint'], $result['basis']['review_schedule_fingerprint']) && $basis['review_schedule_fingerprint'] !== $result['basis']['review_schedule_fingerprint'] ? '倉庫の実行曜日・時刻が保存時と異なる' : null,
                 isset($basis['scope']['packing_unit']) && (int) $basis['scope']['packing_unit'] !== (int) ($result['basis']['scope']['packing_unit'] ?? 0) ? '発注単位（出力単位）が保存時と異なる' : null,
                 (isset($basis['pallet_unit']) !== isset($result['basis']['pallet_unit'])) || (isset($basis['shipping_profile']) !== isset($result['basis']['shipping_profile'])) ? '数量制約（パレット／出荷数量候補）の紐付けが保存時と異なる' : null]);

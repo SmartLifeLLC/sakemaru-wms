@@ -75,9 +75,10 @@ final class DemandEventForecast
         foreach ($calendar->within($events, $profile['anchor_date'], $anchor->addDays($horizon - 1)->toDateString()) as $event) {
             $name = $event['name'].'|'.$event['start'];
             $summary[] = ['type' => $event['type'], 'name' => $event['name'], 'start' => $event['start'], 'end' => $event['end'],
-                'pre_days' => $event['pre_days'], 'post_days' => $event['post_days'], 'uplift_pieces' => (int) round($uplift[$name] ?? 0), 'factor_source' => $sources[$name] ?? 'none'];
+                'pre_days' => $event['pre_days'], 'post_days' => $event['post_days'], 'uplift_pieces' => (int) round($uplift[$name] ?? 0), 'factor_source' => $sources[$name] ?? 'none',
+                'factors' => $this->factorIdentity($factors, $event['profile_keys'])];
         }
-        $profile['event_forecast'] = ['version' => self::VERSION, 'start' => $profile['anchor_date'], 'days' => $days, 'events' => $summary];
+        $profile['event_forecast'] = ['version' => self::VERSION, 'model_version' => DemandEventLearner::MODEL_VERSION, 'start' => $profile['anchor_date'], 'days' => $days, 'events' => $summary];
 
         return $profile;
     }
@@ -109,6 +110,29 @@ final class DemandEventForecast
 
         return ['factor' => $blend($own['factor'], $category['factor']), 'factor_weekday' => $blend($own['factor_weekday'], $category['factor_weekday']),
             'source' => $weight >= 0.5 ? 'item' : 'category'];
+    }
+
+    /**
+     * Which learned factors (item / category profile per key) this event was forecast with: training end, instances and a digest of
+     * the positions, so a saved recommendation can be compared with a later one (a 2× → 3× factor is a different condition).
+     */
+    private function factorIdentity(array $factors, array $keys): array
+    {
+        $identity = [];
+        foreach (['item', 'category'] as $scope) {
+            foreach ($keys as $key) {
+                $profile = $factors[$scope][$key] ?? null;
+                if ($profile === null) {
+                    continue;
+                }
+                $positions = is_array($profile['positions'] ?? null) ? $profile['positions'] : [];
+                ksort($positions);
+                $identity[$scope][$key] = ['trained_through' => $profile['trained_through'] ?? null, 'instance_count' => (int) ($profile['instance_count'] ?? 0),
+                    'positions_digest' => hash('sha256', json_encode($positions))];
+            }
+        }
+
+        return $identity;
     }
 
     private function lookup(array $profiles, array $keys, string $position): ?array

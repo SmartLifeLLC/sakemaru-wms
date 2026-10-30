@@ -267,6 +267,39 @@ class ReplayConditionsTest extends TestCase
         }
     }
 
+    public function test_a_stale_pallet_binding_holds_the_order_exactly_like_production(): void
+    {
+        $demand = $this->demand('2025-06-01', '2025-11-16', 30, 60);
+        $saved = $this->series($demand, 'LOGISTICS', ['shipping_unit_mode' => 'PALLET']) + ['saved_policy' => ['reorder_point_pieces' => 400, 'target_stock_pieces' => 1200, 'min_order_pieces' => 96, 'max_order_pieces' => 960, 'order_multiple_pieces' => 96, 'strategy_key' => 'arrival_adaptive_v1',
+            'calculation_basis' => ['unit_mode' => 'PALLET', 'review_days' => 7, 'safety_stock_days' => 5, 'mean_daily' => 30]]];
+        // The policy's binding row as SnapshotReader reads it (bindings()): master version 2 but the policy was bound at version 1.
+        $row = fn (int $boundVersion, int $boundPieces = 96) => ['id' => 1, 'client_id' => 6, 'source_warehouse_id' => 91, 'item_id' => 143024, 'version' => 2, 'pallet_version' => $boundVersion,
+            'pieces_per_pallet' => 96, 'bound_pieces' => $boundPieces, 'capacity_case' => 24];
+        $provider = fn (array $binding) => $this->provider([], ['unit_mode' => 'PALLET', 'pallet_pieces' => 96], ['mode' => 'PALLET', 'id' => 1, 'version' => 2, 'pieces_per_pallet' => 96, 'binding' => $binding], 24);
+        $stale = app(ReplayEngine::class)->run($saved, $this->scenario(['mode' => 'saved', 'initial_stock' => 0, 'conditions_provider' => $provider($row(1))]), ReplayCalendar::simple(2));
+        self::assertSame([], $stale['orders'], '数量は一致していても紐付け版が古ければ本番と同じく保留');
+        self::assertSame(['パレット入数が変更・削除されています。商品設定を開き直して再保存してください。'], array_values(array_unique(array_column(array_filter($stale['days'], fn ($d) => $d['phase'] === 'HOLD'), 'reason'))));
+        // Same version, but the pieces bound to the policy differ from the master: held as well.
+        $changed = app(ReplayEngine::class)->run($saved, $this->scenario(['mode' => 'saved', 'initial_stock' => 0, 'conditions_provider' => $provider($row(2, 72))]), ReplayCalendar::simple(2));
+        self::assertSame([], $changed['orders']);
+        // A binding that no longer exists (deleted) is held, not replayed as STANDARD.
+        $deleted = app(ReplayEngine::class)->run($saved, $this->scenario(['mode' => 'saved', 'initial_stock' => 0, 'conditions_provider' => $this->provider([], ['unit_mode' => 'PALLET', 'pallet_pieces' => 96], ['mode' => 'PALLET', 'id' => 1, 'version' => 2, 'pieces_per_pallet' => 96, 'binding' => null], 24)]), ReplayCalendar::simple(2));
+        self::assertSame([], $deleted['orders']);
+        // The current binding orders whole pallets.
+        $current = app(ReplayEngine::class)->run($saved, $this->scenario(['mode' => 'saved', 'initial_stock' => 0, 'conditions_provider' => $provider($row(2))]), ReplayCalendar::simple(2));
+        self::assertNotEmpty($current['orders']);
+        foreach ($current['orders'] as $order) {
+            self::assertSame(0, $order['pieces'] % 96);
+        }
+        // Shipping-quantity binding with an outdated profile version is held with the production message.
+        $shipmentSaved = $this->series($demand, 'LOGISTICS', ['shipping_unit_mode' => 'SHIPMENT']) + ['saved_policy' => array_replace($saved['saved_policy'], ['min_order_pieces' => 48, 'order_multiple_pieces' => 48])];
+        $profileRow = ['id' => 7, 'client_id' => 6, 'source_warehouse_id' => 91, 'item_id' => 143024, 'version' => 3, 'profile_version' => 2, 'quantities' => '[48, 96, 144]', 'capacity_case' => 24];
+        $staleShipment = app(ReplayEngine::class)->run($shipmentSaved, $this->scenario(['mode' => 'saved', 'initial_stock' => 0,
+            'conditions_provider' => $this->provider([], ['unit_mode' => 'AUTO', 'shipping_quantities' => [48, 96, 144]], ['mode' => 'SHIPMENT', 'id' => 7, 'version' => 3, 'quantities' => [48, 96, 144], 'binding' => $profileRow], 24)]), ReplayCalendar::simple(2));
+        self::assertSame([], $staleShipment['orders']);
+        self::assertContains('出荷数量候補が変更・削除されています。商品設定を開き直して保存してください。', array_column($staleShipment['days'], 'reason'));
+    }
+
     public function test_saved_mode_takes_output_unit_and_constraint_from_the_provider(): void
     {
         $demand = $this->demand('2025-06-01', '2025-11-16', 30, 60);
