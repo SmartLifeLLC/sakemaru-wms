@@ -5,7 +5,7 @@
     <button type="button" class="ar-btn" @click="tab = 'advanced'" @disabled(!$helperItem)>詳細設定へ</button>
     <span class="ar-recommend-summary">
         @if($this->recommendation['available'] ?? false)
-            発注点 <b>{{ number_format((int) ($this->form['reorder_point_pieces'] ?? 0)) }}</b>／補充目標 <b>{{ number_format((int) ($this->form['target_stock_pieces'] ?? 0)) }}</b>／最小 {{ number_format((int) ($this->form['min_order_pieces'] ?? 0)) }}〜最大 {{ number_format((int) ($this->form['max_order_pieces'] ?? 0)) }}（単位 {{ number_format((int) ($this->form['order_multiple_pieces'] ?? 0)) }}）バラ
+            発注点 <b>{{ number_format((int) ($this->form['reorder_point_pieces'] ?? 0)) }}</b>／過剰在庫線 <b>{{ number_format((int) ($this->form['target_stock_pieces'] ?? 0)) }}</b>／最小 {{ number_format((int) ($this->form['min_order_pieces'] ?? 0)) }}〜最大 {{ number_format((int) ($this->form['max_order_pieces'] ?? 0)) }}（単位 {{ number_format((int) ($this->form['order_multiple_pieces'] ?? 0)) }}）バラ
             @php $appliedEvents = array_keys(array_filter($this->eventSetup ?? [])); @endphp
             ・イベント {{ $appliedEvents ? implode('・', array_map(fn ($t) => \App\Services\AutoReplenishment\DemandEventCalendar::NAMES[$t] ?? $t, $appliedEvents)) : 'なし' }}
         @elseif($helperItem)

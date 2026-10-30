@@ -190,7 +190,7 @@
                         <summary>発注数量設定</summary>
                         <div class="ar-quantity-input-content">
                             <div class="ar-editor-quantities">
-                                @foreach(['reorder_point_pieces'=>'発注点','max_order_pieces'=>'最大発注数','min_order_pieces'=>'最小発注数','order_multiple_pieces'=>'最小発注単位','target_stock_pieces'=>'補充目標（任意）'] as $key=>$label)
+                                @foreach(['reorder_point_pieces'=>'発注点','max_order_pieces'=>'最大発注数','min_order_pieces'=>'最小発注数','order_multiple_pieces'=>'最小発注単位','target_stock_pieces'=>'過剰在庫線（任意）'] as $key=>$label)
                                     @include('filament.pages.auto-replenishment-quantity-input')
                                 @endforeach
                             </div>
