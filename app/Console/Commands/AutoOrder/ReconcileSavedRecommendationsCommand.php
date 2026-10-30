@@ -141,7 +141,12 @@ class ReconcileSavedRecommendationsCommand extends Command
     {
         $events = $basis['demand_profile']['event_forecast']['events'] ?? $basis['event_adjustment']['events'] ?? [];
         $keys = array_flip(['type', 'name', 'start', 'end', 'pre_days', 'post_days', 'factor_source']);
-        $rows = array_map(fn ($e) => array_intersect_key((array) $e, $keys), is_array($events) ? $events : []);
+        $rows = array_map(function ($e) use ($keys) {
+            $row = array_intersect_key((array) $e, $keys);
+            ksort($row); // stored JSON may carry another key order
+
+            return $row;
+        }, is_array($events) ? $events : []);
         usort($rows, fn ($a, $b) => strcmp(json_encode($a), json_encode($b)));
 
         return json_encode($rows);
