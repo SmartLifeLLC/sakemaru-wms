@@ -463,8 +463,13 @@ final class SettingsRecommendationCalculator
             return null;
         }
 
-        return ['events' => app(DemandEventCalendar::class)->normalize($events['events']),
-            'factors' => is_array($events['factors'] ?? null) ? $events['factors'] : []];
+        $factors = is_array($events['factors'] ?? null) ? $events['factors'] : [];
+        if (! config('replenishment.demand_events.category_fallback', false)) {
+            // One rule for the recommendation, the replay and the backtest: category factors are a suggestion only unless the fallback is on.
+            $factors['category'] = [];
+        }
+
+        return ['events' => app(DemandEventCalendar::class)->normalize($events['events']), 'factors' => $factors];
     }
 
     /** Population deviation of observed days from their weekday mean (at least five observations, else 0). */

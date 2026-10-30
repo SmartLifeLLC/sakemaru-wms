@@ -8,7 +8,7 @@ use Carbon\CarbonImmutable;
  * Pure calendar of approved demand events (年末年始・お盆・GW・連休・任意期間).
  *
  * Calendar-aligned events (年末年始・お盆) are identified by month-day; block-aligned events
- * (GW・連休・任意) are identified by their position inside the block and keep a few
+ * (GW・連休・任意) are identified by their day inside the block (d1, d2, …, last) and keep a few
  * pre/post days whose weekday type still matters. No database access.
  */
 final class DemandEventCalendar
@@ -99,13 +99,14 @@ final class DemandEventCalendar
                         continue;
                     }
                 }
+                // Block positions are per day (d1, d2, …) with the last day aligned as 'last', so no two block days share a factor.
                 $position = match (true) {
                     $event['align'] === 'CALENDAR' => $date->format('m-d'),
                     $date->lt($blockStart) => 'pre'.$date->diffInDays($blockStart),
                     $date->gt($blockEnd) => 'post'.$blockEnd->diffInDays($date),
                     $date->eq($blockStart) => 'd1',
                     $date->eq($blockEnd) => 'last',
-                    default => 'mid',
+                    default => 'd'.($blockStart->diffInDays($date) + 1),
                 };
                 $positions[$key] = ['event' => $event, 'position' => $position, 'in_block' => $inBlock];
             }

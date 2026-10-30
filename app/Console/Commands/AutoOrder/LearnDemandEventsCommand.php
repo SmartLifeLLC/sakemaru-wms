@@ -13,7 +13,8 @@ class LearnDemandEventsCommand extends Command
         {--through= : 学習に使う実績の最終日（既定：前日）}
         {--years=3 : 学習する年数}
         {--items=policies : ITEMプロファイルを作る商品（policies＝自動発注設定のある商品／all＝実績のある全商品）}
-        {--apply : 学習結果を wms_demand_event_profiles に保存（指定なしは集計のみ）}';
+        {--apply : 学習結果を wms_demand_event_profiles に保存（指定なしは集計のみ）}
+        {--promote : 承認済みイベントが使用中のキーも新しい倍率に置き換える（指定なしは候補として保存し、使用中でないキーだけ有効化）}';
 
     protected $description = '過去の標準イベント（年末年始・お盆・GW）の販売実績から商品別・カテゴリ別のイベント倍率を学習する（カテゴリ値は候補提示用）';
 
@@ -42,12 +43,20 @@ class LearnDemandEventsCommand extends Command
                 }
             }
             if (! $this->option('apply')) {
-                $this->warn('--apply を指定すると学習結果を保存します（既存の学習結果は置き換えます）。');
+                $this->warn('--apply を指定すると学習結果を候補として保存し、承認済みイベントが使っていないキーは有効化します（使用中のキーは --promote で置き換え）。');
 
                 return self::SUCCESS;
             }
-            $count = $service->persist($client, $learned, $through);
-            $this->info("{$count} 件のイベント倍率を保存しました。");
+            $count = $service->persist($client, $learned, $through, null, \App\Models\WmsDemandEventProfile::CANDIDATE);
+            $allKeys = array_values(array_unique(array_merge(...array_map('array_keys', array_values($learned['items']) ?: [[]]), ...array_map('array_keys', array_values($learned['categories']) ?: [[]]))));
+            $inUse = $service->keysInUse($client);
+            $promoteKeys = $this->option('promote') ? $allKeys : array_values(array_diff($allKeys, $inUse));
+            $promoted = $promoteKeys ? $service->promote($client, $promoteKeys) : 0;
+            $held = array_values(array_intersect($allKeys, $inUse));
+            $this->info("{$count} 件のイベント倍率を候補として保存し、{$promoted} 件を有効化しました。");
+            if ($held && ! $this->option('promote')) {
+                $this->warn('承認済みイベントが使用中のため候補のまま：'.implode('・', $held).'（イベント設定の「今後9週のイベントを準備」で検証に合格すると置き換わります。強制するには --promote）');
+            }
 
             return self::SUCCESS;
         } catch (\Throwable $e) {

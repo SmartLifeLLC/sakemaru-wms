@@ -113,6 +113,7 @@ class DemandEventLearnerTest extends TestCase
         $reader = Mockery::mock(DemandEventHistoryReader::class);
         $reader->shouldReceive('holidays')->andReturnUsing(fn (int $year) => $this->holidays($year));
         $reader->shouldReceive('itemCategories')->andReturn([1 => 3142, 2 => 3142, 3 => 3122]);
+        $reader->shouldReceive('itemEventTypes')->andReturn([1 => ['YEAR_END', 'OBON', 'GW'], 3 => ['YEAR_END']]);
         $reader->shouldReceive('productTotals')->andReturnUsing(function (int $client, string $start, string $end) {
             $item1 = $this->synthetic($start, $end);                       // follows the pattern
             $item2 = $this->synthetic($start, $end, 0.5);                  // same shape, half the volume
@@ -146,11 +147,36 @@ class DemandEventLearnerTest extends TestCase
         self::assertGreaterThan(0, $learned['stats']['ranges_read']);
     }
 
+    /** The baseline of a product skips the adjusted days of its applied events (and the instance itself), like the recommendation's level. */
+    public function test_baseline_exclusion_follows_the_product_applicability(): void
+    {
+        $calendar = app(DemandEventCalendar::class);
+        $events = $calendar->normalize([
+            ['type' => 'CUSTOM', 'name' => '特売', 'start' => '2025-12-01', 'end' => '2025-12-03', 'pre_days' => 1, 'post_days' => 1],
+            ['type' => 'YEAR_END', 'start' => '2025-12-20', 'end' => '2026-01-07'],
+            ['type' => 'OBON', 'start' => '2025-08-03', 'end' => '2025-08-17'],
+        ]);
+        $instance = $events[0]['type'] === 'YEAR_END' ? $events[0] : $events[1];
+        $service = new DemandEventLearningService(Mockery::mock(DemandEventHistoryReader::class), app(DemandEventLearner::class), $calendar);
+        self::assertSame(['YEAR_END'], array_column($service->exclusionEvents($events, $instance, []), 'type'));
+        self::assertEqualsCanonicalizing(['YEAR_END', 'CUSTOM'], array_column($service->exclusionEvents($events, $instance, ['CUSTOM']), 'type'));
+        self::assertEqualsCanonicalizing(['YEAR_END', 'OBON'], array_column($service->exclusionEvents($events, $instance, ['OBON', 'GW']), 'type'));
+        // The layout built from the exclusion list drops the applied event's adjusted days from the baseline candidates.
+        $learner = app(DemandEventLearner::class);
+        $without = $learner->layout($instance, $service->exclusionEvents($events, $instance, []));
+        $with = $learner->layout($instance, $service->exclusionEvents($events, $instance, ['CUSTOM']));
+        self::assertArrayHasKey('2025-12-02', $without['pre']);
+        self::assertArrayNotHasKey('2025-12-02', $with['pre']);
+        self::assertArrayNotHasKey('2025-11-30', $with['pre']); // pre day of the applied event
+        self::assertSame(count($without['pre']) - 5, count($with['pre']));
+    }
+
     public function test_training_never_reads_or_uses_days_after_the_learning_end_date(): void
     {
         $reader = Mockery::mock(DemandEventHistoryReader::class);
         $reader->shouldReceive('holidays')->andReturnUsing(fn (int $year) => $this->holidays($year));
         $reader->shouldReceive('itemCategories')->andReturn([1 => 3142]);
+        $reader->shouldReceive('itemEventTypes')->andReturn([]);
         $through = '2025-08-17'; // the last day of お盆 2025 (8/3〜17): complete only if its last day is not after $through
         $reader->shouldReceive('productTotals')->andReturnUsing(function (int $client, string $start, string $end) use ($through) {
             self::assertLessThanOrEqual($through, $end, 'reads must stop at the learning end date');

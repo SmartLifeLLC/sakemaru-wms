@@ -237,13 +237,15 @@ class AutoReplenishmentEvents extends AdminPage
             return ['installed' => false, 'events' => collect(), 'profileCounts' => [], 'preview' => null, 'trainedThrough' => null, 'proposals' => []];
         }
         $events = WmsDemandEvent::where(['client_id' => $client, 'year' => $this->year])->orderBy('start_date')->get();
-        $counts = WmsDemandEventProfile::where('client_id', $client)->groupBy('profile_key', 'scope_type')
-            ->selectRaw('profile_key, scope_type, COUNT(*) n, MAX(trained_through) trained_through')->get();
+        $counts = WmsDemandEventProfile::where('client_id', $client)->groupBy('profile_key', 'scope_type', 'stage')
+            ->selectRaw('profile_key, scope_type, stage, COUNT(*) n, MAX(trained_through) trained_through')->get();
         $profileCounts = [];
         $trainedThrough = null;
         foreach ($counts as $row) {
-            $profileCounts[$row->profile_key][$row->scope_type] = (int) $row->n;
-            $trainedThrough = max($trainedThrough ?? '', (string) $row->trained_through);
+            $profileCounts[$row->profile_key][$row->stage][$row->scope_type] = (int) $row->n;
+            if ($row->stage === WmsDemandEventProfile::ACTIVE) {
+                $trainedThrough = max($trainedThrough ?? '', (string) $row->trained_through);
+            }
         }
         $calendar = app(DemandEventCalendar::class);
         $proposals = $calendar->standardEvents($this->year, app(\App\Services\AutoReplenishment\DemandEventHistoryReader::class)->holidays($this->year));
@@ -304,9 +306,10 @@ class AutoReplenishmentEvents extends AdminPage
         }
         $keys = [$event->name, $event->type];
         $items = WmsItemReorderPolicy::where('client_id', $client)->distinct()->pluck('item_id')->map(fn ($id) => (int) $id)->all();
-        $profiles = WmsDemandEventProfile::where('client_id', $client)->whereIn('profile_key', $keys)
+        $profiles = WmsDemandEventProfile::where(['client_id' => $client, 'stage' => WmsDemandEventProfile::ACTIVE])->whereIn('profile_key', $keys)
             ->where(fn ($q) => $q->where(fn ($q) => $q->where('scope_type', 'ITEM')->whereIn('scope_id', $items ?: [-1]))->orWhere('scope_type', 'CATEGORY'))
             ->get();
+        $candidates = WmsDemandEventProfile::where(['client_id' => $client, 'stage' => WmsDemandEventProfile::CANDIDATE, 'scope_type' => 'ITEM'])->whereIn('profile_key', $keys)->whereIn('scope_id', $items ?: [-1])->count();
         $itemRows = DB::connection('sakemaru')->table('items')->where('client_id', $client)->whereIn('id', $items ?: [-1])->get(['id', 'code', 'name', 'item_category3_id'])->keyBy('id');
         $categories = DB::connection('sakemaru')->table('item_categories')->whereIn('id', $itemRows->pluck('item_category3_id')->filter()->unique()->all() ?: [-1])->pluck('name', 'id');
         $byScope = [];
@@ -337,7 +340,7 @@ class AutoReplenishmentEvents extends AdminPage
         }
         usort($rows, fn ($a, $b) => [$b['applied'], $b['summary']['peak'] ?? 0] <=> [$a['applied'], $a['summary']['peak'] ?? 0]);
 
-        return ['event' => $event, 'rows' => $rows, 'categories' => count($byScope['CATEGORY'] ?? []), 'items' => count($byScope['ITEM'] ?? [])];
+        return ['event' => $event, 'rows' => $rows, 'categories' => count($byScope['CATEGORY'] ?? []), 'items' => count($byScope['ITEM'] ?? []), 'candidates' => $candidates];
     }
 
     private function summarize(array $positions, string $type): array
@@ -357,7 +360,7 @@ class AutoReplenishmentEvents extends AdminPage
             $max = max($max, (int) ($p['years'] ?? 0));
         }
         $label = fn ($pos) => match (true) {
-            $pos === null => '—', $pos === 'd1' => '初日', $pos === 'mid' => '中日', $pos === 'last' => '最終日',
+            $pos === null => '—', $pos === 'd1' => '初日', $pos === 'last' => '最終日', (bool) preg_match('/^d(\d+)$/', (string) $pos) => substr($pos, 1).'日目',
             str_contains($pos, '-') => (int) substr($pos, 0, 2).'/'.(int) substr($pos, 3), default => $pos,
         };
 

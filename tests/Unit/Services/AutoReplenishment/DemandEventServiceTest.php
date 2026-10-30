@@ -59,9 +59,9 @@ class DemandEventServiceTest extends TestCase
         \App\Models\WmsItemDemandEvent::create(['client_id' => 6, 'item_id' => 143024, 'event_type' => 'YEAR_END', 'is_enabled' => true]);
         \App\Models\WmsItemDemandEvent::create(['client_id' => 6, 'item_id' => 999, 'event_type' => 'YEAR_END', 'is_enabled' => true]);
         WmsDemandEventProfile::insert([
-            ['client_id' => 6, 'profile_key' => 'YEAR_END', 'scope_type' => 'ITEM', 'scope_id' => 143024, 'positions' => json_encode(['12-31' => ['factor' => 2.5, 'factor_weekday' => 2.4, 'years' => 3]]), 'pieces' => 5000, 'instance_count' => 3, 'trained_through' => '2026-10-29', 'model_version' => 'event-factors-v1'],
-            ['client_id' => 6, 'profile_key' => 'YEAR_END', 'scope_type' => 'CATEGORY', 'scope_id' => 3142, 'positions' => json_encode(['12-31' => ['factor' => 2.0, 'factor_weekday' => 2.0, 'years' => 3]]), 'pieces' => 9000, 'instance_count' => 3, 'trained_through' => '2026-10-29', 'model_version' => 'event-factors-v1'],
-            ['client_id' => 6, 'profile_key' => 'OBON', 'scope_type' => 'ITEM', 'scope_id' => 143024, 'positions' => json_encode(['08-13' => ['factor' => 1.5]]), 'pieces' => 100, 'instance_count' => 3, 'trained_through' => '2026-10-29', 'model_version' => 'event-factors-v1'],
+            ['client_id' => 6, 'profile_key' => 'YEAR_END', 'scope_type' => 'ITEM', 'scope_id' => 143024, 'positions' => json_encode(['12-31' => ['factor' => 2.5, 'factor_weekday' => 2.4, 'years' => 3]]), 'pieces' => 5000, 'instance_count' => 3, 'trained_through' => '2026-10-29', 'model_version' => \App\Services\AutoReplenishment\DemandEventLearner::MODEL_VERSION],
+            ['client_id' => 6, 'profile_key' => 'YEAR_END', 'scope_type' => 'CATEGORY', 'scope_id' => 3142, 'positions' => json_encode(['12-31' => ['factor' => 2.0, 'factor_weekday' => 2.0, 'years' => 3]]), 'pieces' => 9000, 'instance_count' => 3, 'trained_through' => '2026-10-29', 'model_version' => \App\Services\AutoReplenishment\DemandEventLearner::MODEL_VERSION],
+            ['client_id' => 6, 'profile_key' => 'OBON', 'scope_type' => 'ITEM', 'scope_id' => 143024, 'positions' => json_encode(['08-13' => ['factor' => 1.5]]), 'pieces' => 100, 'instance_count' => 3, 'trained_through' => '2026-10-29', 'model_version' => \App\Services\AutoReplenishment\DemandEventLearner::MODEL_VERSION],
         ]);
         $options = (new DemandEventRepository)->recommendationOptions(6, 143024);
         self::assertCount(1, $options['events']);

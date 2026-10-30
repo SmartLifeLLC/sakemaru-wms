@@ -2,6 +2,7 @@
 
 namespace App\Services\AutoReplenishment;
 
+use App\Models\WmsDemandEvent;
 use App\Models\WmsDemandEventProfile;
 use App\Models\WmsItemReorderPolicy;
 use Carbon\CarbonImmutable;
@@ -54,6 +55,9 @@ class DemandEventLearningService
             throw_unless($instances, \RuntimeException::class, '対象イベントの過去実例がありません：'.implode('・', $keys));
         }
         $keep = $itemIds === null ? null : array_flip($itemIds);
+        // Same rule as the recommendation's normal level: a product's baseline skips the adjusted days of the events applied to it
+        // (plus the instance being learned, always). Products without applied events exclude the instance only.
+        $appliedTypes = $this->reader->itemEventTypes($client);
         $ratios = [];   // key => item => compact instance ratios (positions + pieces only)
         $pieces = [];   // item => total actual pieces seen
         $rangesRead = 0;
@@ -73,9 +77,16 @@ class DemandEventLearningService
             }
             $yearEvents = array_values(array_filter($allEvents, fn ($e) => $e['end'] >= $window['start'] && $e['start'] <= $instance['end']));
             $keys = $this->learner->profileKeys($instance, $namedCounts);
-            $layout = $this->learner->layout($instance, $yearEvents);
+            $layouts = []; // one layout per distinct set of applied types (at most a handful), reused across products
             foreach ($data['items'] as $itemId => $daily) {
-                $result = $this->learner->instanceRatios($this->series($daily, $data['observed'], $dates), $instance, $yearEvents, $layout);
+                $types = $appliedTypes[$itemId] ?? [];
+                sort($types);
+                $layoutKey = implode(',', $types);
+                if (! isset($layouts[$layoutKey])) {
+                    $exclusion = $this->exclusionEvents($yearEvents, $instance, $types);
+                    $layouts[$layoutKey] = ['events' => $exclusion, 'layout' => $this->learner->layout($instance, $exclusion)];
+                }
+                $result = $this->learner->instanceRatios($this->series($daily, $data['observed'], $dates), $instance, $layouts[$layoutKey]['events'], $layouts[$layoutKey]['layout']);
                 if ($result === null || ($result['pieces'] < self::MIN_ITEM_PIECES && ! isset($keep[$itemId]))) {
                     continue;
                 }
@@ -117,19 +128,29 @@ class DemandEventLearningService
                 'category_profiles' => array_sum(array_map('count', $categoryProfiles))]];
     }
 
-    /**
-     * Replace the client's learned profiles inside a transaction: all of them, or only the given profile keys
-     * (weekly refresh of upcoming events leaves the other keys untouched).
-     */
-    public function persist(int $client, array $learned, string $through, ?array $keys = null): int
+    /** The events whose adjusted days a product's baseline skips: the instance being learned plus the events applied to the product. */
+    public function exclusionEvents(array $yearEvents, array $instance, array $appliedTypes): array
     {
-        return DB::connection('sakemaru')->transaction(function () use ($client, $learned, $through, $keys) {
+        return array_values(array_filter($yearEvents, fn ($e) => ($e['type'] === $instance['type'] && $e['start'] === $instance['start']) || in_array($e['type'], $appliedTypes, true)));
+    }
+
+    /**
+     * Save learned profiles inside a transaction: all keys, or only the given profile keys (the weekly preparation
+     * of upcoming events leaves the other keys untouched). By default the rows are written as CANDIDATE, so the
+     * factors in use (ACTIVE) are never replaced by a learning result that has not passed a backtest or been approved;
+     * promote() moves candidates into use.
+     */
+    public function persist(int $client, array $learned, string $through, ?array $keys = null, string $stage = WmsDemandEventProfile::CANDIDATE): int
+    {
+        throw_unless(in_array($stage, [WmsDemandEventProfile::ACTIVE, WmsDemandEventProfile::CANDIDATE], true), \RuntimeException::class, '倍率の段階を確認してください。');
+
+        return DB::connection('sakemaru')->transaction(function () use ($client, $learned, $through, $keys, $stage) {
             $rows = [];
             $now = now();
             foreach (['items' => 'ITEM', 'categories' => 'CATEGORY'] as $group => $scope) {
                 foreach ($learned[$group] as $scopeId => $profiles) {
                     foreach ($profiles as $key => $profile) {
-                        $rows[] = ['client_id' => $client, 'profile_key' => $key, 'scope_type' => $scope, 'scope_id' => (int) $scopeId,
+                        $rows[] = ['client_id' => $client, 'profile_key' => $key, 'scope_type' => $scope, 'scope_id' => (int) $scopeId, 'stage' => $stage,
                             'positions' => json_encode($profile['positions'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
                             'pieces' => $profile['pieces'], 'instance_count' => $profile['instance_count'], 'trained_through' => $through,
                             'model_version' => DemandEventLearner::MODEL_VERSION, 'created_at' => $now, 'updated_at' => $now];
@@ -139,13 +160,44 @@ class DemandEventLearningService
             if ($keys !== null) {
                 $rows = array_values(array_filter($rows, fn ($r) => in_array($r['profile_key'], $keys, true)));
             }
-            WmsDemandEventProfile::where('client_id', $client)->when($keys !== null, fn ($q) => $q->whereIn('profile_key', $keys))->delete();
+            WmsDemandEventProfile::where(['client_id' => $client, 'stage' => $stage])->when($keys !== null, fn ($q) => $q->whereIn('profile_key', $keys))->delete();
             foreach (array_chunk($rows, 500) as $chunk) {
                 WmsDemandEventProfile::insert($chunk);
             }
 
             return count($rows);
         }, 3);
+    }
+
+    /**
+     * Put the CANDIDATE profiles of the given keys into use: the ACTIVE rows of those keys are replaced by the
+     * candidates (keys without a candidate keep their ACTIVE rows). Returns the number of promoted rows.
+     */
+    public function promote(int $client, array $keys): int
+    {
+        return DB::connection('sakemaru')->transaction(function () use ($client, $keys) {
+            $withCandidates = WmsDemandEventProfile::where(['client_id' => $client, 'stage' => WmsDemandEventProfile::CANDIDATE])->whereIn('profile_key', $keys)
+                ->distinct()->pluck('profile_key')->all();
+            if (! $withCandidates) {
+                return 0;
+            }
+            WmsDemandEventProfile::where(['client_id' => $client, 'stage' => WmsDemandEventProfile::ACTIVE])->whereIn('profile_key', $withCandidates)->delete();
+
+            return WmsDemandEventProfile::where(['client_id' => $client, 'stage' => WmsDemandEventProfile::CANDIDATE])->whereIn('profile_key', $withCandidates)
+                ->update(['stage' => WmsDemandEventProfile::ACTIVE, 'updated_at' => now()]);
+        }, 3);
+    }
+
+    /** Profile keys currently in use by an approved event (name and type of every APPROVED row). */
+    public function keysInUse(int $client): array
+    {
+        $keys = [];
+        foreach (WmsDemandEvent::where(['client_id' => $client, 'status' => 'APPROVED'])->get(['name', 'type']) as $event) {
+            $keys[] = (string) $event->name;
+            $keys[] = (string) $event->type;
+        }
+
+        return array_values(array_unique($keys));
     }
 
     public function policyItemIds(int $client): array

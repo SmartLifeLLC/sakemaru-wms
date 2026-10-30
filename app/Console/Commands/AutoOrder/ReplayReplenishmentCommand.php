@@ -30,7 +30,8 @@ class ReplayReplenishmentCommand extends Command
         {--unit=CASE : 発注単位の扱い（CASE/PIECE）}
         {--learn-through= : イベント倍率の学習終了日（既定：開始年の1月8日＝前年の年末年始 12/20〜1/7 まで学習）}
         {--events=applied : eventA の対象（applied=商品別の適用イベントだけ・本体と同じ判定, standard=全商品に標準イベント3種）}
-        {--constraints=saved : 数量条件（saved=保存済みの最小・最大・単位を再現, calc=算定値のまま）}
+        {--conditions=saved : 算定条件（saved=商品ごとに保存済みの単位・発注日数・安全日数を使う＝週次更新と同じ, scenario=--unit/--safety の共通条件）}
+        {--fixed-bounds : 比較用：保存済みの最小・最大・単位を固定する（週次更新はこれらも再計算するため既定では固定しない）}
         {--warmup=28 : 集計から除く開始日数}
         {--limit= : 系列数の上限（動作確認用）}
         {--out= : 出力フォルダ（既定 storage/app/replenishment-replay/<日時>）}';
@@ -72,7 +73,7 @@ class ReplayReplenishmentCommand extends Command
                 $events = array_merge($events, $calendarEvents->standardEvents($year, $history->holidays($year)));
             }
             throw_unless(in_array($this->option('events'), ['applied', 'standard'], true), \RuntimeException::class, '--events は applied または standard で指定してください。');
-            throw_unless(in_array($this->option('constraints'), ['saved', 'calc'], true), \RuntimeException::class, '--constraints は saved または calc で指定してください。');
+            throw_unless(in_array($this->option('conditions'), ['saved', 'scenario'], true), \RuntimeException::class, '--conditions は saved または scenario で指定してください。');
             $repository = app(\App\Services\AutoReplenishment\DemandEventRepository::class);
             $factors = fn (int $item) => ['item' => [], 'category' => []];
             $through = null;
@@ -102,12 +103,14 @@ class ReplayReplenishmentCommand extends Command
             $initialStock = $this->option('initial-stock') === 'target' ? 'target' : (int) $this->option('initial-stock');
             $conditions = ['from' => $from, 'to' => $to, 'calendar' => $this->option('calendar'), 'lead' => (int) $this->option('lead'), 'stops' => $stops,
                 'safety_stock_days' => (int) $this->option('safety'), 'unit_mode' => $this->option('unit'), 'learn_through' => $through,
-                'max_change_ratio' => $maxChange, 'initial_stock' => $initialStock, 'events_scope' => $this->option('events'), 'constraints' => $this->option('constraints'), 'channel_assumption' => 'おすすめ算定は売上基準（発注連携実績なし）・EOS相当。入荷予定は方式・発注先ごとの現在設定（current）または簡易',
+                'max_change_ratio' => $maxChange, 'initial_stock' => $initialStock, 'events_scope' => $this->option('events'), 'conditions' => $this->option('conditions'), 'fixed_bounds' => (bool) $this->option('fixed-bounds'),
+                'quantity_rule' => $this->option('fixed-bounds') ? '比較用：最小・最大・単位を保存値に固定' : '週次更新と同じ（全数量を再計算し変化幅ガード）', 'not_reproduced' => \App\Services\AutoReplenishment\DemandEventBacktest::NOT_REPRODUCED, 'channel_assumption' => 'おすすめ算定は売上基準（発注連携実績なし）・EOS相当。入荷予定は方式・発注先ごとの現在設定（current）または簡易',
                 'warmup_days' => (int) $this->option('warmup'), 'series' => count($list), 'events' => array_map(fn ($e) => $e['name'].' '.$e['start'].'〜'.$e['end'], $events)];
             file_put_contents($out.'/conditions.json', json_encode($conditions, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
             $summary = [];
             foreach ($scenarioNames as $name) {
-                $scenario = $this->scenario($name, $from, $to, $events, $factors) + ['max_change_ratio' => $maxChange, 'initial_stock' => $initialStock, 'saved_constraints' => $this->option('constraints') === 'saved'];
+                $scenario = $this->scenario($name, $from, $to, $events, $factors) + ['max_change_ratio' => $maxChange, 'initial_stock' => $initialStock,
+                    'saved_conditions' => $this->option('conditions') === 'saved', 'fixed_bounds' => (bool) $this->option('fixed-bounds')];
                 $seriesFile = fopen($out."/series_{$name}.csv", 'w');
                 $daysFile = fopen($out."/days_{$name}.csv", 'w');
                 $recalcFile = fopen($out."/recalcs_{$name}.csv", 'w');

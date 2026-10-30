@@ -144,7 +144,12 @@ final class ReplayEngine
                 $daily[$d->toDateString()] = $series['demand'][$d->toDateString()] ?? null;
             }
             $capacity = (int) ($series['capacity_case'] ?? 0);
-            $unitMode = ($scenario['unit_mode'] ?? 'CASE') === 'CASE' && $capacity > 0 ? 'CASE' : 'PIECE';
+            // Conditions: the scenario's, or — like the weekly refresh — the ones the operator saved with the product (unit mode, review days, safety days).
+            $savedBasis = ! empty($scenario['saved_conditions']) && is_array($series['saved_policy']['calculation_basis'] ?? null) ? $series['saved_policy']['calculation_basis'] : null;
+            $requestedUnit = $savedBasis ? (($savedBasis['unit_mode'] ?? 'AUTO') === 'PALLET' ? 'AUTO' : ($savedBasis['unit_mode'] ?? 'AUTO')) : ($scenario['unit_mode'] ?? 'CASE');
+            $unitMode = $requestedUnit === 'PIECE' || $capacity <= 0 ? 'PIECE' : $requestedUnit;
+            $reviewDays = $savedBasis ? (int) ($savedBasis['review_days'] ?? 7) : (int) ($scenario['review_days'] ?? 7);
+            $safetyDays = $savedBasis ? ($savedBasis['safety_stock_days'] ?? null) : ($scenario['safety_stock_days'] ?? 5);
             // Production definition (execution times included for scheduled calendars), never below the observed generation gaps.
             $reviewInterval = $calendar->reviewInterval();
             $generation = array_column($schedule['opportunities'], 'generation_date');
@@ -157,13 +162,16 @@ final class ReplayEngine
                 'period' => ['start' => $periodStart->toDateString(), 'end' => $periodEnd->toDateString()], 'receipts' => [], 'daily' => $daily, 'warnings' => [],
                 'nominal_lead_days' => $schedule['nominal_lead_days'], 'review_interval_days' => min(7, $reviewInterval), 'review_weekdays' => $schedule['weekdays'],
                 'maximum_arrival_gap_days' => $schedule['maximum_gap_days'], 'arrival_schedule' => $schedule];
-            $options = ['unit_mode' => $unitMode, 'review_days' => $scenario['review_days'] ?? 7, 'safety_stock_days' => $scenario['safety_stock_days'] ?? 5,
+            $options = ['unit_mode' => $unitMode, 'review_days' => $reviewDays, 'safety_stock_days' => $safetyDays,
                 'existing_reorder_point' => $previous['reorder_point_pieces'] ?? null, 'variability_buffer' => (bool) ($scenario['variability_buffer'] ?? false)];
+            if ($savedBasis) {
+                $log['saved_conditions'] = ['unit_mode' => $unitMode, 'review_days' => $reviewDays, 'safety_stock_days' => $safetyDays];
+            }
             // The events applied to this product: the scenario's list, or the series' own list when set (商品別の適用イベント).
             $events = array_key_exists('events', $series) && ! empty($scenario['events']) ? $series['events'] : ($scenario['events'] ?? []);
             if (! empty($events)) {
                 $factors = isset($scenario['factors']) ? ($scenario['factors'])((int) $series['item_id']) : [];
-                $options['demand_events'] = ['events' => $events, 'factors' => $factors];
+                $options['demand_events'] = ['events' => $events, 'factors' => $factors]; // category factors are dropped by the calculator unless category_fallback is on
             }
             $result = $this->calculator->calculate($history, $options);
             if (! $result['available']) {
@@ -172,15 +180,15 @@ final class ReplayEngine
                 return ['policy' => null, 'log' => $log];
             }
             $values = $result['values'];
-            if (! empty($scenario['saved_constraints']) && is_array($series['saved_policy'] ?? null)) {
-                // The product's real order constraints (minimum, maximum, multiple) as saved by the operator; the level and target stay recalculated.
+            if (! empty($scenario['fixed_bounds']) && is_array($series['saved_policy'] ?? null)) {
+                // Comparison scenario only (not the weekly operation, which recalculates these too): the saved minimum, maximum and multiple are held fixed.
                 foreach (['min_order_pieces', 'max_order_pieces', 'order_multiple_pieces'] as $key) {
                     if ((int) ($series['saved_policy'][$key] ?? 0) > 0) {
                         $values[$key] = (int) $series['saved_policy'][$key];
                     }
                 }
                 $values['min_order_pieces'] = min($values['min_order_pieces'], $values['max_order_pieces']);
-                $log['saved_constraints'] = true;
+                $log['fixed_bounds'] = true;
             }
             $policy = $values + ['calculation_basis' => $result['basis'], 'channel' => 'EOS', 'is_enabled' => true, 'packing_unit' => 1,
                 'warehouse_id' => (int) $series['warehouse_id'], 'item_id' => (int) $series['item_id']];

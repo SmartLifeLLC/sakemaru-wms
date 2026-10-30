@@ -3,6 +3,7 @@
 namespace App\Services\AutoReplenishment;
 
 use App\Models\WmsDemandEvent;
+use App\Models\WmsDemandEventProfile;
 use App\Services\AutoReplenishment\Replay\ReplayCalendar;
 use App\Services\AutoReplenishment\Replay\ReplayDataReader;
 use Carbon\CarbonImmutable;
@@ -87,10 +88,18 @@ class DemandEventPipelineService
                 $entry['review_note'] = $decision['note'];
                 if ($apply) {
                     DB::connection('sakemaru')->transaction(function () use ($client, $learned, $through, $event, $row, $backtest, $decision, $actorId) {
+                        $promoted = false;
                         if ($learned) {
-                            $this->learning->persist($client, $learned, $through, $event['profile_keys']);
+                            // New factors are candidates. They replace the factors in use only when the event is (or becomes) approved on a passed backtest;
+                            // a failed re-learning never overwrites approved factors (NEEDS_REVIEW / REVERTED keep the ACTIVE rows).
+                            $this->learning->persist($client, $learned, $through, $event['profile_keys'], WmsDemandEventProfile::CANDIDATE);
+                            if (in_array($decision['action'], ['AUTO_APPROVED', 'KEPT_APPROVED'], true)) {
+                                $this->learning->promote($client, $event['profile_keys']);
+                                $promoted = true;
+                            }
                         }
-                        $row->fill(['factor_trained_through' => $through, 'backtest' => $backtest, 'review_note' => $decision['note'], 'prepared_at' => now(), 'updated_by' => $actorId]);
+                        $note = $decision['note'].($learned && ! $promoted ? '（新しい倍率は候補として保存。承認すると有効になります）' : '');
+                        $row->fill(['factor_trained_through' => $promoted ? $through : $row->factor_trained_through, 'backtest' => $backtest, 'review_note' => $note, 'prepared_at' => now(), 'updated_by' => $actorId]);
                         if ($decision['action'] === 'AUTO_APPROVED') {
                             $row->fill(['status' => 'APPROVED', 'auto_approved' => true, 'approved_by' => $actorId, 'approved_at' => now()]);
                         } elseif ($decision['action'] === 'REVERTED') {
@@ -144,13 +153,15 @@ class DemandEventPipelineService
         $list = $this->reader->seriesList($client, CarbonImmutable::parse($asOf)->subDays(365)->toDateString(), $asOf, 0);
         $items = $this->reader->items($client, array_values(array_unique(array_column($list, 'item_id'))));
         $warehouses = $this->reader->warehouses($client, array_values(array_unique(array_column($list, 'warehouse_id'))));
+        $applied = app(ItemDemandEventService::class)->matrix($client); // same rule as the recommendation: only applied events adjust a product
         $series = [];
         foreach ($list as $entry) {
             $item = $items[$entry['item_id']] ?? ['code' => '', 'name' => '', 'capacity_case' => 0, 'item_category3_id' => null];
             $series[] = ['client_id' => $client, 'warehouse_id' => $entry['warehouse_id'], 'warehouse_code' => (string) ($warehouses[$entry['warehouse_id']]['code'] ?? ''),
                 'item_id' => $entry['item_id'], 'item_code' => (string) $item['code'], 'item_name' => (string) $item['name'], 'capacity_case' => (int) $item['capacity_case'],
                 'item_category3_id' => $item['item_category3_id'] ?? null, 'channel' => $entry['channel'] ?? 'EOS',
-                'contractor_id' => $entry['contractor_id'] ?? null, 'saved_policy' => $entry['saved_policy'] ?? null];
+                'contractor_id' => $entry['contractor_id'] ?? null, 'saved_policy' => $entry['saved_policy'] ?? null,
+                'applied_types' => array_keys(array_filter($applied[(int) $entry['item_id']] ?? []))];
         }
 
         return $series;

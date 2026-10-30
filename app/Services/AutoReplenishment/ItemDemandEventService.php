@@ -48,10 +48,12 @@ class ItemDemandEventService
         $profiles = WmsDemandEventProfile::where('client_id', $client)->whereIn('profile_key', DemandEventCalendar::STANDARD_TYPES)
             ->where(fn ($q) => $q->where(fn ($q) => $q->where('scope_type', 'ITEM')->whereIn('scope_id', $itemIds))
                 ->orWhere(fn ($q) => $q->where('scope_type', 'CATEGORY')->whereIn('scope_id', $categories->filter()->unique()->values()->all() ?: [-1])))
+            ->orderByRaw("CASE WHEN stage = 'ACTIVE' THEN 0 ELSE 1 END")
             ->get();
         $byScope = [];
         foreach ($profiles as $profile) {
-            $byScope[$profile->scope_type][(int) $profile->scope_id][$profile->profile_key] = $profile;
+            // Suggestions prefer the factors in use; a candidate (not yet approved) is shown only when nothing is in use.
+            $byScope[$profile->scope_type][(int) $profile->scope_id][$profile->profile_key] ??= $profile;
         }
         $result = [];
         foreach ($itemIds as $itemId) {
@@ -62,7 +64,7 @@ class ItemDemandEventService
                 $categorySummary = $category ? $this->blockSummary(is_array($category->positions) ? $category->positions : []) : null;
                 $result[$itemId][$type] = ['suggest' => $ownSummary !== null && (int) $own->instance_count >= self::SUGGEST_MIN_INSTANCES && $ownSummary['mean'] >= self::SUGGEST_MIN_MEAN,
                     'mean' => $ownSummary['mean'] ?? null, 'peak' => $ownSummary['peak'] ?? null, 'instances' => $own ? (int) $own->instance_count : 0,
-                    'category_mean' => $categorySummary['mean'] ?? null];
+                    'stage' => $own?->stage, 'category_mean' => $categorySummary['mean'] ?? null];
             }
         }
 

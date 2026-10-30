@@ -80,7 +80,8 @@ class ReplayCommandTest extends TestCase
         self::assertGreaterThan($summary['eventA']['segments']['年末年始']['unmet'], $summary['base']['segments']['年末年始']['unmet']);
         $conditions = json_decode(file_get_contents($this->out.'/conditions.json'), true);
         self::assertSame('2025-01-08', $conditions['learn_through']);
-        self::assertSame(['applied', 'saved'], [$conditions['events_scope'], $conditions['constraints']]);
+        self::assertSame(['applied', 'saved', false], [$conditions['events_scope'], $conditions['conditions'], $conditions['fixed_bounds']]);
+        self::assertNotEmpty($conditions['not_reproduced']);
         self::assertCount(9, $conditions['events']); // the three standard events of 2024〜2026 only (no 連休)
         self::assertContains('年末年始 2025-12-20〜2026-01-07', $conditions['events']);
         self::assertContains('ゴールデンウィーク 2025-05-03〜2025-05-06', $conditions['events']);

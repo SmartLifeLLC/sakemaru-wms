@@ -27,7 +27,7 @@ class ItemDemandEventServiceTest extends TestCase
         $db->statement('CREATE TABLE wms_item_reorder_policies (id INTEGER PRIMARY KEY, client_id INTEGER, warehouse_id INTEGER, item_id INTEGER, channel TEXT)');
         $db->table('items')->insert([
             ['id' => 143024, 'client_id' => 6, 'code' => 143024, 'name' => 'スーパードライ350', 'item_category3_id' => 3142],
-            ['id' => 200, 'client_id' => 6, 'code' => 200, 'name' => '日本酒 一升', 'item_category3_id' => 3142],
+            ['id' => 200, 'client_id' => 6, 'code' => 20000, 'name' => '日本酒 一升', 'item_category3_id' => 3142], // code ≠ id: the command resolves 商品CD
             ['id' => 300, 'client_id' => 6, 'code' => 300, 'name' => '水', 'item_category3_id' => null],
         ]);
         $db->table('wms_item_reorder_policies')->insert([
@@ -36,11 +36,11 @@ class ItemDemandEventServiceTest extends TestCase
         ]);
         $profile = fn (string $key, string $scope, int $id, array $factors, int $instances, float $pieces = 500) => ['client_id' => 6, 'profile_key' => $key, 'scope_type' => $scope, 'scope_id' => $id,
             'positions' => json_encode(array_map(fn ($f) => ['factor' => $f, 'factor_weekday' => $f, 'years' => $instances], $factors)), 'pieces' => $pieces, 'instance_count' => $instances,
-            'trained_through' => '2026-10-29', 'model_version' => 'event-factors-v1'];
+            'trained_through' => '2026-10-29', 'model_version' => \App\Services\AutoReplenishment\DemandEventLearner::MODEL_VERSION];
         WmsDemandEventProfile::insert([
             $profile('YEAR_END', 'ITEM', 143024, ['12-28' => 2.0, '12-30' => 3.0, '01-02' => 0.4], 3), // block mean 1.8 → suggested
             $profile('OBON', 'ITEM', 143024, ['08-13' => 1.1, '08-14' => 1.2], 3),                      // mean 1.15 → not suggested
-            $profile('GW', 'ITEM', 143024, ['pre3' => 1.5, 'd1' => 1.6, 'mid' => 1.4, 'post1' => 0.8], 1), // mean 1.5 but one year → not suggested
+            $profile('GW', 'ITEM', 143024, ['pre3' => 1.5, 'd1' => 1.6, 'd2' => 1.4, 'post1' => 0.8], 1), // mean 1.5 but one year → not suggested
             $profile('YEAR_END', 'ITEM', 200, ['12-30' => 1.2], 3),
             $profile('YEAR_END', 'CATEGORY', 3142, ['12-30' => 1.9], 3),                                 // category: reference only
         ]);
@@ -94,23 +94,33 @@ class ItemDemandEventServiceTest extends TestCase
         self::assertStringContainsString('143024', $output);
         self::assertStringContainsString('--apply', $output);
         self::assertSame(0, WmsItemDemandEvent::count());
-        self::assertSame(0, Artisan::call('wms:set-item-demand-events', ['client' => 6, '--from-learned' => true, '--apply' => true]));
+        // Candidates are a hint, not the verified list: registering them needs an explicit acceptance.
+        self::assertSame(1, Artisan::call('wms:set-item-demand-events', ['client' => 6, '--from-learned' => true, '--apply' => true]));
+        self::assertStringContainsString('--accept-candidates', Artisan::output());
+        self::assertSame(0, WmsItemDemandEvent::count());
+        self::assertSame(0, Artisan::call('wms:set-item-demand-events', ['client' => 6, '--from-learned' => true, '--apply' => true, '--accept-candidates' => true]));
         self::assertSame(['YEAR_END'], (new DemandEventRepository)->itemEventTypes(6, 143024));
         self::assertSame([], (new DemandEventRepository)->itemEventTypes(6, 200));
-        // Explicit: --item/--events replaces the product's set.
-        self::assertSame(0, Artisan::call('wms:set-item-demand-events', ['client' => 6, '--item' => [200], '--events' => 'YEAR_END,OBON', '--apply' => true]), Artisan::output());
+        // Explicit: --item takes 商品CD by default (20000 → items.id 200) and replaces the product's set.
+        self::assertSame(0, Artisan::call('wms:set-item-demand-events', ['client' => 6, '--item' => ['20000'], '--events' => 'YEAR_END,OBON', '--apply' => true]), Artisan::output());
         self::assertEqualsCanonicalizing(['YEAR_END', 'OBON'], (new DemandEventRepository)->itemEventTypes(6, 200));
-        self::assertSame(0, Artisan::call('wms:set-item-demand-events', ['client' => 6, '--item' => [200], '--events' => '', '--apply' => true]), Artisan::output());
+        self::assertSame(1, Artisan::call('wms:set-item-demand-events', ['client' => 6, '--item' => ['200'], '--events' => '', '--apply' => true])); // 200 is not a 商品CD
+        self::assertStringContainsString('商品CD 200 が見つかりません', Artisan::output());
+        self::assertSame(0, Artisan::call('wms:set-item-demand-events', ['client' => 6, '--item' => ['200'], '--key' => 'id', '--events' => '', '--apply' => true]), Artisan::output());
         self::assertSame([], (new DemandEventRepository)->itemEventTypes(6, 200));
         // Unknown product or non-standard type fails without writing.
-        self::assertSame(1, Artisan::call('wms:set-item-demand-events', ['client' => 6, '--item' => [999], '--events' => 'YEAR_END', '--apply' => true]));
-        self::assertStringContainsString('自動発注設定がありません', Artisan::output());
-        self::assertSame(1, Artisan::call('wms:set-item-demand-events', ['client' => 6, '--item' => [200], '--events' => 'LONG_WEEKEND', '--apply' => true]));
-        // CSV.
+        self::assertSame(1, Artisan::call('wms:set-item-demand-events', ['client' => 6, '--item' => ['999'], '--key' => 'id', '--events' => 'YEAR_END', '--apply' => true]));
+        self::assertStringContainsString('items.id が見つかりません', Artisan::output());
+        self::assertSame(1, Artisan::call('wms:set-item-demand-events', ['client' => 6, '--item' => ['20000'], '--events' => 'LONG_WEEKEND', '--apply' => true]));
+        // CSV by 商品CD (header and comment lines skipped).
         $csv = tempnam(sys_get_temp_dir(), 'ev');
-        file_put_contents($csv, "item_id,events\n300,GW|OBON\n200,\n");
+        file_put_contents($csv, "item_code,events\n# 缶ビール\n300,GW|OBON\n20000,\n");
         self::assertSame(0, Artisan::call('wms:set-item-demand-events', ['client' => 6, '--csv' => $csv, '--apply' => true]), Artisan::output());
         self::assertEqualsCanonicalizing(['GW', 'OBON'], (new DemandEventRepository)->itemEventTypes(6, 300));
+        // An ambiguous 商品CD is refused.
+        DB::connection('sakemaru')->table('items')->insert(['id' => 301, 'client_id' => 6, 'code' => 300, 'name' => '水（別ID）', 'item_category3_id' => null]);
+        self::assertSame(1, Artisan::call('wms:set-item-demand-events', ['client' => 6, '--csv' => $csv, '--apply' => true]));
+        self::assertStringContainsString('複数の商品に一致', Artisan::output());
         unlink($csv);
     }
 

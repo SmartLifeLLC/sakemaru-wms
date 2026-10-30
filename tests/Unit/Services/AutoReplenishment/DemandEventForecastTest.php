@@ -51,7 +51,7 @@ class DemandEventForecastTest extends TestCase
             ['type' => 'LONG_WEEKEND', 'name' => '勤労感謝の日連休', 'start' => '2026-11-21', 'end' => '2026-11-23'],
         ];
         $positions = $calendar->positions($events, '2026-11-18', 60);
-        self::assertSame(['pre2', 'pre1', 'd1', 'mid', 'last', 'post1'], array_column(array_intersect_key($positions, array_flip(['2026-11-19', '2026-11-20', '2026-11-21', '2026-11-22', '2026-11-23', '2026-11-24'])), 'position'));
+        self::assertSame(['pre2', 'pre1', 'd1', 'd2', 'last', 'post1'], array_column(array_intersect_key($positions, array_flip(['2026-11-19', '2026-11-20', '2026-11-21', '2026-11-22', '2026-11-23', '2026-11-24'])), 'position'));
         self::assertFalse($positions['2026-11-19']['in_block']);
         self::assertTrue($positions['2026-11-21']['in_block']);
         self::assertArrayNotHasKey('2026-11-18', $positions);
@@ -164,7 +164,7 @@ class DemandEventForecastTest extends TestCase
         $events = [['type' => 'LONG_WEEKEND', 'name' => '連休', 'start' => '2026-12-19', 'end' => '2026-12-21']];
         $factors = ['item' => ['LONG_WEEKEND' => ['pieces' => 500, 'positions' => [
             'pre1' => ['factor' => 1.5, 'factor_weekday' => 1.2], 'd1' => ['factor' => 1.1, 'factor_weekday' => 1.3],
-            'mid' => ['factor' => 1.8, 'factor_weekday' => 1.0], 'last' => ['factor' => 1.0, 'factor_weekday' => 1.0], 'post1' => ['factor' => 0.5, 'factor_weekday' => 0.6]]]]];
+            'd2' => ['factor' => 1.8, 'factor_weekday' => 1.0], 'last' => ['factor' => 1.0, 'factor_weekday' => 1.0], 'post1' => ['factor' => 0.5, 'factor_weekday' => 0.6]]]]];
         $days = app(DemandEventForecast::class)->attach($profile, $events, $factors)['event_forecast']['days'];
         $mean = $profile['mean'];
         self::assertSame(12.0, $days['2026-12-18']); // pre1 (Friday 10) × weekday factor
@@ -320,7 +320,7 @@ class DemandEventForecastTest extends TestCase
         self::assertSame('2026-10-19', $profile['anchor_date']);
         $events = [['type' => 'LONG_WEEKEND', 'name' => '文化の日連休', 'start' => '2026-10-31', 'end' => '2026-11-03']];
         $dated = app(DemandEventForecast::class)->attach($profile, $events, ['item' => ['LONG_WEEKEND' => ['pieces' => 500, 'positions' => [
-            'd1' => ['factor' => 2.0, 'factor_weekday' => 2.0], 'mid' => ['factor' => 2.0, 'factor_weekday' => 2.0], 'last' => ['factor' => 1.5, 'factor_weekday' => 1.5]]]]]);
+            'd1' => ['factor' => 2.0, 'factor_weekday' => 2.0], 'd2' => ['factor' => 2.0, 'factor_weekday' => 2.0], 'last' => ['factor' => 1.5, 'factor_weekday' => 1.5]]]]]);
         $policy = array_replace(InventoryProjectionTest::policy(), ['calculation_basis' => json_decode(json_encode(['mean_daily' => 10.0, 'batch_quantity_pieces' => 60, 'demand_profile' => $dated]), true)]);
         $inputs = InventoryProjectionTest::inputs();
         $opportunities = [];

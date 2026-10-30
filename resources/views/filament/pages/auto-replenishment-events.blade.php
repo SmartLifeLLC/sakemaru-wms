@@ -19,7 +19,7 @@
             <div class="ar-notice">
                 標準イベントは3つに固定：<b>年末年始 12/20〜1/7</b>・<b>お盆 8/3〜8/17</b>・<b>GW＝5/4を含む連続した土日祝＋前10日・後2日</b>。承認したイベントのうち、<b>商品別に適用したもの</b>だけが「おすすめ設定」の日付別予測に使われます（通常の発注条件＋直近イベント向けの追加発注の2段構え）。
                 適用した商品では、イベントの補正対象日（前後期間を含む）を平常水準の算定からも除外します。倍率は過去3年の販売実績から商品別に学習し、カテゴリの倍率は候補提示のみで数量には使いません。
-                <b>週次の流れ</b>：「今後9週のイベントを準備」（または月曜の自動実行・既定OFF）で、期間内のイベントを素案化 → 倍率を学習 → 過去の同じイベントで曜日別のみと補正ありを実際の計算で比較 → 担当者が承認（自動承認は既定OFF）→ 週次の再計算で発注点・補充目標に反映。
+                <b>週次の流れ</b>：「今後9週のイベントを準備」（または月曜の自動実行・既定OFF）で、期間内のイベントを素案化 → 倍率を学習（まず候補として保存）→ 過去の同じイベントで、適用した商品について曜日別のみと補正ありを週次運用と同じ条件で比較 → 担当者が承認（自動承認は既定OFF）。承認（または合格での承認維持）で候補の倍率が有効になり、不合格の再学習で使用中の倍率が変わることはありません → 週次の再計算で発注点・補充目標に反映。
                 全商品の一括学習：<code>php artisan wms:learn-demand-events {顧客ID} --apply</code>、商品別の適用の一括登録：<code>php artisan wms:set-item-demand-events {顧客ID} --from-learned --apply</code>
                 @if($trainedThrough)（最終学習 {{ $trainedThrough }}）@else（<b>未学習</b>：承認しても倍率がない商品は曜日別のままです）@endif
             </div>
@@ -59,10 +59,10 @@
                     <header><div>商品別の適用イベント <span>{{ count($itemRows) }}商品（自動発注設定のある商品）</span></div>
                         <div style="display:flex;gap:8px;align-items:center">
                             <input type="search" wire:model.live.debounce.400ms="itemFilter" placeholder="商品CD・商品名で絞り込み" style="width:220px">
-                            <button class="ar-btn" wire:click="applySuggestions" wire:loading.attr="disabled">候補にチェック（自社実績 本体平均1.3倍以上・2年以上）</button>
+                            <button class="ar-btn" wire:click="applySuggestions" wire:loading.attr="disabled">候補にチェック（目安：自社実績 本体平均1.3倍以上・2年以上）</button>
                             <button class="ar-btn primary" wire:click="saveItemEvents" wire:loading.attr="disabled" wire:confirm="商品別の適用イベントを保存します。適用した商品のおすすめ設定は週次の再計算または画面の再計算で変わります。よろしいですか？">商品別の適用を保存</button>
                         </div></header>
-                    <p class="ar-help" style="padding:6px 12px">チェックした商品だけ、そのイベントの倍率で予測し、補正対象日を平常水準から除外します。各セルの数値は学習済み倍率の「本体の平均（ピーク）／年数」、括弧内はカテゴリの平均（参考）。倍率が未学習の商品もチェックは可能で、学習後に反映されます。</p>
+                    <p class="ar-help" style="padding:6px 12px">チェックした商品だけ、そのイベントの倍率で予測し、補正対象日を平常水準から除外します。各セルの数値は学習済み倍率の「本体の平均（ピーク）／年数」（有効な倍率。無ければ候補の値）、括弧内はカテゴリの平均（参考）。「候補にチェック」は目安で、確定は店舗別の数量と検証結果で判断してください。倍率が未学習の商品もチェックは可能で、学習後に反映されます。</p>
                     <div class="ar-table-wrap" style="max-height:520px;overflow:auto">
                         <table>
                             <thead><tr><th>商品CD</th><th>商品名</th><th>カテゴリ</th>@foreach(\App\Services\AutoReplenishment\DemandEventCalendar::STANDARD_TYPES as $type)<th>{{ $typeLabels[$type] }}</th>@endforeach</tr></thead>
@@ -93,17 +93,17 @@
                 <header><div>{{ $year }}年のイベント <span>{{ $events->count() }}件（承認 {{ $events->where('status','APPROVED')->count() }}）</span></div></header>
                 <div class="ar-table-wrap">
                     <table>
-                        <thead><tr><th>状態</th><th>種別</th><th>名称</th><th>期間</th><th>前/後</th><th class="num">学習済み倍率（商品／カテゴリ）</th><th>過去実例での検証</th><th>承認</th><th class="ar-sticky">操作</th></tr></thead>
+                        <thead><tr><th>状態</th><th>種別</th><th>名称</th><th>期間</th><th>前/後</th><th class="num">有効な倍率（商品／カテゴリ）</th><th>過去実例での検証</th><th>承認</th><th class="ar-sticky">操作</th></tr></thead>
                         <tbody>
                         @forelse($events as $event)
-                            @php $counts = $profileCounts[$event->name] ?? $profileCounts[$event->type] ?? []; @endphp
+                            @php $stages = $profileCounts[$event->name] ?? $profileCounts[$event->type] ?? []; $counts = $stages['ACTIVE'] ?? []; $cand = $stages['CANDIDATE'] ?? []; @endphp
                             <tr>
                                 <td><span class="ar-badge {{ $statusClass[$event->status] ?? '' }}">{{ \App\Models\WmsDemandEvent::STATUSES[$event->status] ?? $event->status }}</span></td>
                                 <td>{{ $typeLabels[$event->type] ?? $event->type }}</td>
                                 <td>{{ $event->name }}@if($event->note)<br><small class="ar-help">{{ $event->note }}</small>@endif</td>
                                 <td class="ar-code">{{ $event->start_date->format('Y/m/d') }}〜{{ $event->end_date->format('m/d') }}（{{ $event->start_date->diffInDays($event->end_date) + 1 }}日）</td>
                                 <td class="num">{{ $event->pre_days }}/{{ $event->post_days }}</td>
-                                <td class="num">{{ number_format($counts['ITEM'] ?? 0) }}／{{ number_format($counts['CATEGORY'] ?? 0) }}@if($event->factor_trained_through)<br><small class="ar-help">学習 {{ $event->factor_trained_through->format('m/d') }}まで</small>@endif</td>
+                                <td class="num">{{ number_format($counts['ITEM'] ?? 0) }}／{{ number_format($counts['CATEGORY'] ?? 0) }}@if($event->factor_trained_through)<br><small class="ar-help">有効 {{ $event->factor_trained_through->format('m/d') }}まで</small>@endif @if($cand)<br><small class="ar-help">候補 {{ number_format($cand['ITEM'] ?? 0) }}（承認で有効化）</small>@endif</td>
                                 <td>
                                     @php $bt = $event->backtest; $pooled = $bt['pooled'] ?? null; $pct = fn ($v) => $v === null ? '—' : round($v * 100, 1).'%'; @endphp
                                     @if($bt)
@@ -129,7 +129,7 @@
                             </tr>
                             @if($preview && (int) $preview['event']->id === (int) $event->id)
                                 <tr><td colspan="9" style="background:#f8fafc">
-                                    <p class="ar-help"><b>{{ $event->name }}</b> の学習済み倍率（自動発注設定のある商品。平常の日平均に対する倍率。カテゴリ値は参考表示で数量には使いません）：商品 {{ $preview['items'] }}件・カテゴリ {{ $preview['categories'] }}件。期間平均倍率＝直近のおすすめ設定での「補正後の予測数量合計÷補正前の合計」（{{ $event->type === 'YEAR_END' ? '前半／ピーク／年始' : '前半／本体／後半' }}。適用済みで再計算済みの商品のみ）</p>
+                                    <p class="ar-help"><b>{{ $event->name }}</b> の学習済み倍率（自動発注設定のある商品。平常の日平均に対する倍率。カテゴリ値は参考表示で数量には使いません）：有効 商品 {{ $preview['items'] }}件・カテゴリ {{ $preview['categories'] }}件@if($preview['candidates'])・候補 {{ $preview['candidates'] }}件（未承認のため表示・数量とも未使用）@endif。期間平均倍率＝直近のおすすめ設定での「補正後の予測数量合計÷補正前の合計」（{{ $event->type === 'YEAR_END' ? '前半／ピーク／年始' : '前半／本体／後半' }}。適用済みで再計算済みの商品のみ）</p>
                                     <table style="width:auto;min-width:60%">
                                         <thead><tr><th>適用</th><th>商品CD</th><th>商品名</th><th>カテゴリ</th><th>出所</th><th class="num">ピーク倍率</th><th>ピーク日</th><th class="num">本体平均（学習値）</th><th>期間平均倍率（補正後÷補正前）</th><th class="num">学習年数</th><th class="num">観測バラ</th></tr></thead>
                                         <tbody>

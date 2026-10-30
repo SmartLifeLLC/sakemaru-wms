@@ -152,7 +152,7 @@ class ReplayEngineTest extends TestCase
         self::assertSame(0, $free['metrics']['held_recalcs']);
     }
 
-    public function test_saved_constraints_replace_the_order_bounds_and_the_event_add_on_unwinds_without_being_held(): void
+    public function test_fixed_bounds_is_a_comparison_only_and_the_event_add_on_unwinds_without_being_held(): void
     {
         $demand = $this->demand('2025-07-01', '2026-02-15');
         $series = $this->series($demand) + ['saved_policy' => ['reorder_point_pieces' => 50, 'target_stock_pieces' => 90, 'min_order_pieces' => 48, 'max_order_pieces' => 96, 'order_multiple_pieces' => 48]];
@@ -162,11 +162,11 @@ class ReplayEngineTest extends TestCase
             ['12-25', '12-26', '12-27', '12-28', '12-29', '12-30', '12-31', '01-02', '01-03', '01-04'],
             array_merge(array_fill(0, 7, ['factor' => 3.0, 'factor_weekday' => 3.0]), array_fill(0, 3, ['factor' => 0.5, 'factor_weekday' => 0.5])))]]];
         $scenario = ['name' => 'eventA', 'start' => '2025-10-06', 'end' => '2026-02-08', 'mode' => 'weekly', 'unit_mode' => 'CASE', 'safety_stock_days' => 5, 'review_days' => 7,
-            'variability_buffer' => false, 'events' => $events, 'factors' => $factors, 'segment_events' => $events, 'warmup_days' => 28, 'max_change_ratio' => 2.0, 'saved_constraints' => true];
+            'variability_buffer' => false, 'events' => $events, 'factors' => $factors, 'segment_events' => $events, 'warmup_days' => 28, 'max_change_ratio' => 2.0, 'fixed_bounds' => true];
         $result = app(ReplayEngine::class)->run($series, $scenario, $calendar);
         foreach (array_filter($result['recalcs'], fn ($r) => $r['available']) as $recalc) {
             self::assertSame([48, 96, 48], [$recalc['values']['min_order_pieces'], $recalc['values']['max_order_pieces'], $recalc['values']['order_multiple_pieces']]);
-            self::assertTrue($recalc['saved_constraints']);
+            self::assertTrue($recalc['fixed_bounds']);
         }
         foreach ($result['orders'] as $order) {
             self::assertSame(0, $order['pieces'] % 48);
@@ -182,10 +182,33 @@ class ReplayEngineTest extends TestCase
         self::assertGreaterThan($targets['2025-11-24'], $targets['2025-12-22']);
         self::assertLessThan($targets['2025-12-22'], $targets['2026-01-19']);
         self::assertNotContains('HELD', array_column(array_filter($result['recalcs'], fn ($r) => $r['date'] >= '2026-01-01'), 'outcome'));
-        // Without saved constraints the engine keeps the calculator's own bounds.
-        $free = app(ReplayEngine::class)->run($series, array_replace($scenario, ['saved_constraints' => false]), $calendar);
-        self::assertArrayNotHasKey('saved_constraints', $free['recalcs'][0]);
+        // The weekly operation (default) recalculates the bounds too, like RecommendationRefreshService does.
+        $free = app(ReplayEngine::class)->run($series, array_replace($scenario, ['fixed_bounds' => false]), $calendar);
+        self::assertArrayNotHasKey('fixed_bounds', $free['recalcs'][0]);
         self::assertNotSame(48, $free['recalcs'][0]['values']['min_order_pieces']); // calculator: one case (24) minimum
+        self::assertNotSame($free['recalcs'][0]['values'], $result['recalcs'][0]['values']);
+    }
+
+    /** R3: the weekly-operation replay uses the conditions the operator saved with the product, not the scenario defaults. */
+    public function test_saved_conditions_follow_the_product_basis_like_the_weekly_refresh(): void
+    {
+        $demand = $this->demand('2025-07-01', '2025-12-15');
+        $scenario = ['name' => 'base', 'start' => '2025-10-06', 'end' => '2025-11-16', 'mode' => 'weekly', 'unit_mode' => 'CASE', 'safety_stock_days' => 5, 'review_days' => 7,
+            'events' => [], 'segment_events' => [], 'warmup_days' => 0, 'max_change_ratio' => 2.0, 'saved_conditions' => true];
+        $basis = ['unit_mode' => 'PIECE', 'review_days' => 14, 'safety_stock_days' => 3];
+        $withBasis = $this->series($demand) + ['saved_policy' => ['reorder_point_pieces' => 50, 'target_stock_pieces' => 90, 'min_order_pieces' => 24, 'max_order_pieces' => 96, 'order_multiple_pieces' => 24, 'calculation_basis' => $basis]];
+        $withoutBasis = $this->series($demand);
+        $a = app(ReplayEngine::class)->run($withBasis, $scenario, ReplayCalendar::simple(2));
+        $b = app(ReplayEngine::class)->run($withoutBasis, $scenario, ReplayCalendar::simple(2));
+        self::assertSame(['unit_mode' => 'PIECE', 'review_days' => 14, 'safety_stock_days' => 3], $a['recalcs'][0]['saved_conditions']);
+        self::assertArrayNotHasKey('saved_conditions', $b['recalcs'][0]);
+        self::assertSame(1, $a['recalcs'][0]['values']['order_multiple_pieces']); // PIECE as saved, not CASE (24)
+        self::assertSame(24, $b['recalcs'][0]['values']['order_multiple_pieces']);
+        self::assertNotSame($a['recalcs'][0]['values']['target_stock_pieces'], $b['recalcs'][0]['values']['target_stock_pieces']); // 14-day review vs 7
+        // A product saved as PALLET falls back to AUTO, as the refresh does.
+        $pallet = $withBasis;
+        $pallet['saved_policy']['calculation_basis']['unit_mode'] = 'PALLET';
+        self::assertSame('AUTO', app(ReplayEngine::class)->run($pallet, $scenario, ReplayCalendar::simple(2))['recalcs'][0]['saved_conditions']['unit_mode']);
     }
 
     public function test_saved_mode_uses_the_production_setting_or_skips_the_series(): void

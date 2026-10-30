@@ -38,20 +38,22 @@ return new class extends Migration
             $table->index(['client_id', 'status', 'start_date'], 'wms_demand_events_status');
         });
         // Learned event factors per product (ITEM) or product category (CATEGORY = items.item_category3_id).
+        // stage: ACTIVE = used by the recommendation; CANDIDATE = latest learning result awaiting a passed backtest or an approval.
         Schema::connection('sakemaru')->create('wms_demand_event_profiles', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('client_id');
             $table->string('profile_key', 60);
             $table->string('scope_type', 10);
             $table->unsignedBigInteger('scope_id');
+            $table->string('stage', 10)->default('ACTIVE');
             $table->json('positions');
             $table->decimal('pieces', 14, 2)->default(0);
             $table->unsignedSmallInteger('instance_count')->default(0);
             $table->date('trained_through');
             $table->string('model_version', 32);
             $table->timestamps();
-            $table->unique(['client_id', 'profile_key', 'scope_type', 'scope_id'], 'wms_demand_event_profiles_scope');
-            $table->index(['client_id', 'scope_type', 'scope_id'], 'wms_demand_event_profiles_lookup');
+            $table->unique(['client_id', 'profile_key', 'scope_type', 'scope_id', 'stage'], 'wms_demand_event_profiles_scope');
+            $table->index(['client_id', 'stage', 'scope_type', 'scope_id'], 'wms_demand_event_profiles_lookup');
         });
         // Which standard events apply to which product (set at release, maintained by hand). No row = the event is not applied.
         Schema::connection('sakemaru')->create('wms_item_demand_events', function (Blueprint $table) {

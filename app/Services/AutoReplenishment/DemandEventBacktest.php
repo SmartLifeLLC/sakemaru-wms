@@ -10,23 +10,30 @@ use Carbon\CarbonImmutable;
 /**
  * Backtest of one upcoming event on its past instances (same holiday name when available, else same type):
  * factors are learned only from data before each past instance (leave-one-out), then the real calculators are
- * replayed over the instance with and without event factors, under the product's saved order constraints and
- * the store's delivery calendar when available.
+ * replayed over the instance with and without event factors, as the weekly operation would run them — the saved
+ * conditions of each product (unit mode, review days, safety days), every quantity recalculated through the same
+ * change guard, and the store's delivery calendar when available. Not reproduced: shipping-unit candidates and
+ * pallet constraints of 物流発注, open orders at the start, linked receipt history (the sales-based path is used).
  *
- * Scored on three windows — 事前確保 (the two weeks before the block), 本体 (block days) and 終了後 (two weeks
- * after the adjusted period) — pooled and per series, so an event that helps on average but hurts some
- * products or leaves stock after the event does not pass. Pure given the demand arrays; learning reads through
- * DemandEventLearningService (SELECT only). The evaluated year never feeds the level or the factors of its own replay.
+ * Two scopes: 'applied' = the series whose product has the event applied (the only ones the saved setting would
+ * adjust; the verdict comes from these) and 'candidate' = the other series with the event provisionally applied
+ * (information for choosing products; never part of the verdict). Scored on three windows — 事前確保 (two weeks
+ * before the adjusted period), 本体 (block days plus the post days) and 終了後 (two weeks after) — pooled and per
+ * series, so an event that helps on average but hurts some products or leaves stock after the event does not pass.
+ * Every adjusted date of the instance belongs to exactly one window. Pure given the demand arrays; learning reads
+ * through DemandEventLearningService (SELECT only). No day on or after a recalculation date feeds that recalculation.
  */
 class DemandEventBacktest
 {
-    public const VERSION = 'event-backtest-v2';
+    public const VERSION = 'event-backtest-v3';
 
     public const PRE_WINDOW_DAYS = 14;
 
     public const POST_WINDOW_DAYS = 14;
 
-    public const WINDOWS = ['pre' => '事前確保', 'block' => '本体', 'post' => '終了後'];
+    public const WINDOWS = ['pre' => '事前確保', 'block' => '本体（後日含む）', 'post' => '終了後'];
+
+    public const NOT_REPRODUCED = ['物流発注の出荷候補・パレット制約', '再生開始時点の既発注・入荷予定', '連携出庫実績（売上基準で算定）'];
 
     public function __construct(private DemandEventLearningService $learning, private ReplayEngine $engine, private DemandEventCalendar $calendar) {}
 
@@ -49,7 +56,8 @@ class DemandEventBacktest
     }
 
     /**
-     * @param  array  $seriesList  series arrays without demand (warehouse_id, item_id, capacity_case, labels, optional saved_policy / contractor_id)
+     * @param  array  $seriesList  series arrays without demand (warehouse_id, item_id, capacity_case, labels, optional saved_policy / contractor_id /
+     *                             applied_types = the standard event types applied to the product; absent = treated as applied)
      * @param  array  $demand  warehouse => item => date => pieces|null, covering windows()
      * @param  ReplayCalendar|\Closure|null  $calendar  one calendar for every series, or fn(array $series): ReplayCalendar (the store's delivery calendar); null = simple 2-day lead
      */
@@ -60,17 +68,18 @@ class DemandEventBacktest
         $instances = $this->pastInstances($event, $asOf, $years);
         $itemIds = array_values(array_unique(array_map(fn ($s) => (int) $s['item_id'], $seriesList)));
         $result = ['version' => self::VERSION, 'event' => array_intersect_key($event, array_flip(['type', 'name', 'start', 'end'])), 'as_of' => $asOf,
-            'instances' => [], 'pooled' => null, 'series' => null, 'verdict' => 'NO_DATA', 'reason' => null];
+            'instances' => [], 'pooled' => null, 'series' => null, 'candidate' => null, 'verdict' => 'NO_DATA', 'reason' => null];
         if (! $instances) {
             $result['reason'] = '過去に同じ種類のイベントがありません。';
 
             return $result;
         }
         $keys = $event['profile_keys'];
-        $totals = ['base' => $this->emptyWindows(), 'event' => $this->emptyWindows()];
+        $totals = ['applied' => ['base' => $this->emptyWindows(), 'event' => $this->emptyWindows()], 'candidate' => ['base' => $this->emptyWindows(), 'event' => $this->emptyWindows()]];
         $perSeries = [];
         $calendars = ['scheduled' => 0, 'simple' => 0];
-        $constrained = 0;
+        $withConditions = 0;
+        $appliedCount = 0;
         foreach ($instances as $instance) {
             // Leave-one-out: the factors come from data before this instance's adjusted period; the replay's level comes from the 90 days before each recalculation.
             $through = CarbonImmutable::parse($instance['start'])->subDays($instance['pre_days'] + 1)->toDateString();
@@ -98,56 +107,76 @@ class DemandEventBacktest
             $windows = $this->scoringWindows($instance);
             $start = CarbonImmutable::parse($windows['pre']['start'])->subDays(14)->toDateString(); // two weekly recalculations before the pre window
             $end = $windows['post']['end'];
-            $scenario = ['name' => 'base', 'start' => $start, 'end' => $end, 'mode' => 'weekly', 'unit_mode' => 'CASE', 'safety_stock_days' => 5, 'review_days' => 7,
-                'variability_buffer' => false, 'events' => [], 'factors' => null, 'segment_events' => $segmentEvents, 'warmup_days' => 0, 'max_change_ratio' => 2.0, 'saved_constraints' => true];
-            $perInstance = ['base' => $this->emptyWindows(), 'event' => $this->emptyWindows()];
-            $used = 0;
+            // Weekly operation: saved conditions per product, every quantity recalculated and passed through the same change guard as the refresh.
+            $scenario = ['name' => 'base', 'start' => $start, 'end' => $end, 'mode' => 'weekly', 'unit_mode' => 'CASE', 'safety_stock_days' => 5, 'review_days' => 7, 'saved_conditions' => true,
+                'variability_buffer' => false, 'events' => [], 'factors' => null, 'segment_events' => $segmentEvents, 'warmup_days' => 0, 'max_change_ratio' => 2.0];
+            $perInstance = ['applied' => ['base' => $this->emptyWindows(), 'event' => $this->emptyWindows()], 'candidate' => ['base' => $this->emptyWindows(), 'event' => $this->emptyWindows()]];
+            $used = ['applied' => 0, 'candidate' => 0];
             foreach ($seriesList as $s) {
                 $series = $s + ['demand' => $demand[$s['warehouse_id']][$s['item_id']] ?? []];
                 if (! $series['demand']) {
                     continue;
                 }
+                $applied = ! array_key_exists('applied_types', $s) || in_array($event['type'], (array) $s['applied_types'], true);
+                $scope = $applied ? 'applied' : 'candidate';
                 $seriesCalendar = $resolve($series);
                 $runs = ['base' => $this->engine->run($series, $scenario, $seriesCalendar),
                     'event' => $this->engine->run($series, array_replace($scenario, ['name' => 'eventA', 'events' => [$instance], 'factors' => $factors]), $seriesCalendar)];
-                $used++;
+                $used[$scope]++;
                 $calendars[$seriesCalendar->isScheduled() ? 'scheduled' : 'simple']++;
-                $constrained += is_array($series['saved_policy'] ?? null) ? 1 : 0;
+                $withConditions += is_array($series['saved_policy']['calculation_basis'] ?? null) ? 1 : 0;
                 $key = $series['warehouse_id'].'|'.$series['item_id'];
                 $perSeries[$key] ??= ['warehouse_id' => (int) $series['warehouse_id'], 'warehouse_code' => (string) ($series['warehouse_code'] ?? ''), 'item_id' => (int) $series['item_id'],
-                    'item_code' => (string) ($series['item_code'] ?? ''), 'item_name' => (string) ($series['item_name'] ?? ''), 'base' => $this->emptyWindows(), 'event' => $this->emptyWindows()];
+                    'item_code' => (string) ($series['item_code'] ?? ''), 'item_name' => (string) ($series['item_name'] ?? ''), 'applied' => $applied, 'base' => $this->emptyWindows(), 'event' => $this->emptyWindows()];
                 foreach ($runs as $label => $run) {
-                    $this->accumulateWindows($perInstance[$label], $run['days'], $windows);
+                    $this->accumulateWindows($perInstance[$scope][$label], $run['days'], $windows);
                     $this->accumulateWindows($perSeries[$key][$label], $run['days'], $windows);
                 }
             }
-            foreach (['base', 'event'] as $label) {
-                $this->mergeWindows($totals[$label], $perInstance[$label]);
+            foreach (['applied', 'candidate'] as $scope) {
+                foreach (['base', 'event'] as $label) {
+                    $this->mergeWindows($totals[$scope][$label], $perInstance[$scope][$label]);
+                }
             }
-            $result['instances'][] = ['start' => $instance['start'], 'end' => $instance['end'], 'name' => $instance['name'], 'learn_through' => $through, 'series' => $used,
+            $appliedCount = max($appliedCount, $used['applied']);
+            $result['instances'][] = ['start' => $instance['start'], 'end' => $instance['end'], 'name' => $instance['name'], 'learn_through' => $through, 'series' => $used['applied'], 'candidate_series' => $used['candidate'],
                 'windows' => array_map(fn ($w) => ['start' => $w['start'], 'end' => $w['end']], $windows),
-                'base' => $this->finishWindows($perInstance['base']), 'event' => $this->finishWindows($perInstance['event'])];
+                'base' => $this->finishWindows($perInstance['applied']['base']), 'event' => $this->finishWindows($perInstance['applied']['event']),
+                'candidate' => ['base' => $this->finishWindows($perInstance['candidate']['base']), 'event' => $this->finishWindows($perInstance['candidate']['event'])]];
             if ($progress) {
-                $progress($instance['name'].' '.$instance['start'].'：'.$used.'系列');
+                $progress($instance['name'].' '.$instance['start'].'：適用 '.$used['applied'].'系列・仮適用 '.$used['candidate'].'系列');
             }
         }
-        $pooled = ['base' => $this->finishWindows($totals['base']), 'event' => $this->finishWindows($totals['event'])];
+        $pooled = ['base' => $this->finishWindows($totals['applied']['base']), 'event' => $this->finishWindows($totals['applied']['event'])];
         $result['pooled'] = $pooled;
-        $result['series'] = $this->compareSeries($perSeries);
-        $result['conditions'] = ['calendars' => $calendars, 'constrained_series' => $constrained, 'pre_window_days' => self::PRE_WINDOW_DAYS, 'post_window_days' => self::POST_WINDOW_DAYS];
+        $result['series'] = $this->compareSeries(array_filter($perSeries, fn ($r) => $r['applied']));
+        $result['candidate'] = ['pooled' => ['base' => $this->finishWindows($totals['candidate']['base']), 'event' => $this->finishWindows($totals['candidate']['event'])],
+            'series' => $this->compareSeries(array_filter($perSeries, fn ($r) => ! $r['applied']))];
+        $result['conditions'] = ['calendars' => $calendars, 'series_with_saved_conditions' => $withConditions, 'applied_series' => $appliedCount,
+            'pre_window_days' => self::PRE_WINDOW_DAYS, 'post_window_days' => self::POST_WINDOW_DAYS, 'quantity_rule' => '週次更新と同じ（全数量を再計算し変化幅×2のガード）', 'not_reproduced' => self::NOT_REPRODUCED];
+        if ($appliedCount === 0) {
+            $result['verdict'] = 'NO_DATA';
+            $result['reason'] = 'このイベントを適用した商品がありません（商品別の適用イベントで登録すると判定します）。'.($result['candidate']['series']['scored'] > 0
+                ? sprintf('仮適用の参考：商品×店舗 %d のうち改善 %d・悪化 %d。', $result['candidate']['series']['scored'], $result['candidate']['series']['improved'], $result['candidate']['series']['worsened']) : '');
+
+            return $result;
+        }
         [$result['verdict'], $result['reason']] = $this->verdict($pooled, $result['series']);
 
         return $result;
     }
 
-    /** The three scoring windows of one past instance. */
+    /**
+     * The three scoring windows of one past instance. 事前確保 = pre days plus two weeks before them, 本体 = block days
+     * plus the post days, 終了後 = the two weeks after; together they cover every adjusted date exactly once.
+     */
     public function scoringWindows(array $instance): array
     {
         $start = CarbonImmutable::parse($instance['start']);
         $adjustedEnd = CarbonImmutable::parse($instance['end'])->addDays($instance['post_days']);
 
         return ['pre' => ['start' => $start->subDays($instance['pre_days'] + self::PRE_WINDOW_DAYS)->toDateString(), 'end' => $start->subDay()->toDateString()],
-            'block' => ['start' => $instance['start'], 'end' => $instance['end']],
+            'block' => ['start' => $instance['start'], 'end' => $adjustedEnd->toDateString()],
             'post' => ['start' => $adjustedEnd->addDay()->toDateString(), 'end' => $adjustedEnd->addDays(self::POST_WINDOW_DAYS)->toDateString()]];
     }
 

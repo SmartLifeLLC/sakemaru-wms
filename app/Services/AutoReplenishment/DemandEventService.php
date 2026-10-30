@@ -3,6 +3,7 @@
 namespace App\Services\AutoReplenishment;
 
 use App\Models\WmsDemandEvent;
+use App\Models\WmsDemandEventProfile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
@@ -72,6 +73,13 @@ class DemandEventService
             $event = WmsDemandEvent::where('client_id', $client)->lockForUpdate()->findOrFail($id);
             $event->fill(['status' => $status, 'updated_by' => $actorId,
                 'approved_by' => $status === 'APPROVED' ? $actorId : null, 'approved_at' => $status === 'APPROVED' ? now() : null]);
+            if ($status === 'APPROVED') {
+                // Approving accepts the factors shown with the event: candidate factors of its keys go into use.
+                $keys = $this->calendar->normalize([$event->toCalendarEvent()])[0]['profile_keys'];
+                if (app(DemandEventLearningService::class)->promote($client, $keys) > 0) {
+                    $event->factor_trained_through = WmsDemandEventProfile::where(['client_id' => $client, 'stage' => WmsDemandEventProfile::ACTIVE])->whereIn('profile_key', $keys)->max('trained_through');
+                }
+            }
             $event->save();
 
             return $event;

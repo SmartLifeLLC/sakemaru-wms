@@ -13,7 +13,7 @@ use Carbon\CarbonImmutable;
  */
 final class DemandEventLearner
 {
-    public const MODEL_VERSION = 'event-factors-v1';
+    public const MODEL_VERSION = 'event-factors-v2'; // v2: block days are learned per day (d1, d2, …, last), not as one shared 'mid'
 
     public const PRE_WINDOW_FROM = 35;
 

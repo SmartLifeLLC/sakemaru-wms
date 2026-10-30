@@ -5,6 +5,7 @@ namespace App\Services\AutoReplenishment;
 use App\Models\WmsNationalHoliday;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Bounded SELECT-only reads of past daily product sales (store totals) for event learning.
@@ -46,6 +47,15 @@ class DemandEventHistoryReader
     {
         return $this->cache['categories:'.$client] ??= DB::connection('sakemaru')->table('items')->where('client_id', $client)
             ->whereNotNull('item_category3_id')->pluck('item_category3_id', 'id')->map(fn ($v) => (int) $v)->all();
+    }
+
+    /** item => enabled standard event types (商品別の適用イベント); empty until the table exists. */
+    public function itemEventTypes(int $client): array
+    {
+        return $this->cache['item_events:'.$client] ??= Schema::connection('sakemaru')->hasTable('wms_item_demand_events')
+            ? DB::connection('sakemaru')->table('wms_item_demand_events')->where(['client_id' => $client, 'is_enabled' => true])->get(['item_id', 'event_type'])
+                ->groupBy('item_id')->map(fn ($rows) => $rows->pluck('event_type')->map(fn ($t) => (string) $t)->values()->all())->all()
+            : [];
     }
 
     /**

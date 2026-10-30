@@ -53,7 +53,8 @@ class DemandEventRepository
         }
         $includeCategory = $includeCategory || (bool) config('replenishment.demand_events.category_fallback', false);
         $category = $this->cache['category:'.$itemId] ??= DB::connection('sakemaru')->table('items')->where(['client_id' => $client, 'id' => $itemId])->value('item_category3_id');
-        $rows = WmsDemandEventProfile::where('client_id', $client)
+        // Factors in use only (ACTIVE) and of the current model version: candidates and stale layouts never reach the recommendation.
+        $rows = WmsDemandEventProfile::where(['client_id' => $client, 'stage' => WmsDemandEventProfile::ACTIVE, 'model_version' => DemandEventLearner::MODEL_VERSION])
             ->where(fn ($q) => $q->where(fn ($q) => $q->where('scope_type', 'ITEM')->where('scope_id', $itemId))
                 ->when($category, fn ($q) => $q->orWhere(fn ($q) => $q->where('scope_type', 'CATEGORY')->where('scope_id', (int) $category))))
             ->get();
