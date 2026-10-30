@@ -123,7 +123,7 @@
             $recommendationReady=$helperItem && !empty($this->form['contractor_id']) && !empty($this->form['supplier_id'])
                 && (in_array($this->form['channel'] ?? 'EOS', ['EOS', 'FAX'], true) || (!empty($this->form['source_warehouse_id']) && !empty($this->form['delivery_course_id'])));
         @endphp
-        <div class="ar-backdrop" wire:click="$set('showEditor', false)"></div><section class="ar-drawer ar-editor" role="dialog" aria-modal="true" aria-label="商品別発注設定" x-data="{ enabled: $wire.entangle('form.is_enabled').live }" x-trap.inert.noscroll="true" @keydown.escape.window="$wire.set('showEditor', false)">
+        <div class="ar-backdrop" wire:click="$set('showEditor', false)"></div><section class="ar-drawer ar-editor" role="dialog" aria-modal="true" aria-label="商品別発注設定" x-data="{ enabled: $wire.entangle('form.is_enabled').live, tab: 'basic' }" x-trap.inert.noscroll="true" @keydown.escape.window="$wire.set('showEditor', false)">
             <header><div><b>商品別発注設定</b><small>[{{ $warehouse?->code }}] {{ $warehouse?->name }}</small></div><button type="button" wire:click="$set('showEditor', false)" aria-label="閉じる">×</button></header><div class="ar-drawer-body">
                 <div class="ar-editor-product-row">
                     <div class="ar-editor-product"><span class="ar-code">{{ $helperItem?->code }}</span><strong>{{ $helperItem?->name ?? '商品を選択してください' }}</strong>@if($helperItem)<span class="ar-product-capacity">ケース {{ $helperItem->capacity_case }}入</span>@endif</div>
@@ -135,10 +135,14 @@
                 </div>
                 @if($faxReference)<p class="ar-help" role="status">FAX・参考計算のみ。自動発注はONにできません。表示した数量を手動発注の参考にしてください。納品曜日が未設定の場合は翌営業日（月〜土）入荷と仮定します。</p>@endif
                 @if(!$this->editingId)@include('filament.pages.auto-replenishment-item-picker')@endif
-                <section class="ar-editor-section ar-editor-main">
-                    {{-- 日常操作：安全在庫日数 → おすすめ設定 → グラフ。その他の設定は「詳細設定」へ --}}
+                <nav class="ar-editor-tabs" role="tablist" aria-label="商品別発注設定の表示切替">
+                    <button type="button" role="tab" :aria-selected="tab === 'basic'" :class="{ 'is-active': tab === 'basic' }" @click="tab = 'basic'">基本情報</button>
+                    <button type="button" role="tab" :aria-selected="tab === 'advanced'" :class="{ 'is-active': tab === 'advanced' }" @click="tab = 'advanced'" @disabled(!$helperItem)>詳細設定</button>
+                    @if($this->recommendationPreferencesChanged || $this->recommendationSafetyDays !== $this->appliedRecommendationSafetyDays)<span class="ar-help" role="status">算定条件を変更しました。「おすすめ設定」で再計算してください。</span>@endif
+                </nav>
+                <section class="ar-editor-section ar-editor-main" x-show="tab === 'basic'" role="tabpanel">
+                    {{-- 基本情報：安全在庫日数 → おすすめ設定 → グラフ。その他の設定は「詳細設定」タブへ --}}
                     @include('filament.pages.auto-replenishment-recommendation-actions')
-                    @if($this->recommendationPreferencesChanged || $this->recommendationSafetyDays !== $this->appliedRecommendationSafetyDays)<p class="ar-help" role="status">算定条件を変更しました。「おすすめ設定」で再計算してください。</p>@endif
                     @if(!$recommendationReady)<p class="ar-help">商品選択後に発注先・配送を自動入力します。特定できない場合は商品発注管理・移動配送コース設定を確認してください。</p>@endif
                     <p class="ar-loading" role="status" wire:loading wire:target="calculateSettings,selectRecommendationCandidate,recommendationUnitMode,recommendationReviewDays,recommendationSafetyDays,savePalletUnit,saveShippingQuantities,registerShippingHistory,form.shipping_unit_mode,form.order_unit_mode,selectItem,form.item_id,form.channel,form.contractor_id,form.supplier_id,form.source_warehouse_id,form.delivery_course_id">出荷・入荷実績を確認して、おすすめ設定を計算しています…</p>
                     <div class="ar-event-progress ar-help" wire:stream="eventProgress" wire:loading.class="is-busy" wire:target="learnProductEvents,calculateSettings"></div>
@@ -150,64 +154,57 @@
                         </div></details>
                     @endif
                 </section>
-                @if($this->showAdvanced)
-                    {{-- 詳細設定：発注単位・発注数量・イベント・発注方法・発注先 --}}
-                    <div class="ar-subdrawer-backdrop" wire:click="$set('showAdvanced', false)"></div>
-                    <section class="ar-subdrawer" role="dialog" aria-modal="true" aria-label="詳細設定" @keydown.escape.stop="$wire.set('showAdvanced', false)">
-                        <header><b>詳細設定</b><small>{{ $helperItem?->code }} {{ $helperItem?->name }}</small><button type="button" wire:click="$set('showAdvanced', false)" aria-label="閉じる">×</button></header>
-                        <div class="ar-subdrawer-body">
-                            @if(($this->form['channel'] ?? '') === 'LOGISTICS')@include('filament.pages.auto-replenishment-pallet')@endif
-                            <div class="ar-recommend-actions">
-                                <label title="{{ $orderUnit['reason'] ?? '商品を選択してください。' }}">発注単位<select wire:model.live="form.order_unit_mode" aria-label="発注単位" @disabled(!$helperItem)>
-                                    <option value="AUTO">自動判定（{{ $orderUnit['automatic_label'] ?? '商品選択後' }}）</option>
-                                    <option value="PIECE" @disabled(!($orderUnit['piece_orderable'] ?? false))>バラ発注{{ ($orderUnit['piece_orderable'] ?? false) ? '' : '（不可）' }}</option>
-                                    <option value="CASE">ケース発注</option>
-                                </select></label>
-                                @if(($this->recommendation['basis']['basis_type'] ?? '') === 'sales')
-                                    <label class="ar-review-days">売上基準の日数<input type="number" min="1" max="28" step="1" wire:model="recommendationReviewDays" aria-label="売上基準の日数"></label>
-                                @endif
-                                <label class="ar-strategy-label">発注方法<select wire:model.change="form.strategy_key"><option value="arrival_adaptive_v1">通常量をまとめて補充（欠品見込時は小口）</option><option value="arrival_batch_v1">まとめ発注（1回量固定）</option><option value="threshold_capped_v1">商品上限内の1回分を発注し、次回再判定</option><option value="threshold_v1">必要数が上限を超えたら全量保留</option></select></label>
+                <section class="ar-editor-section ar-editor-advanced" x-show="tab === 'advanced'" x-cloak role="tabpanel">
+                    {{-- 詳細設定：発注単位・発注方法・発注数量・イベント・発注先。保存は共通のフッターで --}}
+                    @if(($this->form['channel'] ?? '') === 'LOGISTICS')@include('filament.pages.auto-replenishment-pallet')@endif
+                    <div class="ar-recommend-actions">
+                        <label title="{{ $orderUnit['reason'] ?? '商品を選択してください。' }}">発注単位<select wire:model.live="form.order_unit_mode" aria-label="発注単位" @disabled(!$helperItem)>
+                            <option value="AUTO">自動判定（{{ $orderUnit['automatic_label'] ?? '商品選択後' }}）</option>
+                            <option value="PIECE" @disabled(!($orderUnit['piece_orderable'] ?? false))>バラ発注{{ ($orderUnit['piece_orderable'] ?? false) ? '' : '（不可）' }}</option>
+                            <option value="CASE">ケース発注</option>
+                        </select></label>
+                        @if(($this->recommendation['basis']['basis_type'] ?? '') === 'sales')
+                            <label class="ar-review-days">売上基準の日数<input type="number" min="1" max="28" step="1" wire:model="recommendationReviewDays" aria-label="売上基準の日数"></label>
+                        @endif
+                        <label class="ar-strategy-label">発注方法<select wire:model.change="form.strategy_key"><option value="arrival_adaptive_v1">通常量をまとめて補充（欠品見込時は小口）</option><option value="arrival_batch_v1">まとめ発注（1回量固定）</option><option value="threshold_capped_v1">商品上限内の1回分を発注し、次回再判定</option><option value="threshold_v1">必要数が上限を超えたら全量保留</option></select></label>
+                    </div>
+                    <p class="ar-help">発注単位・売上基準の日数を変えたら「おすすめ設定」で再計算してください。安全在庫日数は前の画面で入力します。</p>
+                    <details class="ar-quantity-input-panel" open wire:ignore.self wire:key="quantity-settings-{{ $this->form['item_id'] ?? 'new' }}">
+                        <summary>発注数量設定</summary>
+                        <div class="ar-quantity-input-content">
+                            <div class="ar-editor-quantities">
+                                @foreach(['reorder_point_pieces'=>'発注点','max_order_pieces'=>'最大発注数','min_order_pieces'=>'最小発注数','order_multiple_pieces'=>'最小発注単位','target_stock_pieces'=>'補充目標（任意）'] as $key=>$label)
+                                    @include('filament.pages.auto-replenishment-quantity-input')
+                                @endforeach
                             </div>
-                            <p class="ar-help">発注単位・売上基準の日数を変えたら「おすすめ設定」で再計算してください。安全在庫日数は前の画面で入力します。</p>
-                            <details class="ar-quantity-input-panel" open wire:ignore.self wire:key="quantity-settings-{{ $this->form['item_id'] ?? 'new' }}">
-                                <summary>発注数量設定</summary>
-                                <div class="ar-quantity-input-content">
-                                    <div class="ar-editor-quantities">
-                                        @foreach(['reorder_point_pieces'=>'発注点','max_order_pieces'=>'最大発注数','min_order_pieces'=>'最小発注数','order_multiple_pieces'=>'最小発注単位','target_stock_pieces'=>'補充目標（任意）'] as $key=>$label)
-                                            @include('filament.pages.auto-replenishment-quantity-input')
-                                        @endforeach
-                                    </div>
-                                    <div class="ar-quantity-help">
-                                        @include('filament.pages.auto-replenishment-setting-help')
-                                    </div>
-                                </div>
-                            </details>
-                            @include('filament.pages.auto-replenishment-event-setup')
-                    <details class="ar-settings-details" wire:ignore.self>
-                            <summary>発注先・配送</summary>
-                            <div class="ar-settings-details-content">
-                            @include('filament.pages.auto-replenishment-route-warnings', ['masterWarnings' => $routeWarnings ?? []])
-                            @php
-                                $routeDisplay = $routeOptions->where('contractor_id', (int) ($this->form['contractor_id'] ?? 0))->firstWhere('supplier_id', (int) ($this->form['supplier_id'] ?? 0));
-                                $sourceDisplay = $warehouses->firstWhere('id', (int) ($this->form['source_warehouse_id'] ?? 0));
-                                $courseDisplay = $courseOptions->firstWhere('delivery_course_id', (int) ($this->form['delivery_course_id'] ?? 0));
-                            @endphp
-                            <dl class="ar-route-summary" aria-label="商品の既定の発注先・配送">
-                                <div><dt>方式</dt><dd>{{ !$helperItem ? '商品選択後に表示' : (($this->form['channel'] ?? '') === 'LOGISTICS' ? '物流発注（店間）' : ($faxReference ? 'FAX・参考計算のみ' : 'EOS発注')) }}</dd></div>
-                                <div><dt>発注先</dt><dd>{{ $routeDisplay ? '['.$routeDisplay->code.'] '.$routeDisplay->name : ($helperItem ? '商品発注管理の設定を確認してください' : '—') }}</dd></div>
-                                <div><dt>仕入先</dt><dd>{{ $routeDisplay ? '['.$routeDisplay->supplier_code.'] '.$routeDisplay->supplier_name : '—' }}</dd></div>
-                                @if(($this->form['channel'] ?? '') === 'LOGISTICS')
-                                    <div><dt>移動元倉庫</dt><dd>{{ $sourceDisplay ? '['.$sourceDisplay->code.'] '.$sourceDisplay->name : '移動元の設定を確認してください' }}</dd></div>
-                                    <div class="ar-route-course"><dt>配送コース</dt><dd>{{ $courseDisplay ? '['.$courseDisplay->code.'] '.$courseDisplay->name : '移動配送コース設定を確認してください' }}@if($courseDisplay)<small>出庫リード日数：{{ $courseDisplay->picking_lead_days ?? '顧客既定' }}日</small>@endif</dd></div>
-                                @endif
-                            </dl>
-                            <p class="ar-help">商品発注管理・移動配送コース設定に従います。この画面では変更できません。</p>
+                            <div class="ar-quantity-help">
+                                @include('filament.pages.auto-replenishment-setting-help')
                             </div>
-                            </details>
                         </div>
-                        <footer><button type="button" class="ar-btn primary" wire:click="$set('showAdvanced', false)">閉じる（保存は元の画面で）</button></footer>
-                    </section>
-                @endif
+                    </details>
+                    @include('filament.pages.auto-replenishment-event-setup')
+                    <details class="ar-settings-details" wire:ignore.self>
+                    <summary>発注先・配送</summary>
+                    <div class="ar-settings-details-content">
+                    @include('filament.pages.auto-replenishment-route-warnings', ['masterWarnings' => $routeWarnings ?? []])
+                    @php
+                        $routeDisplay = $routeOptions->where('contractor_id', (int) ($this->form['contractor_id'] ?? 0))->firstWhere('supplier_id', (int) ($this->form['supplier_id'] ?? 0));
+                        $sourceDisplay = $warehouses->firstWhere('id', (int) ($this->form['source_warehouse_id'] ?? 0));
+                        $courseDisplay = $courseOptions->firstWhere('delivery_course_id', (int) ($this->form['delivery_course_id'] ?? 0));
+                    @endphp
+                    <dl class="ar-route-summary" aria-label="商品の既定の発注先・配送">
+                        <div><dt>方式</dt><dd>{{ !$helperItem ? '商品選択後に表示' : (($this->form['channel'] ?? '') === 'LOGISTICS' ? '物流発注（店間）' : ($faxReference ? 'FAX・参考計算のみ' : 'EOS発注')) }}</dd></div>
+                        <div><dt>発注先</dt><dd>{{ $routeDisplay ? '['.$routeDisplay->code.'] '.$routeDisplay->name : ($helperItem ? '商品発注管理の設定を確認してください' : '—') }}</dd></div>
+                        <div><dt>仕入先</dt><dd>{{ $routeDisplay ? '['.$routeDisplay->supplier_code.'] '.$routeDisplay->supplier_name : '—' }}</dd></div>
+                        @if(($this->form['channel'] ?? '') === 'LOGISTICS')
+                            <div><dt>移動元倉庫</dt><dd>{{ $sourceDisplay ? '['.$sourceDisplay->code.'] '.$sourceDisplay->name : '移動元の設定を確認してください' }}</dd></div>
+                            <div class="ar-route-course"><dt>配送コース</dt><dd>{{ $courseDisplay ? '['.$courseDisplay->code.'] '.$courseDisplay->name : '移動配送コース設定を確認してください' }}@if($courseDisplay)<small>出庫リード日数：{{ $courseDisplay->picking_lead_days ?? '顧客既定' }}日</small>@endif</dd></div>
+                        @endif
+                    </dl>
+                    <p class="ar-help">商品発注管理・移動配送コース設定に従います。この画面では変更できません。</p>
+                    </div>
+                    </details>
+                </section>
                 @foreach($errors->all() as $error)<p class="ar-error" role="alert">{{ $error }}</p>@endforeach
             </div><footer><span class="ar-editor-save-state">@if($faxReference)参考計算のみ・自動発注OFF
                 @else 保存後の自動発注：<b x-text="enabled ? 'ON' : 'OFF'"></b>@endif</span><button type="button" class="ar-btn" wire:click="$set('showEditor', false)">変更せず閉じる</button><button type="button" class="ar-btn danger" wire:click="savePolicy" @disabled($faxReference) wire:loading.attr="disabled" wire:target="savePolicy,calculateSettings,selectRecommendationCandidate,recommendationUnitMode,recommendationReviewDays,recommendationSafetyDays,savePalletUnit,saveShippingQuantities,registerShippingHistory,form.shipping_unit_mode,form.order_unit_mode,selectItem,form.item_id,form.channel,form.contractor_id,form.supplier_id,form.source_warehouse_id,form.delivery_course_id">設定を保存</button></footer>
