@@ -132,6 +132,26 @@ class ReconcileSavedRecommendationsCommandTest extends TestCase
         }
     }
 
+    public function test_gap_model_change_is_reported_even_when_quantities_match(): void
+    {
+        $policy = (array) DB::connection('sakemaru')->table('wms_item_reorder_policies')->where('id', 1)->first();
+        $policy['calculation_basis'] = json_decode($policy['calculation_basis'], true);
+        $service = Mockery::mock(SettingsRecommendationService::class);
+        $service->shouldReceive('recommend')->times(2)->andReturn(['available' => true,
+            'values' => $policy['calculation_basis']['suggested_values'],
+            'basis' => ['reorder_gap_model' => 'fixed-target-minimum-gap-v1', 'basis_type' => 'sales', 'batch_quantity_pieces' => 24, 'pallet_unit' => ['id' => 50]]]);
+        $command = app(\App\Console\Commands\AutoOrder\ReconcileSavedRecommendationsCommand::class);
+        $method = new \ReflectionMethod($command, 'reconcile');
+        foreach ([null, 'fixed-target-minimum-gap-v1'] as $version) {
+            $policy['calculation_basis']['reorder_gap_model'] = $version;
+            $r = $method->invoke($command, 6, $policy, $service, [2 => '2026-10-13']);
+            self::assertSame($version === null ? '再現不能' : '一致', $r['verdict']);
+            if ($version === null) {
+                self::assertStringContainsString('最低ギャップ計算版', $r['reason']);
+            }
+        }
+    }
+
     /** A JSON export of another environment carries that environment's policy ids: the binding is resolved by warehouse × product, never by id. */
     public function test_foreign_policy_ids_in_a_json_export_never_borrow_another_products_binding(): void
     {

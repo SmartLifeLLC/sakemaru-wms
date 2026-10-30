@@ -198,6 +198,7 @@ class ReconcileSavedRecommendationsCommand extends Command
             // schedule, the output unit, the quantity constraint. A different condition is 再現不能 even when the numbers happen to agree.
             $conditionGaps = array_filter([$coverageNote,
                 ($basis['quantity_model'] ?? null) !== ($result['basis']['quantity_model'] ?? null) ? '安全在庫の数量計算版が保存時と異なる' : null,
+                ($basis['reorder_gap_model'] ?? null) !== ($result['basis']['reorder_gap_model'] ?? null) ? '発注点の最低ギャップ計算版が保存時と異なる' : null,
                 $this->eventSignature($basis) !== $this->eventSignature($result['basis']) ? 'イベント条件（承認イベント・倍率の出所・倍率の学習版／学習終了日／内容）が保存時と異なる' : null,
                 isset($basis['review_schedule_fingerprint'], $result['basis']['review_schedule_fingerprint']) && $basis['review_schedule_fingerprint'] !== $result['basis']['review_schedule_fingerprint'] ? '倉庫の実行曜日・時刻が保存時と異なる' : null,
                 isset($basis['scope']['packing_unit']) && (int) $basis['scope']['packing_unit'] !== (int) ($result['basis']['scope']['packing_unit'] ?? 0) ? '発注単位（出力単位）が保存時と異なる' : null,

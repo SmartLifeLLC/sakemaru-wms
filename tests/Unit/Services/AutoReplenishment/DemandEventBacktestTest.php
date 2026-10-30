@@ -48,11 +48,14 @@ class DemandEventBacktestTest extends TestCase
         self::assertStringContainsString('適用した商品がありません', $none['reason']);
         self::assertNull($none['pooled']['base']['wape']);
         self::assertSame(2, $none['candidate']['series']['scored']);
-        self::assertSame(2, $none['candidate']['series']['improved']);
+        // A better forecast can still increase shortages when the fixed target lowers the reorder gate.
+        self::assertSame(0, $none['candidate']['series']['improved']);
+        self::assertSame(2, $none['candidate']['series']['worsened']);
         self::assertGreaterThan($none['candidate']['pooled']['event']['wape'], $none['candidate']['pooled']['base']['wape']);
         // One applied: the verdict is from that series only; the other is a candidate.
         $one = $backtest->run(6, $upcoming, [$series(1, ['YEAR_END']), $series(2, ['OBON'])], [2 => [1 => $demand, 2 => $demand]], '2026-10-30', 1, $calendarSimple);
-        self::assertSame('PASS', $one['verdict']);
+        self::assertSame('FAIL', $one['verdict']);
+        self::assertStringContainsString('本体の欠品が増える', $one['reason']);
         self::assertSame(1, $one['series']['scored']);
         self::assertSame(1, $one['candidate']['series']['scored']);
         self::assertSame(1, $one['conditions']['applied_series']);
@@ -62,7 +65,7 @@ class DemandEventBacktestTest extends TestCase
         self::assertSame($none['candidate']['pooled']['base']['wape'], $explicit['candidate']['pooled']['base']['wape']);
         // Series without the key (CLI / older callers) count as applied.
         $legacy = $backtest->run(6, $upcoming, [array_diff_key($series(1, []), ['applied_types' => 1])], [2 => [1 => $demand]], '2026-10-30', 1, $calendarSimple);
-        self::assertSame('PASS', $legacy['verdict']);
+        self::assertSame('FAIL', $legacy['verdict']);
         // Without a conditions provider the result states both what sales-only replay lacks and what no replay reproduces.
         self::assertSame('sales', $legacy['conditions']['inputs']);
         self::assertSame(array_merge(DemandEventBacktest::NOT_REPRODUCED_WITHOUT_INPUTS, DemandEventBacktest::NOT_REPRODUCED), $legacy['conditions']['not_reproduced']);
