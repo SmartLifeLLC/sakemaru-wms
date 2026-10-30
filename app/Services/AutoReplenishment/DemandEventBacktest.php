@@ -33,7 +33,11 @@ class DemandEventBacktest
 
     public const WINDOWS = ['pre' => '事前確保', 'block' => '本体（後日含む）', 'post' => '終了後'];
 
-    public const NOT_REPRODUCED = ['物流発注の出荷候補・パレット制約', '再生開始時点の既発注・入荷予定', '連携出庫実績（売上基準で算定）'];
+    /** What the replay still does not reproduce even with the production conditions provider (stated with every result). */
+    public const NOT_REPRODUCED = ['再生開始時点の実際の既発注・入荷予定（開始時は既発注なしと仮定）', '本番の未確定候補（PENDING/APPROVED の claims）', '過去時点のマスタ版（パレット入数・出荷数量候補・発注単位の出力条件は現在のマスタを過去へ適用）', '過去時点の配送カレンダー（現在の倉庫・発注先設定を過去へ適用）'];
+
+    /** What a replay without the production conditions provider additionally lacks. */
+    public const NOT_REPRODUCED_WITHOUT_INPUTS = ['物流発注の出荷候補・パレット制約', '連携入荷実績（売上基準で算定）'];
 
     public function __construct(private DemandEventLearningService $learning, private ReplayEngine $engine, private DemandEventCalendar $calendar) {}
 
@@ -61,7 +65,7 @@ class DemandEventBacktest
      * @param  array  $demand  warehouse => item => date => pieces|null, covering windows()
      * @param  ReplayCalendar|\Closure|null  $calendar  one calendar for every series, or fn(array $series): ReplayCalendar (the store's delivery calendar); null = simple 2-day lead
      */
-    public function run(int $client, array $event, array $seriesList, array $demand, string $asOf, int $years = 3, ReplayCalendar|\Closure|null $calendar = null, ?callable $progress = null): array
+    public function run(int $client, array $event, array $seriesList, array $demand, string $asOf, int $years = 3, ReplayCalendar|\Closure|null $calendar = null, ?callable $progress = null, ?callable $conditions = null): array
     {
         $calendar ??= ReplayCalendar::simple(2, [['12-31', '01-03']]);
         $resolve = $calendar instanceof \Closure ? $calendar : fn () => $calendar;
@@ -109,8 +113,11 @@ class DemandEventBacktest
             $start = CarbonImmutable::parse($windows['pre']['start'])->subDays(14)->toDateString(); // two weekly recalculations before the pre window
             $end = $windows['post']['end'];
             // Weekly operation: saved conditions per product, every quantity recalculated and passed through the same change guard as the refresh.
+            // Inputs: the production conditions provider when given (linked receipts of each window, output unit, pallet / shipping-quantity constraint
+            // per warehouse × product); the history window is the plain 90 days (the production lower bound would leave past years without data).
             $scenario = ['name' => 'base', 'start' => $start, 'end' => $end, 'mode' => 'weekly', 'unit_mode' => 'CASE', 'safety_stock_days' => 5, 'review_days' => 7, 'saved_conditions' => true,
-                'variability_buffer' => false, 'events' => [], 'factors' => null, 'segment_events' => $segmentEvents, 'warmup_days' => 0, 'max_change_ratio' => 2.0];
+                'variability_buffer' => false, 'events' => [], 'factors' => null, 'segment_events' => $segmentEvents, 'warmup_days' => 0, 'max_change_ratio' => 2.0,
+                'conditions_provider' => $conditions, 'history_not_before' => null];
             $perInstance = ['applied' => ['base' => $this->emptyWindows(), 'event' => $this->emptyWindows()], 'candidate' => ['base' => $this->emptyWindows(), 'event' => $this->emptyWindows()]];
             $used = ['applied' => 0, 'candidate' => 0];
             foreach ($seriesList as $s) {
@@ -158,7 +165,8 @@ class DemandEventBacktest
             'series' => $this->compareSeries(array_filter($perSeries, fn ($r) => ! $r['applied']))];
         arsort($unavailable);
         $result['conditions'] = ['calendars' => $calendars, 'series_with_saved_conditions' => $withConditions, 'applied_series' => $appliedCount, 'unavailable' => array_slice($unavailable, 0, 5, true),
-            'pre_window_days' => self::PRE_WINDOW_DAYS, 'post_window_days' => self::POST_WINDOW_DAYS, 'quantity_rule' => '週次更新と同じ（全数量を再計算し変化幅×2のガード）', 'not_reproduced' => self::NOT_REPRODUCED];
+            'pre_window_days' => self::PRE_WINDOW_DAYS, 'post_window_days' => self::POST_WINDOW_DAYS, 'quantity_rule' => '週次更新と同じ（全数量を再計算し変化幅×2のガード）',
+            'inputs' => $conditions ? 'production' : 'sales', 'not_reproduced' => $conditions ? self::NOT_REPRODUCED : array_merge(self::NOT_REPRODUCED_WITHOUT_INPUTS, self::NOT_REPRODUCED)];
         if ($appliedCount === 0) {
             $result['verdict'] = 'NO_DATA';
             $result['reason'] = 'このイベントを適用した商品がありません（商品別の適用イベントで登録すると判定します）。'.($result['candidate']['series']['scored'] > 0

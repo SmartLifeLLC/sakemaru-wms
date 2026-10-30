@@ -25,7 +25,7 @@ class DemandEventPipelineTest extends TestCase
         DemandEventRepository::resetInstalledFlag();
         $db->statement('CREATE TABLE warehouses (id INTEGER, client_id INTEGER, code INTEGER, name TEXT, is_active INTEGER, is_virtual INTEGER)');
         $db->statement('CREATE TABLE items (id INTEGER, client_id INTEGER, code INTEGER, name TEXT, capacity_case INTEGER, item_category3_id INTEGER)');
-        $db->statement('CREATE TABLE wms_item_reorder_policies (id INTEGER PRIMARY KEY, client_id INTEGER, warehouse_id INTEGER, item_id INTEGER, contractor_id INTEGER, channel TEXT, strategy_key TEXT, is_configured INTEGER, reorder_point_pieces INTEGER, target_stock_pieces INTEGER, min_order_pieces INTEGER, max_order_pieces INTEGER, order_multiple_pieces INTEGER, calculation_basis TEXT)');
+        $db->statement('CREATE TABLE wms_item_reorder_policies (id INTEGER PRIMARY KEY, client_id INTEGER, warehouse_id INTEGER, item_id INTEGER, contractor_id INTEGER, supplier_id INTEGER, source_warehouse_id INTEGER, delivery_course_id INTEGER, order_unit_mode TEXT, channel TEXT, strategy_key TEXT, is_configured INTEGER, reorder_point_pieces INTEGER, target_stock_pieces INTEGER, min_order_pieces INTEGER, max_order_pieces INTEGER, order_multiple_pieces INTEGER, calculation_basis TEXT)');
         $db->statement('CREATE TABLE stats_item_warehouse_daily_sales (business_date TEXT, warehouse_id INTEGER, item_id INTEGER, sales_piece_qty INTEGER)');
         $db->statement('CREATE TABLE stats_sales_csv_item_lines (id INTEGER PRIMARY KEY, client_id INTEGER, run_id INTEGER, period_type TEXT, source_system TEXT, business_date TEXT, warehouse_id INTEGER, item_id INTEGER, sales_quantity REAL)');
         $db->statement('CREATE TABLE wms_national_holidays (id INTEGER PRIMARY KEY, holiday_date TEXT, holiday_name TEXT, created_at TEXT, updated_at TEXT)');
@@ -62,12 +62,12 @@ class DemandEventPipelineTest extends TestCase
         self::assertSame(['GW'], array_column($pipeline->upcoming(6, '2027-03-01', 63)['proposals'], 'type'));
         self::assertSame(['OBON'], array_column($pipeline->upcoming(6, '2027-07-01', 63)['proposals'], 'type'));
         // Dry run: nothing written.
-        $dry = $pipeline->run(6, $asOf, 63, 1, false);
+        $dry = $pipeline->run(6, $asOf, 63, 1, false, null, null, false);
         self::assertSame(0, WmsDemandEvent::count());
         self::assertSame(['WOULD_PROPOSE'], array_column($dry['events'], 'action'));
         // No product has 年末年始 applied yet: the backtest cannot judge the saved setting (NO_DATA), the provisional comparison is reported separately,
         // and the learned factors are stored as candidates only — nothing is approved, nothing reaches the recommendation.
-        $unapplied = $pipeline->run(6, $asOf, 63, 1, true);
+        $unapplied = $pipeline->run(6, $asOf, 63, 1, true, null, null, false);
         $yearEnd = WmsDemandEvent::where('type', 'YEAR_END')->firstOrFail();
         self::assertSame(['PROPOSED', 'NEEDS_REVIEW'], array_column($unapplied['events'], 'action'));
         self::assertSame('DRAFT', $yearEnd->status);
@@ -84,7 +84,7 @@ class DemandEventPipelineTest extends TestCase
         // Apply the event to the product: the backtest now judges the setting the refresh would save, and the standard event is approved
         // automatically (types listed in config only); the candidate factors are promoted into use.
         \App\Models\WmsItemDemandEvent::create(['client_id' => 6, 'item_id' => 143024, 'event_type' => 'YEAR_END', 'is_enabled' => true]);
-        $result = $pipeline->run(6, $asOf, 63, 1, true);
+        $result = $pipeline->run(6, $asOf, 63, 1, true, null, null, false);
         $yearEnd = $yearEnd->fresh();
         self::assertSame('APPROVED', $yearEnd->status);
         self::assertSame(['ACTIVE'], WmsDemandEventProfile::where('profile_key', 'YEAR_END')->distinct()->pluck('stage')->all());
@@ -113,7 +113,7 @@ class DemandEventPipelineTest extends TestCase
         }
         // A custom event is never approved automatically.
         $custom = app(\App\Services\AutoReplenishment\DemandEventService::class)->save(6, ['type' => 'CUSTOM', 'name' => '歳末セール', 'start_date' => '2026-12-05', 'end_date' => '2026-12-07'], 1);
-        $withCustom = $pipeline->run(6, $asOf, 63, 1, true);
+        $withCustom = $pipeline->run(6, $asOf, 63, 1, true, null, null, false);
         $customEntry = array_values(array_filter($withCustom['events'], fn ($e) => ($e['event']['type'] ?? '') === 'CUSTOM'))[0];
         self::assertSame('NEEDS_REVIEW', $customEntry['action']);
         self::assertSame('DRAFT', $custom->fresh()->status);
@@ -126,12 +126,12 @@ class DemandEventPipelineTest extends TestCase
         self::assertSame(['YEAR_END'], array_column($options['events'], 'type')); // approved rows only, by start date
         self::assertEqualsWithDelta(3.0, $options['factors']['item']['YEAR_END']['positions']['12-30']['factor_weekday'], 0.05);
         // A second run keeps the approval and, on PASS, puts the re-learned factors into use.
-        $again = $pipeline->run(6, $asOf, 63, 1, true);
+        $again = $pipeline->run(6, $asOf, 63, 1, true, null, null, false);
         self::assertSame('KEPT_APPROVED', array_values(array_filter($again['events'], fn ($e) => ($e['event']['type'] ?? '') === 'YEAR_END'))[0]['action']);
         self::assertSame(2, WmsDemandEvent::count());
         self::assertSame(0, WmsDemandEventProfile::where(['profile_key' => 'YEAR_END', 'stage' => 'CANDIDATE'])->count());
         // Command output.
-        $code = Artisan::call('wms:prepare-demand-events', ['client' => 6, '--as-of' => $asOf]);
+        $code = Artisan::call('wms:prepare-demand-events', ['client' => 6, '--as-of' => $asOf, '--inputs' => 'sales']);
         $output = Artisan::output();
         self::assertSame(0, $code, $output);
         self::assertStringContainsString('年末年始', $output);
@@ -145,7 +145,7 @@ class DemandEventPipelineTest extends TestCase
         \App\Models\WmsItemDemandEvent::create(['client_id' => 6, 'item_id' => 143024, 'event_type' => 'YEAR_END', 'is_enabled' => true]);
         $asOf = '2026-11-16';
         $pipeline = app(DemandEventPipelineService::class);
-        $pipeline->run(6, $asOf, 63, 1, true); // learns + backtests; not approved (no auto types) → candidates only
+        $pipeline->run(6, $asOf, 63, 1, true, null, null, false); // learns + backtests; not approved (no auto types) → candidates only
         $yearEnd = WmsDemandEvent::where('type', 'YEAR_END')->firstOrFail();
         self::assertSame('DRAFT', $yearEnd->status);
         self::assertSame(['CANDIDATE'], WmsDemandEventProfile::where('profile_key', 'YEAR_END')->distinct()->pluck('stage')->all());
@@ -163,7 +163,7 @@ class DemandEventPipelineTest extends TestCase
         $backtest->shouldReceive('run')->andReturn(['version' => 'event-backtest-v3', 'event' => [], 'as_of' => $asOf, 'instances' => [], 'pooled' => null, 'series' => null, 'candidate' => null, 'verdict' => 'FAIL', 'reason' => '模擬の不合格']);
         $this->app->instance(\App\Services\AutoReplenishment\DemandEventBacktest::class, $backtest);
         DB::connection('sakemaru')->table('stats_item_warehouse_daily_sales')->where('business_date', '>=', '2026-10-01')->update(['sales_piece_qty' => 1]); // different data → different learning result
-        $failed = app(DemandEventPipelineService::class)->run(6, '2026-11-23', 63, 1, true);
+        $failed = app(DemandEventPipelineService::class)->run(6, '2026-11-23', 63, 1, true, null, null, false);
         $entry = array_values(array_filter($failed['events'], fn ($e) => ($e['event']['type'] ?? '') === 'YEAR_END'))[0];
         self::assertSame('NEEDS_REVIEW', $entry['action']);
         $yearEnd = $yearEnd->fresh();

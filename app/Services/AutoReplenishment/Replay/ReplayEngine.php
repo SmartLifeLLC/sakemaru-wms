@@ -13,7 +13,9 @@ use Carbon\CarbonImmutable;
  * Replays one warehouse × item series through the real recommendation and order calculations:
  * weekly (or once) `SettingsRecommendationCalculator`, daily `StrategyCalculator` (ArrivalBatchStrategy),
  * simulated orders arriving on their calendar dates, actual sales depleting stock.
- * Pure: no database, no writes. Inputs are arrays; the calendar owns any schedule lookups.
+ * Pure: no database, no writes. Inputs are arrays; the calendar owns any schedule lookups and the optional
+ * conditions provider (scenario['conditions_provider']) owns the production inputs that sales cannot give —
+ * linked receipts of the history window, the output unit, the warehouse × product quantity constraint.
  */
 final class ReplayEngine
 {
@@ -23,9 +25,12 @@ final class ReplayEngine
         private ProposalSafety $safety, private DemandEventCalendar $events) {}
 
     /**
-     * @param  array  $series  ['warehouse_id','item_id','capacity_case','demand' => [date => int|null], ...labels]
-     * @param  array  $scenario  ['name','start','end','mode' => 'weekly'|'fixed','unit_mode' => 'CASE'|'PIECE','safety_stock_days','review_days',
-     *                           'variability_buffer' => bool,'events' => [...],'factors' => ?callable(int $itemId): array,'segment_events' => [...],'warmup_days' => int]
+     * @param  array  $series  ['warehouse_id','item_id','capacity_case','demand' => [date => int|null], 'channel', 'route' => [...], ...labels]
+     * @param  array  $scenario  ['name','start','end','mode' => 'weekly'|'fixed'|'saved','unit_mode' => 'CASE'|'PIECE','safety_stock_days','review_days',
+     *                           'variability_buffer' => bool,'events' => [...],'factors' => ?callable(int $itemId): array,'segment_events' => [...],'warmup_days' => int,
+     *                           'conditions_provider' => ?callable(array $series, string $asOf, array $period): array (see ReplayDataReader::conditionsProvider),
+     *                           'history_not_before' => ?string (production lower bound of the history window; null = plain 90 days),
+     *                           'initial_supply' => [['date' => Y-m-d, 'pieces' => int], ...] (open supply at the start; default none)]
      */
     public function run(array $series, array $scenario, ReplayCalendar $calendar): array
     {
@@ -37,21 +42,48 @@ final class ReplayEngine
         $policy = null;
         $stock = null;
         $pending = [];
+        foreach ($scenario['initial_supply'] ?? [] as $supply) {
+            throw_unless(isset($supply['date'], $supply['pieces']) && is_int($supply['pieces']) && $supply['pieces'] >= 0, \RuntimeException::class, '開始時点の既発注（date, pieces）を確認してください。');
+            $pending[] = ['date' => CarbonImmutable::parse($supply['date'])->toDateString(), 'pieces' => $supply['pieces']];
+        }
         $rows = [];
         $orders = [];
         $recalcs = [];
         $mode = $scenario['mode'] ?? 'weekly';
         $maxChange = $scenario['max_change_ratio'] ?? null;
         $consecutiveHolds = 0;
+        $provider = $scenario['conditions_provider'] ?? null;
+        $channel = (string) ($series['route']['channel'] ?? $series['channel'] ?? 'EOS');
+        // Daily order conditions: the output unit and the quantity constraint of this warehouse × product (refreshed with every recalculation).
+        $packing = (int) ($series['packing_unit'] ?? 1);
+        $shippingUnit = is_array($series['shipping_unit'] ?? null) ? $series['shipping_unit'] : ['mode' => 'STANDARD'];
+        $conditions = ['channel' => $channel, 'provider' => $provider !== null, 'history_not_before' => $scenario['history_not_before'] ?? null,
+            'initial_supply_pieces' => array_sum(array_column($pending, 'pieces')), 'initial_supply_count' => count($pending),
+            'claims' => '再生が自ら生成した発注以外の未確定候補は無し（本番の PENDING/APPROVED 候補は入力していない）',
+            'masters' => $provider !== null ? '現在のマスタ（パレット入数・出荷数量候補・発注単位の出力条件）を過去日へ適用' : '系列に与えた値のみ'];
         if ($mode === 'saved') {
             // The production setting as saved (not recalculated); series without a usable saved setting are skipped.
             $saved = $series['saved_policy'] ?? null;
             if ($saved === null) {
                 return ['series' => array_diff_key($series, ['demand' => true]), 'scenario' => $scenario['name'], 'skipped' => '保存済みの数量条件がありません。', 'days' => [], 'orders' => [], 'recalcs' => [],
-                    'metrics' => (new ReplayMetrics)->summarize([], [], 0)];
+                    'conditions' => $conditions, 'metrics' => (new ReplayMetrics)->summarize([], [], 0)];
             }
-            $policy = $saved + ['channel' => $series['channel'] ?? 'EOS', 'is_enabled' => true, 'packing_unit' => 1, 'warehouse_id' => (int) $series['warehouse_id'], 'item_id' => (int) $series['item_id']];
-            $recalcs[] = ['date' => $scenario['start'], 'available' => true, 'reason' => '保存済み設定', 'values' => array_intersect_key($saved, array_flip(RecommendationChangeGuard::GUARDED)), 'outcome' => 'SAVED'];
+            $log = ['date' => $scenario['start'], 'available' => true, 'reason' => '保存済み設定', 'values' => array_intersect_key($saved, array_flip(RecommendationChangeGuard::GUARDED)), 'outcome' => 'SAVED'];
+            if ($provider !== null) {
+                try {
+                    $cond = $provider($series, $scenario['start'], ['start' => $start->subDays(self::HISTORY_DAYS)->toDateString(), 'end' => $start->subDay()->toDateString()]);
+                    $packing = (int) $cond['packing_unit'];
+                    $shippingUnit = $cond['shipping_unit'];
+                    $log['conditions'] = ['packing_unit' => $packing, 'shipping_unit' => $shippingUnit['mode'], 'order_unit' => $cond['order_unit']['label'] ?? null];
+                } catch (\RuntimeException $e) {
+                    throw_if($e instanceof \Illuminate\Database\QueryException, $e);
+
+                    return ['series' => array_diff_key($series, ['demand' => true]), 'scenario' => $scenario['name'], 'skipped' => $e->getMessage(), 'days' => [], 'orders' => [], 'recalcs' => [],
+                        'conditions' => $conditions, 'metrics' => (new ReplayMetrics)->summarize([], [], 0)];
+                }
+            }
+            $policy = $saved + $this->policyIdentity($series, $channel, $packing);
+            $recalcs[] = $log;
         }
         for ($day = $start; $day->lte($end); $day = $day->addDay()) {
             $date = $day->toDateString();
@@ -78,6 +110,11 @@ final class ReplayEngine
                         $consecutiveHolds = 0;
                     }
                 }
+                if ($recalc['policy'] !== null && $log['outcome'] !== 'HELD') {
+                    // The constraint and output unit follow the accepted recalculation (a held one keeps the previous conditions too).
+                    $packing = (int) $recalc['policy']['packing_unit'];
+                    $shippingUnit = $recalc['shipping_unit'];
+                }
                 $log['consecutive_holds'] = $consecutiveHolds;
                 $recalcs[] = $log;
             }
@@ -99,12 +136,14 @@ final class ReplayEngine
             $arrival = $calendar->arrivalFor($date);
             if ($policy !== null && $arrival !== null) {
                 $next = $calendar->nextArrivalAfter($date);
+                // Same shape as SnapshotReader: opening stock, every outstanding supply (today's receipt included) as incoming,
+                // today's receipt as incoming_today — the calculation adapter moves it into stock once, never twice.
                 $snapshot = ['stock' => $opening, 'incoming' => array_sum(array_column($pending, 'pieces')) + $received, 'incoming_today' => $received, 'claims' => 0,
-                    'packing_unit' => (int) $policy['packing_unit'], 'business_date' => $date, 'arrival_date' => $arrival,
-                    'next_arrival_date' => $next['arrival_date'] ?? null, 'shipping_unit' => ['mode' => 'STANDARD']];
+                    'packing_unit' => $packing, 'business_date' => $date, 'arrival_date' => $arrival,
+                    'next_arrival_date' => $next['arrival_date'] ?? null, 'shipping_unit' => $shippingUnit];
                 try {
                     $proposal = $this->strategy->calculate($policy, $snapshot);
-                    $this->safety->validate($policy, $proposal, (int) $policy['packing_unit'], ['mode' => 'STANDARD']);
+                    $this->safety->validate($policy, $proposal, $packing, $shippingUnit);
                 } catch (\RuntimeException $e) {
                     $proposal = ['phase' => 'HOLD', 'quantity' => 0, 'reason' => $e->getMessage(), 'formula' => []];
                 }
@@ -128,28 +167,57 @@ final class ReplayEngine
         }
 
         return ['series' => array_diff_key($series, ['demand' => true]), 'scenario' => $scenario['name'], 'days' => $rows, 'orders' => $orders, 'recalcs' => $recalcs,
-            'metrics' => (new ReplayMetrics)->summarize($rows, $orders, (int) ($scenario['warmup_days'] ?? 28), $recalcs)];
+            'conditions' => $conditions, 'metrics' => (new ReplayMetrics)->summarize($rows, $orders, (int) ($scenario['warmup_days'] ?? 28), $recalcs)];
     }
 
-    /** Build the calculator history from the series' past demand and the calendar, then recommend. */
+    /** Build the calculator history from the series' past demand, the calendar and the conditions provider, then recommend. */
     private function recommend(array $series, array $scenario, ReplayCalendar $calendar, string $date, ?array $previous): array
     {
         $log = ['date' => $date, 'available' => false, 'reason' => null, 'values' => null];
+        $shippingUnit = is_array($series['shipping_unit'] ?? null) ? $series['shipping_unit'] : ['mode' => 'STANDARD'];
         try {
             $schedule = $calendar->schedule($date);
             $periodEnd = CarbonImmutable::parse($date)->subDay();
             $periodStart = $periodEnd->subDays(self::HISTORY_DAYS - 1);
+            if (! empty($scenario['history_not_before'])) {
+                // Production lower bound of the history window (release constraint); the past replay normally leaves it off.
+                $periodStart = max($periodStart, CarbonImmutable::parse($scenario['history_not_before']));
+                throw_if($periodStart->gt($periodEnd), \RuntimeException::class, '算定対象期間の完了実績がありません。');
+            }
+            $period = ['start' => $periodStart->toDateString(), 'end' => $periodEnd->toDateString()];
             $daily = [];
             for ($d = $periodStart; $d->lte($periodEnd); $d = $d->addDay()) {
                 $daily[$d->toDateString()] = $series['demand'][$d->toDateString()] ?? null;
             }
             $capacity = (int) ($series['capacity_case'] ?? 0);
+            $channel = (string) ($series['route']['channel'] ?? $series['channel'] ?? 'EOS');
+            // Production inputs beyond sales: linked receipts of this window, the output unit as of this date, the quantity constraint.
+            $cond = isset($scenario['conditions_provider']) ? ($scenario['conditions_provider'])($series, $date, $period) : null;
+            $receipts = $cond['receipts'] ?? ($series['receipts'] ?? []);
+            $receipts = array_values(array_filter($receipts, fn ($r) => ($r['date'] ?? '') >= $period['start'] && ($r['date'] ?? '') <= $period['end'])); // never a receipt after the calculation date
+            $packing = (int) ($cond['packing_unit'] ?? $series['packing_unit'] ?? 1);
+            $orderUnit = $cond['order_unit'] ?? ($series['order_unit'] ?? null);
+            $scope = ['client_id' => (int) ($series['client_id'] ?? 0), 'warehouse_id' => (int) $series['warehouse_id'], 'warehouse_code' => (string) ($series['warehouse_code'] ?? ''),
+                'item_id' => (int) $series['item_id'], 'item_code' => (string) ($series['item_code'] ?? ''), 'channel' => $channel,
+                'contractor_id' => (int) ($cond['scope']['contractor_id'] ?? $series['route']['contractor_id'] ?? $series['contractor_id'] ?? 0),
+                'supplier_id' => (int) ($cond['scope']['supplier_id'] ?? $series['route']['supplier_id'] ?? 0),
+                'source_warehouse_id' => $cond['scope']['source_warehouse_id'] ?? $series['route']['source_warehouse_id'] ?? null,
+                'delivery_course_id' => $cond['scope']['delivery_course_id'] ?? $series['route']['delivery_course_id'] ?? null,
+                'capacity_case' => $capacity, 'packing_unit' => $packing, 'order_unit' => $orderUnit,
+                'order_unit_mode' => (string) ($cond['scope']['order_unit_mode'] ?? $series['route']['order_unit_mode'] ?? 'AUTO')];
             // Conditions: the scenario's, or — like the weekly refresh — the ones the operator saved with the product (unit mode, review days, safety days).
             // Only a basis saved by the recommendation (it carries safety_stock_days) counts as saved conditions — the same rule the weekly refresh uses to pick its candidates.
             $savedBasis = ! empty($scenario['saved_conditions']) && is_array($series['saved_policy']['calculation_basis'] ?? null) && isset($series['saved_policy']['calculation_basis']['safety_stock_days'])
                 ? $series['saved_policy']['calculation_basis'] : null;
-            $requestedUnit = $savedBasis ? (($savedBasis['unit_mode'] ?? 'AUTO') === 'PALLET' ? 'AUTO' : ($savedBasis['unit_mode'] ?? 'AUTO')) : ($scenario['unit_mode'] ?? 'CASE');
-            $unitMode = $requestedUnit === 'PIECE' || $capacity <= 0 ? 'PIECE' : $requestedUnit;
+            // A saved PALLET mode is advisory in production too: the weekly refresh passes AUTO and the route's pallet binding re-establishes
+            // PALLET with the registered pieces (constrainedOptions). With a conditions provider the replay does exactly that. Without one
+            // there is no binding to consult, so the saved PALLET stays and the calculator reports the production unavailability instead
+            // of silently downgrading to AUTO.
+            $requestedUnit = $savedBasis ? ($savedBasis['unit_mode'] ?? 'AUTO') : ($scenario['unit_mode'] ?? 'CASE');
+            if ($requestedUnit === 'PALLET' && $cond !== null) {
+                $requestedUnit = 'AUTO';
+            }
+            $unitMode = $requestedUnit === 'PIECE' || ($capacity <= 0 && $requestedUnit !== 'PALLET') ? 'PIECE' : $requestedUnit;
             $reviewDays = $savedBasis ? (int) ($savedBasis['review_days'] ?? 7) : (int) ($scenario['review_days'] ?? 7);
             $safetyDays = $savedBasis ? $savedBasis['safety_stock_days'] : ($scenario['safety_stock_days'] ?? 5);
             // Production definition (execution times included for scheduled calendars), never below the observed generation gaps.
@@ -158,14 +226,16 @@ final class ReplayEngine
             for ($i = 1; $i < min(count($generation), 15); $i++) {
                 $reviewInterval = max($reviewInterval, (int) CarbonImmutable::parse($generation[$i - 1])->diffInDays(CarbonImmutable::parse($generation[$i])));
             }
-            $history = ['scope' => ['client_id' => (int) ($series['client_id'] ?? 0), 'warehouse_id' => (int) $series['warehouse_id'], 'warehouse_code' => (string) ($series['warehouse_code'] ?? ''),
-                'item_id' => (int) $series['item_id'], 'item_code' => (string) ($series['item_code'] ?? ''), 'channel' => 'EOS', 'contractor_id' => 0, 'supplier_id' => 0, // sales-based path: no linked receipts are replayed
-                'source_warehouse_id' => null, 'delivery_course_id' => null, 'capacity_case' => $capacity, 'packing_unit' => 1, 'order_unit' => null, 'order_unit_mode' => 'AUTO'],
-                'period' => ['start' => $periodStart->toDateString(), 'end' => $periodEnd->toDateString()], 'receipts' => [], 'daily' => $daily, 'warnings' => [],
+            $history = ['scope' => $scope, 'period' => $period, 'receipts' => $receipts, 'daily' => $daily, 'warnings' => [],
                 'nominal_lead_days' => $schedule['nominal_lead_days'], 'review_interval_days' => min(7, $reviewInterval), 'review_weekdays' => $schedule['weekdays'],
                 'maximum_arrival_gap_days' => $schedule['maximum_gap_days'], 'arrival_schedule' => $schedule];
             $options = ['unit_mode' => $unitMode, 'review_days' => $reviewDays, 'safety_stock_days' => $safetyDays,
                 'existing_reorder_point' => $previous['reorder_point_pieces'] ?? null, 'variability_buffer' => (bool) ($scenario['variability_buffer'] ?? false)];
+            if ($cond !== null) {
+                // PALLET → unit_mode PALLET + pallet_pieces; SHIPMENT → AUTO + shipping_quantities; STANDARD → unchanged (SettingsRecommendationService::constrainedOptions).
+                $options = array_replace($options, $cond['options'] ?? []);
+                $shippingUnit = $cond['shipping_unit'] ?? $shippingUnit;
+            }
             if ($savedBasis) {
                 $log['saved_conditions'] = ['unit_mode' => $unitMode, 'review_days' => $reviewDays, 'safety_stock_days' => $safetyDays];
             }
@@ -176,10 +246,13 @@ final class ReplayEngine
                 $options['demand_events'] = ['events' => $events, 'factors' => $factors]; // category factors are dropped by the calculator unless category_fallback is on
             }
             $result = $this->calculator->calculate($history, $options);
+            $log['conditions'] = ['period' => $period, 'receipts' => count($receipts), 'basis_type' => $result['basis']['basis_type'] ?? null,
+                'unit_mode' => $options['unit_mode'], 'packing_unit' => $packing, 'order_unit' => $orderUnit['label'] ?? null, 'shipping_unit' => $shippingUnit['mode'],
+                'channel' => $channel, 'masters_as_of' => $cond['masters_as_of'] ?? null];
             if (! $result['available']) {
                 $log['reason'] = $result['basis']['reason'] ?? '算定不可';
 
-                return ['policy' => null, 'log' => $log];
+                return ['policy' => null, 'log' => $log, 'shipping_unit' => $shippingUnit];
             }
             $values = $result['values'];
             if (! empty($scenario['fixed_bounds']) && is_array($series['saved_policy'] ?? null)) {
@@ -192,20 +265,30 @@ final class ReplayEngine
                 $values['min_order_pieces'] = min($values['min_order_pieces'], $values['max_order_pieces']);
                 $log['fixed_bounds'] = true;
             }
-            $policy = $values + ['calculation_basis' => $result['basis'], 'channel' => 'EOS', 'is_enabled' => true, 'packing_unit' => 1,
-                'warehouse_id' => (int) $series['warehouse_id'], 'item_id' => (int) $series['item_id']];
+            $policy = $values + ['calculation_basis' => $result['basis'] + ($cond['basis'] ?? [])] + $this->policyIdentity($series, $channel, $packing);
             $log['available'] = true;
             $log['values'] = $values;
             $log['mean_daily'] = $result['basis']['mean_daily'] ?? null;
             $log['event_add_on'] = $result['basis']['event_adjustment']['target_add_on_pieces'] ?? 0;
             $log['selection'] = $result['basis']['demand_profile']['selection'] ?? null;
 
-            return ['policy' => $policy, 'log' => $log];
+            return ['policy' => $policy, 'log' => $log, 'shipping_unit' => $shippingUnit];
         } catch (\RuntimeException $e) {
+            // A business refusal (production message) makes the recalculation unavailable; a database failure is not a result and propagates.
+            throw_if($e instanceof \Illuminate\Database\QueryException, $e);
             $log['reason'] = $e->getMessage();
 
-            return ['policy' => null, 'log' => $log];
+            return ['policy' => null, 'log' => $log, 'shipping_unit' => $shippingUnit];
         }
+    }
+
+    /** The policy fields the daily strategy and the safety check read besides the quantities. */
+    private function policyIdentity(array $series, string $channel, int $packing): array
+    {
+        return ['channel' => $channel, 'is_enabled' => true, 'packing_unit' => $packing, 'client_id' => (int) ($series['client_id'] ?? 0),
+            'warehouse_id' => (int) $series['warehouse_id'], 'item_id' => (int) $series['item_id'],
+            'source_warehouse_id' => $series['route']['source_warehouse_id'] ?? null,
+            'strategy_key' => $series['saved_policy']['strategy_key'] ?? 'arrival_adaptive_v1'];
     }
 
     private function forecast(array $policy, string $date): ?float

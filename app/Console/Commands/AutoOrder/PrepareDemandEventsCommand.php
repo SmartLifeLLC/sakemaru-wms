@@ -12,7 +12,8 @@ class PrepareDemandEventsCommand extends Command
     protected $signature = 'wms:prepare-demand-events {client : 対象顧客ID}
         {--as-of= : 基準日（既定：今日）}
         {--horizon-days= : 対象期間（既定 config replenishment.demand_events.weekly_prepare.horizon_days＝63日）}
-        {--apply : 素案登録・倍率保存・検証結果と承認状態を保存（指定なしは確認のみ）}';
+        {--apply : 素案登録・倍率保存・検証結果と承認状態を保存（指定なしは確認のみ）}
+        {--inputs=production : 検証（過去再生）の算定入力（production=本番と同じ連携入荷実績・発注単位・パレット/出荷数量候補, sales=販売数量のみ）}';
 
     protected $description = '今後約9週の標準イベントを素案化し、倍率を学習、過去の同じイベントで検証する（週次・既定OFF）。自動承認は設定で有効化した種別のみ（既定なし）';
 
@@ -29,7 +30,9 @@ class PrepareDemandEventsCommand extends Command
             }
             $apply = (bool) $this->option('apply');
             $this->info(($apply ? '保存あり' : '確認のみ')."：{$asOf} から {$horizon} 日以内に始まるイベント");
-            $result = $pipeline->run($client, $asOf, $horizon, (int) config('replenishment.system_actor_id', 0), $apply, fn ($line) => $this->line('  '.$line));
+            throw_unless(in_array($this->option('inputs'), ['production', 'sales'], true), \RuntimeException::class, '--inputs は production または sales で指定してください。');
+            $result = $pipeline->run($client, $asOf, $horizon, (int) config('replenishment.system_actor_id', 0), $apply, fn ($line) => $this->line('  '.$line), null,
+                $this->option('inputs') === 'production' ? null : false);
             $rows = [];
             foreach ($result['events'] as $entry) {
                 $b = $entry['backtest'] ?? null;
