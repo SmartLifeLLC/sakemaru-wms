@@ -148,6 +148,7 @@ class InventoryProjection
             'outstanding_after_period' => array_sum(array_column($events, 'pieces')), 'demand' => $profile,
             'calendar' => $input['calendar'], 'capacity_case' => $snapshot['capacity_case'], 'quantity_type' => $snapshot['quantity_type'],
             'point' => $policy['reorder_point_pieces'], 'target' => $policy['target_stock_pieces'], 'observed_at' => $input['observed_at'],
+            'supply_warnings' => $input['snapshot']['supply_warnings'] ?? [],
             'simulation_at' => $snapshot['simulation_at'] ?? null];
     }
 }

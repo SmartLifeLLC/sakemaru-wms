@@ -52,6 +52,10 @@ class PolicySimulationService
             $snapshot = $snapshot ?: $this->reader->lastObservation();
         }
 
+        foreach ($snapshot['supply_warnings'] ?? [] as $warning) {
+            $formula[] = $warning['message'];
+        }
+
         $quantity = $proposal['phase'] === 'READY' ? $proposal['quantity'] : 0;
         $caseOrder = ($snapshot['quantity_type'] ?? '') === 'CASE';
 
@@ -63,6 +67,7 @@ class PolicySimulationService
             'quantity_type' => $caseOrder ? 'CASE' : 'PIECE',
             'order_unit' => $snapshot['order_unit'] ?? null,
             'master_warnings' => $snapshot['master_warnings'] ?? [],
+            'supply_warnings' => $snapshot['supply_warnings'] ?? [],
             'stock' => $snapshot['stock'] ?? null, 'incoming' => $snapshot['incoming'] ?? null, 'claims' => $snapshot['claims'] ?? null,
             'incoming_today' => $snapshot['incoming_today'] ?? 0,
             'incoming_transfer' => $snapshot['incoming_transfer'] ?? null, 'incoming_external' => $snapshot['incoming_external'] ?? null,
