@@ -53,7 +53,7 @@
                 <span @class(['ar-projection-risk'=>$chart['shortage_days']>0])>不足見込 <b>{{ $chart['shortage_days'] }}</b> 日</span>
             </div>
             <p class="ar-projection-caption">表示中の数量条件を固定した試算です。毎週の再計算で数量が変わる動きは含みません（イベント日の消費見込は日付別予測を使用）。</p>
-            <div class="ar-projection-legend"><span class="stock">━ 在庫</span><span class="demand">■ 消費</span><span class="receipt">■ 入荷</span><span class="order">◆ 発注</span><span class="deferred">○ 発注点未満・発注なし</span><span class="point">┄ 発注点</span><span class="target">━ 補充目標</span>@if($eventSpans)<span class="ar-projection-event-tag">■ イベント期間</span>@endif<small>数量：総バラ</small></div>
+            <div class="ar-projection-legend"><span class="stock">━ 在庫</span><span class="demand">■ 消費</span><span class="receipt">■ 入荷</span><span class="order">◆ 発注</span><span class="deferred">○ 発注点未満・発注なし</span><span class="point">┄ 発注点</span><span class="target">━ 過剰在庫線</span>@if($eventSpans)<span class="ar-projection-event-tag">■ イベント期間</span>@endif<small>数量：総バラ</small></div>
             @if($weekCount > 2)
                 <div class="ar-projection-zoom" role="group" aria-label="表示する週数">
                     <span>表示：</span>
@@ -73,7 +73,7 @@
                         <line x1="60" x2="{{ $chartRight }}" y1="{{ $y($value) }}" y2="{{ $y($value) }}" stroke="var(--ar-projection-grid)"/>
                         <text x="53" y="{{ $y($value)+4 }}" text-anchor="end" class="ar-projection-axis">{{ number_format($value) }}</text>
                     @endfor
-                    <line class="ar-projection-target-line" x1="60" x2="{{ $chartRight }}" y1="{{ $y($chart['target']) }}" y2="{{ $y($chart['target']) }}" stroke-width="1.7"><title>補充目標 {{ number_format($chart['target']) }}バラ</title></line>
+                    <line class="ar-projection-target-line" x1="60" x2="{{ $chartRight }}" y1="{{ $y($chart['target']) }}" y2="{{ $y($chart['target']) }}" stroke-width="1.7"><title>過剰在庫線 {{ number_format($chart['target']) }}バラ</title></line>
                     @if($chart['point'] !== $chart['target'])<line class="ar-projection-point-line" x1="60" x2="{{ $chartRight }}" y1="{{ $y($chart['point']) }}" y2="{{ $y($chart['point']) }}" stroke-width="1.7" stroke-dasharray="8 5"><title>発注点 {{ number_format($chart['point']) }}バラ</title></line>@endif
                     @foreach($days as $i=>$day)
                         @if($day['unmet']>0)<rect x="{{ $x($i) }}" y="{{ $top }}" width="60" height="{{ $bottom-$top }}" fill="#ef4444" opacity="0.07"/>@endif
@@ -86,7 +86,7 @@
                     <path d="{{ implode(' ',$path) }}" fill="none" stroke="#2563eb" stroke-width="2.7" stroke-linejoin="round"/>
                     @foreach($days as $i=>$day)
                         @if($day['ordered']>0)<path d="M{{ $x($i)+12 }},{{ $y($day['after_receipt'])-6 }} l6,6 -6,6 -6,-6 Z" fill="#8b5cf6" stroke="white" stroke-width="1.5"><title>{{ $orderText($day['ordered']) }}発注 → {{ $day['arrival_date'] }}入荷</title></path>
-                        @elseif($day['below_point'])<circle class="ar-projection-deferred" cx="{{ $x($i)+12 }}" cy="{{ $y($day['after_receipt']) }}" r="4" stroke-width="2"><title>{{ $day['reason'] }}</title></circle>@endif
+                        @elseif($day['below_point'])<circle class="ar-projection-deferred" cx="{{ $x($i)+12 }}" cy="{{ $y($day['after_receipt']) }}" r="4" stroke-width="2"><title>{{ str_replace('補充目標', '過剰在庫線', $day['reason']) }}</title></circle>@endif
                         <rect x="{{ $x($i) }}" y="14" width="62" height="232" fill="transparent" class="ar-projection-hit" tabindex="0" role="button"
                             aria-label="{{ $day['label'] }}：在庫{{ $day['stock'] }}、消費{{ $day['demand'] }}、入荷{{ $day['received'] }}、発注{{ $day['ordered'] }}バラ"
                             :class="{ selected: selected === {{ $i }} }"
@@ -97,10 +97,10 @@
                     <circle class="ar-projection-minimum" cx="{{ $minimumX }}" cy="{{ $y($chart['minimum_stock']) }}" r="4" fill="{{ $chart['low_stock_buffer'] ? '#b91c1c' : '#2563eb' }}" stroke="white" stroke-width="1.5"><title>最低在庫 {{ number_format($chart['minimum_stock']) }}バラ（{{ $chart['minimum_stock_date'] }} {{ $chart['minimum_stock_timing'] }}）</title></circle>
                     <text x="{{ $minimumX }}" y="{{ $y($chart['minimum_stock'])-9 }}" text-anchor="{{ $minimumX > $chartRight-80 ? 'end' : 'start' }}" class="ar-projection-line-label {{ $chart['low_stock_buffer'] ? 'ar-projection-risk' : 'stock' }}">最低 {{ number_format($chart['minimum_stock']) }}</text>
                     @if($chart['point'] === $chart['target'])
-                        <text x="68" y="{{ $y($chart['target'])-7 }}" class="ar-projection-line-label target">発注点・補充目標 {{ number_format($chart['target']) }}バラ</text>
+                        <text x="68" y="{{ $y($chart['target'])-7 }}" class="ar-projection-line-label target">発注点・過剰在庫線 {{ number_format($chart['target']) }}バラ</text>
                     @else
                         <text x="68" y="{{ $y($chart['point'])-7 }}" class="ar-projection-line-label point">発注点 {{ number_format($chart['point']) }}バラ</text>
-                        <text x="{{ $chartRight-10 }}" y="{{ $y($chart['target'])-7 }}" text-anchor="end" class="ar-projection-line-label target">補充目標 {{ number_format($chart['target']) }}バラ</text>
+                        <text x="{{ $chartRight-10 }}" y="{{ $y($chart['target'])-7 }}" text-anchor="end" class="ar-projection-line-label target">過剰在庫線 {{ number_format($chart['target']) }}バラ</text>
                     @endif
                 </svg>
             </div>
@@ -110,11 +110,11 @@
                         <b>{{ $day['label'] }}</b>@if($day['event'])<span class="ar-projection-event-tag">　{{ $day['event'] }}</span>@endif　{{ number_format($day['opening']) }} ＋ 入荷 <b class="receipt">{{ number_format($day['received']) }}</b> − 消費 {{ number_format(min($day['demand'],max(0,$day['after_receipt']))) }} ＝ <b>{{ number_format($day['stock']) }}バラ</b>
                         @if($day['received'])<small>入荷内訳：既発注 {{ number_format($day['existing_receipt']) }} ／ 今回の試算 {{ number_format($day['new_receipt']) }}バラ</small>@endif
                         @if($day['ordered'])<small class="order"><b>{{ $orderText($day['ordered']) }}発注</b> → {{ $day['arrival_date'] }}入荷 @if($day['picking_date'])（出庫 {{ $day['picking_date'] }}）@endif</small>
-                        @else<small><b class="deferred">{{ $day['below_point'] ? '○ 発注点未満・発注なし' : '発注なし' }}</b>：{{ $day['reason'] }}</small>@endif
+                        @else<small><b class="deferred">{{ $day['below_point'] ? '○ 発注点未満・発注なし' : '発注なし' }}</b>：{{ str_replace('補充目標', '過剰在庫線', $day['reason']) }}</small>@endif
                         @if(!$day['below_point'] && $day['stock']<$chart['point'])<small>この日は発注判定後の消費で発注点を下回ります。次の実行日に判定します。</small>@endif
                         <details class="ar-projection-decision"><summary>この日の発注判定を見る</summary>
                             <p>判定時の在庫 {{ number_format($day['after_receipt']) }} ／ 発注点 {{ number_format($chart['point']) }} ／ 入荷予定 {{ number_format($day['pending_at_decision']) }} ／ 未確定候補 {{ number_format($chart['claims']) }}バラ</p>
-                            @foreach($day['formula'] as $formula)<p>{{ $formula }}</p>@endforeach
+                            @foreach($day['formula'] as $formula)<p>{{ str_replace('補充目標', '過剰在庫線', $formula) }}</p>@endforeach
                         </details>
                         @if($day['event'] && $day['weekday_demand'] !== $day['demand'])<small>イベント補正：曜日型の消費 {{ number_format($day['weekday_demand']) }} → 日付別予測 {{ number_format($day['demand']) }}バラ</small>@endif
                         @if($day['unmet']>0)<small class="ar-projection-risk">消費見込 {{ number_format($day['demand']) }}バラのうち、{{ number_format($day['unmet']) }}バラ不足する見込みです。</small>@endif

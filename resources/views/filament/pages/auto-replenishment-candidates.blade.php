@@ -25,12 +25,12 @@
                     @if($available)
                         <dl class="ar-candidate-values">
                             <div><dt>通常の1回量</dt><dd>{{ number_format($candidateBatch) }}<small>バラ</small></dd></div>
-                            @foreach(['min_order_pieces'=>'最小発注数','max_order_pieces'=>'最大発注数','reorder_point_pieces'=>'発注点','order_multiple_pieces'=>'最小発注単位','target_stock_pieces'=>'補充目標'] as $candidateField=>$candidateFieldLabel)
+                            @foreach(['min_order_pieces'=>'最小発注数','max_order_pieces'=>'最大発注数','reorder_point_pieces'=>'発注点','order_multiple_pieces'=>'最小発注単位','target_stock_pieces'=>'過剰在庫線'] as $candidateField=>$candidateFieldLabel)
                                 <div><dt>{{ $candidateFieldLabel }}</dt><dd>{{ isset($candidateValues[$candidateField]) ? number_format($candidateValues[$candidateField]) : '—' }}</dd></div>
                             @endforeach
                         </dl>
                         <p class="ar-candidate-note">@if($candidateKey === 'sales')平均売上・出荷 {{ $candidateBasis['review_days'] ?? '—' }}日分。@else実績 {{ number_format($candidateBasis['own_receipt_count'] ?? 0) }}回・{{ number_format($candidateBasis['own_receipt_days'] ?? 0) }}日の参考値です。@endif @if($candidateMean > 0)通常量は約{{ number_format($candidateBatch/$candidateMean,1) }}日分。@endif</p>
-                    @else<p class="ar-candidate-note">{{ $candidateBasis['reason'] ?? 'この条件では算定できません。' }}</p>@endif
+                    @else<p class="ar-candidate-note">{{ str_replace('補充目標', '過剰在庫線', $candidateBasis['reason'] ?? 'この条件では算定できません。') }}</p>@endif
                 </article>
             @endforeach
         </div>
