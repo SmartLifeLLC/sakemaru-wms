@@ -17,6 +17,9 @@ class SnapshotReader
 
     private array $proposalCache = [];
 
+    /** Failed purchase linkages older than this many days are reported instead of blocking the snapshot. */
+    public const STALE_LINKAGE_DAYS = 30;
+
     private array $observation = [];
 
     public function lastObservation(): array
@@ -229,13 +232,21 @@ class SnapshotReader
             $ordered = $this->pieces((int) $group->first()->order_quantity, $group->first()->candidate_quantity_type, $group->first());
             throw_if($total > $ordered, \RuntimeException::class, '同じ発注候補の入荷予定数量が発注数量を超えています。管理者に重複・分割内容を確認してください。');
         }
-        $pendingReceipts = $this->forItem('external_receipts', $db->table('wms_order_incoming_schedules')->where('warehouse_id', $policy->warehouse_id)
-            ->where('order_source', '!=', 'TRANSFER')->whereNull('stock_transfer_id')->whereNull('transfer_candidate_id')
-            ->whereIn('status', ['CONFIRMED', 'TRANSMITTED'])->where('received_quantity', '>', 0)->whereNotNull('purchase_queue_id')
-            ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('purchase_create_queue as pq')->whereColumn('pq.id', 'wms_order_incoming_schedules.purchase_queue_id')
-                ->where(['pq.status' => 'FINISHED', 'pq.is_success' => true])->whereNotNull('pq.slip_number'))
-            ->when(! $readOnly && $db->transactionLevel() > 0, fn ($q) => $q->lockForUpdate()), 'item_id', (int) $policy->item_id);
-        throw_if($pendingReceipts->isNotEmpty(), \RuntimeException::class, '外部発注の仕入連携が未完了です。在庫反映の完了後に再計算してください。');
+        $pendingReceipts = $this->forItem('external_receipts', $db->table('wms_order_incoming_schedules as s')->where('s.warehouse_id', $policy->warehouse_id)
+            ->where('s.order_source', '!=', 'TRANSFER')->whereNull('s.stock_transfer_id')->whereNull('s.transfer_candidate_id')
+            ->whereIn('s.status', ['CONFIRMED', 'TRANSMITTED'])->where('s.received_quantity', '>', 0)->whereNotNull('s.purchase_queue_id')
+            ->leftJoin('purchase_create_queue as pq', 'pq.id', '=', 's.purchase_queue_id')
+            ->where(fn ($q) => $q->whereNull('pq.id')->orWhere('pq.status', '!=', 'FINISHED')->orWhere('pq.is_success', '!=', true)->orWhereNull('pq.slip_number'))
+            ->when(! $readOnly && $db->transactionLevel() > 0, fn ($q) => $q->lockForUpdate())
+            ->select(['s.id', 's.item_id', 's.expected_arrival_date', 's.received_quantity', 'pq.status as queue_status', 'pq.is_success']), 's.item_id', (int) $policy->item_id);
+        // A purchase linkage that failed for good (queue FINISHED without success) more than 30 days ago no longer describes the current stock:
+        // the store's stock has since been counted and sold through. It is reported, not a reason to refuse the calculation.
+        $staleBefore = Carbon::parse($businessDate)->subDays(self::STALE_LINKAGE_DAYS)->toDateString();
+        [$stale, $blocking] = $pendingReceipts->partition(fn ($s) => $s->queue_status === 'FINISHED' && ! $s->is_success && $s->expected_arrival_date !== null && (string) $s->expected_arrival_date < $staleBefore);
+        if ($stale->isNotEmpty()) {
+            $this->observation['stale_purchase_linkages'] = ['count' => $stale->count(), 'pieces' => (int) $stale->sum('received_quantity'), 'latest_arrival' => (string) $stale->max('expected_arrival_date')];
+        }
+        throw_if($blocking->isNotEmpty(), \RuntimeException::class, '外部発注の仕入連携が未完了です。在庫反映の完了後に再計算してください。');
         $unmatchedConfirmed = $this->forItem('unmatched', $db->table('wms_order_candidates as c')->where('c.warehouse_id', $policy->warehouse_id)->whereIn('c.status', ['CONFIRMED', 'EXECUTED'])
             ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('wms_order_incoming_schedules as s')->whereColumn('s.order_candidate_id', 'c.id'))
             ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('wms_replenishment_effects as e')->where('e.source_type', 'order')->whereColumn('e.source_id', 'c.id')->whereIn('e.state', ['COMPLETED', 'CANCELLED']))->select('c.item_id'), 'c.item_id', (int) $policy->item_id)->isNotEmpty();

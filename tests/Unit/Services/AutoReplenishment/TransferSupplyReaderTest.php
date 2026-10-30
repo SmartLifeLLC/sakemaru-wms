@@ -72,6 +72,8 @@ class TransferSupplyReaderTest extends TestCase
         parent::tearDown();
     }
 
+    private SnapshotReader $reader;
+
     private function insert(string $table, array $values): void
     {
         DB::connection('sakemaru')->table($table)->insert($values);
@@ -329,7 +331,9 @@ class TransferSupplyReaderTest extends TestCase
         $fingerprint->shouldReceive('fingerprint')->andReturn('test-route');
         $this->app->instance(JxRouteFingerprint::class, $fingerprint);
 
-        return (new SnapshotReader)->readForSimulation(new WmsItemReorderPolicy($policyValues + [
+        $this->reader = new SnapshotReader;
+
+        return $this->reader->readForSimulation(new WmsItemReorderPolicy($policyValues + [
             'client_id' => 6, 'warehouse_id' => 1, 'item_id' => 143024, 'contractor_id' => 10, 'supplier_id' => 10, 'channel' => 'EOS',
         ]));
     }
@@ -610,6 +614,21 @@ class TransferSupplyReaderTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('仕入連携が未完了');
         $this->snapshot();
+    }
+
+    /** A purchase linkage that failed for good more than 30 days ago is reported, not a reason to refuse the snapshot. */
+    public function test_external_receipt_with_an_old_failed_purchase_linkage_is_reported_instead_of_blocking(): void
+    {
+        $this->insert('purchase_create_queue', ['id' => 1, 'status' => 'FINISHED', 'is_success' => 0]); // failed (e.g. invalid supplier code), 5 months ago
+        $this->schedule(1, ['order_source' => 'MANUAL', 'expected_quantity' => 48, 'received_quantity' => 48, 'status' => 'TRANSMITTED', 'purchase_queue_id' => 1, 'expected_arrival_date' => '2026-05-08']);
+        $snapshot = $this->snapshot();
+        self::assertSame(0, $snapshot['incoming_external']);
+        self::assertSame(['count' => 1, 'pieces' => 48, 'latest_arrival' => '2026-05-08'], $this->reader->lastObservation()['stale_purchase_linkages']);
+        // The same failure within the last 30 days, or a queue still running, keeps blocking.
+        $this->schedule(2, ['order_source' => 'MANUAL', 'expected_quantity' => 24, 'received_quantity' => 24, 'status' => 'TRANSMITTED', 'purchase_queue_id' => 1, 'expected_arrival_date' => '2026-10-01']);
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('仕入連携が未完了');
+        (new SnapshotReader)->readForSimulation(new WmsItemReorderPolicy(['client_id' => 6, 'warehouse_id' => 1, 'item_id' => 143024, 'contractor_id' => 10, 'supplier_id' => 10, 'channel' => 'EOS']));
     }
 
     public function test_external_duplicate_schedules_are_held_instead_of_counting_the_same_order_twice(): void
