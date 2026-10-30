@@ -62,7 +62,7 @@ class SettingsRecommendationCalculatorTest extends TestCase
         self::assertSame(2100, $r['values']['min_order_pieces']);
         self::assertSame(2100, $r['values']['max_order_pieces']);
         self::assertSame(2400, $r['values']['target_stock_pieces']);
-        self::assertSame(1200, $r['values']['reorder_point_pieces']);
+        self::assertSame(300, $r['values']['reorder_point_pieces']);
         self::assertSame(7.0, $r['basis']['batch_coverage_days']);
         self::assertSame([], $r['basis']['samples']);
         $r = app(SettingsRecommendationCalculator::class)->calculate($h, ['review_days' => '3']);
@@ -266,7 +266,8 @@ class SettingsRecommendationCalculatorTest extends TestCase
         $h['nominal_lead_days'] = 8;
         $r = app(SettingsRecommendationCalculator::class)->calculate($h);
         self::assertSame(2028, $r['values']['target_stock_pieces']);
-        self::assertLessThan($r['values']['reorder_point_pieces'], $r['values']['target_stock_pieces']);
+        self::assertSame(1428, $r['values']['reorder_point_pieces']);
+        self::assertSame(600, $r['basis']['reorder_gap_required_pieces']);
     }
 
     public function test_registered_pallet_is_retained_and_does_not_round_inventory_target_to_an_extra_pallet(): void
@@ -277,7 +278,7 @@ class SettingsRecommendationCalculatorTest extends TestCase
         self::assertTrue($r['available']);
         self::assertSame(1728, $r['values']['order_multiple_pieces']);
         self::assertSame(1728, $r['values']['min_order_pieces']);
-        self::assertSame(1200, $r['values']['reorder_point_pieces']);
+        self::assertSame(300, $r['values']['reorder_point_pieces']);
         self::assertSame(2028, $r['values']['target_stock_pieces']);
         $h['receipts'] = [];
         $r = app(SettingsRecommendationCalculator::class)->calculate($h, ['unit_mode' => 'PALLET', 'pallet_pieces' => 1728]);
@@ -362,7 +363,7 @@ class SettingsRecommendationCalculatorTest extends TestCase
         self::assertSame('sales', $r['basis']['basis_type']);
         self::assertSame(24, $r['values']['order_multiple_pieces']);
         self::assertStringContainsString('パレットとは推定していません', $r['basis']['unit_basis']);
-        self::assertSame(1200, $r['values']['reorder_point_pieces']);
+        self::assertSame(300, $r['values']['reorder_point_pieces']);
         self::assertSame(2412, $r['values']['target_stock_pieces']);
     }
 
@@ -394,7 +395,7 @@ class SettingsRecommendationCalculatorTest extends TestCase
         $r = app(SettingsRecommendationCalculator::class)->calculate($h, ['unit_mode' => 'PIECE']);
         self::assertTrue($r['available']);
         self::assertSame(10, $r['basis']['protection_days']);
-        self::assertSame(20, $r['values']['reorder_point_pieces']);
+        self::assertSame(14, $r['values']['reorder_point_pieces']);
         self::assertSame(20, $r['values']['target_stock_pieces']);
         self::assertSame(6, $r['basis']['batch_quantity_pieces']);
         self::assertSame(6, $r['values']['min_order_pieces']);
@@ -422,7 +423,7 @@ class SettingsRecommendationCalculatorTest extends TestCase
         $h['review_weekdays'] = range(0, 6);
         $r = app(SettingsRecommendationCalculator::class)->calculate($h);
         self::assertSame(5, $r['basis']['protection_days']);
-        self::assertSame(1500, $r['values']['reorder_point_pieces']);
+        self::assertSame(1428, $r['values']['reorder_point_pieces']);
         self::assertSame(600, $r['basis']['review_interval_demand_pieces']);
         self::assertSame(2028, $r['values']['target_stock_pieces']);
         self::assertSame('receipts-or-sales-adaptive-batch-v8', $r['basis']['method']);
@@ -447,7 +448,7 @@ class SettingsRecommendationCalculatorTest extends TestCase
         $h['review_weekdays'] = [1, 4];
         $r = app(SettingsRecommendationCalculator::class)->calculate($h);
         self::assertTrue($r['available']);
-        self::assertSame(5, $r['values']['reorder_point_pieces']);
+        self::assertSame(4, $r['values']['reorder_point_pieces']);
         self::assertSame(8, $r['values']['target_stock_pieces']);
         self::assertSame(4, $r['values']['min_order_pieces']);
         self::assertSame(4, $r['values']['max_order_pieces']);
@@ -487,7 +488,7 @@ class SettingsRecommendationCalculatorTest extends TestCase
         self::assertSame('NO_ORDER', app(\App\Services\AutoReplenishment\StrategyCalculator::class)->calculate($p, $s)['phase']);
     }
 
-    public function test_delivery_gap_raises_only_target_and_preserves_quantity_conditions(): void
+    public function test_delivery_gap_changes_thresholds_but_preserves_order_quantity_conditions(): void
     {
         $h = $this->history();
         $h['daily'] = array_map(fn () => 2, $h['daily']);
@@ -513,7 +514,10 @@ class SettingsRecommendationCalculatorTest extends TestCase
         self::assertSame(40, $after['basis']['arrival_schedule']['distinct_arrival_count']);
         self::assertArrayNotHasKey('opportunities', $after['basis']['arrival_schedule']);
         self::assertArrayNotHasKey('arrival_dates', $after['basis']['arrival_schedule']);
-        foreach (['reorder_point_pieces', 'min_order_pieces', 'order_multiple_pieces', 'max_order_pieces'] as $field) {
+        self::assertSame(2, $before['values']['reorder_point_pieces']);
+        self::assertSame(6, $after['values']['reorder_point_pieces']);
+        self::assertSame(6, $after['basis']['reorder_gap_actual_pieces']);
+        foreach (['min_order_pieces', 'order_multiple_pieces', 'max_order_pieces'] as $field) {
             self::assertSame($before['values'][$field], $after['values'][$field]);
         }
         self::assertSame($before['basis']['batch_quantity_pieces'], $after['basis']['batch_quantity_pieces']);

@@ -134,12 +134,13 @@
                 <p>安全在庫日数は発注間隔ではありません。通常量をまとめて発注し、既発注も考慮します。</p>
                 <p>発注点は過剰在庫線・通常量・入荷まで{{ $basis['safety_lead_days'] }}日の消費見込@if(isset($basis['safety_lead_consumption_pieces']))（曜日別の最大 {{ number_format($basis['safety_lead_consumption_pieces']) }}バラ）@endifから算定。@if($basis['reorder_point_preserved'] ?? false)整合する既存の発注点を維持しました。@endif</p>
                 @if(($recommended['reorder_point_pieces'] ?? 0)>($recommended['target_stock_pieces'] ?? 0))<p class="ar-help">入荷までの出荷見込が通常量より多いため、現在庫で判定する発注点は入荷時の過剰在庫線より大きくなっています。</p>@endif
-                @if($point && $point < ($basis['normal_order_stock_pieces'] ?? 0)+1)<p class="ar-help ar-quantity-caution">入力中の発注点は算定した発注水準より低く、発注が遅くなる場合があります。</p>@endif
+                @if($point && $point < ($recommended['reorder_point_pieces'] ?? ($basis['normal_order_stock_pieces'] ?? 0)+1))<p class="ar-help ar-quantity-caution">入力中の発注点は算定した発注水準より低く、発注が遅くなる場合があります。</p>@endif
             @elseif($arrivalGap !== null)
                 <p>過剰在庫線には、{{ ($this->form['channel'] ?? '') === 'FAX' ? '参考条件' : '既存設定' }}での入荷間隔 最大{{ number_format($arrivalGap) }}日分の需要 ＋ 最小1回分も反映します。入荷遅延による不足を防げるとは限りません。</p>
             @elseif(isset($basis['review_interval_days']))
                 <p>発注点は入荷まで＋次の実行まで最大{{ $basis['review_interval_days'] }}日を考慮。過剰在庫線は「通常量＋1日分」と「次の実行までの需要＋最小1回分」の大きい方です。</p>
             @endif
+            @if(isset($basis['reorder_gap_required_pieces']))<p>最低ギャップ：最小発注数・平均消費2日分・パレット最小数量の最大値（出荷数量候補・出力単位も考慮）{{ number_format($basis['reorder_gap_required_pieces']) }}バラ。過剰在庫線を維持し、発注点を調整します。発注が遅くなる場合があるため在庫推移も確認してください。</p>@endif
             <p class="ar-help">日数換算は目安です。{{ $basis['unit_basis'] ?? '' }}</p>
             @if(str_contains(implode('', $basis['warnings'] ?? []),'直近28'))<p class="ar-help">直近の実績が少ないため、期間を広げて算定しています。</p>@endif
         </div>

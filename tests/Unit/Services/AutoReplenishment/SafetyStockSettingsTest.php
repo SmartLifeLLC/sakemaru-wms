@@ -122,8 +122,10 @@ class SafetyStockSettingsTest extends TestCase
         $h['nominal_lead_days'] = 10;
         $r = self::recommendation([], $h);
         self::assertSame(3888, $r['values']['target_stock_pieces']);
-        self::assertSame(4806, $r['values']['reorder_point_pieces']);
-        self::assertStringContainsString('入荷までの出荷見込が通常量より多い', implode('', $r['basis']['warnings']));
+        self::assertSame(3336, $r['values']['reorder_point_pieces']);
+        self::assertSame(4806, $r['basis']['reorder_point_before_gap']);
+        self::assertSame(552, $r['basis']['reorder_gap_required_pieces']);
+        self::assertStringContainsString('最低ギャップを確保するため発注点', implode('', $r['basis']['warnings']));
         $r = app(SettingsRecommendationCalculator::class)->calculate(self::history(), ['safety_stock_days' => 5, 'unit_mode' => 'PALLET', 'pallet_pieces' => 576]);
         self::assertSame(3888, $r['values']['target_stock_pieces']);
         self::assertSame(576, $r['values']['order_multiple_pieces']);
