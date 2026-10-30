@@ -1,7 +1,7 @@
 <div class="ar-projection-explanation">
     <strong>入力中の設定での試算</strong>
     @if($chart['simulation_at'] ?? null)<p>試算基準：{{ \Carbon\Carbon::parse($chart['simulation_at'])->format('Y/m/d H:i') }}（倉庫の設定時刻）。テスト画面も同じ基準です。実際の発注は実行時刻で再判定します。</p>@endif
-    <p>業務日 {{ $chart['start'] }}から14日間、{{ ($this->form['channel'] ?? '') === 'FAX' ? '表示した条件で手動発注した場合の参考推移です。FAXの自動発注はONにできません。' : '自動発注をONにした場合の動きです。' }}日付にマウスを重ねるか、選択すると内訳を表示します。</p>
+    <p>業務日 {{ $chart['start'] }}から{{ $chart['horizon_days'] ?? 14 }}日間、{{ ($this->form['channel'] ?? '') === 'FAX' ? '表示した条件で手動発注した場合の参考推移です。FAXの自動発注はONにできません。' : '自動発注をONにした場合の動きです。' }}日付にマウスを重ねるか、選択すると内訳を表示します。</p>
     <p>発注点は検討開始の目安です。下回っても、既発注・補充目標・最小数・通常量によって発注を見送る場合があります。</p>
             @if($chart['low_stock_buffer'])
                 <p class="ar-projection-warning" role="status"><strong>在庫の余裕を確認してください。</strong>

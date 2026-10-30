@@ -130,6 +130,24 @@ Schedule::command('wms:transmit-jx-order-documents')
 //     ->withoutOverlapping()
 //     ->appendOutputTo(storage_path('logs/incoming-receive-scheduled.log'));
 
+// 今後約9週のイベント準備（素案・倍率学習・過去実例での検証・標準イベントの自動承認）。config replenishment.demand_events.weekly_prepare.enabled で有効化
+Schedule::command('wms:prepare-demand-events '.(int) config('app.client_id', 0).' --apply')
+    ->weeklyOn(1, '04:20')
+    ->timezone('Asia/Tokyo')
+    ->when(fn () => (bool) config('replenishment.demand_events.weekly_prepare.enabled') && (int) config('app.client_id', 0) > 0)
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/replenishment-event-prepare.log'));
+
+// 自動発注おすすめ設定の週次再計算（承認済みイベント反映・変化幅ガード付き）。config replenishment.weekly_refresh.enabled で有効化
+Schedule::command('wms:refresh-replenishment-recommendations '.(int) config('app.client_id', 0).' --apply')
+    ->weeklyOn(1, '05:10')
+    ->timezone('Asia/Tokyo')
+    ->when(fn () => (bool) config('replenishment.weekly_refresh.enabled') && (int) config('app.client_id', 0) > 0)
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/replenishment-weekly-refresh.log'));
+
 Schedule::command('wms:eos-incoming-receive-scheduled')
     ->everyMinute()
     ->onOneServer()

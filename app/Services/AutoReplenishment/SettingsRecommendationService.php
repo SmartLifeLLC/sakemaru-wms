@@ -20,6 +20,11 @@ class SettingsRecommendationService
 
     private function calculate(int $clientId, int $warehouseId, array $route, array $options): array
     {
+        // Approved demand events and learned factors (two-tier setting); absent → weekday-only as before.
+        if (! array_key_exists('demand_events', $options)) {
+            $options['demand_events'] = app(DemandEventRepository::class)->recommendationOptions($clientId, (int) ($route['item_id'] ?? 0));
+        }
+        $options += ['variability_buffer' => (bool) config('replenishment.variability_buffer', false)];
         $master = null;
         if (($route['shipping_unit_mode'] ?? 'STANDARD') === 'PALLET') {
             $units = app(PalletUnitService::class);

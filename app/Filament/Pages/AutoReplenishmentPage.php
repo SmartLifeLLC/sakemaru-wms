@@ -1086,8 +1086,10 @@ abstract class AutoReplenishmentPage extends AdminPage
         $selectedOffCount = $selection->where('is_enabled', false)->count();
         $routeWarnings = $this->showEditor
             ? app(\App\Services\AutoReplenishment\MasterRouteWarnings::class)->forRoute($clientId, (int) $scopeWarehouseId, $this->form) : [];
+        // Last weekly refresh: the products held or failed, with reasons, so the operator can review them on this screen.
+        $weeklyRefresh = $screen === 'settings' && $warehouse ? app(\App\Services\AutoReplenishment\RecommendationRefreshService::class)->lastReport($clientId, (int) $scopeWarehouseId) : null;
 
-        return compact('screen', 'warehouse', 'warehouses', 'control', 'rows', 'run', 'detail', 'links', 'targets', 'selectedItem', 'orderUnit', 'itemOptions', 'itemSearchTerm', 'itemJanSearchTerm', 'itemSearchHasMore', 'routeOptions', 'courseOptions', 'routeWarnings', 'phaseCounts', 'listLinks', 'listTargets', 'selectedOnCount', 'selectedOffCount');
+        return compact('screen', 'warehouse', 'warehouses', 'control', 'rows', 'run', 'detail', 'links', 'targets', 'selectedItem', 'orderUnit', 'itemOptions', 'itemSearchTerm', 'itemJanSearchTerm', 'itemSearchHasMore', 'routeOptions', 'courseOptions', 'routeWarnings', 'phaseCounts', 'listLinks', 'listTargets', 'selectedOnCount', 'selectedOffCount', 'weeklyRefresh');
     }
 
     private function itemSelectionQuery(int $clientId, array $contractorIds): \Illuminate\Database\Query\Builder

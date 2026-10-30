@@ -123,6 +123,29 @@ class DemandProfileTest extends TestCase
         self::assertSame(1, $service->quantity($slow, '2026-10-24', 14));
     }
 
+    public function test_slow_movers_use_84_days_instead_of_28(): void
+    {
+        $service = new DemandProfile;
+        $period = ['start' => '2026-08-01', 'end' => '2026-10-29'];
+        $daily = [];
+        for ($i = 0, $d = CarbonImmutable::parse('2026-08-01'); $d->toDateString() <= '2026-10-29'; $d = $d->addDay(), $i++) {
+            $daily[$d->toDateString()] = $i % 2; // 0 and 1 alternating: 0.5 pieces a day
+        }
+        $selection = $service->select($daily, $period);
+        self::assertFalse($selection['fallback']);
+        self::assertTrue($selection['slow']);
+        self::assertCount(84, $selection['daily']);
+        self::assertSame('2026-08-07', array_key_first($selection['daily']));
+        $profile = $service->create($selection['daily'], $selection['fallback'], $selection['slow']);
+        self::assertSame('slow_84_days', $profile['selection']);
+        self::assertSame(84, $profile['observed_days']);
+        self::assertStringContainsString('84日', $profile['warnings'][0]);
+        // One piece a day or more keeps the 28-day window.
+        $busy = $service->select(array_map(fn ($v) => $v + 1, $daily), $period);
+        self::assertFalse($busy['slow']);
+        self::assertCount(28, $busy['daily']);
+    }
+
     public function test_corrupt_profiles_do_not_silently_use_another_demand_window(): void
     {
         $service = new DemandProfile;
@@ -171,7 +194,9 @@ class DemandProfileTest extends TestCase
         foreach ($graph['days'] as $day) {
             self::assertSame($service->quantity($profile, $day['date'], 1), $day['demand']);
         }
-        self::assertSame($service->quantity($profile, $graph['start'], 14), array_sum(array_column($graph['days'], 'demand')));
+        self::assertSame(InventoryProjection::horizonDays(), $graph['horizon_days']);
+        self::assertCount($graph['horizon_days'], $graph['days']);
+        self::assertSame($service->quantity($profile, $graph['start'], 14), array_sum(array_column(array_slice($graph['days'], 0, 14), 'demand')));
         $preview = app(PolicySimulationService::class)->simulate(new WmsItemReorderPolicy($policy));
         $batch = app(StrategyCalculator::class)->calculate($policy, $snapshot);
         self::assertSame($graph['days'][0]['phase'], $preview['phase']);

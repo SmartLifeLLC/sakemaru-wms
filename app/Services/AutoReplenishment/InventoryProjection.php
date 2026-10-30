@@ -7,8 +7,22 @@ use Carbon\CarbonImmutable;
 /** Pure, bounded simulation; no writer, queue, cache or database access. */
 class InventoryProjection
 {
+    public const DEFAULT_DAYS = 14;
+
+    public const MAX_DAYS = 98;
+
+    /** Configured chart span (10 weeks by default), bounded to what the dated forecast and arrival calendar cover. */
+    public static function horizonDays(): int
+    {
+        $days = filter_var(config('replenishment.projection_days', 70), FILTER_VALIDATE_INT, ['options' => ['min_range' => self::DEFAULT_DAYS, 'max_range' => self::MAX_DAYS]]);
+
+        return $days === false ? self::DEFAULT_DAYS : $days;
+    }
+
     public function calculate(array $policy, array $input): array
     {
+        $horizon = filter_var($input['horizon_days'] ?? self::DEFAULT_DAYS, FILTER_VALIDATE_INT, ['options' => ['min_range' => self::DEFAULT_DAYS, 'max_range' => self::MAX_DAYS]]);
+        throw_if($horizon === false, \RuntimeException::class, '在庫推移の表示日数を確認してください。');
         foreach (['reorder_point_pieces', 'min_order_pieces', 'max_order_pieces', 'order_multiple_pieces', 'target_stock_pieces'] as $key) {
             $value = $policy[$key] ?? null;
             if ($key === 'target_stock_pieces' && ($value === null || $value === '')) {
@@ -54,7 +68,13 @@ class InventoryProjection
         $minimumTiming = '入荷前';
         $arrivals = $input['calendar']['arrivals'];
         $dates = array_keys($arrivals);
-        for ($offset = 0; $offset < 14; $offset++) {
+        $eventNames = [];
+        foreach ($profile['event_forecast']['events'] ?? [] as $event) {
+            for ($day = CarbonImmutable::parse($event['start']); $day->toDateString() <= $event['end']; $day = $day->addDay()) {
+                $eventNames[$day->toDateString()] ??= $event['name'];
+            }
+        }
+        for ($offset = 0; $offset < $horizon; $offset++) {
             $date = $start->addDays($offset);
             $key = $date->toDateString();
             $opening = $stock;
@@ -95,6 +115,7 @@ class InventoryProjection
                 }
             }
             $demand = $forecast->quantity($profile, $key, 1);
+            $weekdayDemand = isset($profile['event_forecast']) ? (int) round($profile['weekdays'][$date->dayOfWeek]['mean']) : $demand;
             // Missing sales do not create fictitious inventory debt. Actual negatives remain visible.
             $unmet = max(0, $demand - max(0, $stock));
             $stock = $stock < 0 ? $stock : max(0, $stock - $demand);
@@ -110,13 +131,15 @@ class InventoryProjection
                 'received' => $received, 'existing_receipt' => $existing, 'new_receipt' => $new, 'ordered' => $ordered,
                 'arrival_date' => $ordered ? $arrival : null, 'picking_date' => $picking, 'phase' => $proposal['phase'], 'reason' => $proposal['reason'],
                 'below_point' => $afterReceipt < $policy['reorder_point_pieces'], 'pending_at_decision' => $pendingAtDecision,
+                'event' => $eventNames[$key] ?? null, 'weekday_demand' => $weekdayDemand,
                 'formula' => $proposal['formula'] ?? []];
         }
 
         $safetyStock = max(0, (int) ($policy['calculation_basis']['safety_stock_pieces'] ?? 0));
         $minimumDayDemand = $rows[array_search($minimumDate, array_column($rows, 'date'), true)]['demand'];
 
-        return ['days' => $rows, 'orders' => $orders, 'start' => $start->toDateString(), 'end' => $start->addDays(13)->toDateString(),
+        return ['days' => $rows, 'orders' => $orders, 'start' => $start->toDateString(), 'end' => $start->addDays($horizon - 1)->toDateString(), 'horizon_days' => $horizon,
+            'events' => array_values(array_filter($profile['event_forecast']['events'] ?? [], fn ($e) => $e['end'] >= $start->toDateString() && $e['start'] <= $start->addDays($horizon - 1)->toDateString())),
             'initial_stock' => $snapshot['stock'], 'end_stock' => $stock, 'order_count' => count($orders), 'shortage_days' => $shortageDays,
             'minimum_stock' => $minimumStock, 'minimum_stock_date' => $minimumDate, 'minimum_stock_timing' => $minimumTiming,
             'minimum_day_demand' => $minimumDayDemand, 'safety_stock_pieces' => $safetyStock,

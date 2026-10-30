@@ -11,7 +11,7 @@
                 @else<span class="ar-badge {{ $warehouse->is_auto_order_enabled ? 'green' : '' }}">倉庫 {{ $warehouse->is_auto_order_enabled ? 'ON' : 'OFF' }}</span>@endif
             @endif</div>
             <nav class="ar-tabs">
-                @foreach(['settings'=>'商品別発注設定','checklist'=>'確認リスト','history'=>'自動発注履歴'] as $key=>$name)
+                @foreach(['settings'=>'商品別発注設定','checklist'=>'確認リスト','history'=>'自動発注履歴','events'=>'イベント設定'] as $key=>$name)
                     <a href="/admin/auto-order/{{ $key }}" class="{{ $screen === $key ? 'active' : '' }}">{{ $name }}</a>
                 @endforeach
             </nav>
@@ -41,6 +41,26 @@
                     <button class="ar-btn" wire:click="requestConfirmation('{{ $control?->enabled ? 'global-off' : 'global-on' }}')" @disabled(!$control || $control->reset_state !== 'COMPLETE')>全体 {{ $control?->enabled ? 'OFFにする' : 'ONにする' }}</button>
                     <button class="ar-btn primary" wire:click="editPolicy" @disabled(!$control || $control->reset_state !== 'COMPLETE')>商品設定を追加</button>
                 </div>
+                @if($weeklyRefresh)
+                    @php $wr = $weeklyRefresh; $ws = $wr['summary']; $outcomeLabels = ['HELD' => '保留', 'ERROR' => 'エラー', 'UNAVAILABLE' => '算定不可']; @endphp
+                    <div class="ar-notice {{ $wr['held'] ? 'warn' : '' }}">
+                        <b>週次の再計算</b>（最終 {{ \Carbon\Carbon::parse($wr['at'])->format('Y/m/d H:i') }}）：更新 {{ ($ws['UPDATED'] ?? 0) + ($ws['FORECAST_UPDATED'] ?? 0) }}・変更なし {{ $ws['UNCHANGED'] ?? 0 }}・保留 {{ $ws['HELD'] ?? 0 }}・算定不可 {{ $ws['UNAVAILABLE'] ?? 0 }}・エラー {{ $ws['ERROR'] ?? 0 }}（全倉庫）。
+                        再計算は数量条件だけを変え、商品のON／OFFは変えません。保留された商品は前回の設定のまま動いています。
+                        @if($wr['held'])
+                            <details style="margin-top:6px"><summary style="cursor:pointer">この倉庫で保留・エラーになった商品 {{ count($wr['held']) }}件（理由）</summary>
+                                <table style="margin-top:6px;font-size:12px;border-collapse:collapse">
+                                    <thead><tr><th style="text-align:left;padding:2px 8px">商品CD</th><th style="text-align:left;padding:2px 8px">商品名</th><th style="text-align:left;padding:2px 8px">結果</th><th style="text-align:left;padding:2px 8px">理由</th></tr></thead>
+                                    <tbody>
+                                    @foreach($wr['held'] as $h)
+                                        <tr><td class="ar-code" style="padding:2px 8px">{{ $h['item_code'] }}</td><td style="padding:2px 8px">{{ $h['item_name'] }}</td><td style="padding:2px 8px">{{ $outcomeLabels[$h['outcome']] ?? $h['outcome'] }}</td><td style="padding:2px 8px;white-space:normal">{{ $h['reason'] }}</td></tr>
+                                    @endforeach
+                                    </tbody>
+                                </table>
+                                <span class="ar-help">保留の解消：対象商品の「設定を編集」→「おすすめ設定を反映」で新しい数量を確認して保存するか、現状のままにします（翌週も再計算されます）。</span>
+                            </details>
+                        @else この倉庫で保留・エラーになった商品はありません。@endif
+                    </div>
+                @endif
             @elseif($screen === 'checklist')
                 <div class="ar-toolbar"><div><b>試算・未実行</b> @if($run) / {{ $run->created_at->format('m/d H:i') }} / {{ $run->status === 'RUNNING' ? '計算中' : '試算完了' }} @endif</div><button class="ar-btn" wire:click="exportCsv">このページをCSV出力</button><button class="ar-btn primary" wire:click="preview" wire:loading.attr="disabled" @disabled(!$control || $control->reset_state !== 'COMPLETE')>再チェック</button></div>
                 <div class="ar-notice">倉庫・商品がOFFでも試算できます。発注・JX・倉庫移動データは生成しません。正常な自動発注に毎回の手動承認は不要です。</div>
