@@ -146,6 +146,9 @@ abstract class AutoReplenishmentPage extends AdminPage
 
     public bool $eventCandidatesPreview = false;
 
+    /** 詳細設定 sub-dialog of the editor (発注単位・発注数量・イベント・発注方法・発注先). */
+    public bool $showAdvanced = false;
+
     #[Locked]
     public ?array $palletUnit = null;
 
@@ -280,6 +283,7 @@ abstract class AutoReplenishmentPage extends AdminPage
         $this->itemSearch = '';
         $this->itemJanSearch = '';
         $this->showItemPicker = ! $policy;
+        $this->showAdvanced = false;
         $this->showEditor = true;
         $this->loadPalletEditor();
         $this->loadEventSetup($clientId);
