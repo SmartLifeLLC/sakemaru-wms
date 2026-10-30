@@ -2,10 +2,13 @@
 
 namespace App\Services\AutoReplenishment;
 
+use App\Models\WmsDemandEvent;
 use App\Models\WmsDemandEventProfile;
 use App\Models\WmsItemDemandEvent;
 use App\Models\WmsItemReorderPolicy;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Which standard events (年末年始・お盆・GW) apply to which product.
@@ -109,6 +112,42 @@ class ItemDemandEventService
         }, 3);
 
         return $counts;
+    }
+
+    /**
+     * Everything the settings screen shows for one product: per standard type the application, the learned factors
+     * (ACTIVE preferred, CANDIDATE flagged), the suggestion, and the registered events of the next 12 months.
+     *
+     * @return array{installed: bool, has_profiles: bool, types: array<string, array>}
+     */
+    public function productSetup(int $client, int $itemId, ?string $asOf = null): array
+    {
+        if (! Schema::connection('sakemaru')->hasTable('wms_item_demand_events') || ! Schema::connection('sakemaru')->hasTable('wms_demand_event_profiles')) {
+            return ['installed' => false, 'has_profiles' => false, 'types' => []];
+        }
+        $asOf = $asOf ?: now('Asia/Tokyo')->toDateString();
+        $applied = WmsItemDemandEvent::where(['client_id' => $client, 'item_id' => $itemId])->get()->keyBy('event_type');
+        $profiles = WmsDemandEventProfile::where(['client_id' => $client, 'scope_type' => 'ITEM', 'scope_id' => $itemId, 'model_version' => DemandEventLearner::MODEL_VERSION])
+            ->whereIn('profile_key', DemandEventCalendar::STANDARD_TYPES)->get()->groupBy('profile_key');
+        $events = WmsDemandEvent::where('client_id', $client)->whereIn('type', DemandEventCalendar::STANDARD_TYPES)->where('status', '!=', 'DISABLED')
+            ->whereBetween('start_date', [$asOf, CarbonImmutable::parse($asOf)->addYear()->toDateString()])->orderBy('start_date')->get()->groupBy('type');
+        $types = [];
+        $hasProfiles = false;
+        foreach (DemandEventCalendar::STANDARD_TYPES as $type) {
+            $active = $profiles->get($type)?->firstWhere('stage', WmsDemandEventProfile::ACTIVE);
+            $candidate = $profiles->get($type)?->firstWhere('stage', WmsDemandEventProfile::CANDIDATE);
+            $shown = $active ?: $candidate;
+            $summary = $shown ? $this->blockSummary(is_array($shown->positions) ? $shown->positions : []) : null;
+            $hasProfiles = $hasProfiles || $shown !== null;
+            $next = $events->get($type)?->first();
+            $types[$type] = ['label' => DemandEventCalendar::NAMES[$type], 'applied' => (bool) ($applied[$type]->is_enabled ?? false),
+                'suggest' => $summary !== null && (int) $shown->instance_count >= self::SUGGEST_MIN_INSTANCES && $summary['mean'] >= self::SUGGEST_MIN_MEAN,
+                'mean' => $summary['mean'] ?? null, 'peak' => $summary['peak'] ?? null, 'instances' => $shown ? (int) $shown->instance_count : 0,
+                'stage' => $shown?->stage, 'has_candidate' => $candidate !== null && $active !== null, 'trained_through' => $shown?->trained_through?->toDateString(),
+                'event' => $next ? ['id' => (int) $next->id, 'name' => $next->name, 'start' => $next->start_date->toDateString(), 'end' => $next->end_date->toDateString(), 'status' => $next->status] : null];
+        }
+
+        return ['installed' => true, 'has_profiles' => $hasProfiles, 'types' => $types];
     }
 
     /** Block-day summary of one learned profile: mean and peak of max(factor, factor_weekday) over block positions. */
