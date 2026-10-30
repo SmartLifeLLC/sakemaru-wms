@@ -137,13 +137,17 @@ class InventoryProjection
 
         $safetyStock = max(0, (int) ($policy['calculation_basis']['safety_stock_pieces'] ?? 0));
         $minimumDayDemand = $rows[array_search($minimumDate, array_column($rows, 'date'), true)]['demand'];
+        $assessment = (new SafetyStockAssessment)->assess($minimumStock, $shortageDays,
+            isset($basis['safety_stock_pieces']) ? $safetyStock : null,
+            isset($basis['safety_stock_days']) ? (int) $basis['safety_stock_days'] : null,
+            isset($profile['mean']) ? (float) $profile['mean'] : null);
 
         return ['days' => $rows, 'orders' => $orders, 'start' => $start->toDateString(), 'end' => $start->addDays($horizon - 1)->toDateString(), 'horizon_days' => $horizon,
             'events' => array_values(array_filter($profile['event_forecast']['events'] ?? [], fn ($e) => $e['end'] >= $start->toDateString() && $e['start'] <= $start->addDays($horizon - 1)->toDateString())),
             'initial_stock' => $snapshot['stock'], 'end_stock' => $stock, 'order_count' => count($orders), 'shortage_days' => $shortageDays,
             'minimum_stock' => $minimumStock, 'minimum_stock_date' => $minimumDate, 'minimum_stock_timing' => $minimumTiming,
             'minimum_day_demand' => $minimumDayDemand, 'safety_stock_pieces' => $safetyStock,
-            'low_stock_buffer' => $minimumStock <= 0 || $minimumStock < max($minimumDayDemand, $safetyStock),
+            'low_stock_buffer' => $assessment['requires_review'], 'safety_stock_assessment' => $assessment,
             'incoming' => $snapshot['incoming'], 'claims' => $snapshot['claims'], 'undated_incoming' => $unknown,
             'outstanding_after_period' => array_sum(array_column($events, 'pieces')), 'demand' => $profile,
             'calendar' => $input['calendar'], 'capacity_case' => $snapshot['capacity_case'], 'quantity_type' => $snapshot['quantity_type'],

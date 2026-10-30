@@ -3,15 +3,15 @@
     @if($chart['simulation_at'] ?? null)<p>試算基準：{{ \Carbon\Carbon::parse($chart['simulation_at'])->format('Y/m/d H:i') }}（倉庫の設定時刻）。テスト画面も同じ基準です。実際の発注は実行時刻で再判定します。</p>@endif
     <p>業務日 {{ $chart['start'] }}から{{ $chart['horizon_days'] ?? 14 }}日間、{{ ($this->form['channel'] ?? '') === 'FAX' ? '表示した条件で手動発注した場合の参考推移です。FAXの自動発注はONにできません。' : '自動発注をONにした場合の動きです。' }}日付にマウスを重ねるか、選択すると内訳を表示します。</p>
     <p>発注点は検討開始の目安です。下回っても、既発注・補充目標・最小数・通常量によって発注を見送る場合があります。</p>
-            @if($chart['low_stock_buffer'])
-                <p class="ar-projection-warning" role="status"><strong>在庫の余裕を確認してください。</strong>
-                    @if($chart['minimum_stock'] <= 0)在庫がゼロ以下になる見込みです。
-                    @elseif($chart['minimum_stock'] < $chart['minimum_day_demand'])最低在庫 {{ number_format($chart['minimum_stock']) }}バラは、その日の消費見込 {{ number_format($chart['minimum_day_demand']) }}バラの1日分に満たしません。
-                    @endif
-                    @if($chart['safety_stock_pieces'] > 0 && $chart['minimum_stock'] < $chart['safety_stock_pieces'])おすすめ算定時の安全在庫目安 {{ number_format($chart['safety_stock_pieces']) }}バラを下回ります。@endif
-                    @if($chart['shortage_days']===0)不足見込0日でも、在庫に余裕があるとは限りません。@endif
-                </p>
+    @if(isset($chart['safety_stock_assessment']))
+        @php $assessment = $chart['safety_stock_assessment']; @endphp
+        <p @class(['ar-projection-warning' => $assessment['requires_review']]) role="status"><strong>{{ ['REVIEW' => '要見直し', 'ACCEPTABLE' => '許容範囲', 'UNASSESSED' => '未判定'][$assessment['status']] }}：</strong>{{ $assessment['reason'] }}
+            @if($assessment['shortfall_pieces'] !== null && $assessment['shortfall_pieces'] > 0)
+                下回り {{ number_format($assessment['shortfall_pieces']) }}バラ@if($assessment['shortfall_days'] !== null)（平均消費 {{ number_format($assessment['shortfall_days'], 2) }}日分）@endif。
             @endif
+        </p>
+        <p>判定基準：安全在庫日数3日以上。安全在庫の下回りが平均消費量1日分以下なら許容、1日分超または欠品見込みは要見直し。在庫ゼロ以下も要見直しです。日数表示は小数2桁ですが、判定には丸め前の値を使います。</p>
+    @endif
 
     <strong>{{ !empty($chart['demand']['legacy']) ? '各曜日の消費見込（保存済み平均・バラ／日）' : '曜日別の平均消費量（バラ／日）' }}</strong>
     <div class="ar-projection-weekdays">
