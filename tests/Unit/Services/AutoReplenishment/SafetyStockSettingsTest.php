@@ -250,6 +250,8 @@ class SafetyStockViewFixture extends Component
 
     public bool $recommendationPreferencesChanged = false;
 
+    public array $eventSetup = [];
+
     public function render()
     {
         return <<<'BLADE'

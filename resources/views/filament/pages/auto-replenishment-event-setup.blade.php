@@ -23,6 +23,5 @@
             <button type="button" class="ar-btn" wire:click="learnProductEvents" wire:loading.attr="disabled" wire:target="learnProductEvents,calculateSettings">この商品の倍率を学習{{ ($this->eventInfo['has_profiles'] ?? false) ? 'し直す' : 'する' }}</button>
             <span class="ar-help">チェックしたイベントだけが、この商品の予測と平常水準の除外に使われます（承認済みの期間のみ）。チェックを変えたら「おすすめ設定」で再計算し、保存で確定します。</span>
         </div>
-        <div class="ar-event-progress ar-help" wire:stream="eventProgress" wire:loading.class="is-busy" wire:target="learnProductEvents,calculateSettings"></div>
     </details>
 @endif
