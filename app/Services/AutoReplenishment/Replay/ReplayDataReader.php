@@ -4,6 +4,7 @@ namespace App\Services\AutoReplenishment\Replay;
 
 use App\Models\WmsItemReorderPolicy;
 use App\Services\AutoReplenishment\DemandEventHistoryReader;
+use App\Services\AutoReplenishment\GenerationSchedule;
 use App\Services\AutoReplenishment\RecommendationArrivalSchedule;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -22,12 +23,20 @@ class ReplayDataReader
     {
         $stores = $this->history->storeWarehouseIds($client);
         $policies = WmsItemReorderPolicy::where('client_id', $client)->whereIn('warehouse_id', $stores)->orderBy('warehouse_id')->orderBy('item_id')
-            ->get(['warehouse_id', 'item_id', 'contractor_id']);
+            ->get(['id', 'warehouse_id', 'item_id', 'contractor_id', 'channel', 'strategy_key', 'is_configured', 'reorder_point_pieces', 'target_stock_pieces',
+                'min_order_pieces', 'max_order_pieces', 'order_multiple_pieces', 'calculation_basis']);
         $series = [];
         $policyItems = [];
         $contractorByWarehouse = [];
         foreach ($policies as $policy) {
-            $series[] = ['warehouse_id' => (int) $policy->warehouse_id, 'item_id' => (int) $policy->item_id, 'contractor_id' => $policy->contractor_id ? (int) $policy->contractor_id : null, 'source' => 'policy'];
+            $saved = null;
+            if ($policy->is_configured && (int) $policy->reorder_point_pieces > 0 && (int) $policy->min_order_pieces > 0 && (int) $policy->max_order_pieces > 0 && (int) $policy->order_multiple_pieces > 0) {
+                $saved = ['reorder_point_pieces' => (int) $policy->reorder_point_pieces, 'target_stock_pieces' => (int) ($policy->target_stock_pieces ?: $policy->reorder_point_pieces),
+                    'min_order_pieces' => (int) $policy->min_order_pieces, 'max_order_pieces' => (int) $policy->max_order_pieces, 'order_multiple_pieces' => (int) $policy->order_multiple_pieces,
+                    'strategy_key' => (string) $policy->strategy_key, 'calculation_basis' => is_array($policy->calculation_basis) ? $policy->calculation_basis : null];
+            }
+            $series[] = ['warehouse_id' => (int) $policy->warehouse_id, 'item_id' => (int) $policy->item_id, 'contractor_id' => $policy->contractor_id ? (int) $policy->contractor_id : null,
+                'channel' => (string) ($policy->channel ?: 'EOS'), 'source' => 'policy', 'saved_policy' => $saved];
             $policyItems[(int) $policy->item_id] = true;
             if ($policy->contractor_id) {
                 $contractorByWarehouse[(int) $policy->warehouse_id][(int) $policy->contractor_id] = ($contractorByWarehouse[(int) $policy->warehouse_id][(int) $policy->contractor_id] ?? 0) + 1;
@@ -42,7 +51,9 @@ class ReplayDataReader
                 foreach ($policyWarehouses as $warehouse) {
                     $common = $contractorByWarehouse[$warehouse] ?? [];
                     arsort($common);
-                    $series[] = ['warehouse_id' => (int) $warehouse, 'item_id' => (int) $itemId, 'contractor_id' => $common ? (int) array_key_first($common) : null, 'source' => 'top_seller'];
+                    // Assumption: the store's most common EOS contractor; the product's own contractor is not resolved.
+                    $series[] = ['warehouse_id' => (int) $warehouse, 'item_id' => (int) $itemId, 'contractor_id' => $common ? (int) array_key_first($common) : null,
+                        'channel' => 'EOS', 'source' => 'top_seller', 'saved_policy' => null];
                 }
             }
         }
@@ -139,14 +150,19 @@ class ReplayDataReader
             ->groupBy('warehouse_id', 'item_id', 'business_date')->selectRaw('warehouse_id, item_id, business_date date, SUM(sales_quantity) pieces')->get()->all();
     }
 
-    /** Today's warehouse × contractor arrival schedule applied to past dates (主評価). */
-    public function arrivalProvider(int $warehouse, int $contractor): \Closure
+    /**
+     * Today's warehouse × contractor arrival schedule applied to past dates (主評価), with the production
+     * review interval (execution times included) from the warehouse's auto-order configuration.
+     */
+    public function scheduledCalendar(int $warehouse, int $contractor, string $channel = 'EOS'): ReplayCalendar
     {
         $json = DB::connection('sakemaru')->table('wms_warehouse_auto_order_settings')->where('warehouse_id', $warehouse)->value('replenishment_config');
         $config = $json ? (json_decode($json, true) ?: []) : [];
-
-        return function (string $asOf) use ($warehouse, $contractor, $config) {
-            return app(RecommendationArrivalSchedule::class)->calculate($warehouse, $contractor, 'EOS', $asOf, $config, 120)['opportunities'];
+        $interval = app(GenerationSchedule::class)->maxReviewIntervalDays($config);
+        $provider = function (string $asOf) use ($warehouse, $contractor, $channel, $config) {
+            return app(RecommendationArrivalSchedule::class)->calculate($warehouse, $contractor, $channel, $asOf, $config, 120)['opportunities'];
         };
+
+        return ReplayCalendar::scheduled($provider, max(1, min(7, $interval)));
     }
 }

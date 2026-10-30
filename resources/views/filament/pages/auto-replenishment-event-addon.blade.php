@@ -43,5 +43,11 @@
         <p class="ar-help">上乗せ見込＝イベント期間の日付別予測−曜日型の合計。承認済みイベントのみ。実行時は「入荷までの消費見込」にも日付別予測を使うため、イベント前は自動で発注が増え、期間後は減ります。@if($excludedNote){{ $excludedNote }}@endif</p>
     </div>
 @elseif(isset($basis['demand_events']))
-    <p class="ar-help">{{ ($basis['demand_events']['approved'] ?? 0) > 0 ? '承認済みイベントは13週以内にないため、曜日別の通常条件のみで算定しています。' : '承認済みイベントがないため、曜日別の通常条件のみで算定しています（イベント設定で承認すると2段構えになります）。' }}</p>
+    @php $de = $basis['demand_events']; @endphp
+    <p class="ar-help">
+        @if(($de['approved'] ?? 0) === 0)承認済みイベントがないため、曜日別の通常条件のみで算定しています（イベント設定で承認すると2段構えになります）。
+        @elseif(($de['approved_in_horizon'] ?? 0) > 0)承認済みイベントが13週以内に {{ $de['approved_in_horizon'] }} 件ありますが、この商品（カテゴリ）の学習済み倍率がないため上乗せはありません。曜日別の通常条件のみで算定しています。
+        @else 承認済みイベントは13週以内にないため、曜日別の通常条件のみで算定しています。@endif
+        @if(($de['excluded_days'] ?? 0) > 0)実績期間内の承認イベント日 {{ $de['excluded_days'] }} 日は平常水準の算定から除外しています（倍率の有無に関わらず）。@endif
+    </p>
 @endif

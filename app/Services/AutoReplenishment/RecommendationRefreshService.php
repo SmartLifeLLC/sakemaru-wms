@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Log;
  */
 class RecommendationRefreshService
 {
-    public const GUARDED = ['reorder_point_pieces', 'target_stock_pieces', 'max_order_pieces', 'min_order_pieces', 'order_multiple_pieces'];
+    public const GUARDED = RecommendationChangeGuard::GUARDED;
 
     public function __construct(private SettingsRecommendationService $recommendations, private PolicyService $policies, private ReplenishmentGuard $guard) {}
 
@@ -53,12 +53,8 @@ class RecommendationRefreshService
             }
             $after = array_intersect_key($recommendation['values'], array_flip(self::GUARDED));
             $result['after'] = $after;
-            $changes = [];
-            foreach (self::GUARDED as $key) {
-                if ((int) $before[$key] !== (int) $after[$key]) {
-                    $changes[$key] = ['from' => (int) $before[$key], 'to' => (int) $after[$key]];
-                }
-            }
+            $guard = (new RecommendationChangeGuard)->evaluate($before, $after, $maxChange);
+            $changes = $guard['changes'];
             $result['changes'] = $changes;
             $forecastChanged = $this->forecastFingerprint($basis) !== $this->forecastFingerprint($recommendation['basis']);
             $result['forecast_changed'] = $forecastChanged;
@@ -76,11 +72,8 @@ class RecommendationRefreshService
 
                 return array_replace($result, ['outcome' => 'FORECAST_UPDATED']);
             }
-            foreach ($changes as $key => $change) {
-                $ratio = $change['from'] > 0 ? $change['to'] / $change['from'] : INF;
-                if ($ratio > $maxChange || $ratio < 1 / $maxChange) {
-                    return array_replace($result, ['outcome' => 'HELD', 'reason' => "{$key} が {$change['from']} → {$change['to']}（×".round($ratio, 2)."）で変化幅の上限 ×{$maxChange} を超えるため保留。画面で確認してください。"]);
-                }
+            if ($guard['held']) {
+                return array_replace($result, ['outcome' => 'HELD', 'reason' => $guard['reason']]);
             }
             if (! $apply) {
                 return array_replace($result, ['outcome' => 'UPDATED', 'reason' => '（確認のみ・未保存）']);
@@ -101,7 +94,7 @@ class RecommendationRefreshService
 
     public function refresh(int $client, ?int $warehouse, float $maxChange, int $actorId, bool $apply, ?callable $progress = null): array
     {
-        throw_unless($maxChange >= 1.1 && $maxChange <= 10, \RuntimeException::class, '変化幅の上限は1.1〜10で指定してください。');
+        (new RecommendationChangeGuard)->evaluate([], [], $maxChange); // validates the ratio once
         $control = $this->guard->control($client, false);
         throw_unless($control->reset_state === 'COMPLETE', \RuntimeException::class, '初期化完了後に実行してください。');
         $summary = ['UPDATED' => 0, 'FORECAST_UPDATED' => 0, 'UNCHANGED' => 0, 'HELD' => 0, 'UNAVAILABLE' => 0, 'ERROR' => 0];

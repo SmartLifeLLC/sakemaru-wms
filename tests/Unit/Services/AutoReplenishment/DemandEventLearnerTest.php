@@ -144,4 +144,24 @@ class DemandEventLearnerTest extends TestCase
         self::assertArrayHasKey('LONG_WEEKEND', $learned['items'][1]);
         self::assertGreaterThan(0, $learned['stats']['ranges_read']);
     }
+
+    public function test_training_never_reads_or_uses_days_after_the_learning_end_date(): void
+    {
+        $reader = Mockery::mock(DemandEventHistoryReader::class);
+        $reader->shouldReceive('holidays')->andReturnUsing(fn (int $year) => $this->holidays($year));
+        $reader->shouldReceive('itemCategories')->andReturn([1 => 3142]);
+        $through = '2025-11-24'; // the last day of 勤労感謝の日連休 2025 (11/22〜24); its post day 11/25 is after $through
+        $reader->shouldReceive('productTotals')->andReturnUsing(function (int $client, string $start, string $end) use ($through) {
+            self::assertLessThanOrEqual($through, $end, 'reads must stop at the learning end date');
+            $series = $this->synthetic($start, $end);
+
+            return ['items' => [1 => $series], 'observed' => array_fill_keys(array_keys($series), true)];
+        });
+        $service = new DemandEventLearningService($reader, app(DemandEventLearner::class), app(DemandEventCalendar::class));
+        $instances = $service->trainingInstances($through, 3);
+        self::assertNotContains('2025-11-22', array_column($instances, 'start')); // incomplete instance (post day beyond $through)
+        self::assertContains('2025-11-01', array_column($instances, 'start'));    // 文化の日連休 2025 (11/1〜3 + post 11/4) is complete
+        $learned = $service->learn(6, $through, 3, [1]);
+        self::assertArrayHasKey('YEAR_END', $learned['items'][1]);
+    }
 }

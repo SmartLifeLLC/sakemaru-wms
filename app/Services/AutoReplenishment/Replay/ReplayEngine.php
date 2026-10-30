@@ -4,6 +4,7 @@ namespace App\Services\AutoReplenishment\Replay;
 
 use App\Services\AutoReplenishment\DemandEventCalendar;
 use App\Services\AutoReplenishment\ProposalSafety;
+use App\Services\AutoReplenishment\RecommendationChangeGuard;
 use App\Services\AutoReplenishment\SettingsRecommendationCalculator;
 use App\Services\AutoReplenishment\StrategyCalculator;
 use Carbon\CarbonImmutable;
@@ -39,17 +40,49 @@ final class ReplayEngine
         $rows = [];
         $orders = [];
         $recalcs = [];
+        $mode = $scenario['mode'] ?? 'weekly';
+        $maxChange = $scenario['max_change_ratio'] ?? null;
+        $consecutiveHolds = 0;
+        if ($mode === 'saved') {
+            // The production setting as saved (not recalculated); series without a usable saved setting are skipped.
+            $saved = $series['saved_policy'] ?? null;
+            if ($saved === null) {
+                return ['series' => array_diff_key($series, ['demand' => true]), 'scenario' => $scenario['name'], 'skipped' => '保存済みの数量条件がありません。', 'days' => [], 'orders' => [], 'recalcs' => [],
+                    'metrics' => (new ReplayMetrics)->summarize([], [], 0)];
+            }
+            $policy = $saved + ['channel' => $series['channel'] ?? 'EOS', 'is_enabled' => true, 'packing_unit' => 1, 'warehouse_id' => (int) $series['warehouse_id'], 'item_id' => (int) $series['item_id']];
+            $recalcs[] = ['date' => $scenario['start'], 'available' => true, 'reason' => '保存済み設定', 'values' => array_intersect_key($saved, array_flip(RecommendationChangeGuard::GUARDED)), 'outcome' => 'SAVED'];
+        }
         for ($day = $start; $day->lte($end); $day = $day->addDay()) {
             $date = $day->toDateString();
-            if ($policy === null ? true : (($scenario['mode'] ?? 'weekly') === 'weekly' && $day->dayOfWeek === 1)) {
+            if ($mode !== 'saved' && ($policy === null || ($mode === 'weekly' && $day->dayOfWeek === 1))) {
                 $recalc = $this->recommend($series, $scenario, $calendar, $date, $policy);
-                $recalcs[] = $recalc['log'];
-                if ($recalc['policy'] !== null) {
+                $log = $recalc['log'];
+                if ($recalc['policy'] === null) {
+                    $log['outcome'] = 'UNAVAILABLE';
+                } elseif ($policy === null || $maxChange === null) {
+                    $log['outcome'] = $policy === null ? 'INITIAL' : 'UPDATED';
                     $policy = $recalc['policy'];
+                } else {
+                    // Same acceptance rule as the weekly refresh: a change beyond the ratio is held and the old setting stays in force.
+                    $guard = (new RecommendationChangeGuard)->evaluate($policy, $recalc['policy'], (float) $maxChange);
+                    $log['changes'] = $guard['changes'];
+                    if ($guard['held']) {
+                        $log['outcome'] = 'HELD';
+                        $log['reason'] = $guard['reason'];
+                        $consecutiveHolds++;
+                    } else {
+                        $log['outcome'] = $guard['changes'] ? 'UPDATED' : 'FORECAST_UPDATED';
+                        $policy = $recalc['policy'];
+                        $consecutiveHolds = 0;
+                    }
                 }
+                $log['consecutive_holds'] = $consecutiveHolds;
+                $recalcs[] = $log;
             }
             if ($stock === null) {
-                $stock = $policy ? (int) $policy['target_stock_pieces'] : 0;
+                $initial = $scenario['initial_stock'] ?? 'target';
+                $stock = is_int($initial) ? $initial : ($policy ? (int) $policy['target_stock_pieces'] : 0);
             }
             $opening = $stock;
             $received = 0;
@@ -94,7 +127,7 @@ final class ReplayEngine
         }
 
         return ['series' => array_diff_key($series, ['demand' => true]), 'scenario' => $scenario['name'], 'days' => $rows, 'orders' => $orders, 'recalcs' => $recalcs,
-            'metrics' => (new ReplayMetrics)->summarize($rows, $orders, (int) ($scenario['warmup_days'] ?? 28))];
+            'metrics' => (new ReplayMetrics)->summarize($rows, $orders, (int) ($scenario['warmup_days'] ?? 28), $recalcs)];
     }
 
     /** Build the calculator history from the series' past demand and the calendar, then recommend. */
@@ -111,13 +144,14 @@ final class ReplayEngine
             }
             $capacity = (int) ($series['capacity_case'] ?? 0);
             $unitMode = ($scenario['unit_mode'] ?? 'CASE') === 'CASE' && $capacity > 0 ? 'CASE' : 'PIECE';
-            $reviewInterval = 1;
+            // Production definition (execution times included for scheduled calendars), never below the observed generation gaps.
+            $reviewInterval = $calendar->reviewInterval();
             $generation = array_column($schedule['opportunities'], 'generation_date');
             for ($i = 1; $i < min(count($generation), 15); $i++) {
                 $reviewInterval = max($reviewInterval, (int) CarbonImmutable::parse($generation[$i - 1])->diffInDays(CarbonImmutable::parse($generation[$i])));
             }
             $history = ['scope' => ['client_id' => (int) ($series['client_id'] ?? 0), 'warehouse_id' => (int) $series['warehouse_id'], 'warehouse_code' => (string) ($series['warehouse_code'] ?? ''),
-                'item_id' => (int) $series['item_id'], 'item_code' => (string) ($series['item_code'] ?? ''), 'channel' => 'EOS', 'contractor_id' => 0, 'supplier_id' => 0,
+                'item_id' => (int) $series['item_id'], 'item_code' => (string) ($series['item_code'] ?? ''), 'channel' => 'EOS', 'contractor_id' => 0, 'supplier_id' => 0, // sales-based path: no linked receipts are replayed
                 'source_warehouse_id' => null, 'delivery_course_id' => null, 'capacity_case' => $capacity, 'packing_unit' => 1, 'order_unit' => null, 'order_unit_mode' => 'AUTO'],
                 'period' => ['start' => $periodStart->toDateString(), 'end' => $periodEnd->toDateString()], 'receipts' => [], 'daily' => $daily, 'warnings' => [],
                 'nominal_lead_days' => $schedule['nominal_lead_days'], 'review_interval_days' => min(7, $reviewInterval), 'review_weekdays' => $schedule['weekdays'],

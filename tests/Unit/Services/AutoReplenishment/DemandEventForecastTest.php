@@ -249,10 +249,13 @@ class DemandEventForecastTest extends TestCase
             'factors' => ['item' => ['YEAR_END' => ['pieces' => 1000, 'positions' => array_combine(
                 ['12-20', '12-21', '12-22', '12-23', '12-24', '12-25', '12-26', '12-27', '12-28', '12-29', '12-30', '12-31'],
                 array_fill(0, 12, ['factor' => 3.0, 'factor_weekday' => 3.0]))]]]];
+        // Approved event without any learned factor: no dated forecast. The values match the plain run here only because no
+        // event day lies inside the history; approved event days inside the history are always excluded from the level (by design).
         $noFactors = $calculator->calculate($this->history(), $options + ['demand_events' => ['events' => $events['events'], 'factors' => []]]);
         self::assertSame($plain['values'], $noFactors['values']);
         self::assertArrayNotHasKey('event_forecast', $noFactors['basis']['demand_profile']);
-        self::assertSame(['approved' => 1, 'in_horizon' => 0, 'horizon_days' => 91], $noFactors['basis']['demand_events']);
+        self::assertSame(['approved' => 1, 'in_horizon' => 0, 'approved_in_horizon' => 1, 'excluded_days' => 0, 'horizon_days' => 91], $noFactors['basis']['demand_events']);
+        self::assertStringContainsString('学習済み倍率がないため', view('filament.pages.auto-replenishment-event-addon', ['basis' => $noFactors['basis']])->render());
         $adjusted = $calculator->calculate($this->history(), $options + ['demand_events' => $events]);
         self::assertTrue($adjusted['available']);
         $basis = $adjusted['basis'];

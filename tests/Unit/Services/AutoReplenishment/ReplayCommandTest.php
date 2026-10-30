@@ -85,4 +85,18 @@ class ReplayCommandTest extends TestCase
             fwrite(STDERR, $output.implode('', array_filter($days, fn ($l) => str_starts_with($l, '2,143024,2025-12-2') || str_starts_with($l, '2,143024,2025-12-3'))));
         }
     }
+
+    public function test_learning_end_date_must_precede_the_replay_start_and_saved_scenario_skips_unconfigured_policies(): void
+    {
+        $code = Artisan::call('wms:replay-replenishment', ['client' => 6, '--from' => '2025-10-06', '--to' => '2025-11-30', '--scenarios' => 'eventA',
+            '--extra-items' => 0, '--learn-through' => '2025-10-06', '--out' => $this->out]);
+        self::assertSame(1, $code);
+        self::assertStringContainsString('再生開始日', Artisan::output());
+        $code = Artisan::call('wms:replay-replenishment', ['client' => 6, '--from' => '2025-10-06', '--to' => '2025-11-30', '--scenarios' => 'saved',
+            '--extra-items' => 0, '--out' => $this->out]);
+        self::assertSame(0, $code, Artisan::output());
+        $summary = json_decode(file_get_contents($this->out.'/summary.json'), true);
+        self::assertSame(0, $summary['saved']['series']);
+        self::assertSame(1, $summary['saved']['skipped_series']);
+    }
 }

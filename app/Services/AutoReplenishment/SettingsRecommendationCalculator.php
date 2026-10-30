@@ -211,7 +211,9 @@ final class SettingsRecommendationCalculator
         $basis['demand_profile'] = $profile;
         $basis['demand_period'] = $profile['period'];
         $basis['demand_events'] = ['approved' => count($events['events'] ?? []), 'in_horizon' => count($profile['event_forecast']['events'] ?? []),
-            'horizon_days' => DemandEventForecast::HORIZON_DAYS];
+            'approved_in_horizon' => $events ? count(app(DemandEventCalendar::class)->within($events['events'], $profile['anchor_date'],
+                CarbonImmutable::parse($profile['anchor_date'])->addDays(DemandEventForecast::HORIZON_DAYS - 1)->toDateString())) : 0,
+            'excluded_days' => $selection['excluded_days'] ?? 0, 'horizon_days' => DemandEventForecast::HORIZON_DAYS];
         $mean = $profile['mean'];
         // Same definition as the validated simulation: deviation from the weekday means, H = days until the next arrival (protection).
         $sigma = $this->residualDeviation($daily, $profile);

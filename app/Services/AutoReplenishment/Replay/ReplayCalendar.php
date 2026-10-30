@@ -14,7 +14,7 @@ final class ReplayCalendar
     /** @var array<string, string|null> order date => arrival date */
     private array $arrivals = [];
 
-    private function __construct(private ?\Closure $provider, private int $lead, private array $stops, private array $weekdays) {}
+    private function __construct(private ?\Closure $provider, private int $lead, private array $stops, private array $weekdays, private int $reviewInterval = 1) {}
 
     /**
      * @param  array<int, array{0: string, 1: string}>  $stops  inclusive date ranges without arrivals (例：['2025-12-31', '2026-01-03'])
@@ -30,9 +30,30 @@ final class ReplayCalendar
     /**
      * @param  \Closure(string $asOf): array<int, array{generation_date: string, arrival_date: string}>  $provider  opportunities from $asOf for at least 56 days
      */
-    public static function scheduled(\Closure $provider): self
+    public static function scheduled(\Closure $provider, int $reviewInterval = 1): self
     {
-        return new self($provider, 1, [], range(0, 6));
+        throw_unless($reviewInterval >= 1 && $reviewInterval <= 7, \RuntimeException::class, '実行間隔は1〜7日で指定してください。');
+
+        return new self($provider, 1, [], range(0, 6), $reviewInterval);
+    }
+
+    /**
+     * Review interval in days as the production recommendation computes it (execution times included for
+     * scheduled calendars, e.g. Saturday 10:00 → Sunday 22:00 = 2 days); simple calendars derive it from the weekdays.
+     */
+    public function reviewInterval(): int
+    {
+        if ($this->provider !== null) {
+            return $this->reviewInterval;
+        }
+        $days = $this->weekdays;
+        sort($days);
+        $max = $days[0] + 7 - $days[count($days) - 1];
+        for ($i = 1; $i < count($days); $i++) {
+            $max = max($max, $days[$i] - $days[$i - 1]);
+        }
+
+        return max(1, min(7, $max));
     }
 
     public function isGenerationDay(string $date): bool

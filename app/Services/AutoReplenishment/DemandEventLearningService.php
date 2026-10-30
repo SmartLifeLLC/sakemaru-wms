@@ -25,7 +25,9 @@ class DemandEventLearningService
         $instances = [];
         for ($year = $end->year - $years - 1; $year <= $end->year; $year++) {
             foreach ($this->calendar->proposals($year, $this->reader->holidays($year)) as $event) {
-                if ($event['end'] <= $through && $event['start'] >= $earliest) {
+                // Complete instances only: the post days are learned positions too, so they must also lie before $through.
+                $complete = CarbonImmutable::parse($event['end'])->addDays($event['post_days'])->toDateString() <= $through;
+                if ($complete && $event['start'] >= $earliest) {
                     $instances[] = $event + ['year' => $year];
                 }
             }
@@ -53,7 +55,7 @@ class DemandEventLearningService
         // in a category profile are dropped immediately unless an ITEM profile was requested for them.
         foreach ($instances as $instance) {
             $window = ['start' => CarbonImmutable::parse($instance['start'])->subDays(DemandEventLearner::PRE_WINDOW_MAX + $instance['pre_days'])->toDateString(),
-                'end' => CarbonImmutable::parse($instance['end'])->addDays($instance['post_days'])->toDateString()];
+                'end' => min($through, CarbonImmutable::parse($instance['end'])->addDays($instance['post_days'])->toDateString())];
             $data = $this->reader->productTotals($client, $window['start'], $window['end']);
             $rangesRead++;
             $dates = [];

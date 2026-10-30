@@ -125,4 +125,60 @@ class ReplayEngineTest extends TestCase
         self::assertSame($result['metrics']['scored_days'] - 1, $result['metrics']['observed_days']);
         self::assertSame(0, $result['metrics']['unmet']);
     }
+
+    public function test_weekly_recalculation_applies_the_same_change_guard_as_the_refresh_and_keeps_the_old_setting_when_held(): void
+    {
+        $demand = [];
+        for ($d = CarbonImmutable::parse('2025-06-01'); $d->toDateString() <= '2025-11-30'; $d = $d->addDay()) {
+            $demand[$d->toDateString()] = $d->toDateString() < '2025-10-06' ? 10 : 100; // level jumps ×10 at the replay start
+        }
+        $series = $this->series($demand);
+        $scenario = ['name' => 'guard', 'start' => '2025-10-06', 'end' => '2025-11-16', 'mode' => 'weekly', 'unit_mode' => 'PIECE', 'safety_stock_days' => 5,
+            'review_days' => 7, 'events' => [], 'segment_events' => [], 'warmup_days' => 0, 'max_change_ratio' => 2.0];
+        $guarded = app(ReplayEngine::class)->run($series, $scenario, ReplayCalendar::simple(1));
+        $outcomes = array_column($guarded['recalcs'], 'outcome');
+        self::assertSame('INITIAL', $outcomes[0]);
+        self::assertContains('HELD', $outcomes);
+        $firstHeld = array_values(array_filter($guarded['recalcs'], fn ($r) => $r['outcome'] === 'HELD'))[0];
+        self::assertStringContainsString('変化幅の上限', $firstHeld['reason']);
+        self::assertGreaterThanOrEqual(1, $guarded['metrics']['held_recalcs']);
+        self::assertGreaterThanOrEqual(1, $guarded['metrics']['max_consecutive_holds']);
+        // While held, the target in force stays the initial one; without a guard the ×10 level is adopted at once.
+        $heldDay = array_values(array_filter($guarded['days'], fn ($r) => $r['date'] === $firstHeld['date']))[0];
+        self::assertSame($guarded['recalcs'][0]['values']['target_stock_pieces'], $heldDay['target']);
+        $free = app(ReplayEngine::class)->run($series, array_replace($scenario, ['max_change_ratio' => null]), ReplayCalendar::simple(1));
+        self::assertNotContains('HELD', array_column($free['recalcs'], 'outcome'));
+        self::assertGreaterThan($guarded['days'][20]['target'], $free['days'][20]['target']);
+        self::assertSame(0, $free['metrics']['held_recalcs']);
+    }
+
+    public function test_saved_mode_uses_the_production_setting_or_skips_the_series(): void
+    {
+        $series = $this->series($this->demand('2025-07-01', '2025-12-15'));
+        $scenario = ['name' => 'saved', 'start' => '2025-10-06', 'end' => '2025-11-30', 'mode' => 'saved', 'unit_mode' => 'PIECE', 'safety_stock_days' => 5,
+            'review_days' => 7, 'events' => [], 'segment_events' => [], 'warmup_days' => 0];
+        $skipped = app(ReplayEngine::class)->run($series, $scenario, ReplayCalendar::simple(1));
+        self::assertArrayHasKey('skipped', $skipped);
+        self::assertSame(0, $skipped['metrics']['scored_days']);
+        $series['saved_policy'] = ['reorder_point_pieces' => 60, 'target_stock_pieces' => 120, 'min_order_pieces' => 24, 'max_order_pieces' => 96, 'order_multiple_pieces' => 24,
+            'strategy_key' => 'arrival_adaptive_v1', 'calculation_basis' => ['mean_daily' => 11.4, 'batch_quantity_pieces' => 72]];
+        $saved = app(ReplayEngine::class)->run($series, $scenario, ReplayCalendar::simple(1));
+        self::assertCount(1, $saved['recalcs']);
+        self::assertSame('SAVED', $saved['recalcs'][0]['outcome']);
+        self::assertSame([120], array_values(array_unique(array_column($saved['days'], 'target'))));
+        self::assertGreaterThan(0, $saved['metrics']['orders']);
+        foreach ($saved['orders'] as $order) {
+            self::assertSame(0, $order['pieces'] % 24);
+            self::assertLessThanOrEqual(96, $order['pieces']);
+        }
+    }
+
+    public function test_review_interval_follows_the_calendar_definition(): void
+    {
+        self::assertSame(1, ReplayCalendar::simple(2)->reviewInterval());
+        self::assertSame(3, ReplayCalendar::simple(2, [], [1, 2, 3, 4, 5])->reviewInterval()); // Friday → Monday
+        self::assertSame(7, ReplayCalendar::simple(2, [], [1])->reviewInterval());
+        $scheduled = ReplayCalendar::scheduled(fn (string $asOf) => [], 2);
+        self::assertSame(2, $scheduled->reviewInterval()); // Saturday 10:00 → Sunday 22:00 rounded up by the production schedule
+    }
 }

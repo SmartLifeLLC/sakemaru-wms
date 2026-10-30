@@ -19,7 +19,9 @@ class ReplayReplenishmentCommand extends Command
     protected $signature = 'wms:replay-replenishment {client : 対象顧客ID}
         {--from=2025-01-06 : 再生開始日}
         {--to=2026-01-20 : 再生終了日}
-        {--scenarios=fixed,base,eventA : 比較案（fixed=固定設定, base=曜日別・週次, eventA=イベント補正・週次, eventAs=eventA＋ばらつき加算）}
+        {--scenarios=fixed,base,eventA : 比較案（saved=保存済み設定を固定, fixed=開始日の算定を固定, base=曜日別・週次, eventA=イベント補正・週次, eventAs=eventA＋ばらつき加算）}
+        {--max-change=2.0 : 週次の変化幅ガード（本体と同じ判定。none で無効）}
+        {--initial-stock=target : 初期在庫（target=初回の補充目標、または数値）}
         {--calendar=simple : simple（日曜なし・固定リード）または current（現在の倉庫・発注先設定を過去に適用）}
         {--lead=2 : simple のリード日数}
         {--stops=12-31:01-03 : simple の入荷停止期間（月日、カンマ区切り。毎年適用）}
@@ -68,8 +70,10 @@ class ReplayReplenishmentCommand extends Command
                 $events = array_merge($events, $calendarEvents->proposals($year, $history->holidays($year)));
             }
             $factors = fn (int $item) => ['item' => [], 'category' => []];
+            $through = null;
             if (count(array_intersect($scenarioNames, ['eventA', 'eventAs'])) > 0) {
                 $through = $this->option('learn-through') ?: substr($from, 0, 4).'-01-06';
+                throw_if($through >= $from, \RuntimeException::class, "学習終了日 {$through} は再生開始日 {$from} より前にしてください（再生中の実績を学習に使わない）。");
                 $this->line("イベント倍率を学習中（{$through} まで、3年）…");
                 $learned = $learning->learn($client, $through, 3, $itemIds, fn ($line) => $this->line('  '.$line));
                 $this->line('  '.json_encode($learned['stats'], JSON_UNESCAPED_UNICODE));
@@ -89,20 +93,24 @@ class ReplayReplenishmentCommand extends Command
                 }
             }
             $calendars = [];
+            $maxChange = $this->option('max-change') === 'none' ? null : (float) $this->option('max-change');
+            $initialStock = $this->option('initial-stock') === 'target' ? 'target' : (int) $this->option('initial-stock');
             $conditions = ['from' => $from, 'to' => $to, 'calendar' => $this->option('calendar'), 'lead' => (int) $this->option('lead'), 'stops' => $stops,
-                'safety_stock_days' => (int) $this->option('safety'), 'unit_mode' => $this->option('unit'), 'learn_through' => $through ?? null,
+                'safety_stock_days' => (int) $this->option('safety'), 'unit_mode' => $this->option('unit'), 'learn_through' => $through,
+                'max_change_ratio' => $maxChange, 'initial_stock' => $initialStock, 'channel_assumption' => 'おすすめ算定は売上基準（発注連携実績なし）・EOS相当。入荷予定は方式・発注先ごとの現在設定（current）または簡易',
                 'warmup_days' => (int) $this->option('warmup'), 'series' => count($list), 'events' => array_map(fn ($e) => $e['name'].' '.$e['start'].'〜'.$e['end'], $events)];
             file_put_contents($out.'/conditions.json', json_encode($conditions, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
             $summary = [];
             foreach ($scenarioNames as $name) {
-                $scenario = $this->scenario($name, $from, $to, $events, $factors);
+                $scenario = $this->scenario($name, $from, $to, $events, $factors) + ['max_change_ratio' => $maxChange, 'initial_stock' => $initialStock];
                 $seriesFile = fopen($out."/series_{$name}.csv", 'w');
                 $daysFile = fopen($out."/days_{$name}.csv", 'w');
                 $recalcFile = fopen($out."/recalcs_{$name}.csv", 'w');
-                fputcsv($seriesFile, ['warehouse_id', 'warehouse', 'item_id', 'item_code', 'item', 'source', 'capacity_case', 'scored_days', 'demand', 'unmet', 'stockout_rate', 'unmet_days',
-                    'mean_stock', 'mean_stock_days', 'max_stock', 'orders', 'order_pieces', 'minimum_lot_orders', 'event_orders', 'constrained_skips', 'hold_days', 'new_year_stock_days', 'overstock_order_days', 'segments']);
+                fputcsv($seriesFile, ['warehouse_id', 'warehouse', 'item_id', 'item_code', 'item', 'source', 'capacity_case', 'scored_days', 'missing_days', 'demand', 'unmet', 'stockout_rate', 'unmet_days',
+                    'mean_stock', 'mean_stock_days', 'max_stock', 'orders', 'order_pieces', 'minimum_lot_orders', 'event_orders', 'constrained_skips', 'hold_days', 'recalcs', 'held_recalcs', 'max_consecutive_holds',
+                    'forecast_only_updates', 'new_year_stock_days', 'overstock_order_days', 'segments']);
                 fputcsv($daysFile, ['warehouse_id', 'item_id', 'date', 'segment', 'opening', 'received', 'ordered', 'arrival_date', 'demand', 'unmet', 'stock', 'pending', 'phase', 'reason', 'point', 'target', 'min', 'max', 'forecast']);
-                fputcsv($recalcFile, ['warehouse_id', 'item_id', 'date', 'available', 'reason', 'point', 'target', 'min', 'max', 'unit', 'mean_daily', 'event_add_on', 'selection']);
+                fputcsv($recalcFile, ['warehouse_id', 'item_id', 'date', 'outcome', 'available', 'reason', 'point', 'target', 'min', 'max', 'unit', 'mean_daily', 'event_add_on', 'selection', 'consecutive_holds']);
                 $results = [];
                 $bar = $this->output->createProgressBar(count($list));
                 $bar->setFormat(" {$name} %current%/%max% [%bar%] %elapsed%");
@@ -111,21 +119,29 @@ class ReplayReplenishmentCommand extends Command
                     $series = ['client_id' => $client, 'warehouse_id' => $entry['warehouse_id'], 'warehouse_code' => (string) ($warehouses[$entry['warehouse_id']]['code'] ?? ''),
                         'warehouse_name' => (string) ($warehouses[$entry['warehouse_id']]['name'] ?? ''), 'item_id' => $entry['item_id'], 'item_code' => (string) $item['code'],
                         'item_name' => (string) $item['name'], 'capacity_case' => (int) $item['capacity_case'], 'source' => $entry['source'],
+                        'channel' => $entry['channel'] ?? 'EOS', 'saved_policy' => $entry['saved_policy'] ?? null,
                         'demand' => $demand[$entry['warehouse_id']][$entry['item_id']] ?? []];
                     $calendar = $this->calendar($reader, $calendars, $entry, (int) $this->option('lead'), $stops);
                     $result = $engine->run($series, $scenario, $calendar);
                     $m = $result['metrics'];
+                    if (isset($result['skipped'])) {
+                        $results[] = ['metrics' => $m];
+                        $bar->advance();
+
+                        continue;
+                    }
                     fputcsv($seriesFile, [$series['warehouse_id'], $series['warehouse_name'], $series['item_id'], $series['item_code'], $series['item_name'], $series['source'], $series['capacity_case'],
-                        $m['scored_days'], $m['demand'], $m['unmet'], $m['stockout_rate'], $m['unmet_days'], $m['mean_stock'], $m['mean_stock_days'], $m['max_stock'], $m['orders'], $m['order_pieces'],
-                        $m['minimum_lot_orders'], $m['event_orders'], $m['constrained_skips'], $m['hold_days'], $m['new_year_stock_days'], $m['overstock_order_days'], json_encode($m['segments'], JSON_UNESCAPED_UNICODE)]);
+                        $m['scored_days'], $m['missing_days'], $m['demand'], $m['unmet'], $m['stockout_rate'], $m['unmet_days'], $m['mean_stock'], $m['mean_stock_days'], $m['max_stock'], $m['orders'], $m['order_pieces'],
+                        $m['minimum_lot_orders'], $m['event_orders'], $m['constrained_skips'], $m['hold_days'], $m['recalcs'], $m['held_recalcs'], $m['max_consecutive_holds'], $m['forecast_only_updates'],
+                        $m['new_year_stock_days'], $m['overstock_order_days'], json_encode($m['segments'], JSON_UNESCAPED_UNICODE)]);
                     foreach ($result['days'] as $row) {
                         fputcsv($daysFile, [$series['warehouse_id'], $series['item_id'], $row['date'], $row['segment'], $row['opening'], $row['received'], $row['ordered'], $row['arrival_date'], $row['demand'],
                             $row['unmet'], $row['stock'], $row['pending'], $row['phase'], $row['reason'], $row['point'], $row['target'], $row['min'], $row['max'], $row['forecast']]);
                     }
                     foreach ($result['recalcs'] as $recalc) {
                         $v = $recalc['values'] ?? [];
-                        fputcsv($recalcFile, [$series['warehouse_id'], $series['item_id'], $recalc['date'], (int) $recalc['available'], $recalc['reason'], $v['reorder_point_pieces'] ?? null, $v['target_stock_pieces'] ?? null,
-                            $v['min_order_pieces'] ?? null, $v['max_order_pieces'] ?? null, $v['order_multiple_pieces'] ?? null, $recalc['mean_daily'] ?? null, $recalc['event_add_on'] ?? null, $recalc['selection'] ?? null]);
+                        fputcsv($recalcFile, [$series['warehouse_id'], $series['item_id'], $recalc['date'], $recalc['outcome'] ?? null, (int) $recalc['available'], $recalc['reason'], $v['reorder_point_pieces'] ?? null, $v['target_stock_pieces'] ?? null,
+                            $v['min_order_pieces'] ?? null, $v['max_order_pieces'] ?? null, $v['order_multiple_pieces'] ?? null, $recalc['mean_daily'] ?? null, $recalc['event_add_on'] ?? null, $recalc['selection'] ?? null, $recalc['consecutive_holds'] ?? null]);
                     }
                     $results[] = ['metrics' => $m];
                     $bar->advance();
@@ -158,11 +174,12 @@ class ReplayReplenishmentCommand extends Command
             'review_days' => 7, 'variability_buffer' => false, 'events' => [], 'factors' => null, 'segment_events' => $events, 'warmup_days' => (int) $this->option('warmup')];
 
         return match ($name) {
+            'saved' => array_replace($base, ['mode' => 'saved']),
             'fixed' => array_replace($base, ['mode' => 'fixed']),
             'base' => $base,
             'eventA' => array_replace($base, ['events' => $events, 'factors' => $factors]),
             'eventAs' => array_replace($base, ['events' => $events, 'factors' => $factors, 'variability_buffer' => true]),
-            default => throw new \RuntimeException("比較案 {$name} は未定義です（fixed, base, eventA, eventAs）。"),
+            default => throw new \RuntimeException("比較案 {$name} は未定義です（saved, fixed, base, eventA, eventAs）。"),
         };
     }
 
@@ -171,13 +188,14 @@ class ReplayReplenishmentCommand extends Command
         if ($this->option('calendar') !== 'current') {
             return $cache['simple'] ??= ReplayCalendar::simple($lead, $stops);
         }
-        $key = $entry['warehouse_id'].':'.($entry['contractor_id'] ?? 0);
+        $channel = in_array($entry['channel'] ?? 'EOS', ['EOS', 'LOGISTICS', 'FAX'], true) ? $entry['channel'] : 'EOS';
+        $key = $entry['warehouse_id'].':'.($entry['contractor_id'] ?? 0).':'.$channel;
         if (! isset($cache[$key])) {
             if (! $entry['contractor_id']) {
                 $this->warn("倉庫 {$entry['warehouse_id']} 商品 {$entry['item_id']}：発注先が無いため簡易カレンダーを使用");
                 $cache[$key] = $cache['simple'] ??= ReplayCalendar::simple($lead, $stops);
             } else {
-                $cache[$key] = ReplayCalendar::scheduled($reader->arrivalProvider((int) $entry['warehouse_id'], (int) $entry['contractor_id']));
+                $cache[$key] = $reader->scheduledCalendar((int) $entry['warehouse_id'], (int) $entry['contractor_id'], $channel);
             }
         }
 
@@ -190,7 +208,8 @@ class ReplayReplenishmentCommand extends Command
             .'（系列中央値 '.($a['median_series_stockout_rate'] === null ? '—' : round($a['median_series_stockout_rate'] * 100, 2).'%）')
             .' 平均在庫 '.number_format($a['mean_stock'], 1).'バラ（系列中央値 '.($a['median_series_stock_days'] ?? '—').'日分） 発注 '.number_format($a['orders']).'回（最小ロット '
             .($a['minimum_lot_share'] === null ? '—' : round($a['minimum_lot_share'] * 100).'%）').' イベント発注 '.$a['event_orders'].' 在庫21日超での発注 '.$a['overstock_order_days']
-            .'日 制約見送り '.$a['constrained_skips'].'日 年始滞留 '.$a['new_year_overstock_series'].'系列');
+            .'日 制約見送り '.$a['constrained_skips'].'日 年始滞留 '.$a['new_year_overstock_series'].'系列 週次保留 '.$a['held_recalcs'].'回（最長連続 '.$a['max_consecutive_holds'].'） 欠損日 '.$a['missing_days']
+            .($a['skipped_series'] ? ' 対象外 '.$a['skipped_series'].'系列' : ''));
         $rows = [];
         foreach ($a['segments'] as $segment => $s) {
             $rows[] = [$segment, number_format($s['demand']), number_format($s['unmet']), $s['stockout_rate'] === null ? '—' : round($s['stockout_rate'] * 100, 2).'%', number_format($s['mean_stock'], 1), $s['days']];
