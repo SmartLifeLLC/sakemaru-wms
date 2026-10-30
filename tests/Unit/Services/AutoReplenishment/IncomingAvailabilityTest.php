@@ -43,6 +43,18 @@ class IncomingAvailabilityTest extends TestCase
         self::assertSame($raw, $service->forCalculation($raw));
     }
 
+    public function test_actual_transfer_dates_include_overdue_and_unknown_supply_without_sunday_receipts(): void
+    {
+        $service = new IncomingAvailability;
+        foreach ([null, '2026-10-28', '2026-10-30', '2026-10-31'] as $date) {
+            self::assertSame('2026-10-31', $service->transferDate($date, '2026-10-31'));
+        }
+        self::assertSame('2026-11-02', $service->transferDate(null, '2026-11-01'));
+        self::assertSame('2026-11-02', $service->transferDate('2026-11-01', '2026-10-31'));
+        self::assertSame('2026-11-04', $service->transferDate('2026-11-04', '2026-10-31'));
+        self::assertNull($service->transferDate(null, null));
+    }
+
     public function test_invalid_today_remainder_and_overflow_are_rejected(): void
     {
         foreach ([['stock' => 30, 'incoming' => 20, 'incoming_today' => 21],
