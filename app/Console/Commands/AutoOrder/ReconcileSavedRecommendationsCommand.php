@@ -119,7 +119,7 @@ class ReconcileSavedRecommendationsCommand extends Command
         $row = ['saved' => $saved, 'recalc' => [], 'diff' => [], 'calculated_at' => $basis['calculated_at'] ?? null, 'as_of' => null, 'period' => $basis['period'] ?? null, 'conditions_source' => ''];
         // 対象外: the quantities were not saved from the recommendation (legacy/manual setting, hand-adjusted fields, or an unavailable calculation).
         if ($basis === null || ! isset($basis['suggested_values'], $basis['safety_stock_days'], $basis['period']['end'])) {
-            return $row + ['verdict' => '対象外', 'reason' => $basis === null ? 'おすすめ算定の記録なし（手動・旧設定の数量）' : 'おすすめ算定の保存値なし（安全在庫日数・提案値・期間の記録がない）'];
+            return $row + ['verdict' => '対象外', 'reason' => $basis === null ? 'おすすめ算定の記録なし（手動・旧設定の数量）' : 'おすすめ設定の保存値ではない（初期化・旧算定の記録：安全在庫日数・提案値の記録がない）'];
         }
         if (($basis['manually_adjusted_fields'] ?? []) !== []) {
             return $row + ['verdict' => '対象外', 'reason' => '手動調整済み：'.implode(',', (array) $basis['manually_adjusted_fields'])];
@@ -137,9 +137,7 @@ class ReconcileSavedRecommendationsCommand extends Command
             return $row + ['verdict' => '再現不能', 'reason' => '保存時の計算版が現行と異なる：'.$basis['method']];
         }
         $latest = $latestSales[$policy['warehouse_id']] ?? null;
-        if ($latest === null || (string) $latest < $basis['period']['end']) {
-            return $row + ['verdict' => '再現不能', 'reason' => '接続先DBの販売実績が算定期間末 '.$basis['period']['end'].' まで無い（最新 '.($latest ?? 'なし').'）'];
-        }
+        $coverageNote = $latest === null || (string) $latest < $basis['period']['end'] ? '接続先DBの販売実績が算定期間末 '.$basis['period']['end'].' まで無い（最新 '.($latest ?? 'なし').'）' : null;
         try {
             // The editor-equivalent route (same as the weekly refresh): saved route + the *current* quantity-constraint binding and demand events.
             $form = ['item_id' => (int) $policy['item_id'], 'channel' => $policy['channel'], 'contractor_id' => $policy['contractor_id'], 'supplier_id' => $policy['supplier_id'] ?? null,
@@ -175,7 +173,10 @@ class ReconcileSavedRecommendationsCommand extends Command
             }
             $row['diff'] = $diff;
             if ($diff === []) {
-                return $row + ['verdict' => '一致', 'reason' => ''];
+                return $row + ['verdict' => '一致', 'reason' => $coverageNote ? '（参考）'.$coverageNote : ''];
+            }
+            if ($coverageNote) {
+                return $row + ['verdict' => '再現不能', 'reason' => $coverageNote.'ため需要窓が保存時と異なる'];
             }
             $savedEvents = $basis['event_adjustment']['events'] ?? null;
             $nowEvents = $result['basis']['event_adjustment']['events'] ?? null;

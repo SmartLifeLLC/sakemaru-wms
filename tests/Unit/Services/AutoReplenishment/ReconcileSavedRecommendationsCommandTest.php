@@ -56,14 +56,14 @@ class ReconcileSavedRecommendationsCommandTest extends TestCase
     public function test_every_saved_policy_is_classified_and_nothing_is_written(): void
     {
         $service = Mockery::mock(SettingsRecommendationService::class);
-        $service->shouldReceive('recommend')->twice()->withArgs(function (int $client, int $warehouse, array $form, array $options) {
-            self::assertSame('2026-10-13', $options['as_of']); // the day after the saved window end
+        $service->shouldReceive('recommend')->times(3)->withArgs(function (int $client, int $warehouse, array $form, array $options) {
+            self::assertSame($form['item_id'] === 5 ? '2026-10-29' : '2026-10-13', $options['as_of']); // the day after the saved window end
             self::assertSame(['unit_mode' => 'CASE', 'review_days' => 7, 'safety_stock_days' => 5, 'existing_reorder_point' => null], array_diff_key($options, ['as_of' => 1]));
             self::assertSame('STANDARD', $form['shipping_unit_mode']);
 
-            return $client === 6 && $warehouse === 2 && in_array($form['item_id'], [1, 6], true);
+            return $client === 6 && $warehouse === 2 && in_array($form['item_id'], [1, 5, 6], true);
         })->andReturnUsing(fn ($c, $w, $form) => ['available' => true,
-            'values' => ['reorder_point_pieces' => 100, 'target_stock_pieces' => $form['item_id'] === 6 ? 240 : 200, 'min_order_pieces' => 24, 'max_order_pieces' => 96, 'order_multiple_pieces' => 24, 'strategy_key' => 'arrival_adaptive_v1'],
+            'values' => ['reorder_point_pieces' => 100, 'target_stock_pieces' => in_array($form['item_id'], [5, 6], true) ? 240 : 200, 'min_order_pieces' => 24, 'max_order_pieces' => 96, 'order_multiple_pieces' => 24, 'strategy_key' => 'arrival_adaptive_v1'],
             'basis' => ['basis_type' => 'sales', 'batch_quantity_pieces' => 24]]);
         $this->app->instance(SettingsRecommendationService::class, $service);
         $code = Artisan::call('wms:reconcile-saved-recommendations', ['client' => 6, '--out' => $this->out]);
@@ -86,7 +86,7 @@ class ReconcileSavedRecommendationsCommandTest extends TestCase
         self::assertSame('対象外', $byId[4]['verdict']);
         self::assertStringContainsString('手動調整済み', $byId[4]['reason']);
         self::assertSame('再現不能', $byId[5]['verdict']);
-        self::assertStringContainsString('2026-10-28', $byId[5]['reason']);
+        self::assertStringContainsString('2026-10-28', $byId[5]['reason']); // a difference with local data ending before the saved window is not a calculation mismatch
         self::assertSame('不一致', $byId[6]['verdict']);
         self::assertSame('{"target_stock_pieces":[200,240]}', $byId[6]['diff']);
         self::assertSame('240', $byId[6]['recalc_target']);
