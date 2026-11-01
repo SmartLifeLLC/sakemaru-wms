@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\PdfExtractionUnavailableException;
 use App\Models\Sakemaru\LogPdfExport;
 use App\Services\ProxyShipmentPrintService;
 use Illuminate\Http\Request;
@@ -66,6 +67,10 @@ class ProxyShipmentPrintController extends Controller
                 ->orderBy('t.serial_id')->orderBy('st.id')->select('st.id', 't.serial_id')->distinct()->get()->pluck('serial_id')->map(fn ($id) => (string) $id)->all();
             try {
                 $pdf = app(\App\Services\Print\ProxyShipmentOutboundPdfService::class)->extract($pdf, $serials);
+            } catch (PdfExtractionUnavailableException $exception) {
+                report($exception);
+
+                return response()->json(['message' => '出庫用の印刷機能を利用できません。管理者に連絡してください。移動伝票の再作成や一覧からの選び直しは不要です。'], 503);
             } catch (\Throwable $exception) {
                 report($exception);
 

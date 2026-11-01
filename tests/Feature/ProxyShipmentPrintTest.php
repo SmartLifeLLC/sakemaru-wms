@@ -224,6 +224,29 @@ class ProxyShipmentPrintTest extends TestCase
         $this->assertSame(0, DB::table('log_pdf_exports')->value('exported_count'));
     }
 
+    public function test_missing_pdf_dependencies_are_reported_as_service_unavailable_without_recreating_documents(): void
+    {
+        DB::table('wms_proxy_shipment_print_requests')->update(['copy_type' => 'outbound']);
+        $attempt = app(ProxyShipmentPrintService::class)->start($this->uuid);
+        DB::table('wms_proxy_shipment_print_attempts')->where('id', $attempt->id)->update(['status' => 'ready']);
+        DB::table('log_pdf_exports')->where('id', $attempt->log_pdf_export_id)->update(['prepared_at' => now()]);
+        $path = DB::table('log_pdf_exports')->where('id', $attempt->log_pdf_export_id)->value('path');
+        Storage::fake('core_pdf');
+        Storage::disk('core_pdf')->put($path, '%PDF-1.4 fixture');
+        $this->mock(\App\Services\Print\ProxyShipmentOutboundPdfService::class)->shouldReceive('extract')->once()
+            ->andThrow(new \App\Exceptions\PdfExtractionUnavailableException('missing dependency'));
+
+        $response = app(ProxyShipmentPrintController::class)->file(Request::create('/', 'GET', ['attempt' => 1]), $this->uuid);
+
+        $this->assertSame(503, $response->getStatusCode());
+        $this->assertStringContainsString('管理者に連絡', $response->getData()->message);
+        $this->assertSame('ready', DB::table('wms_proxy_shipment_print_attempts')->value('status'));
+        $this->assertSame(1, DB::table('wms_proxy_shipment_print_attempts')->count());
+        $this->assertSame(1, DB::table('stock_transfer_queue')->count());
+        $this->assertSame(0, DB::table('quantity_update_queue')->count());
+        $this->assertSame(0, DB::table('log_pdf_exports')->value('exported_count'));
+    }
+
     public function test_pending_file_cannot_be_downloaded_or_marked_as_output(): void
     {
         app(ProxyShipmentPrintService::class)->start($this->uuid);

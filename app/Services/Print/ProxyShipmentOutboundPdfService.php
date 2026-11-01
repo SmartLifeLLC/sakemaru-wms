@@ -2,6 +2,7 @@
 
 namespace App\Services\Print;
 
+use App\Exceptions\PdfExtractionUnavailableException;
 use RuntimeException;
 use setasign\Fpdi\PdfParser\StreamReader;
 use setasign\Fpdi\Tcpdf\Fpdi;
@@ -12,6 +13,9 @@ class ProxyShipmentOutboundPdfService
     /** Validate the existing core contract before importing its outbound pages. */
     public function extract(string $pdf, array $expectedSerials): string
     {
+        if (! class_exists(Parser::class) || ! class_exists(Fpdi::class)) {
+            throw new PdfExtractionUnavailableException('Required PDF extraction dependencies are not installed.');
+        }
         $pages = (new Parser)->parseContent($pdf)->getPages();
         $count = count($pages);
         if (! $expectedSerials || $count < count($expectedSerials) * 2 || $count % 2 !== 0) {

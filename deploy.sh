@@ -86,6 +86,18 @@ ${COMPOSER_BIN} install \
   --prefer-dist \
   --optimize-autoloader
 
+echo "-> verify outbound PDF dependencies"
+${PHP_BIN} <<'PHP'
+<?php
+require 'vendor/autoload.php';
+foreach ([\Smalot\PdfParser\Parser::class, \setasign\Fpdi\Tcpdf\Fpdi::class] as $class) {
+    if (! class_exists($class)) {
+        file_put_contents('php://stderr', "Missing PDF dependency: {$class}. Check composer install before continuing deployment.\n");
+        exit(1);
+    }
+}
+PHP
+
 if [[ "${RUN_MIGRATE}" == "1" ]]; then
   echo "-> migrate"
   ${PHP_BIN} artisan migrate --force
