@@ -194,9 +194,9 @@ class ListNewWmsShortageAllocations extends ListRecords
                 Action::make('cancel')->label('取消')->icon('heroicon-o-x-circle')->color('danger')
                     ->visible(fn (WmsShortageAllocation $record) => Resource::canEdit($record))
                     ->modalHeading('横持ち出荷依頼を取り消します')
-                    ->modalDescription(fn (WmsShortageAllocation $record) => "依頼ID {$record->id} / 商品CD {$record->shortage?->item?->code} {$record->shortage?->item?->name} / 予定数 {$record->assign_qty} / ピック数 {$record->picked_qty}。依頼を無効にします。元伝票・在庫・入力済み数量は変更せず、数量更新・倉庫移動のキューも作成しません。現物が未出荷であることを確認してください。")
+                    ->modalDescription('この商品の倉庫移動はキャンセルされます。必ず本部受注センターと売上伝票確認を実施してください。')
                     ->schema([Textarea::make('cancel_reason')->label('取消理由')->required()->maxLength(500)])
-                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])->modalFooterActionsAlignment(Alignment::End)
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal proxy-shipment-cancel-modal'])->modalFooterActionsAlignment(Alignment::End)
                     ->modalSubmitActionLabel('取消を確定')->modalCancelActionLabel('取消せず閉じる')
                     ->action(function (WmsShortageAllocation $record, array $data) {
                         abort_unless(Resource::canEdit($record), 403);
