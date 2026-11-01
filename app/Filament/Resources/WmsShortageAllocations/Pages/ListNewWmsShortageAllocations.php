@@ -208,11 +208,11 @@ class ListNewWmsShortageAllocations extends ListRecords
             ->toolbarActions([
                 static::getExportAction(),
                 $this->getProxyShipmentPickingListAction(),
-                Action::make('printTransfers')->label(new \Illuminate\Support\HtmlString('移動伝票PDF生成・印刷（<span x-text="getSelectedRecordsCount()">0</span>件）'))->icon('heroicon-o-printer')
+                Action::make('printTransfers')->label(new \Illuminate\Support\HtmlString('移動伝票PDF生成・印刷（<span x-text="getSelectedRecordsCount()">0</span>件）'))->icon('heroicon-o-printer')->accessSelectedRecords()
                     ->extraAttributes(['x-bind:disabled' => 'getSelectedRecordsCount() === 0'])
                     ->modalHeading('移動伝票の印刷')
                     ->modalDescription(fn () => '選択した依頼 '.count($this->selectedTableRecords).'件の印刷内容を選択してください。')
-                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal proxy-shipment-print-modal'])
                     ->modalFooterActionsAlignment(Alignment::End)
                     ->schema([\Filament\Forms\Components\Radio::make('copy_type')->label('印刷内容')
                         ->options(['both' => '入出庫セット', 'outbound' => '出庫用のみ'])->default('both')->required()])
