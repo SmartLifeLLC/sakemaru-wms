@@ -521,6 +521,7 @@ class WmsShortageAllocationsTable
                             $totalReallocatedQty = 0;
 
                             DB::connection('sakemaru')->transaction(function () use ($record, $data, $service, &$createdCount, &$totalReallocatedQty) {
+                                WmsShortage::whereKey($record->shortage_id)->lockForUpdate()->firstOrFail();
                                 $record = WmsShortageAllocation::whereKey($record->id)->lockForUpdate()->firstOrFail();
                                 $record->assertWorkable();
                                 foreach ($data['allocations'] as $allocation) {

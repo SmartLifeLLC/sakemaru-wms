@@ -2,6 +2,7 @@
 
 namespace App\Services\Shortage;
 
+use App\Models\WmsShortage;
 use App\Models\WmsShortageAllocation;
 use App\Services\QuantityUpdate\AllocationSyncService;
 use Illuminate\Support\Facades\DB;
@@ -15,6 +16,8 @@ class ProxyShipmentLifecycleService
     {
         return DB::connection('sakemaru')->transaction(function () use ($id, $operation) {
             $shortageId = WmsShortageAllocation::whereKey($id)->value('shortage_id');
+            // Serialize against creation/edit/approval before locking any child requests.
+            WmsShortage::whereKey($shortageId)->lockForUpdate()->firstOrFail();
             // Every writer locks siblings in the same order, including quantity synchronization.
             $siblings = WmsShortageAllocation::where('shortage_id', $shortageId)
                 ->orderBy('id')->lockForUpdate()->get();

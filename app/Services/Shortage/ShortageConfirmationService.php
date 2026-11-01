@@ -23,8 +23,9 @@ class ShortageConfirmationService
     public function confirm(WmsShortage $shortage): void
     {
         DB::connection('sakemaru')->transaction(function () use ($shortage) {
+            $shortage = WmsShortage::whereKey($shortage->id)->lockForUpdate()->firstOrFail();
             // 1. 全ての横持ち出荷指示を取得
-            $allocations = $shortage->allocations()->get();
+            $allocations = $shortage->allocations()->activeRequest()->get();
 
             if ($allocations->isEmpty()) {
                 Log::warning('No allocations to confirm', [

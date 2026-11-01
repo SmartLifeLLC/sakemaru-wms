@@ -245,7 +245,7 @@ class WmsShortagesWaitingApprovalsTable
                     ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('保存')->color('danger'))
                     ->modalCancelActionLabel('保存せず閉じる')
                     ->fillForm(function (WmsShortage $record): array {
-                        $allocations = $record->allocations()
+                        $allocations = $record->allocations()->activeRequest()
                             ->get()
                             ->map(function ($allocation) {
                                 return [
@@ -474,7 +474,7 @@ class WmsShortagesWaitingApprovalsTable
                                 ];
                             })
                             ->default(function (WmsShortage $record) {
-                                $allocations = $record->allocations()
+                                $allocations = $record->allocations()->activeRequest()
                                     ->with('targetWarehouse')
                                     ->get();
 
@@ -528,60 +528,69 @@ class WmsShortagesWaitingApprovalsTable
                             ]),
                     ])
                     ->action(function (WmsShortage $record, array $data) {
-                        $service = app(ProxyShipmentService::class);
-                        $deletedCount = 0;
+                        $deletedCount = \Illuminate\Support\Facades\DB::connection('sakemaru')->transaction(function () use ($record, $data): int {
+                            $record = WmsShortage::whereKey($record->id)->lockForUpdate()->firstOrFail();
+                            if ($record->is_confirmed) {
+                                throw \Illuminate\Validation\ValidationException::withMessages(['allocations' => '承認済みの欠品は編集できません。一覧を更新してください。']);
+                            }
+                            $record->allocations()->orderBy('id')->lockForUpdate()->get();
+                            $deletedCount = 0;
+                            $service = app(ProxyShipmentService::class);
 
-                        foreach ($data['allocations'] as $allocation) {
-                            // 数量が0の場合は削除
-                            if (isset($allocation['assign_qty']) && $allocation['assign_qty'] == 0) {
-                                if (! empty($allocation['id'])) {
-                                    $existingAllocation = WmsShortageAllocation::find($allocation['id']);
-                                    if ($existingAllocation) {
-                                        $service->deleteProxyShipment($existingAllocation);
-                                        $deletedCount++;
+                            foreach ($data['allocations'] as $allocation) {
+                                // 数量が0の場合は削除
+                                if (isset($allocation['assign_qty']) && $allocation['assign_qty'] == 0) {
+                                    if (! empty($allocation['id'])) {
+                                        $existingAllocation = $record->allocations()->whereKey($allocation['id'])->lockForUpdate()->firstOrFail();
+                                        if ($existingAllocation) {
+                                            $service->deleteProxyShipment($existingAllocation);
+                                            $deletedCount++;
+                                        }
                                     }
+
+                                    continue;
                                 }
 
-                                continue;
-                            }
-
-                            // 既存のレコードを更新または新規作成
-                            if (! empty($allocation['id'])) {
-                                // 更新
-                                $existingAllocation = WmsShortageAllocation::find($allocation['id']);
-                                if ($existingAllocation) {
-                                    $service->updateProxyShipment(
-                                        $existingAllocation,
-                                        $allocation['from_warehouse_id'],
-                                        $allocation['assign_qty'],
+                                // 既存のレコードを更新または新規作成
+                                if (! empty($allocation['id'])) {
+                                    // 更新
+                                    $existingAllocation = $record->allocations()->whereKey($allocation['id'])->lockForUpdate()->firstOrFail();
+                                    if ($existingAllocation) {
+                                        $service->updateProxyShipment(
+                                            $existingAllocation,
+                                            $allocation['from_warehouse_id'],
+                                            $allocation['assign_qty'],
+                                            auth()->id() ?? 0
+                                        );
+                                    }
+                                } else {
+                                    // 新規作成
+                                    $service->createProxyShipment(
+                                        $record,
+                                        (int) $allocation['from_warehouse_id'],
+                                        (int) $allocation['assign_qty'],
+                                        $record->qty_type_at_order,  // 受注単位を使用
                                         auth()->id() ?? 0
                                     );
                                 }
-                            } else {
-                                // 新規作成
-                                $service->createProxyShipment(
-                                    $record,
-                                    (int) $allocation['from_warehouse_id'],
-                                    (int) $allocation['assign_qty'],
-                                    $record->qty_type_at_order,  // 受注単位を使用
-                                    auth()->id() ?? 0
-                                );
                             }
-                        }
 
-                        // ステータスを更新
-                        $record->refresh();
-                        $totalAllocated = $record->allocations()->sum('assign_qty');
-                        $remainingShortage = max(0, $record->shortage_qty - $totalAllocated);
+                            // ステータスを更新
+                            $record->refresh();
+                            $totalAllocated = $record->allocations()->activeRequest()->sum('assign_qty');
+                            $remainingShortage = max(0, $record->shortage_qty - $totalAllocated);
 
-                        if ($totalAllocated === 0) {
-                            $record->status = WmsShortage::STATUS_SHORTAGE;
-                        } elseif ($remainingShortage === 0) {
-                            $record->status = WmsShortage::STATUS_REALLOCATING;
-                        } else {
-                            $record->status = WmsShortage::STATUS_PARTIAL_SHORTAGE;
-                        }
-                        $record->save();
+                            if ($totalAllocated === 0) {
+                                $record->status = WmsShortage::STATUS_SHORTAGE;
+                            } elseif ($remainingShortage === 0) {
+                                $record->status = WmsShortage::STATUS_REALLOCATING;
+                            } else {
+                                $record->status = WmsShortage::STATUS_PARTIAL_SHORTAGE;
+                            }
+                            $record->save();
+
+                            return $deletedCount;
+                        });
 
                         Notification::make()
                             ->title('保存しました')
@@ -778,11 +787,20 @@ class WmsShortagesWaitingApprovalsTable
                     ->modalDescription('横持ち出荷指示を削除し、欠品ステータスを未対応に戻します。Android側で再編集が可能になります。')
                     ->action(function (WmsShortage $record) {
                         try {
-                            // 関連する横持ち出荷指示を削除
-                            $deletedCount = $record->allocations()->delete();
+                            // 取消履歴を保持し、作業終了済みの依頼は削除しない。
+                            $deletedCount = \Illuminate\Support\Facades\DB::connection('sakemaru')->transaction(function () use ($record): int {
+                                $record = WmsShortage::whereKey($record->id)->lockForUpdate()->firstOrFail();
+                                if ($record->is_confirmed) {
+                                    throw \Illuminate\Validation\ValidationException::withMessages(['status' => '承認済みの欠品は取り消せません。一覧を更新してください。']);
+                                }
+                                $allocations = $record->allocations()->activeRequest()->orderBy('id')->lockForUpdate()->get();
+                                foreach ($allocations as $allocation) {
+                                    app(ProxyShipmentService::class)->deleteProxyShipment($allocation);
+                                }
+                                $record->update(['status' => WmsShortage::STATUS_BEFORE]);
 
-                            // ステータスをBEFOREに戻す
-                            $record->update(['status' => WmsShortage::STATUS_BEFORE]);
+                                return $allocations->count();
+                            });
 
                             Notification::make()
                                 ->title('取り消しました')
