@@ -193,6 +193,10 @@ class ProxyShipmentController extends ApiController
             throw new \InvalidArgumentException('この横持ち出荷はまだ確定されていません');
         }
 
+        if ($allocation->isCancelled()) {
+            throw new \InvalidArgumentException('取消済みの横持ち出荷依頼は操作できません。');
+        }
+
         // 完了済みの場合はcompleteのべき等性用にそのまま返す
         if ($allocation->is_finished) {
             return $allocation;

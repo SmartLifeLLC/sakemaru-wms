@@ -80,7 +80,7 @@ class ListWmsShortageAllocations extends ListRecords
     {
         return parent::table($table)
             ->modifyQueryUsing(fn (Builder $query) => $query
-                ->where('is_finished', false)
+                ->where('is_finished', false)->activeRequest()
                 ->with([
                     'shortage.wave',
                     'shortage.warehouse',
@@ -138,7 +138,7 @@ class ListWmsShortageAllocations extends ListRecords
                                     }
 
                                     $courseIds = WmsShortageAllocation::where('target_warehouse_id', $warehouseId)
-                                        ->where('is_finished', false)
+                                        ->where('is_finished', false)->activeRequest()
                                         ->whereIn('status', [
                                             WmsShortageAllocation::STATUS_RESERVED,
                                             WmsShortageAllocation::STATUS_PICKING,
@@ -174,7 +174,7 @@ class ListWmsShortageAllocations extends ListRecords
                                 $query = WmsShortageAllocation::where('target_warehouse_id', $warehouseId)
                                     ->where('shipment_date', $shipmentDate)
                                     ->where('is_confirmed', true)
-                                    ->where('is_finished', false)
+                                    ->where('is_finished', false)->activeRequest()
                                     ->whereIn('status', [
                                         WmsShortageAllocation::STATUS_RESERVED,
                                         WmsShortageAllocation::STATUS_PICKING,

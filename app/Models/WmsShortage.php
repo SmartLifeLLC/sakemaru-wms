@@ -331,7 +331,7 @@ class WmsShortage extends Model
         if (array_key_exists('allocations_total_qty', $this->attributes)) {
             $allocated = $this->attributes['allocations_total_qty'] ?? 0;
         } else {
-            $allocated = $this->allocations()->sum('assign_qty');
+            $allocated = $this->allocations()->activeRequest()->sum('assign_qty');
         }
 
         return max(0, $this->shortage_qty - $allocated);

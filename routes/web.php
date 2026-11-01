@@ -152,3 +152,15 @@ Route::get('/admin/picking-list/temp-download/{token}', function (string $token)
 })
     ->name('picking-list.temp-download')
     ->middleware(['web', \Filament\Http\Middleware\Authenticate::class.':admin']);
+
+// 横持ち出荷の一括印刷は受付・進行表示・PDF取得までWMS内で行う。
+Route::prefix('admin/stock-transfer-print')->name('proxy-shipment-print.')
+    ->middleware(['auth:web'])
+    ->controller(\App\Http\Controllers\ProxyShipmentPrintController::class)->group(function () {
+        Route::get('/{uuid}', 'show')->name('show');
+        Route::post('/{uuid}/start', 'start')->name('start');
+        Route::post('/{uuid}/retry', 'retry')->name('retry');
+        Route::get('/{uuid}/status', 'status')->name('status');
+        Route::get('/{uuid}/file', 'file')->name('file');
+        Route::post('/{uuid}/complete', 'complete')->name('complete');
+    });

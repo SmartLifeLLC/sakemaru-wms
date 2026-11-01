@@ -26,6 +26,8 @@ class ConfirmShortageAllocations
             ->table('wms_shortage_allocations')
             ->where('shortage_id', $wmsShortageId)
             ->where('is_confirmed', false)
+            ->where('is_finished', false)
+            ->where('status', 'PENDING')
             ->update([
                 'is_confirmed' => true,
                 'confirmed_at' => now(),
