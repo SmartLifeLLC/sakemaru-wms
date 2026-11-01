@@ -1,4 +1,9 @@
 <div class="ar-projection-explanation">
+    <p>表示中の数量条件を固定した試算です。毎週の再計算で数量が変わる動きは含みません（イベント日の消費見込は日付別予測を使用）。</p>
+    @if($chart['position_mode'] ?? false)
+        @php $initialPosition = $chart['days'][0]['decision_inventory']; @endphp
+        <p>発注判定在庫 <b>{{ number_format($initialPosition['position']) }}</b>バラ（現在庫 {{ number_format($initialPosition['stock']) }}＋当日 {{ number_format($initialPosition['today']) }}＋60日以内 {{ number_format($initialPosition['future']) }}＋日付未定等 {{ number_format($initialPosition['undated']) }}）。60日外 {{ number_format($initialPosition['excluded']) }}バラは判定対象外。</p>
+    @endif
     @if($chart['position_mode'] ?? false)<p>発注点は「現在庫＋当日〜60日後の未入荷＋日付未定・期限超過の既発注」と比べます。青線は入荷日ごとに加算した見込在庫です。判定在庫が十分でも、入荷前の欠品は起こり得ます。日付不明の予定を青線へ加算しません。当日の消費は1日分で試算します。</p>@endif
     <strong>入力中の設定での試算</strong>
     @if($chart['simulation_at'] ?? null)<p>試算基準：{{ \Carbon\Carbon::parse($chart['simulation_at'])->format('Y/m/d H:i') }}（倉庫の設定時刻）。テスト画面も同じ基準です。実際の発注は実行時刻で再判定します。</p>@endif
