@@ -41,6 +41,30 @@ class ProxyShipmentLifecycleTest extends TestCase
         $component->set('tableFilters.cancellation.value', 'only')->assertSee('取消（無効）');
     }
 
+    public function test_completed_transfer_button_and_column_use_the_series_menu_origin_and_open_a_new_tab(): void
+    {
+        config(['app.url' => 'https://wms.lw-hana.net', 'app.core_url' => 'https://wrong-environment.invalid']);
+        $this->makePrintable();
+        $page = $this->newPage();
+        $record = $page->instance()->getTableRecords()->first();
+        $action = $page->instance()->getTable()->getAction('viewTransfer')->record($record);
+        $this->assertTrue($action->isVisible());
+        $this->assertTrue($action->shouldOpenUrlInNewTab());
+        $this->assertSame('https://lw-hana.net/stocks/inventory/transfer/form/50', $action->getUrl());
+        $this->assertSame($action->getUrl(), $page->instance()->getTable()->getColumn('transfer_status')->record($record)->getUrl());
+    }
+
+    public function test_transfer_button_is_hidden_for_unfinished_or_unresolved_completed_requests(): void
+    {
+        $page = $this->newPage();
+        $action = $page->instance()->getTable()->getAction('viewTransfer');
+        $this->assertFalse($action->record(WmsShortageAllocation::findOrFail(1))->isVisible());
+        $this->makePrintable();
+        DB::table('stock_transfer_queue')->update(['status' => 'BEFORE']);
+        $page = $this->newPage();
+        $this->assertFalse($page->instance()->getTable()->getAction('viewTransfer')->record($page->instance()->getTableRecords()->first())->isVisible());
+    }
+
     public function test_foreign_company_transfer_trade_is_not_linked_or_selectable(): void
     {
         $this->makePrintable();
@@ -49,6 +73,7 @@ class ProxyShipmentLifecycleTest extends TestCase
         $record = $component->instance()->getTableRecords()->first();
         $this->assertFalse($component->instance()->getTable()->isRecordSelectable($record));
         $this->assertNull($component->instance()->getTable()->getColumn('transfer_status')->record($record)->getUrl());
+        $this->assertFalse($component->instance()->getTable()->getAction('viewTransfer')->record($record)->isVisible());
     }
 
     private function newPage(): \Livewire\Features\SupportTesting\Testable

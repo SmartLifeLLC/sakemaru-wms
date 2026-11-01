@@ -300,14 +300,27 @@ class MegaMenuBuilder
         ];
     }
 
+    /** The series menu and document links must resolve to the same environment. */
+    public function sakemaruSystemUrl(?string $subdomain = null): string
+    {
+        // APP_URL can be an Android emulator IP; web navigation uses its WMS origin.
+        $origin = str_starts_with(request()->getHost(), 'wms.')
+            ? request()->getSchemeAndHttpHost()
+            : config('app.url');
+        $parsed = parse_url($origin);
+        if (! str_starts_with($parsed['host'] ?? '', 'wms.')) {
+            $parsed = parse_url(config('app.core_url'));
+        }
+        $scheme = $parsed['scheme'] ?? 'https';
+        $baseDomain = preg_replace('/^wms\./', '', $parsed['host'] ?? 'localhost');
+        $host = $subdomain ? $subdomain.'.'.$baseDomain : $baseDomain;
+        $port = isset($parsed['port']) ? ':'.$parsed['port'] : '';
+
+        return "{$scheme}://{$host}{$port}";
+    }
+
     protected function buildSakemaruSeriesTab(): array
     {
-        $appUrl = config('app.url');
-        $parsed = parse_url($appUrl);
-        $scheme = $parsed['scheme'] ?? 'https';
-        $host = $parsed['host'] ?? 'localhost';
-        $baseDomain = preg_replace('/^[^.]+\./', '', $host);
-
         $systems = [
             ['label' => '酒丸（基幹システム）', 'subdomain' => null, 'desc' => '基幹業務システム', 'targetSystem' => 'sakemaru'],
             ['label' => '酒丸千里眼', 'subdomain' => 'search', 'desc' => '高度検索システム', 'targetSystem' => 'search'],
@@ -320,9 +333,7 @@ class MegaMenuBuilder
 
         $items = [];
         foreach ($systems as $itemSort => $system) {
-            $url = $system['subdomain']
-                ? "{$scheme}://{$system['subdomain']}.{$baseDomain}"
-                : "{$scheme}://{$baseDomain}";
+            $url = $this->sakemaruSystemUrl($system['subdomain']);
 
             $items[] = [
                 'label' => $system['label'],
