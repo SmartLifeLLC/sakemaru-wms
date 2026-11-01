@@ -226,6 +226,9 @@ class ListNewWmsShortageAllocations extends ListRecords
                             const popup = window.open('', '_blank');
                             if (popup) popup.document.body.textContent = '印刷対象を確認しています…';
                             try {
+                                $wire.set('isTrackingDeselectedTableRecords', isTrackingDeselectedRecords, false);
+                                $wire.set('selectedTableRecords', [...selectedRecords], false);
+                                $wire.set('deselectedTableRecords', [...deselectedRecords], false);
                                 const url = await $wire.prepareTransferPrint(crypto.randomUUID());
                                 if (!url) { if (popup) popup.close(); return; }
                                 if (popup) { popup.opener = null; popup.location.href = url; }
