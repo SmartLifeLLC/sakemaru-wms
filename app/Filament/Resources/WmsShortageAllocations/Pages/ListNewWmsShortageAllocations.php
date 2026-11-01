@@ -71,7 +71,7 @@ class ListNewWmsShortageAllocations extends ListRecords
             && (! $record->stock_transfer_queue_id || (int) $record->stock_transfer_queue_id === (int) $queue->id);
     }
 
-    public function prepareTransferPrint(string $operationKey): ?string
+    public function prepareTransferPrint(string $operationKey, string $copyType = 'both'): ?string
     {
         abort_unless(Resource::canViewAny(), 403);
         foreach (['sakemaru.stock-transfers.view', 'sakemaru.stock-transfers.print'] as $permission) {
@@ -84,7 +84,7 @@ class ListNewWmsShortageAllocations extends ListRecords
             throw \Illuminate\Validation\ValidationException::withMessages(['allocation_ids' => '現在のページから印刷対象を選び直してください。']);
         }
         try {
-            return app(ProxyShipmentPrintRequestService::class)->create($ids, (int) config('app.client_id'), auth()->id(), $operationKey);
+            return app(ProxyShipmentPrintRequestService::class)->create($ids, (int) config('app.client_id'), auth()->id(), $operationKey, $copyType);
         } catch (\Illuminate\Validation\ValidationException $exception) {
             Notification::make()->title('印刷を開始できません')->body(collect($exception->errors())->flatten()->first())->danger()->send();
 
@@ -209,25 +209,40 @@ class ListNewWmsShortageAllocations extends ListRecords
                 static::getExportAction(),
                 $this->getProxyShipmentPickingListAction(),
                 Action::make('printTransfers')->label(new \Illuminate\Support\HtmlString('移動伝票PDF生成・印刷（<span x-text="getSelectedRecordsCount()">0</span>件）'))->icon('heroicon-o-printer')
-                    ->extraAttributes(['x-data' => '{ printBusy: false }', 'x-bind:disabled' => 'printBusy || getSelectedRecordsCount() === 0'])
-                    ->alpineClickHandler(<<<'JS'
-                        (async () => {
-                            if (printBusy || getSelectedRecordsCount() === 0) return;
-                            printBusy = true;
-                            const popup = window.open('', '_blank');
-                            if (popup) popup.document.body.textContent = '印刷対象を確認しています…';
-                            try {
-                                $wire.set('isTrackingDeselectedTableRecords', isTrackingDeselectedRecords, false);
-                                $wire.set('selectedTableRecords', [...selectedRecords], false);
-                                $wire.set('deselectedTableRecords', [...deselectedRecords], false);
-                                const url = await $wire.prepareTransferPrint(crypto.randomUUID());
-                                if (!url) { if (popup) popup.close(); return; }
-                                if (popup) { popup.opener = null; popup.location.href = url; }
-                                else { $wire.dispatch('proxy-print-link', { url }); }
-                            } catch (error) { if (popup) popup.close(); }
-                            finally { printBusy = false; }
-                        })()
-                    JS),
+                    ->extraAttributes(['x-bind:disabled' => 'getSelectedRecordsCount() === 0'])
+                    ->modalHeading('移動伝票の印刷')
+                    ->modalDescription(fn () => '選択した依頼 '.count($this->selectedTableRecords).'件の印刷内容を選択してください。')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->schema([\Filament\Forms\Components\Radio::make('copy_type')->label('印刷内容')
+                        ->options(['both' => '入出庫セット', 'outbound' => '出庫用のみ'])->default('both')->required()])
+                    ->modalCancelActionLabel('印刷せず閉じる')
+                    ->modalSubmitAction(fn ($action) => $action->label('印刷を開始')->color('danger')->submit(null)->action(null)
+                        ->extraAttributes(['x-data' => '{ printBusy: false, printOperationKey: null, printOperationType: null }', 'x-bind:disabled' => 'printBusy'])
+                        ->alpineClickHandler(<<<'JS'
+                            (async () => {
+                                if (printBusy) return;
+                                printBusy = true;
+                                const popup = window.open('', '_blank');
+                                if (popup) popup.document.body.textContent = '印刷対象を確認しています…';
+                                try {
+                                    const copyType = $wire.get('mountedActions.0.data.copy_type');
+                                    if (printOperationType !== copyType) { printOperationType = copyType; printOperationKey = crypto.randomUUID(); }
+                                    const url = await $wire.prepareTransferPrint(printOperationKey, copyType);
+                                    if (!url) { if (popup) popup.close(); return; }
+                                    if (popup) { popup.opener = null; popup.location.href = url; }
+                                    else { $wire.dispatch('proxy-print-link', { url }); }
+                                    await $wire.unmountAction();
+                                } catch (error) { if (popup) popup.close(); }
+                                finally { printBusy = false; }
+                            })()
+                        JS))
+                    ->action(function (array $data) {
+                        $url = $this->prepareTransferPrint((string) \Illuminate\Support\Str::uuid(), $data['copy_type']);
+                        if ($url) {
+                            $this->dispatch('proxy-print-link', url: $url);
+                        }
+                    }),
             ]);
     }
 
