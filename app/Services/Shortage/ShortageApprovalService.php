@@ -78,7 +78,7 @@ class ShortageApprovalService
             return;
         }
 
-        $pickResult->shortage_allocated_qty = (int) $shortage->allocations()->sum('assign_qty');
+        $pickResult->shortage_allocated_qty = (int) $shortage->allocations()->activeRequest()->sum('assign_qty');
         $pickResult->shortage_allocated_qty_type = $shortage->qty_type_at_order;
         $pickResult->is_ready_to_shipment = true;
         $pickResult->shipment_ready_at = $pickResult->shipment_ready_at ?? now();

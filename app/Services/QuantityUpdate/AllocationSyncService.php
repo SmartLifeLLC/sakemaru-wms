@@ -4,6 +4,7 @@ namespace App\Services\QuantityUpdate;
 
 use App\Models\QuantityUpdateQueue;
 use App\Models\Sakemaru\ClientSetting;
+use App\Models\WmsShortage;
 use App\Models\WmsShortageAllocation;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -31,7 +32,7 @@ class AllocationSyncService
             return $this->formatResult(0, 0, 0, []);
         }
 
-        $grouped = $allocations->groupBy('shortage_id');
+        $grouped = $allocations->groupBy('shortage_id')->sortKeys();
 
         $syncedCount = 0;
         $queueCreated = 0;
@@ -83,6 +84,7 @@ class AllocationSyncService
         $systemShipmentDate = $this->systemShipmentDate();
 
         return DB::connection('sakemaru')->transaction(function () use ($allocation, $systemShipmentDate): ?QuantityUpdateQueue {
+            WmsShortage::whereKey($allocation->shortage_id)->lockForUpdate()->firstOrFail();
             WmsShortageAllocation::query()
                 ->where('shortage_id', $allocation->shortage_id)
                 ->orderBy('id')->lockForUpdate()
@@ -117,6 +119,7 @@ class AllocationSyncService
 
     protected function syncShortageIdIfReady(int $shortageId, QuantityUpdateQueueService $queueService, ?string $shipmentDate = null): ?QuantityUpdateQueue
     {
+        WmsShortage::whereKey($shortageId)->lockForUpdate()->firstOrFail();
         WmsShortageAllocation::query()
             ->where('shortage_id', $shortageId)
             ->orderBy('id')->lockForUpdate()
