@@ -81,11 +81,19 @@ class ProxyShipmentPrintTest extends TestCase
     public function test_foreign_owner_or_client_and_expired_request_are_rejected(): void
     {
         DB::table('wms_proxy_shipment_print_requests')->update(['requested_by' => 10]);
-        try { app(ProxyShipmentPrintService::class)->authorizedRequest($this->uuid); $this->fail('Foreign owner allowed'); }
-        catch (HttpException $exception) { $this->assertSame(404, $exception->getStatusCode()); }
+        try {
+            app(ProxyShipmentPrintService::class)->authorizedRequest($this->uuid);
+            $this->fail('Foreign owner allowed');
+        } catch (HttpException $exception) {
+            $this->assertSame(404, $exception->getStatusCode());
+        }
         DB::table('wms_proxy_shipment_print_requests')->update(['requested_by' => 9, 'client_id' => 7]);
-        try { app(ProxyShipmentPrintService::class)->authorizedRequest($this->uuid); $this->fail('Foreign client allowed'); }
-        catch (HttpException $exception) { $this->assertSame(404, $exception->getStatusCode()); }
+        try {
+            app(ProxyShipmentPrintService::class)->authorizedRequest($this->uuid);
+            $this->fail('Foreign client allowed');
+        } catch (HttpException $exception) {
+            $this->assertSame(404, $exception->getStatusCode());
+        }
         DB::table('wms_proxy_shipment_print_requests')->update(['client_id' => 6, 'expires_at' => now()->subDay()]);
         $this->expectException(HttpException::class);
         app(ProxyShipmentPrintService::class)->authorizedRequest($this->uuid);
@@ -94,8 +102,12 @@ class ProxyShipmentPrintTest extends TestCase
     public function test_changed_document_is_rejected_before_a_job_or_log_is_created(): void
     {
         DB::table('trades')->where('id', 20)->update(['note' => 'changed']);
-        try { app(ProxyShipmentPrintService::class)->start($this->uuid); $this->fail('Stale document allowed'); }
-        catch (HttpException $exception) { $this->assertSame(409, $exception->getStatusCode()); }
+        try {
+            app(ProxyShipmentPrintService::class)->start($this->uuid);
+            $this->fail('Stale document allowed');
+        } catch (HttpException $exception) {
+            $this->assertSame(409, $exception->getStatusCode());
+        }
         $this->assertSame(0, DB::table('log_pdf_exports')->count());
         Queue::assertNothingPushed();
     }
@@ -130,7 +142,8 @@ class ProxyShipmentPrintTest extends TestCase
         try {
             app(ProxyShipmentPrintController::class)->complete(Request::create('/', 'POST', ['attempt' => 1]), $this->uuid);
             $this->fail('Failed attempt marked complete');
-        } catch (HttpException) {}
+        } catch (HttpException) {
+        }
         $this->assertSame(0, DB::table('log_pdf_exports')->where('id', $second->log_pdf_export_id)->value('exported_count'));
     }
 
@@ -157,11 +170,58 @@ class ProxyShipmentPrintTest extends TestCase
         try {
             $controller->retry(Request::create('/', 'POST'), $this->uuid);
             $this->fail('Missing attempt accepted');
-        } catch (\Illuminate\Validation\ValidationException) {}
+        } catch (\Illuminate\Validation\ValidationException) {
+        }
         $request = Request::create('/', 'POST', ['attempt' => 1]);
         $this->assertSame(2, $controller->retry($request, $this->uuid)->getData()->attempt);
         $this->assertSame(2, $controller->retry($request, $this->uuid)->getData()->attempt);
         $this->assertSame(2, DB::table('log_pdf_exports')->count());
+    }
+
+    public function test_outbound_copy_is_used_for_the_pdf_view_and_download_even_if_the_url_requests_both(): void
+    {
+        DB::table('wms_proxy_shipment_print_requests')->update(['copy_type' => 'outbound']);
+        $attempt = app(ProxyShipmentPrintService::class)->start($this->uuid);
+        DB::table('wms_proxy_shipment_print_attempts')->where('id', $attempt->id)->update(['status' => 'ready']);
+        DB::table('log_pdf_exports')->where('id', $attempt->log_pdf_export_id)->update(['prepared_at' => now()]);
+        $source = file_get_contents(__DIR__.'/../Fixtures/Print/single-transfer-multipage.pdf');
+        $path = DB::table('log_pdf_exports')->where('id', $attempt->log_pdf_export_id)->value('path');
+        Storage::fake('core_pdf');
+        Storage::disk('core_pdf')->put($path, $source);
+        $controller = app(ProxyShipmentPrintController::class);
+        $response = $controller->file(Request::create('/', 'GET', ['attempt' => 1, 'copy_type' => 'both']), $this->uuid);
+        $pages = (new \Smalot\PdfParser\Parser)->parseContent($response->getContent())->getPages();
+        $this->assertCount(2, $pages);
+        foreach ($pages as $page) {
+            $this->assertStringContainsString('出庫用', $page->getText());
+            $this->assertStringNotContainsString('入庫用', $page->getText());
+        }
+        $this->assertStringContainsString('stock-transfer-outbound.pdf', $response->headers->get('Content-Disposition'));
+        $this->assertSame($source, Storage::disk('core_pdf')->get($path));
+        $this->assertSame(0, DB::table('log_pdf_exports')->value('exported_count'));
+        $this->withoutVite();
+        $html = $controller->show($this->uuid)->render();
+        $this->assertStringContainsString('出庫用のみ', $html);
+        $this->assertStringContainsString('data-filename="stock-transfer-outbound.pdf"', $html);
+        DB::table('wms_proxy_shipment_print_attempts')->where('id', $attempt->id)->update(['status' => 'failed']);
+        app(ProxyShipmentPrintService::class)->start($this->uuid, true, 1);
+        $this->assertSame('outbound', DB::table('wms_proxy_shipment_print_requests')->value('copy_type'));
+        $this->assertSame(1, DB::table('stock_transfer_queue')->count());
+        $this->assertSame(0, DB::table('quantity_update_queue')->count());
+    }
+
+    public function test_unrecognized_pdf_is_not_returned_when_only_outbound_is_selected(): void
+    {
+        DB::table('wms_proxy_shipment_print_requests')->update(['copy_type' => 'outbound']);
+        $attempt = app(ProxyShipmentPrintService::class)->start($this->uuid);
+        DB::table('wms_proxy_shipment_print_attempts')->where('id', $attempt->id)->update(['status' => 'ready']);
+        DB::table('log_pdf_exports')->where('id', $attempt->log_pdf_export_id)->update(['prepared_at' => now()]);
+        $path = DB::table('log_pdf_exports')->where('id', $attempt->log_pdf_export_id)->value('path');
+        Storage::fake('core_pdf');
+        Storage::disk('core_pdf')->put($path, '%PDF-1.4 invalid');
+        $response = app(ProxyShipmentPrintController::class)->file(Request::create('/', 'GET', ['attempt' => 1]), $this->uuid);
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(0, DB::table('log_pdf_exports')->value('exported_count'));
     }
 
     public function test_pending_file_cannot_be_downloaded_or_marked_as_output(): void

@@ -130,14 +130,14 @@
           data-file-url="{{ route('proxy-shipment-print.file', $printRequest->uuid) }}"
           data-complete-url="{{ route('proxy-shipment-print.complete', $printRequest->uuid) }}"
           data-return-url="{{ url('/admin/wms-shortage-allocations/new-request') }}"
-          data-filename="{{ 'stock-transfer.pdf' }}">
+          data-filename="{{ $printRequest->copy_type === 'outbound' ? 'stock-transfer-outbound.pdf' : 'stock-transfer.pdf' }}">
         <p class="breadcrumb"><span>横持ち出荷依頼</span><span aria-hidden="true">／</span><strong>移動伝票印刷</strong></p>
         <section class="process-card" aria-labelledby="process-title">
             <div class="card-heading">
                 <div><p class="eyebrow">移動伝票印刷</p><h1 id="process-title" data-process-title>印刷用のPDFを作成しています</h1></div>
                 <span class="registered"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>移動伝票作成済み</span>
             </div>
-            <p>対象依頼 {{ $allocationCount }}件 ／ 移動伝票 {{ $transferCount }}件</p>
+            <p>対象依頼 {{ $allocationCount }}件 ／ 移動伝票 {{ $transferCount }}件 ／ {{ $printRequest->copy_type === 'outbound' ? '出庫用のみ' : '入出庫セット' }}</p>
             <ol class="steps" aria-label="印刷の進行状況">
                 @foreach(['対象確認', 'PDF作成', 'ファイル取得', '印刷準備'] as $step)
                     <li class="step" data-step="{{ $loop->index }}" data-state="{{ $loop->first ? 'done' : ($loop->index === 1 ? 'active' : 'waiting') }}">
@@ -169,7 +169,7 @@
             <p class="process-note"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v1"/></svg><span data-process-help>準備ができると、PDFを自動ダウンロードして印刷ダイアログを開きます。</span></p>
         </section>
         <section class="preview-card" aria-label="伝票プレビュー">
-            <div class="preview-heading"><span class="preview-title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 8h18"/></svg>伝票プレビュー</span><span class="filename">{{ 'stock-transfer.pdf' }}</span></div>
+            <div class="preview-heading"><span class="preview-title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 8h18"/></svg>伝票プレビュー</span><span class="filename">{{ $printRequest->copy_type === 'outbound' ? 'stock-transfer-outbound.pdf' : 'stock-transfer.pdf' }}</span></div>
             <div class="preview-placeholder" data-preview-placeholder>
                 <div class="paper" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
                 <div class="preview-copy"><strong data-preview-title>伝票のプレビューを準備しています</strong><p data-preview-help>PDFを取得すると、ここに伝票が表示されます。</p></div>
