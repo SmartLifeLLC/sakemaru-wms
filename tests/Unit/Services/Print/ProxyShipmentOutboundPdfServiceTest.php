@@ -70,4 +70,19 @@ class ProxyShipmentOutboundPdfServiceTest extends TestCase
         $this->expectException(\Throwable::class);
         (new ProxyShipmentOutboundPdfService)->extract('%PDF-invalid', ['2000']);
     }
+
+    public function test_reports_missing_dependencies_before_attempting_pdf_parsing(): void
+    {
+        // A separate process without Composer reproduces the production vendor mismatch.
+        $root = dirname(__DIR__, 4);
+        $code = 'require '.var_export($root.'/app/Exceptions/PdfExtractionUnavailableException.php', true).';'
+            .'require '.var_export($root.'/app/Services/Print/ProxyShipmentOutboundPdfService.php', true).';'
+            .'try {(new App\\Services\\Print\\ProxyShipmentOutboundPdfService)->extract("%PDF-test", ["2000"]); exit(1);}'
+            .'catch (App\\Exceptions\\PdfExtractionUnavailableException $e) {echo "dependency-unavailable";}';
+        $process = new \Symfony\Component\Process\Process([PHP_BINARY, '-n', '-r', $code]);
+        $process->run();
+
+        $this->assertSame(0, $process->getExitCode(), $process->getErrorOutput());
+        $this->assertSame('dependency-unavailable', $process->getOutput());
+    }
 }
