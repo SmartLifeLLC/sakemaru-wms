@@ -28,12 +28,12 @@ class ProxyShipmentLifecycleTest extends TestCase
     {
         $this->makePrintable();
         $user = new \App\Models\User;
-        $user->setRawAttributes(['id' => 9, 'client_id' => 6]);
+        $user->setRawAttributes(['id' => 9, 'client_id' => 6, 'default_warehouse_id' => 1, 'wms_selected_warehouse_id' => 2]);
         $this->actingAs($user);
         $this->mock(\Sakemaru\Auth\Services\PermissionService::class)->shouldReceive('check')->andReturnTrue();
         \Filament\Facades\Filament::setCurrentPanel(\Filament\Facades\Filament::getPanel('admin'));
         $component = \Livewire\Livewire::test(\App\Filament\Resources\WmsShortageAllocations\Pages\ListNewWmsShortageAllocations::class)
-            ->assertSuccessful()->assertSee('新横持ち出荷依頼')->assertSee('移動伝票 2000');
+            ->assertSuccessful()->assertSee('新横持ち出荷依頼')->assertSee('2000');
         $this->assertTrue($component->instance()->getTable()->isSelectionEnabled());
         $component->set('selectedTableRecords', [1])->call('prepareTransferPrint', (string) \Illuminate\Support\Str::uuid());
         $this->assertSame(1, DB::table('wms_proxy_shipment_print_request_items')->count());
@@ -45,20 +45,80 @@ class ProxyShipmentLifecycleTest extends TestCase
     {
         $this->makePrintable();
         DB::table('trades')->where('id', 20)->update(['client_id' => 7]);
-        $component = $this->newPage()->assertDontSee('移動伝票 2000');
+        $component = $this->newPage();
         $record = $component->instance()->getTableRecords()->first();
         $this->assertFalse($component->instance()->getTable()->isRecordSelectable($record));
+        $this->assertNull($component->instance()->getTable()->getColumn('transfer_status')->record($record)->getUrl());
     }
 
     private function newPage(): \Livewire\Features\SupportTesting\Testable
     {
         $user = new \App\Models\User;
-        $user->setRawAttributes(['id' => 9, 'client_id' => 6]);
+        $user->setRawAttributes(['id' => 9, 'client_id' => 6, 'default_warehouse_id' => 1, 'wms_selected_warehouse_id' => 2]);
         $this->actingAs($user);
         $this->mock(\Sakemaru\Auth\Services\PermissionService::class)->shouldReceive('check')->andReturnTrue();
         \Filament\Facades\Filament::setCurrentPanel(\Filament\Facades\Filament::getPanel('admin'));
 
         return \Livewire\Livewire::test(\App\Filament\Resources\WmsShortageAllocations\Pages\ListNewWmsShortageAllocations::class);
+    }
+
+    public function test_default_completed_filter_uses_business_shipment_date_and_keeps_unfinished_rows(): void
+    {
+        DB::table('wms_shortage_allocations')->where('id', 1)->update(['is_finished' => true, 'status' => 'FULFILLED']);
+        foreach ([2 => ['2026-10-13', true], 3 => ['2026-10-15', true], 4 => ['2026-10-13', false]] as $id => [$date, $finished]) {
+            DB::table('wms_shortage_allocations')->insert(['id' => $id, 'shortage_id' => 1, 'shipment_date' => $date, 'is_finished' => $finished, 'status' => $finished ? 'FULFILLED' : 'RESERVED']);
+        }
+        $page = $this->newPage();
+        $page->assertCanSeeTableRecords(WmsShortageAllocation::whereIn('id', [1, 4])->get())
+            ->assertCanNotSeeTableRecords(WmsShortageAllocation::whereIn('id', [2, 3])->get());
+        $page->set('tableFilters.completed_visibility.value', 'all')->assertCanSeeTableRecords(WmsShortageAllocation::all());
+        $page->set('tableFilters.completed_visibility.value', 'none')
+            ->assertCanSeeTableRecords(WmsShortageAllocation::whereKey(4)->get())
+            ->assertCanNotSeeTableRecords(WmsShortageAllocation::whereIn('id', [1, 2, 3])->get());
+    }
+
+    public function test_header_selected_warehouse_overrides_default_and_cannot_be_bypassed_by_old_tabs(): void
+    {
+        DB::table('wms_shortage_allocations')->insert(['id' => 2, 'shortage_id' => 1, 'target_warehouse_id' => 1]);
+        $page = $this->newPage()->assertCanSeeTableRecords(WmsShortageAllocation::whereKey(1)->get())
+            ->assertCanNotSeeTableRecords(WmsShortageAllocation::whereKey(2)->get());
+        $this->assertSame([], $page->instance()->getTabs());
+        $page->set('activeTab', 'all')->assertCanNotSeeTableRecords(WmsShortageAllocation::whereKey(2)->get());
+        $this->assertArrayNotHasKey('target_warehouse_id', $page->instance()->getTable()->getFilters());
+    }
+
+    public function test_compact_page_keeps_download_and_existing_picking_list_modal(): void
+    {
+        $page = $this->newPage()->assertSee('ダウンロード')->assertSee('ピッキングリスト出力');
+        $columns = array_keys($page->instance()->getTable()->getVisibleColumns());
+        foreach (['id', 'targetWarehouse.code', 'targetWarehouse.name', 'sourceWarehouse.code', 'finished_at'] as $name) {
+            $this->assertNotContains($name, $columns);
+        }
+        $page->mountTableAction('printProxyShipmentPickingList')->assertTableActionDataSet(['warehouse_id' => 2, 'shipment_date' => '2026-10-14']);
+    }
+
+    public function test_picking_output_uses_header_warehouse_even_when_hidden_value_is_changed(): void
+    {
+        $this->mock(\App\Services\PickingList\ProxyShipmentPickingListService::class)->shouldReceive('generateList')
+            ->once()->with(2, '2026-10-14', null)->andReturn(['courses' => [['header' => []]]]);
+        $this->mock(\App\Services\PickingList\PickingListPdfService::class)->shouldReceive('renderProxyShipmentPdf')
+            ->once()->andReturn('%PDF-1.4 fixture');
+        $this->newPage()->callTableAction('printProxyShipmentPickingList', data: ['warehouse_id' => 1, 'shipment_date' => '2026-10-14'])
+            ->assertHasNoTableActionErrors();
+    }
+
+    public function test_download_uses_the_same_filtered_warehouse_query(): void
+    {
+        DB::table('wms_shortage_allocations')->insert(['id' => 2, 'shortage_id' => 1, 'target_warehouse_id' => 1]);
+        $this->mock(\App\Services\Export\ExportService::class)->shouldReceive('export')->once()
+            ->withArgs(function ($query, $columns, $format, $resource, $userId) {
+                $this->assertSame([1], $query->pluck('id')->all());
+                $this->assertArrayHasKey('商品CD', $columns);
+
+                return $format === \App\Enums\ExportFormat::CSV && $userId === 9;
+            })->andReturn(response()->streamDownload(fn () => print ('fixture'), 'requests.csv'));
+        $this->newPage()->callTableAction('export', data: ['format' => 'csv', 'file_name' => 'requests'])
+            ->assertHasNoTableActionErrors();
     }
 
     public function test_cancellation_action_uses_the_invalidation_service_and_default_filter_hides_the_row(): void
@@ -225,7 +285,10 @@ class ProxyShipmentLifecycleTest extends TestCase
         DB::table('wms_shortage_allocations')->insert(['id' => 2, 'shortage_id' => 1, 'shipment_date' => now()->toDateString()]);
         $this->app->instance(AllocationSyncService::class, new class extends AllocationSyncService
         {
-            protected function systemShipmentDate(): ?string { return now()->toDateString(); }
+            protected function systemShipmentDate(): ?string
+            {
+                return now()->toDateString();
+            }
         });
         $result = app(ProxyShipmentLifecycleService::class)->complete(2, pickerId: 11, pickedQty: 2);
         $this->assertTrue($result['allocation']->is_finished);
@@ -258,7 +321,8 @@ class ProxyShipmentLifecycleTest extends TestCase
             try {
                 app(ProxyShipmentLifecycleService::class)->complete(1, 9, pickedQty: $quantity);
                 $this->fail('Out-of-range quantity was accepted');
-            } catch (ValidationException) {}
+            } catch (ValidationException) {
+            }
             $this->assertSame(2, WmsShortageAllocation::findOrFail(1)->picked_qty);
             $this->assertFalse(WmsShortageAllocation::findOrFail(1)->is_finished);
         }
@@ -272,7 +336,8 @@ class ProxyShipmentLifecycleTest extends TestCase
         try {
             app(ProxyShipmentPrintRequestService::class)->create([1, 2], 6, 9, (string) Str::uuid());
             $this->fail('Unfinished selection was accepted');
-        } catch (ValidationException) {}
+        } catch (ValidationException) {
+        }
         $this->assertSame(0, DB::table('wms_proxy_shipment_print_requests')->count());
         $this->assertSame(0, DB::table('wms_proxy_shipment_print_request_items')->count());
         $this->assertSame(1, DB::table('stock_transfer_queue')->count());
