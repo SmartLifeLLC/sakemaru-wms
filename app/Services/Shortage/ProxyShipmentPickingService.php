@@ -80,7 +80,7 @@ class ProxyShipmentPickingService
     /**
      * 横持ち出荷完了
      *
-     * @return array{allocation: WmsShortageAllocation, stock_transfer_queue_id: int|null, quantity_update_queue_id: int|null}
+     * @return array{allocation: WmsShortageAllocation, stock_transfer_queue_id: int|null, quantity_update_queue_id: int|null, quantity_sync_failed: bool}
      */
     public function complete(WmsShortageAllocation $allocation, WmsPicker $picker, ?int $pickedQty = null): array
     {

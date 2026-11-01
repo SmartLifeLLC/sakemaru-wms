@@ -266,7 +266,7 @@ class ProxyShipmentLifecycleTest extends TestCase
 
     public function test_completion_creates_one_exact_queue_and_repeat_does_not_recreate_transfer(): void
     {
-        $this->mock(AllocationSyncService::class)->shouldReceive('syncAllocationIfReady')->once()->andReturnNull();
+        $this->mock(AllocationSyncService::class)->shouldReceive('syncAllocationIfReady')->never();
         $service = app(ProxyShipmentLifecycleService::class);
         $first = $service->complete(1, 9, pickedQty: 6);
         $second = $service->complete(1, 9, pickedQty: 6);
@@ -344,7 +344,7 @@ class ProxyShipmentLifecycleTest extends TestCase
 
     public function test_zero_quantity_and_same_warehouse_complete_without_a_transfer(): void
     {
-        $this->mock(AllocationSyncService::class)->shouldReceive('syncAllocationIfReady')->twice()->andReturnNull();
+        $this->mock(AllocationSyncService::class)->shouldReceive('syncAllocationIfReady')->once()->andReturnNull();
         $service = app(ProxyShipmentLifecycleService::class);
         $zero = $service->complete(1, 9, pickedQty: 0);
         $this->assertSame('ZERO_QUANTITY', $zero['allocation']->transfer_not_required_reason);
