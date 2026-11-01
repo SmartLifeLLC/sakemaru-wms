@@ -114,8 +114,8 @@ class ListNewWmsShortageAllocations extends ListRecords
                 TextColumn::make('shortage.item.name')->label('商品名')->grow()->searchable(),
                 TextColumn::make('shortage.item.volume')->label('容量')->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('shortage.item.capacity_case')->label('入数')->toggleable(isToggledHiddenByDefault: true),
-                TextColumn::make('shortage.trade.partner.name')->label('得意先')->limit(14)->tooltip(fn ($state) => $state)->toggleable(),
-                TextColumn::make('deliveryCourse.name')->label('配送コース')->limit(14)->tooltip(fn ($state) => $state)->toggleable(),
+                TextColumn::make('shortage.trade.partner.name')->label('得意先')->width('180px')->limit(18)->tooltip(fn ($state) => $state)->toggleable(),
+                TextColumn::make('deliveryCourse.name')->label('配送コース')->width('170px')->formatStateUsing(fn ($state) => preg_replace('/^\[[^\]]+\]/u', '', $state ?? ''))->limit(18)->tooltip(fn ($state) => $state)->toggleable(),
                 TextColumn::make('assign_qty_type')->label('単位')->formatStateUsing(fn ($state) => QuantityType::tryFrom($state)?->name() ?? $state),
                 TextColumn::make('assign_qty')->label('予定数')->alignment('center')->width('65px'),
                 TextInputColumn::make('picked_qty')->label('ピック数')->type('number')->alignment('center')->width('75px')->extraInputAttributes(['style' => 'width:64px;text-align:center'])
