@@ -1057,7 +1057,8 @@ html.fi {
 }
 
 /* Cancellation guidance must remain readable against the navy header. */
-.proxy-shipment-cancel-modal .fi-modal-header .fi-modal-description {
+.proxy-shipment-cancel-modal .fi-modal-header .fi-modal-description,
+.proxy-shipment-print-modal .fi-modal-header .fi-modal-description {
     color: #ffffff !important;
     font-weight: 600;
     line-height: 1.75;
