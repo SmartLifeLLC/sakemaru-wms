@@ -8,8 +8,8 @@
         @if($chart)
             <div x-data wire:key="projection-help-{{ hash('sha256',json_encode($chart)) }}">
                 <button type="button" class="ar-btn ar-projection-help" aria-label="在庫推移の解説"
-                    x-tooltip="{ content: '', onShow: tip => tip.setContent($refs.explanation.innerHTML), allowHTML: true, interactive: true, hideOnClick: false, theme: 'auto-order', duration: 0, maxWidth: 'min(560px, calc(100vw - 40px))', placement: 'left', appendTo: () => $el.closest('.ar-editor'), popperOptions: { modifiers: [{ name: 'preventOverflow', options: { altAxis: true, tether: false, padding: 12, boundary: $el.closest('.ar-editor') } }] }, trigger: 'mouseenter focus', aria: { content: 'describedby', expanded: false } }"
-                    @touchend.prevent="$el._tippy.show()" @click="$el._tippy.show()" @click.outside="if (!$el._tippy?.popper.contains($event.target)) $el._tippy?.hide()" @keydown.escape.window.capture="if ($el._tippy?.state.isVisible) { $el._tippy.hide(); $event.stopImmediatePropagation() }">ⓘ 解説</button>
+                    x-tooltip="{ content: '', onShow: tip => tip.setContent($refs.explanation.innerHTML), allowHTML: true, interactive: true, hideOnClick: true, theme: 'auto-order', duration: 0, maxWidth: 'min(560px, calc(100vw - 40px))', placement: 'left', appendTo: () => $el.closest('.ar-editor'), popperOptions: { modifiers: [{ name: 'preventOverflow', options: { altAxis: true, tether: false, padding: 12, boundary: $el.closest('.ar-editor') } }] }, trigger: 'click', aria: { content: 'describedby', expanded: true } }"
+                    @keydown.escape.window.capture="if ($el._tippy?.state.isVisible) { $el._tippy.hide(); $event.stopImmediatePropagation() }">ⓘ 解説</button>
                 <div hidden x-ref="explanation">@include('filament.pages.auto-replenishment-projection-help')</div>
             </div>
         @endif
@@ -55,23 +55,24 @@
                 @foreach(($chart['events'] ?? []) as $event)<span class="ar-projection-event-tag">■ {{ $event['name'] }} {{ substr($event['start'],5) }}〜{{ substr($event['end'],5) }}（上乗せ {{ number_format($event['uplift_pieces']) }}バラ）</span>@endforeach
                 <span @class(['ar-projection-risk'=>$chart['shortage_days']>0])>不足見込 <b>{{ $chart['shortage_days'] }}</b> 日</span>
             </div>
-            <p class="ar-projection-caption">表示中の数量条件を固定した試算です。毎週の再計算で数量が変わる動きは含みません（イベント日の消費見込は日付別予測を使用）。</p>
-            @if($positionMode)
-                @php $ip=$days[0]['decision_inventory']; @endphp
-                <p class="ar-help">発注判定在庫 <b>{{ number_format($ip['position']) }}</b>バラ（現在庫 {{ number_format($ip['stock']) }}＋当日 {{ number_format($ip['today']) }}＋60日以内 {{ number_format($ip['future']) }}＋日付未定等 {{ number_format($ip['undated']) }}）。60日外 {{ number_format($ip['excluded']) }}バラは判定対象外。</p>
-                <label class="ar-help"><input type="checkbox" x-model="showPosition"> 発注判定在庫線を表示</label>
-            @endif
             <div class="ar-projection-legend"><span class="stock">━ {{ $positionMode ? '見込在庫（入荷日に加算）' : '在庫' }}</span><span class="demand">■ 消費</span><span class="receipt">■ 入荷</span><span class="order">◆ 発注</span><span class="deferred">○ 発注点未満・発注なし</span><span class="point">┄ 発注点{{ $positionMode ? '（判定在庫と比較）' : '' }}</span><span class="target">━ 過剰在庫線</span>@if($eventSpans)<span class="ar-projection-event-tag">■ イベント期間</span>@endif<small>数量：総バラ</small></div>
-            @if($weekCount > 2)
-                <div class="ar-projection-zoom" role="group" aria-label="表示する週数">
-                    <span>表示：</span>
-                    @foreach(array_unique([2, 4, $weekCount]) as $w)<button type="button" class="ar-btn" :class="{ 'is-active': weeks === {{ $w }} }" @click="weeks = {{ $w }}">{{ $w }}週</button>@endforeach
-                    <button type="button" class="ar-btn" @click="scrollBy(-1)" aria-label="前へ">◀</button><button type="button" class="ar-btn" @click="scrollBy(1)" aria-label="次へ">▶</button>
-                    <small>横にスクロール・ドラッグして先の週を確認できます。</small>
+            @if($weekCount > 2 || $positionMode)
+                <div class="ar-projection-zoom" role="group" aria-label="在庫推移の表示設定">
+                    @if($weekCount > 2)
+                        <span>表示：</span>
+                        @foreach(array_unique([2, 4, $weekCount]) as $w)<button type="button" class="ar-btn" :class="{ 'is-active': weeks === {{ $w }} }" @click="weeks = {{ $w }}">{{ $w }}週</button>@endforeach
+                        <button type="button" class="ar-btn" @click="scrollBy(-1)" aria-label="前へ">◀</button><button type="button" class="ar-btn" @click="scrollBy(1)" aria-label="次へ">▶</button>
+                        <small>横にスクロール・ドラッグして先の週を確認できます。</small>
+                    @endif
+                    @if($positionMode)
+                        <button type="button" class="ar-projection-position-toggle" role="switch" aria-label="発注判定在庫線を表示" :aria-checked="showPosition.toString()" :class="{ 'is-on': showPosition }" @click="showPosition = !showPosition">
+                            <span>発注判定在庫線</span><span class="ar-projection-position-track" aria-hidden="true"></span><b x-text="showPosition ? 'ON' : 'OFF'" aria-hidden="true">OFF</b>
+                        </button>
+                    @endif
                 </div>
             @endif
             <div class="ar-projection-scroll" x-ref="scroll" :class="{ 'is-dense': weeks > 4 }">
-                <svg class="ar-projection-chart" viewBox="0 0 {{ $chartWidth }} 250" role="img" :style="{ width: (total / weeks * 100) + '%' }" style="min-width:0" aria-label="{{ $chart['start'] }}から{{ $chart['end'] }}までの在庫・消費・入荷・発注の試算。各日を選択すると内訳を表示します。">
+                <svg class="ar-projection-chart" viewBox="0 0 {{ $chartWidth }} 250" preserveAspectRatio="none" role="img" :style="{ width: (total / weeks * 100) + '%' }" style="min-width:0" aria-label="{{ $chart['start'] }}から{{ $chart['end'] }}までの在庫・消費・入荷・発注の試算。各日を選択すると内訳を表示します。">
                     @foreach($eventSpans as $span)
                         <rect x="{{ $x($span['start'])-2 }}" y="{{ $top-10 }}" width="{{ ($span['end']-$span['start']+1)*64 }}" height="{{ $bottom-$top+10 }}" fill="#f59e0b" opacity="0.10"/>
                         <text x="{{ $x($span['start'])+2 }}" y="{{ $top-1 }}" class="ar-projection-axis ar-projection-event-label">{{ $span['name'] }}</text>
