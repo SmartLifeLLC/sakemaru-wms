@@ -77,6 +77,22 @@ class ProxyShipmentLifecycleTest extends TestCase
             ->assertCanNotSeeTableRecords(WmsShortageAllocation::whereIn('id', [1, 2, 3])->get());
     }
 
+    public function test_removing_today_filter_shows_past_completed_requests_without_changing_warehouse_scope(): void
+    {
+        DB::table('wms_shortage_allocations')->where('id', 1)->update(['is_finished' => true, 'status' => 'FULFILLED', 'shipment_date' => '2026-10-13']);
+        DB::table('wms_shortage_allocations')->insert([
+            ['id' => 2, 'shortage_id' => 1, 'is_finished' => true, 'status' => 'FULFILLED', 'shipment_date' => '2026-10-13', 'target_warehouse_id' => 1],
+            ['id' => 3, 'shortage_id' => 1, 'is_finished' => false, 'status' => 'CANCELLED', 'shipment_date' => '2026-10-13', 'target_warehouse_id' => 2],
+        ]);
+        $page = $this->newPage()->assertCanNotSeeTableRecords(WmsShortageAllocation::all());
+        $page->call('removeTableFilter', 'completed_visibility')
+            ->assertSet('tableFilters.completed_visibility.value', null)
+            ->assertCanSeeTableRecords(WmsShortageAllocation::whereKey(1)->get())
+            ->assertCanNotSeeTableRecords(WmsShortageAllocation::whereIn('id', [2, 3])->get());
+        $page->set('tableFilters.completed_visibility.value', 'today')
+            ->assertCanNotSeeTableRecords(WmsShortageAllocation::whereKey(1)->get());
+    }
+
     public function test_header_selected_warehouse_overrides_default_and_cannot_be_bypassed_by_old_tabs(): void
     {
         DB::table('wms_shortage_allocations')->insert(['id' => 2, 'shortage_id' => 1, 'target_warehouse_id' => 1]);

@@ -169,11 +169,11 @@ class ListNewWmsShortageAllocations extends ListRecords
                 SelectFilter::make('status')->label('作業状態')->options(self::statuses()),
                 SelectFilter::make('completed_visibility')->label('完了の表示')
                     ->options(['today' => '当日出荷分のみ', 'all' => '全期間', 'none' => '完了を除く'])
-                    ->default('today')->query(fn (Builder $query, array $data) => match ($data['value'] ?? 'today') {
-                        'all' => $query,
+                    ->default('today')->query(fn (Builder $query, array $data) => match ($data['value'] ?? null) {
                         'none' => $query->where('is_finished', false),
-                        default => $query->where(fn (Builder $q) => $q->where('is_finished', false)
+                        'today' => $query->where(fn (Builder $q) => $q->where('is_finished', false)
                             ->orWhereDate('shipment_date', ClientSetting::systemDate(true)->toDateString())),
+                        default => $query,
                     }),
                 Filter::make('shipment_date')->label('出荷日')->schema([DatePicker::make('from')->label('開始日'), DatePicker::make('until')->label('終了日')])
                     ->query(fn (Builder $query, array $data) => $query->when($data['from'] ?? null, fn ($query, $date) => $query->whereDate('shipment_date', '>=', $date))
