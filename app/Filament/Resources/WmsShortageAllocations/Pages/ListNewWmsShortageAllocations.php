@@ -71,6 +71,16 @@ class ListNewWmsShortageAllocations extends ListRecords
             && (! $record->stock_transfer_queue_id || (int) $record->stock_transfer_queue_id === (int) $queue->id);
     }
 
+    private function transferUrl(WmsShortageAllocation $record): ?string
+    {
+        if (! $this->printable($record)) {
+            return null;
+        }
+
+        return app(\App\Services\Navigation\MegaMenuBuilder::class)->sakemaruSystemUrl()
+            .'/stocks/inventory/transfer/form/'.$record->createQueue->stock_transfer_id;
+    }
+
     public function prepareTransferPrint(string $operationKey, string $copyType = 'both'): ?string
     {
         abort_unless(Resource::canViewAny(), 403);
@@ -154,8 +164,7 @@ class ListNewWmsShortageAllocations extends ListRecords
                             default => '紐付け未確認',
                         };
                     })
-                    ->url(fn (WmsShortageAllocation $record) => $this->printable($record)
-                        ? rtrim(config('app.core_url'), '/').'/stocks/inventory/transfer/form/'.$record->createQueue->stock_transfer_id : null)
+                    ->url(fn (WmsShortageAllocation $record) => $this->transferUrl($record))
                     ->openUrlInNewTab(),
                 TextColumn::make('finished_at')->label('完了日時')->dateTime('m/d H:i')->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('cancelled_at')->label('取消日時')->dateTime('m/d H:i')->toggleable(isToggledHiddenByDefault: true),
@@ -180,6 +189,10 @@ class ListNewWmsShortageAllocations extends ListRecords
                         ->when($data['until'] ?? null, fn ($query, $date) => $query->whereDate('shipment_date', '<=', $date))),
             ])
             ->recordActions([
+                Action::make('viewTransfer')->label('移動伝票')->icon('heroicon-o-arrow-top-right-on-square')->color('info')
+                    ->visible(fn (WmsShortageAllocation $record) => $this->printable($record))
+                    ->url(fn (WmsShortageAllocation $record) => $this->transferUrl($record))
+                    ->openUrlInNewTab(),
                 Action::make('complete')->label('完了')->icon('heroicon-o-check-circle')->color('success')
                     ->visible(fn (WmsShortageAllocation $record) => Resource::canEdit($record) && in_array($record->status, ['RESERVED', 'PICKING']))
                     ->requiresConfirmation()->modalHeading('横持ち出荷の完了確認')
