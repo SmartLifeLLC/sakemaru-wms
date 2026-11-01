@@ -359,6 +359,42 @@ class ProxyShipmentLifecycleTest extends TestCase
         $this->assertSame(1, DB::table('stock_transfer_queue')->count());
     }
 
+    public function test_print_dialog_defaults_to_both_and_keeps_the_selected_outbound_type(): void
+    {
+        $this->makePrintable();
+        $page = $this->newPage()->set('selectedTableRecords', [1]);
+        $page->mountTableAction('printTransfers')->assertTableActionDataSet(['copy_type' => 'both']);
+        $page->call('unmountAction')->callTableAction('printTransfers', data: ['copy_type' => 'outbound'])->assertHasNoTableActionErrors();
+        $this->assertSame('outbound', DB::table('wms_proxy_shipment_print_requests')->value('copy_type'));
+        $this->assertSame(1, DB::table('wms_proxy_shipment_print_request_items')->count());
+    }
+
+    public function test_same_print_operation_cannot_change_its_copy_type(): void
+    {
+        $this->makePrintable();
+        $key = (string) Str::uuid();
+        $service = app(ProxyShipmentPrintRequestService::class);
+        $first = $service->create([1], 6, 9, $key, 'outbound');
+        $this->assertSame($first, $service->create([1], 6, 9, $key, 'outbound'));
+        try {
+            $service->create([1], 6, 9, $key, 'both');
+            $this->fail('Print type was changed by a retry');
+        } catch (ValidationException) {
+        }
+        $this->assertSame(1, DB::table('wms_proxy_shipment_print_requests')->count());
+        $this->assertSame('outbound', DB::table('wms_proxy_shipment_print_requests')->value('copy_type'));
+    }
+
+    public function test_invalid_print_type_is_rejected_before_creating_a_request(): void
+    {
+        try {
+            app(ProxyShipmentPrintRequestService::class)->create([1], 6, 9, (string) Str::uuid(), 'inbound');
+            $this->fail('Unsupported print type was accepted');
+        } catch (ValidationException) {
+        }
+        $this->assertSame(0, DB::table('wms_proxy_shipment_print_requests')->count());
+    }
+
     public function test_cancelled_rows_are_not_work_candidates_or_editable_in_device_response(): void
     {
         app(ProxyShipmentLifecycleService::class)->cancel(1, 9, '取消');

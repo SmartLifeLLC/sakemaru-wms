@@ -155,6 +155,7 @@ trait ProxyShipmentDatabase
         $migration = require __DIR__.'/../../database/migrations/2026_11_01_150000_add_proxy_shipment_cancellation_and_print_requests.php';
         // The migration only creates new columns/tables in this fresh in-memory fixture.
         $migration->up();
+        (require __DIR__.'/../../database/migrations/2026_11_02_090000_add_copy_type_to_proxy_shipment_print_requests.php')->up();
         DB::table('trades')->insert([['id' => 10, 'client_id' => 6, 'serial_id' => 1000], ['id' => 20, 'client_id' => 6, 'serial_id' => 2000]]);
         DB::table('trade_items')->insert(['id' => 1, 'trade_id' => 10, 'quantity' => 10]);
         DB::table('wms_shortages')->insert(['id' => 1, 'trade_id' => 10, 'trade_item_id' => 1]);
