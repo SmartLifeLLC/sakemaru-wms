@@ -32,7 +32,7 @@ class InventoryProjectionInputs
             $horizon = InventoryProjection::horizonDays();
             $calendar = app(InventoryProjectionCalendar::class)->read($warehouse, (int) $form['contractor_id'], $form['channel'], $snapshot['business_date'], $snapshot['warehouse_config'],
                 max(RecommendationArrivalSchedule::LOOKAHEAD_DAYS, $horizon));
-            $usesForecast = in_array($form['strategy_key'] ?? '', ['arrival_batch_v1', 'arrival_adaptive_v1'], true);
+            $usesForecast = in_array($form['strategy_key'] ?? '', ['arrival_batch_v1', 'arrival_adaptive_v1', PositionNormalBatchStrategy::KEY], true);
             $demand = $usesForecast || array_key_exists('demand_profile', $basis ?? []) || isset($basis['mean_daily'])
                 ? app(DemandProfile::class)->fromBasis($basis ?? [])
                 : app(WeekdayDemand::class)->read($client, $warehouse, (int) $form['item_id'], $snapshot['business_date']);

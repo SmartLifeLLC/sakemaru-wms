@@ -26,8 +26,13 @@
             @if(($test['shipping_unit']['mode'] ?? '') === 'SHIPMENT')<p class="ar-help"><b>出荷数量候補：</b>{{ implode('・', $test['shipping_unit']['quantities']) }}バラ ／ 今回 {{ number_format($test['quantity_pieces']) }}バラ。過剰在庫線・最大発注数に収まる候補を選択します。</p>@endif
             @if(($test['stock'] ?? 0) < 0)<p class="ar-help">実在庫 {{ number_format($test['stock']) }}バラに当日入荷予定 {{ number_format($test['incoming_today'] ?? 0) }}バラを加えて計算します。</p>@endif
             @if(($test['quantity_settings']['safety_days'] ?? null) !== null)<p class="ar-help">おすすめ算定時：安全在庫 {{ $test['quantity_settings']['safety_days'] }}日分（{{ number_format($test['quantity_settings']['safety_pieces']) }}バラ）。</p>@endif
-            @if($test['quantity_settings'] ?? null)<p class="ar-help">@if($test['quantity_settings']['normal'] !== null)通常の目安 {{ number_format($test['quantity_settings']['normal']) }} ／ @endif最小 {{ number_format($test['quantity_settings']['minimum']) }} ／ 最大 {{ number_format($test['quantity_settings']['maximum']) }} ／ 過剰在庫線 {{ number_format($test['quantity_settings']['target']) }}バラ。通常量をまとめ、欠品見込時のみ小口で補充します。</p>@endif
+            @if($test['quantity_settings'] ?? null)<p class="ar-help">@if($test['quantity_settings']['normal'] !== null)通常の目安 {{ number_format($test['quantity_settings']['normal']) }} ／ @endif最小 {{ number_format($test['quantity_settings']['minimum']) }} ／ 最大 {{ number_format($test['quantity_settings']['maximum']) }} ／ 過剰在庫線 {{ number_format($test['quantity_settings']['target']) }}バラ。@if(($test['strategy_key'] ?? '') === 'position_normal_batch_v1')既発注込みの発注判定在庫が発注点未満なら、通常量と次回実行までの消費を補う必要量の大きい方を基本に、1回上限・単位・過剰在庫線の範囲で発注します。@else通常量をまとめ、欠品見込時のみ小口で補充します。@endif</p>@endif
             @if($test['phase'] === 'HOLD' && $test['calculated_pieces'] > 0)<p class="ar-error">計算上は {{ number_format($test['calculated_pieces']) }}バラ必要ですが、保留のため発注対象は0バラです。切り詰め・分割発注はしません。</p>@endif
+            @if($test['decision_inventory'] ?? null)
+                @php $ip=$test['decision_inventory']; @endphp
+                <p class="ar-help">発注判定在庫 {{ number_format($ip['position']) }}バラ ＝ 現在庫 {{ number_format($ip['stock']) }}＋当日 {{ number_format($ip['today']) }}＋60日以内 {{ number_format($ip['future']) }}＋日付未定等 {{ number_format($ip['undated']) }}。60日外 {{ number_format($ip['excluded']) }}バラは除外。</p>
+                @foreach($test['warnings'] ?? [] as $warning)<p class="ar-help" role="status">{{ $warning['message'] }}</p>@endforeach
+            @endif
             <section class="ar-test-formula"><h3>計算の要点 <small>総バラ</small></h3>
                 @php $steps=$test['formula']; $shortSteps=count($steps)>4 ? [$steps[0],$steps[1],end($steps)] : $steps; @endphp
                 @forelse($shortSteps as $step)<p>{{ str_replace('補充目標', '過剰在庫線', $step) }}</p>@empty<p>表示された保留理由を確認してください。</p>@endforelse

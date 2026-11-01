@@ -26,7 +26,7 @@ class InventoryProjection
         foreach (['reorder_point_pieces', 'min_order_pieces', 'max_order_pieces', 'order_multiple_pieces', 'target_stock_pieces'] as $key) {
             $value = $policy[$key] ?? null;
             if ($key === 'target_stock_pieces' && ($value === null || $value === '')) {
-                $value = $policy['reorder_point_pieces'] ?? null;
+                $value = ($policy['strategy_key'] ?? '') === PositionNormalBatchStrategy::KEY ? null : ($policy['reorder_point_pieces'] ?? null);
             }
             throw_unless(filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 2147483647]]) !== false,
                 \RuntimeException::class, '数量の入力を完了すると、在庫推移を再計算します。');
@@ -35,7 +35,8 @@ class InventoryProjection
         throw_if($policy['min_order_pieces'] > $policy['max_order_pieces'], \RuntimeException::class, '最小発注数は最大発注数以下で入力してください。');
         $forecast = app(DemandProfile::class);
         $basis = $policy['calculation_basis'] ?? [];
-        $usesForecast = in_array($policy['strategy_key'] ?? '', ['arrival_batch_v1', 'arrival_adaptive_v1'], true);
+        $positionMode = ($policy['strategy_key'] ?? '') === PositionNormalBatchStrategy::KEY;
+        $usesForecast = in_array($policy['strategy_key'] ?? '', ['arrival_batch_v1', 'arrival_adaptive_v1', PositionNormalBatchStrategy::KEY], true);
         $profile = $usesForecast || array_key_exists('demand_profile', $basis) || isset($basis['mean_daily']) ? $forecast->fromBasis($basis) : $input['demand'];
         $snapshot = $input['snapshot'];
         if (($snapshot['shipping_unit']['mode'] ?? '') === 'PALLET') {
@@ -52,11 +53,20 @@ class InventoryProjection
         $events = $snapshot['supply_events'];
         throw_unless(array_sum(array_column($events, 'pieces')) === $snapshot['incoming'], \RuntimeException::class, '入荷予定の合計を照合できません。データを再取得してください。');
         $unknown = 0;
+        if ($positionMode) {
+            $window = app(SupplyWindow::class)->classify($events, $start->toDateString());
+            $events = $window['events'];
+        }
         foreach ($events as &$event) {
             $date = $event['date'];
-            if (! $date || $date < $start->toDateString() || CarbonImmutable::parse($date)->isSunday()) {
+            if (! $date || (! $positionMode && ($date < $start->toDateString() || CarbonImmutable::parse($date)->isSunday()))) {
                 $unknown += $event['pieces'];
                 $event['date'] = null;
+            }
+            if ($positionMode) {
+                // A future Sunday was resolved once at the start. Keep the resolved date when the simulated day advances.
+                $event['original_date'] = $event['raw_date'];
+                $event['raw_date'] = $event['date'];
             }
             $event['new'] = false;
         }
@@ -78,6 +88,7 @@ class InventoryProjection
             $date = $start->addDays($offset);
             $key = $date->toDateString();
             $opening = $stock;
+            $decisionEvents = $events;
             $received = $existing = $new = 0;
             foreach ($events as &$event) {
                 if ($event['date'] === $key) {
@@ -98,6 +109,13 @@ class InventoryProjection
             $proposal = ['phase' => 'SKIP', 'quantity' => 0, 'reason' => '倉庫の自動発注の実行曜日ではありません。'];
             $arrival = $arrivals[$key] ?? null;
             $picking = null;
+            $decisionInventory = null;
+            if ($positionMode) {
+                $window = app(SupplyWindow::class)->classify($decisionEvents, $key);
+                $decisionInventory = ['stock' => $opening, 'today' => $window['today'], 'available_today' => $opening + $window['today'],
+                    'future' => $window['future'], 'undated' => $window['undated'], 'excluded' => $window['excluded'],
+                    'position' => $opening + $window['included'], 'point' => $policy['reorder_point_pieces'], 'cutoff_date' => $window['cutoff_date']];
+            }
             if ($arrival) {
                 $index = array_search($key, $dates, true);
                 // Pass the pre-receipt snapshot through the same adapter as the test and batch.
@@ -105,13 +123,24 @@ class InventoryProjection
                 $dailySnapshot = array_replace($snapshot, ['stock' => $opening, 'incoming' => $pendingAtDecision + $received,
                     'incoming_today' => $received,
                     'business_date' => $key, 'arrival_date' => $arrival, 'next_arrival_date' => $arrivals[$dates[$index + 1] ?? ''] ?? null]);
+                if ($positionMode) {
+                    $dailySnapshot['supply_events'] = $decisionEvents;
+                    $dailySnapshot['next_generation_date'] = $dates[$index + 1] ?? null;
+                }
                 $proposal = app(StrategyCalculator::class)->calculate($policy, $dailySnapshot);
                 app(ProposalSafety::class)->validate($policy, $proposal, $snapshot['packing_unit'], $snapshot['shipping_unit']);
                 if ($proposal['phase'] === 'READY') {
                     $picking = ($policy['channel'] ?? '') === 'LOGISTICS'
                         ? app(LogisticsPickingDate::class)->resolve($arrival, $input['picking_lead_days']) : null;
                     $orders[] = ['date' => $key, 'arrival_date' => $arrival, 'picking_date' => $picking, 'pieces' => $proposal['quantity']];
-                    $events[] = ['date' => $arrival, 'pieces' => $proposal['quantity'], 'new' => true];
+                    if ($positionMode && $arrival === $key) {
+                        $stock += $proposal['quantity'];
+                        $received += $proposal['quantity'];
+                        $new += $proposal['quantity'];
+                        throw_if($stock > 2147483647, \RuntimeException::class, '入荷後の在庫が扱える数量を超えています。');
+                    } else {
+                        $events[] = ['date' => $arrival, 'pieces' => $proposal['quantity'], 'new' => true];
+                    }
                 }
             }
             $demand = $forecast->quantity($profile, $key, 1);
@@ -130,9 +159,14 @@ class InventoryProjection
                 'opening' => $opening, 'after_receipt' => $afterReceipt, 'stock' => $stock, 'demand' => $demand, 'unmet' => $unmet,
                 'received' => $received, 'existing_receipt' => $existing, 'new_receipt' => $new, 'ordered' => $ordered,
                 'arrival_date' => $ordered ? $arrival : null, 'picking_date' => $picking, 'phase' => $proposal['phase'], 'reason' => $proposal['reason'],
-                'below_point' => $afterReceipt < $policy['reorder_point_pieces'], 'pending_at_decision' => $pendingAtDecision,
+                'below_point' => ($positionMode ? $decisionInventory['position'] : $afterReceipt) < $policy['reorder_point_pieces'], 'pending_at_decision' => $pendingAtDecision,
                 'event' => $eventNames[$key] ?? null, 'weekday_demand' => $weekdayDemand,
                 'formula' => $proposal['formula'] ?? []];
+            if ($positionMode) {
+                $rows[array_key_last($rows)] += ['decision_inventory' => $proposal['decision_inventory'] ?? $decisionInventory,
+                    'quantity_calculation' => $proposal['quantity_calculation'] ?? null, 'warnings' => $proposal['warnings'] ?? $window['warnings'],
+                    'reason_code' => $proposal['reason_code'] ?? 'NOT_SCHEDULED'];
+            }
         }
 
         $safetyStock = max(0, (int) ($policy['calculation_basis']['safety_stock_pieces'] ?? 0));
@@ -142,7 +176,7 @@ class InventoryProjection
             isset($basis['safety_stock_days']) ? (int) $basis['safety_stock_days'] : null,
             isset($profile['mean']) ? (float) $profile['mean'] : null);
 
-        return ['days' => $rows, 'orders' => $orders, 'start' => $start->toDateString(), 'end' => $start->addDays($horizon - 1)->toDateString(), 'horizon_days' => $horizon,
+        return ($positionMode ? ['position_mode' => true] : []) + ['days' => $rows, 'orders' => $orders, 'start' => $start->toDateString(), 'end' => $start->addDays($horizon - 1)->toDateString(), 'horizon_days' => $horizon,
             'events' => array_values(array_filter($profile['event_forecast']['events'] ?? [], fn ($e) => $e['end'] >= $start->toDateString() && $e['start'] <= $start->addDays($horizon - 1)->toDateString())),
             'initial_stock' => $snapshot['stock'], 'end_stock' => $stock, 'order_count' => count($orders), 'shortage_days' => $shortageDays,
             'minimum_stock' => $minimumStock, 'minimum_stock_date' => $minimumDate, 'minimum_stock_timing' => $minimumTiming,
