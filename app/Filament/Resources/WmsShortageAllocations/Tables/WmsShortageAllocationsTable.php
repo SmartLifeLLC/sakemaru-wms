@@ -241,46 +241,8 @@ class WmsShortageAllocationsTable
                     )
                     ->modalCancelActionLabel('確定せず閉じる')
                     ->action(function (WmsShortageAllocation $record): void {
-                        $record->is_finished = true;
-                        $record->finished_at = now();
-                        $record->finished_user_id = auth()->id();
-
-                        // 完了時のステータス判定
-                        if ($record->picked_qty >= $record->assign_qty) {
-                            $record->status = 'FULFILLED';
-                        } else {
-                            $record->status = 'SHORTAGE';
-                        }
-
-                        $record->save();
-
-                        // 倉庫移動伝票キューと最終数量同期キューを作成
-                        try {
-                            $queueService = app(StockTransferQueueService::class);
-                            $queueId = $queueService->createStockTransferQueue($record);
-                            $syncQueue = app(AllocationSyncService::class)->syncAllocationIfReady($record->fresh() ?? $record);
-
-                            $statusLabel = $record->status === 'FULFILLED' ? '完了' : '欠品確定';
-                            $message = "横持ち出荷を{$statusLabel}しました";
-                            if ($queueId) {
-                                $message .= "\n倉庫移動伝票キューID: {$queueId}";
-                            }
-                            if ($syncQueue) {
-                                $message .= "\n数量同期キューID: {$syncQueue->id}";
-                            }
-
-                            Notification::make()
-                                ->title($message)
-                                ->body("ステータス: {$statusLabel}")
-                                ->success()
-                                ->send();
-                        } catch (\Exception $e) {
-                            Notification::make()
-                                ->title('完了しましたが、キュー作成でエラーが発生しました')
-                                ->body($e->getMessage())
-                                ->warning()
-                                ->send();
-                        }
+                        app(\App\Services\Shortage\ProxyShipmentLifecycleService::class)->complete($record->id, auth()->id());
+                        Notification::make()->title('横持ち出荷を完了しました')->success()->send();
                     }),
 
                 // 横持ち出荷修正アクション（残数量がある場合のみ）
@@ -552,7 +514,9 @@ class WmsShortageAllocationsTable
                             $createdCount = 0;
                             $totalReallocatedQty = 0;
 
-                            DB::transaction(function () use ($record, $data, $service, &$createdCount, &$totalReallocatedQty) {
+                            DB::connection('sakemaru')->transaction(function () use ($record, $data, $service, &$createdCount, &$totalReallocatedQty) {
+                                $record = WmsShortageAllocation::whereKey($record->id)->lockForUpdate()->firstOrFail();
+                                $record->assertWorkable();
                                 foreach ($data['allocations'] as $allocation) {
                                     if (empty($allocation['assign_qty']) || $allocation['assign_qty'] <= 0) {
                                         continue;
@@ -628,74 +592,22 @@ class WmsShortageAllocationsTable
                         )
                         ->modalCancelActionLabel('確定せず閉じる')
                         ->action(function (Collection $records): void {
-                            $userId = auth()->id();
-                            $completedCount = 0;
-                            $fulfilledCount = 0;
-                            $shortageCount = 0;
-                            $queueCreatedCount = 0;
-                            $queueErrorCount = 0;
-                            $syncQueueCreatedCount = 0;
-
-                            $queueService = app(StockTransferQueueService::class);
-                            $allocationSyncService = app(AllocationSyncService::class);
-
+                            $completed = 0;
+                            $errors = [];
                             foreach ($records as $record) {
-                                // 既に完了している、またはステータスがPICKING/RESERVED以外の場合はスキップ
-                                if ($record->is_finished || ! in_array($record->status, ['PICKING', 'RESERVED'])) {
-                                    continue;
-                                }
-
-                                $record->is_finished = true;
-                                $record->finished_at = now();
-                                $record->finished_user_id = $userId;
-
-                                // 完了時のステータス判定
-                                if ($record->picked_qty >= $record->assign_qty) {
-                                    $record->status = 'FULFILLED';
-                                    $fulfilledCount++;
-                                } else {
-                                    $record->status = 'SHORTAGE';
-                                    $shortageCount++;
-                                }
-
-                                $record->save();
-                                $completedCount++;
-
-                                // 倉庫移動伝票キューと最終数量同期キューを作成
                                 try {
-                                    $queueId = $queueService->createStockTransferQueue($record);
-                                    if ($queueId) {
-                                        $queueCreatedCount++;
-                                    }
-                                    $syncQueue = $allocationSyncService->syncAllocationIfReady($record->fresh() ?? $record);
-                                    if ($syncQueue) {
-                                        $syncQueueCreatedCount++;
-                                    }
-                                } catch (\Exception $e) {
-                                    $queueErrorCount++;
-                                    \Log::error('Failed to create queue in bulk proxy shipment completion', [
-                                        'allocation_id' => $record->id,
-                                        'error' => $e->getMessage(),
-                                    ]);
+                                    if ($record->is_finished || $record->isCancelled()) { continue; }
+                                    app(\App\Services\Shortage\ProxyShipmentLifecycleService::class)->complete($record->id, auth()->id());
+                                    $completed++;
+                                } catch (\Throwable $exception) {
+                                    report($exception);
+                                    $errors[] = "依頼ID {$record->id}";
                                 }
                             }
-
-                            $message = "完了件数: {$completedCount}件 (完了: {$fulfilledCount}件、欠品: {$shortageCount}件)";
-                            if ($queueCreatedCount > 0) {
-                                $message .= "\n倉庫移動伝票キュー作成: {$queueCreatedCount}件";
-                            }
-                            if ($syncQueueCreatedCount > 0) {
-                                $message .= "\n数量同期キュー作成: {$syncQueueCreatedCount}件";
-                            }
-                            if ($queueErrorCount > 0) {
-                                $message .= "\nキューエラー: {$queueErrorCount}件";
-                            }
-
-                            Notification::make()
-                                ->title('横持ち出荷を一括完了しました')
-                                ->body($message)
-                                ->success()
-                                ->send();
+                            $notification = Notification::make()->title("完了 {$completed}件、失敗 ".count($errors).'件');
+                            if ($errors) { $notification->body(implode('、', $errors).'を確認してください。')->warning(); }
+                            else { $notification->success(); }
+                            $notification->send();
                         }),
                 ]),
             ])

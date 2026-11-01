@@ -621,7 +621,7 @@ class WmsShortagesTable
                                 ];
                             })
                             ->default(function (WmsShortage $record) {
-                                $allocations = $record->allocations()
+                                $allocations = $record->allocations()->activeRequest()
                                     ->with('targetWarehouse')
                                     ->get();
 
@@ -687,7 +687,7 @@ class WmsShortagesTable
                                 ->filter()
                                 ->toArray();
 
-                            $existingAllocations = $record->allocations()->get();
+                            $existingAllocations = $record->allocations()->activeRequest()->get();
 
                             foreach ($existingAllocations as $existing) {
                                 if (! in_array($existing->id, $formAllocationIds)) {
@@ -737,7 +737,7 @@ class WmsShortagesTable
 
                             // ステータスを更新
                             $record->refresh();
-                            $totalAllocated = $record->allocations()->sum('assign_qty');
+                            $totalAllocated = $record->allocations()->activeRequest()->sum('assign_qty');
                             $remainingShortage = max(0, $record->shortage_qty - $totalAllocated);
 
                             if ($totalAllocated === 0) {
@@ -933,7 +933,7 @@ class WmsShortagesTable
                                     ->columnSpan(1),
                             ])
                             ->default(function (WmsShortage $record) {
-                                $allocations = $record->allocations()
+                                $allocations = $record->allocations()->activeRequest()
                                     ->with('targetWarehouse')
                                     ->get();
 
@@ -952,7 +952,7 @@ class WmsShortagesTable
                                 View::make('filament.components.proxy-shipment-route-map')
                                     ->viewData(function (WmsShortage $record): array {
                                         // 確定済み横持ち出荷倉庫IDを取得
-                                        $selectedWarehouseIds = $record->allocations()
+                                        $selectedWarehouseIds = $record->allocations()->activeRequest()
                                             ->whereNotIn('status', ['CANCELLED'])
                                             ->pluck('target_warehouse_id')
                                             ->map(fn ($id) => (int) $id)
@@ -1077,7 +1077,7 @@ class WmsShortagesTable
                                     $deletedForRecord = \DB::connection('sakemaru')->transaction(function () use ($record, $service): int {
                                         $deletedForRecord = 0;
 
-                                        foreach ($record->allocations()->get() as $allocation) {
+                                        foreach ($record->allocations()->activeRequest()->get() as $allocation) {
                                             $service->deleteProxyShipment($allocation);
                                             $deletedForRecord++;
                                         }

@@ -55,6 +55,16 @@ class WmsShortageAllocationResource extends AdminResource
         return EMenu::WMS_SHORTAGE_ALLOCATIONS->sort();
     }
 
+    public static function canEdit(\Illuminate\Database\Eloquent\Model $record): bool
+    {
+        return ! $record->is_finished && ! $record->isCancelled() && parent::canEdit($record);
+    }
+
+    public static function canDelete(\Illuminate\Database\Eloquent\Model $record): bool
+    {
+        return ! $record->is_finished && ! $record->isCancelled() && parent::canDelete($record);
+    }
+
     public static function form(Schema $schema): Schema
     {
         return WmsShortageAllocationForm::configure($schema);
@@ -75,6 +85,7 @@ class WmsShortageAllocationResource extends AdminResource
     public static function getPages(): array
     {
         return [
+            'new-request' => Pages\ListNewWmsShortageAllocations::route('/new-request'),
             'index' => ListWmsShortageAllocations::route('/'),
             'finished' => ListFinishedWmsShortageAllocations::route('/finished'),
             'history' => ListHistoryWmsShortageAllocations::route('/history'),
@@ -119,6 +130,11 @@ class WmsShortageAllocationResource extends AdminResource
                 ->icon('heroicon-o-building-office')
                 ->sort(static::getNavigationSort() + 5)
                 ->url(static::getUrl('warehouse-history')),
+            \Filament\Navigation\NavigationItem::make('新横持ち出荷依頼')
+                ->group(static::getNavigationGroup())
+                ->icon('heroicon-o-truck')
+                ->sort(static::getNavigationSort() + 6)
+                ->url(static::getUrl('new-request')),
         ];
     }
 }

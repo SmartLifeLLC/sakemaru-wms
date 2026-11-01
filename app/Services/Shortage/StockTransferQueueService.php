@@ -21,8 +21,12 @@ class StockTransferQueueService
      */
     public function createStockTransferQueue(WmsShortageAllocation $allocation): ?int
     {
+        if ($allocation->isCancelled() || ! $allocation->is_finished) {
+            throw new \RuntimeException('有効な完了依頼だけが倉庫移動を作成できます。');
+        }
         // ピック数が0の場合は何もしない
         if ($allocation->picked_qty <= 0) {
+            $allocation->update(['transfer_not_required_reason' => 'ZERO_QUANTITY']);
             Log::info('No stock transfer queue created (picked_qty = 0)', [
                 'allocation_id' => $allocation->id,
             ]);
@@ -59,6 +63,7 @@ class StockTransferQueueService
         $toWarehouseCode = $this->determineToWarehouse($shortage, $sourceWarehouse);
 
         if ((string) $targetWarehouse->code === (string) $toWarehouseCode) {
+            $allocation->update(['transfer_not_required_reason' => 'SAME_WAREHOUSE']);
             Log::info('No stock transfer queue created (same from/to warehouse)', [
                 'allocation_id' => $allocation->id,
                 'warehouse_code' => $targetWarehouse->code,
@@ -84,12 +89,19 @@ class StockTransferQueueService
         $requestId = "proxy-shipment-{$allocation->id}";
 
         // べき等性: 同一request_idの既存queueが存在する場合はそのIDを返す
-        $existingQueueId = DB::connection('sakemaru')
+        $existingQueue = DB::connection('sakemaru')
             ->table('stock_transfer_queue')
             ->where('request_id', $requestId)
-            ->value('id');
+            ->first();
 
-        if ($existingQueueId) {
+        if ($existingQueue) {
+            if ((int) $existingQueue->client_id !== (int) $trade->client_id || $existingQueue->action_type !== 'CREATE'
+                || json_decode($existingQueue->items, true) != $items
+                || (string) $existingQueue->from_warehouse_code !== (string) $targetWarehouse->code
+                || (string) $existingQueue->to_warehouse_code !== (string) $toWarehouseCode) {
+                throw new \RuntimeException('登録済みの移動依頼と数量・倉庫が一致しません。再作成せず管理者に確認してください。');
+            }
+            $existingQueueId = $existingQueue->id;
             Log::info('Stock transfer queue already exists (idempotent)', [
                 'queue_id' => $existingQueueId,
                 'allocation_id' => $allocation->id,
@@ -109,7 +121,7 @@ class StockTransferQueueService
         ) {
             // stock_transfer_queueレコード作成
             $queueId = DB::connection('sakemaru')->table('stock_transfer_queue')->insertGetId([
-                'client_id' => config('app.client_id'),
+                'client_id' => $trade->client_id,
                 'slip_number' => $trade->serial_id, // trades.serial_idを使用
                 'process_date' => $allocation->shipment_date,
                 'delivered_date' => $allocation->shipment_date,

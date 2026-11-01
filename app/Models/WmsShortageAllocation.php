@@ -3,10 +3,11 @@
 namespace App\Models;
 
 use App\Models\Sakemaru\Warehouse;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Validation\ValidationException;
 
-class WmsShortageAllocation extends Model
+class WmsShortageAllocation extends WmsModel
 {
     protected $connection = 'sakemaru';
 
@@ -37,9 +38,16 @@ class WmsShortageAllocation extends Model
         'finished_picker_id',
         'is_synced',
         'is_synced_at',
+        'cancelled_at',
+        'cancelled_user_id',
+        'cancel_reason',
+        'cancel_previous_status',
+        'stock_transfer_queue_id',
+        'transfer_not_required_reason',
     ];
 
     protected $casts = [
+        'cancelled_at' => 'datetime',
         'shipment_date' => 'date',
         'assign_qty' => 'integer',
         'picked_qty' => 'integer',
@@ -54,6 +62,75 @@ class WmsShortageAllocation extends Model
         'is_synced' => 'boolean',
         'is_synced_at' => 'datetime',
     ];
+
+    public function save(array $options = [])
+    {
+        if (! $this->exists) {
+            return parent::save($options);
+        }
+
+        // Keep the terminal-state check and UPDATE in one transaction even for legacy inline edits.
+        return $this->getConnection()->transaction(fn () => parent::save($options));
+    }
+
+    public function delete()
+    {
+        return $this->getConnection()->transaction(fn () => parent::delete());
+    }
+
+    protected static function booted(): void
+    {
+        static::updating(function (self $allocation): void {
+            $current = self::whereKey($allocation->id)->lockForUpdate()->firstOrFail();
+            if ($current->isCancelled() || ($current->is_finished && collect(array_keys($allocation->getDirty()))
+                ->diff(['stock_transfer_queue_id', 'transfer_not_required_reason', 'updated_at'])->isNotEmpty())) {
+                throw ValidationException::withMessages(['status' => '終了済みの横持ち出荷依頼は変更できません。']);
+            }
+            if ($allocation->isDirty('picked_qty') && (filter_var($allocation->getAttributes()['picked_qty'], FILTER_VALIDATE_INT) === false || $allocation->picked_qty < 0 || $allocation->picked_qty > $allocation->assign_qty)) {
+                throw ValidationException::withMessages(['picked_qty' => 'ピック数は0から予定数までの整数で入力してください。']);
+            }
+        });
+        static::deleting(function (self $allocation): void {
+            $current = self::whereKey($allocation->id)->lockForUpdate()->firstOrFail();
+            $current->assertWorkable(true);
+        });
+    }
+
+    public function isCancelled(): bool
+    {
+        return $this->status === self::STATUS_CANCELLED;
+    }
+
+    public function assertWorkable(bool $allowPending = false): void
+    {
+        if ($this->is_finished || ! in_array($this->status, $allowPending
+            ? [self::STATUS_PENDING, self::STATUS_RESERVED, self::STATUS_PICKING]
+            : [self::STATUS_RESERVED, self::STATUS_PICKING], true)) {
+            throw ValidationException::withMessages(['status' => 'この横持ち出荷依頼は操作できません。一覧を更新してください。']);
+        }
+    }
+
+    public function getTransferRequestIdAttribute(): string
+    {
+        return "proxy-shipment-{$this->id}";
+    }
+
+    public function createQueue(): HasOne
+    {
+        return $this->hasOne(\App\Models\Sakemaru\StockTransferQueue::class, 'request_id', 'transfer_request_id')
+            ->where('action_type', 'CREATE')
+            ->select('stock_transfer_queue.*')
+            ->selectSub(function ($query) {
+                $query->from('stock_transfer_queue as other')->selectRaw('COUNT(*)')
+                    ->whereColumn('other.stock_transfer_id', 'stock_transfer_queue.stock_transfer_id')
+                    ->where('other.action_type', 'CREATE')->where('other.request_id', 'like', 'proxy-shipment-%');
+            }, 'proxy_create_count');
+    }
+
+    public function scopeActiveRequest($query)
+    {
+        return $query->where(fn ($q) => $q->whereNull('status')->orWhere('status', '!=', self::STATUS_CANCELLED));
+    }
 
     // Status constants
     public const STATUS_PENDING = 'PENDING';
