@@ -48,7 +48,7 @@ class ProxyShipmentPrintController extends Controller
         [, $attempt, $log] = $this->context($request, $uuid);
         abort_unless($attempt->status === 'ready' && $log->prepared_at, 409, 'PDFを生成中です。');
         try {
-            $pdf = Storage::disk('s3')->getDriver()->read($log->path);
+            $pdf = Storage::disk('core_pdf')->getDriver()->read($log->path);
         } catch (\League\Flysystem\UnableToReadFile $exception) {
             report($exception);
             return response()->json(['message' => 'PDF保存先から取得できません。PDF取得を再試行してください。'], 503);

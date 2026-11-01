@@ -106,8 +106,8 @@ class ProxyShipmentPrintTest extends TestCase
         DB::table('wms_proxy_shipment_print_attempts')->where('id', $attempt->id)->update(['status' => 'ready']);
         DB::table('log_pdf_exports')->where('id', $attempt->log_pdf_export_id)->update(['prepared_at' => now()]);
         $path = DB::table('log_pdf_exports')->where('id', $attempt->log_pdf_export_id)->value('path');
-        Storage::fake('s3');
-        Storage::disk('s3')->put($path, '%PDF-1.4 fixture');
+        Storage::fake('core_pdf');
+        Storage::disk('core_pdf')->put($path, '%PDF-1.4 fixture');
         $request = Request::create('/', 'GET', ['attempt' => 1]);
         $controller = app(ProxyShipmentPrintController::class);
         $this->assertSame('%PDF-1.4 fixture', $controller->file($request, $this->uuid)->getContent());
