@@ -98,7 +98,7 @@ class ListWmsShortagesApproved extends ListRecords
                     'confirmedBy:id,name',
                     'confirmedUser:id,name',
                 ])
-                ->withSum('allocations as allocations_total_qty', 'assign_qty')
+                ->withSum(['allocations as allocations_total_qty' => fn ($query) => $query->activeRequest()], 'assign_qty')
                 ->withSum([
                     'allocations as allocations_case_qty' => function ($query) {
                         $query->where('assign_qty_type', 'CASE');

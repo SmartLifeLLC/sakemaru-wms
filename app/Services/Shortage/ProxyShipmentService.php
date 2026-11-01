@@ -191,6 +191,8 @@ class ProxyShipmentService
             $assignQty,
             $updatedBy
         ) {
+            $allocation = WmsShortageAllocation::whereKey($allocation->id)->lockForUpdate()->firstOrFail();
+            $allocation->assertWorkable(true);
             $allocation->update([
                 'target_warehouse_id' => $fromWarehouseId,
                 'assign_qty' => $assignQty,
@@ -213,6 +215,8 @@ class ProxyShipmentService
     public function deleteProxyShipment(WmsShortageAllocation $allocation): void
     {
         DB::connection('sakemaru')->transaction(function () use ($allocation) {
+            $allocation = WmsShortageAllocation::whereKey($allocation->id)->lockForUpdate()->firstOrFail();
+            $allocation->assertWorkable(true);
             $shortage = $allocation->shortage;
             $allocationId = $allocation->id;
 

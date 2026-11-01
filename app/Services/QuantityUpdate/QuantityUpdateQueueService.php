@@ -75,6 +75,10 @@ class QuantityUpdateQueueService
             return null;
         }
 
+        if ($shortage->allocations()->where('status', 'CANCELLED')->exists()) {
+            return null;
+        }
+
         $shortage->loadMissing(['trade', 'wave', 'sourcePickResult']);
 
         $clientId = $shortage->trade?->client_id;
@@ -106,6 +110,10 @@ class QuantityUpdateQueueService
      */
     public function createQueueForAllocationSync(WmsShortage $shortage, string $requestId): ?QuantityUpdateQueue
     {
+        if ($shortage->allocations()->where('status', 'CANCELLED')->exists()) {
+            return null;
+        }
+
         if (! $shortage->source_pick_result_id) {
             Log::warning('Cannot create quantity_update_queue: source_pick_result_id is null', [
                 'shortage_id' => $shortage->id,

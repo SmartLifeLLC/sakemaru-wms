@@ -85,7 +85,7 @@ class AllocationSyncService
         return DB::connection('sakemaru')->transaction(function () use ($allocation, $systemShipmentDate): ?QuantityUpdateQueue {
             WmsShortageAllocation::query()
                 ->where('shortage_id', $allocation->shortage_id)
-                ->lockForUpdate()
+                ->orderBy('id')->lockForUpdate()
                 ->get(['id']);
 
             $lockedAllocation = WmsShortageAllocation::query()
@@ -119,8 +119,12 @@ class AllocationSyncService
     {
         WmsShortageAllocation::query()
             ->where('shortage_id', $shortageId)
-            ->lockForUpdate()
+            ->orderBy('id')->lockForUpdate()
             ->get(['id']);
+
+        if (WmsShortageAllocation::where('shortage_id', $shortageId)->where('status', WmsShortageAllocation::STATUS_CANCELLED)->exists()) {
+            return null;
+        }
 
         $allocations = WmsShortageAllocation::needingSync()
             ->where('shortage_id', $shortageId)

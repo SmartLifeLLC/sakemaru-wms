@@ -218,7 +218,7 @@ class ProxyShipmentQueryService
                 'name' => $partner->name,
             ] : null,
             'slip_number' => $shortage?->trade_id,
-            'is_editable' => ! $allocation->isFinished(),
+            'is_editable' => ! $allocation->isFinished() && ! $allocation->isCancelled(),
         ];
     }
 
