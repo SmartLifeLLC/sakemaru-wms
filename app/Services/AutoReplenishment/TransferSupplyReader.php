@@ -8,8 +8,9 @@ use Illuminate\Support\Facades\DB;
 /** Read-only projection: a transfer replaces its schedules/candidate, never adds to them. */
 class TransferSupplyReader
 {
-    public function read(int $clientId, int $warehouseId, array $itemIds, array $allocationIds, bool $lock = false, bool $includeDates = false, ?string $availabilityDate = null): array
+    public function read(int $clientId, int $warehouseId, array $itemIds, array $allocationIds, bool $lock = false, bool $includeDates = false, ?string $availabilityDate = null, bool $positionMode = false): array
     {
+        $includeDates = $includeDates || $positionMode;
         $db = DB::connection('sakemaru');
         $get = fn ($query) => ($lock ? $query->lockForUpdate() : $query)->get();
         $effects = $get($db->table('wms_replenishment_effects')->where([
@@ -84,7 +85,7 @@ class TransferSupplyReader
             try {
                 $result[$itemId] = $this->project((int) $itemId, $warehouseId, $clientId, $transfers, $lines, $receipts,
                     $schedules->where('item_id', $itemId), $parents, $relatedCandidates->where('item_id', $itemId),
-                    $effects->where('item_id', $itemId), $maps, $queueByCandidate, $capacities->get($itemId), $includeDates, $availabilityDate);
+                    $effects->where('item_id', $itemId), $maps, $queueByCandidate, $capacities->get($itemId), $includeDates, $availabilityDate, $positionMode);
             } catch (\RuntimeException $e) {
                 $result[$itemId] = ['error' => $e->getMessage()];
             }
@@ -116,7 +117,7 @@ class TransferSupplyReader
     }
 
     private function project(int $itemId, int $warehouseId, int $clientId, Collection $transfers, Collection $lines, Collection $receipts,
-        Collection $schedules, Collection $parents, Collection $candidates, Collection $effects, Collection $maps, array $queues, ?object $capacity, bool $includeDates, ?string $availabilityDate): array
+        Collection $schedules, Collection $parents, Collection $candidates, Collection $effects, Collection $maps, array $queues, ?object $capacity, bool $includeDates, ?string $availabilityDate, bool $positionMode): array
     {
         $incoming = $claims = 0;
         $incomingToday = 0;
@@ -141,12 +142,14 @@ class TransferSupplyReader
             }
             $actual[$transfer->id] = ['transfer' => $transfer, 'lines' => $itemLines, 'valid' => $valid, 'total' => $total, 'applied' => $applied];
             $incoming += $total - $applied;
-            $arrivalDate = $availability->transferDate($transfer->delivered_date ?? null, $availabilityDate);
+            $arrivalDate = $positionMode ? ($transfer->delivered_date ?? null) : $availability->transferDate($transfer->delivered_date ?? null, $availabilityDate);
             if ($total > $applied && $availability->isToday($arrivalDate, $availabilityDate)) {
                 $incomingToday += $total - $applied;
             }
             if ($includeDates && $total > $applied) {
-                $events[] = ['source' => 'transfer', 'date' => $arrivalDate, 'pieces' => $total - $applied];
+                $events[] = ['source' => 'transfer', 'date' => $arrivalDate, 'pieces' => $total - $applied]
+                    + ($positionMode ? ['supply_id' => 'transfer:'.$transfer->id, 'raw_date' => $transfer->delivered_date ?? null,
+                        'ordered_pieces' => $total, 'applied_pieces' => $applied] : []);
             }
         }
         $effectsByCandidate = $effects->keyBy('source_id');
@@ -198,7 +201,8 @@ class TransferSupplyReader
                     $incomingToday += $pieces;
                 }
                 if ($includeDates) {
-                    $events[] = ['source' => 'transfer', 'date' => $date, 'pieces' => $pieces];
+                    $events[] = ['source' => 'transfer', 'date' => $date, 'pieces' => $pieces]
+                        + ($positionMode ? ['supply_id' => 'transfer-queue:'.$candidateId, 'raw_date' => $date] : []);
                 }
             }
         }
@@ -233,9 +237,32 @@ class TransferSupplyReader
             if (isset($covered[$candidate->id])) {
                 continue;
             }
+            if ($positionMode && $queue && in_array($queue->status, ['BEFORE', 'PROCESSING'], true)) {
+                throw_unless((string) ($queue->candidate_payload['item_code'] ?? '') === (string) $capacity?->code,
+                    \RuntimeException::class, '移動生成待ちの要求と商品の紐付けを確認してください。');
+                $pieces = $this->pieces((int) ($queue->candidate_payload['quantity'] ?? -1),
+                    (string) ($queue->candidate_payload['quantity_type'] ?? ''), $effect ?: $capacity);
+                $incoming += $pieces;
+                $events[] = ['source' => 'transfer', 'supply_id' => 'transfer-queue:'.$candidate->id, 'date' => null, 'raw_date' => null, 'pieces' => $pieces];
+                $covered[$candidate->id] = true;
+
+                continue;
+            }
             throw_if($effect || $queue, \RuntimeException::class, '移動の生成要求と入荷予定の照合が必要です。管理者に確認してください。');
+            if ($positionMode && $candidate->status === 'PENDING') {
+                continue; // An unapproved idea is not committed supply, even if its quantity is incomplete.
+            }
             if (in_array($candidate->status, ['PENDING', 'APPROVED'], true)) {
-                $claims += $this->pieces((int) $candidate->transfer_quantity, $candidate->quantity_type, $capacity);
+                $pieces = $this->pieces((int) $candidate->transfer_quantity, $candidate->quantity_type, $capacity);
+                if ($positionMode) {
+                    if ($candidate->status === 'APPROVED') {
+                        $incoming += $pieces;
+                        $events[] = ['source' => 'transfer', 'supply_id' => 'transfer-candidate:'.$candidate->id, 'date' => null, 'raw_date' => null, 'pieces' => $pieces];
+                        $covered[$candidate->id] = true;
+                    }
+                } else {
+                    $claims += $pieces;
+                }
             }
         }
         foreach ($effects as $effect) {

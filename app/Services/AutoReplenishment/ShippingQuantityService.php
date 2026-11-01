@@ -97,7 +97,7 @@ class ShippingQuantityService
             return null;
         }
         throw_unless($values['channel'] === 'LOGISTICS', \RuntimeException::class, '出荷数量候補は物流発注（店間）で選択してください。');
-        throw_unless($values['strategy_key'] === 'arrival_adaptive_v1', \RuntimeException::class, '出荷数量候補を使う場合は「おすすめ設定」で通常量と補充目標を計算してください。');
+        throw_unless(in_array($values['strategy_key'], ['arrival_adaptive_v1', PositionNormalBatchStrategy::KEY], true), \RuntimeException::class, '出荷数量候補を使う場合は「おすすめ設定」で通常量と補充目標を計算してください。');
         $profile = $this->find($client, (int) $values['source_warehouse_id'], (int) $values['item_id'], true);
         throw_unless($profile, \RuntimeException::class, '移動元倉庫・商品の出荷数量候補を登録してください。');
         throw_if(! array_key_exists('shipping_unit_mode', $selection) && $binding && (int) $binding->profile_id !== (int) $profile->id,
@@ -141,7 +141,7 @@ class ShippingQuantityService
 
     public function assertBinding(object $row, array $policy, int $capacity): array
     {
-        throw_unless($row->id && $policy['channel'] === 'LOGISTICS' && $policy['strategy_key'] === 'arrival_adaptive_v1'
+        throw_unless($row->id && $policy['channel'] === 'LOGISTICS' && in_array($policy['strategy_key'], ['arrival_adaptive_v1', PositionNormalBatchStrategy::KEY], true)
             && (int) $row->client_id === (int) $policy['client_id'] && (int) $row->source_warehouse_id === (int) $policy['source_warehouse_id']
             && (int) $row->item_id === (int) $policy['item_id'] && (int) $row->profile_version === (int) $row->version,
             \RuntimeException::class, '出荷数量候補が変更・削除されています。商品設定を開き直して保存してください。');

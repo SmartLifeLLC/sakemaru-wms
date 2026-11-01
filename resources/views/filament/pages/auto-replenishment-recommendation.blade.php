@@ -5,6 +5,7 @@
     $strategy=$this->form['strategy_key'] ?? '';
     $arrivalGuard=$strategy === 'arrival_batch_v1';
     $adaptive=$strategy === 'arrival_adaptive_v1';
+    $position=$strategy === 'position_normal_batch_v1';
     $salesBased=($basis['basis_type'] ?? '') === 'sales';
     $safetyDays=$basis['safety_stock_days'] ?? null;
     $safetyExample=null;
@@ -82,7 +83,9 @@
 @if($safetyDays !== null && $valid && ($target != ($recommended['target_stock_pieces'] ?? null) || $maximum != ($recommended['max_order_pieces'] ?? null) || $minimum != ($recommended['min_order_pieces'] ?? null)))
     <p class="ar-help">数量を手調整しています。日数の算定結果と異なるため、下の例と保存後のテストで確認してください。</p>
 @endif
-@if($safetyExample !== null)
+@if($position)
+    <p class="ar-help">現在庫＋当日から60日後までの未入荷＋日付未定・期限超過の既発注で発注点を判定します。発注点未満の場合だけ通常の1回量を基本に発注します。過剰在庫線は上限の確認に使い、その線まで埋める発注はしません。</p>
+@elseif($safetyExample !== null)
     <p class="ar-example">例：{{ $lead }}日後入荷・既発注0・現在庫 {{ number_format($exampleStock) }}バラ → @if($safetyExample['phase']==='READY')@if(($basis['scope']['order_unit']['quantity_type'] ?? '') === 'CASE'){{ number_format(intdiv($safetyExample['quantity'], $packing)) }}ケース（{{ number_format($safetyExample['quantity']) }}バラ）発注。@else{{ number_format($safetyExample['quantity']) }}バラ発注。@endif@else{{ str_replace('補充目標', '過剰在庫線', $safetyExample['reason']) }}@endif</p>
 @elseif($valid && ($adaptive || $arrivalGuard))
     @if($adaptive && $example !== null && $example >= $roundedMinimum)

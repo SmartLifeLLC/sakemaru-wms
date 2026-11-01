@@ -3,10 +3,12 @@
 namespace App\Services\AutoReplenishment\Replay;
 
 use App\Services\AutoReplenishment\DemandEventCalendar;
+use App\Services\AutoReplenishment\PositionNormalBatchStrategy;
 use App\Services\AutoReplenishment\ProposalSafety;
 use App\Services\AutoReplenishment\RecommendationChangeGuard;
 use App\Services\AutoReplenishment\SettingsRecommendationCalculator;
 use App\Services\AutoReplenishment\StrategyCalculator;
+use App\Services\AutoReplenishment\SupplyWindow;
 use Carbon\CarbonImmutable;
 
 /**
@@ -42,9 +44,19 @@ final class ReplayEngine
         $policy = null;
         $stock = null;
         $pending = [];
+        $strategyKey = $scenario['strategy_key'] ?? $series['saved_policy']['strategy_key'] ?? 'arrival_adaptive_v1';
+        $positionMode = $strategyKey === PositionNormalBatchStrategy::KEY;
         foreach ($scenario['initial_supply'] ?? [] as $supply) {
-            throw_unless(isset($supply['date'], $supply['pieces']) && is_int($supply['pieces']) && $supply['pieces'] >= 0, \RuntimeException::class, '開始時点の既発注（date, pieces）を確認してください。');
-            $pending[] = ['date' => CarbonImmutable::parse($supply['date'])->toDateString(), 'pieces' => $supply['pieces']];
+            throw_unless(($positionMode || isset($supply['date'])) && isset($supply['pieces']) && is_int($supply['pieces']) && $supply['pieces'] >= 0, \RuntimeException::class, '開始時点の既発注（date, pieces）を確認してください。');
+            $pending[] = $positionMode ? $supply : ['date' => CarbonImmutable::parse($supply['date'])->toDateString(), 'pieces' => $supply['pieces']];
+        }
+        if ($positionMode) {
+            $pending = app(SupplyWindow::class)->classify($pending, $scenario['start'])['events'];
+            foreach ($pending as &$supply) {
+                $supply['original_date'] = $supply['raw_date'];
+                $supply['raw_date'] = $supply['date'];
+            }
+            unset($supply);
         }
         $rows = [];
         $orders = [];
@@ -83,6 +95,9 @@ final class ReplayEngine
                 }
             }
             $policy = $saved + $this->policyIdentity($series, $channel, $packing);
+            if ($positionMode) {
+                $policy['strategy_key'] = $strategyKey;
+            }
             $recalcs[] = $log;
         }
         for ($day = $start; $day->lte($end); $day = $day->addDay()) {
@@ -123,6 +138,7 @@ final class ReplayEngine
                 $stock = is_int($initial) ? $initial : ($policy ? (int) $policy['target_stock_pieces'] : 0);
             }
             $opening = $stock;
+            $decisionEvents = $pending;
             $received = 0;
             foreach ($pending as $i => $supply) {
                 if ($supply['date'] === $date) {
@@ -132,6 +148,14 @@ final class ReplayEngine
             }
             $pending = array_values($pending);
             $stock += $received;
+            $decisionInventory = null;
+            if ($positionMode) {
+                throw_if($stock > 2147483647, \RuntimeException::class, '入荷後の在庫が扱える数量を超えています。');
+                $window = app(SupplyWindow::class)->classify($decisionEvents, $date);
+                $decisionInventory = ['stock' => $opening, 'today' => $window['today'], 'available_today' => $opening + $window['today'],
+                    'future' => $window['future'], 'undated' => $window['undated'], 'excluded' => $window['excluded'],
+                    'position' => $opening + $window['included'], 'point' => $policy['reorder_point_pieces'] ?? null, 'cutoff_date' => $window['cutoff_date']];
+            }
             $proposal = ['phase' => 'SKIP', 'quantity' => 0, 'reason' => $policy ? '発注日ではありません。' : '数量条件を算定できていません。', 'formula' => []];
             $arrival = $calendar->arrivalFor($date);
             if ($policy !== null && $arrival !== null) {
@@ -141,6 +165,10 @@ final class ReplayEngine
                 $snapshot = ['stock' => $opening, 'incoming' => array_sum(array_column($pending, 'pieces')) + $received, 'incoming_today' => $received, 'claims' => 0,
                     'packing_unit' => $packing, 'business_date' => $date, 'arrival_date' => $arrival,
                     'next_arrival_date' => $next['arrival_date'] ?? null, 'shipping_unit' => $shippingUnit];
+                if ($positionMode) {
+                    $snapshot['supply_events'] = $decisionEvents;
+                    $snapshot['next_generation_date'] = $next['generation_date'] ?? null;
+                }
                 try {
                     // Same refusal as SnapshotReader (assertBinding): quantity conditions that do not match the registered pallet /
                     // candidates hold the order instead of ordering an unrelated multiple (saved settings, fixed bounds).
@@ -151,15 +179,21 @@ final class ReplayEngine
                     $proposal = ['phase' => 'HOLD', 'quantity' => 0, 'reason' => $e->getMessage(), 'formula' => []];
                 }
                 if ($proposal['phase'] === 'READY') {
-                    $pending[] = ['date' => $arrival, 'pieces' => (int) $proposal['quantity']];
+                    if ($positionMode && $arrival === $date) {
+                        $stock += $proposal['quantity'];
+                        $received += $proposal['quantity'];
+                        throw_if($stock > 2147483647, \RuntimeException::class, '入荷後の在庫が扱える数量を超えています。');
+                    } else {
+                        $pending[] = ['date' => $arrival, 'pieces' => (int) $proposal['quantity']];
+                    }
                     $orders[] = ['date' => $date, 'arrival_date' => $arrival, 'pieces' => (int) $proposal['quantity'], 'minimum' => (int) $policy['min_order_pieces'],
                         'event' => $this->eventReason($policy)];
                 }
             }
             $actual = $demand[$date] ?? null;
             $consumption = (int) ($actual ?? 0);
-            $unmet = max(0, $consumption - $stock);
-            $stock = max(0, $stock - $consumption);
+            $unmet = max(0, $consumption - ($positionMode ? max(0, $stock) : $stock));
+            $stock = $positionMode && $stock < 0 ? $stock : max(0, $stock - $consumption);
             $rows[] = ['date' => $date, 'weekday' => $day->dayOfWeek, 'segment' => $segments[$date] ?? '平常日', 'opening' => $opening, 'received' => $received,
                 'ordered' => $proposal['phase'] === 'READY' ? (int) $proposal['quantity'] : 0, 'arrival_date' => $proposal['phase'] === 'READY' ? $arrival : null,
                 'demand' => $actual, 'unmet' => $unmet, 'stock' => $stock, 'pending' => array_sum(array_column($pending, 'pieces')),
@@ -167,6 +201,10 @@ final class ReplayEngine
                 'point' => $policy['reorder_point_pieces'] ?? null, 'target' => $policy['target_stock_pieces'] ?? null,
                 'max' => $policy['max_order_pieces'] ?? null, 'min' => $policy['min_order_pieces'] ?? null,
                 'forecast' => $policy ? $this->forecast($policy, $date) : null];
+            if ($positionMode) {
+                $rows[array_key_last($rows)] += ['decision_inventory' => $proposal['decision_inventory'] ?? $decisionInventory,
+                    'quantity_calculation' => $proposal['quantity_calculation'] ?? null, 'formula' => $proposal['formula'] ?? [], 'warnings' => $proposal['warnings'] ?? $window['warnings']];
+            }
         }
 
         return ['series' => array_diff_key($series, ['demand' => true]), 'scenario' => $scenario['name'], 'days' => $rows, 'orders' => $orders, 'recalcs' => $recalcs,
@@ -259,6 +297,10 @@ final class ReplayEngine
                 return ['policy' => null, 'log' => $log, 'shipping_unit' => $shippingUnit];
             }
             $values = $result['values'];
+            if (($scenario['strategy_key'] ?? $series['saved_policy']['strategy_key'] ?? '') === PositionNormalBatchStrategy::KEY) {
+                $values['strategy_key'] = PositionNormalBatchStrategy::KEY;
+                $result['basis']['suggested_values']['strategy_key'] = PositionNormalBatchStrategy::KEY;
+            }
             if (! empty($scenario['fixed_bounds']) && is_array($series['saved_policy'] ?? null)) {
                 // Comparison scenario only (not the weekly operation, which recalculates these too): the saved minimum, maximum and multiple are held fixed.
                 foreach (['min_order_pieces', 'max_order_pieces', 'order_multiple_pieces'] as $key) {
@@ -311,7 +353,7 @@ final class ReplayEngine
             throw_unless(($policy['channel'] ?? '') === 'LOGISTICS', \RuntimeException::class, 'パレット単位は物流発注（店間）で選択してください。');
             app(\App\Services\AutoReplenishment\PalletUnitService::class)->assertPolicyMatches($policy, (int) ($shippingUnit['pieces_per_pallet'] ?? 0));
         } else {
-            throw_unless(($policy['channel'] ?? '') === 'LOGISTICS' && ($policy['strategy_key'] ?? '') === 'arrival_adaptive_v1', \RuntimeException::class, '出荷数量候補は物流発注（店間）の入荷時の補充目標を確認する計算方式で利用してください。');
+            throw_unless(($policy['channel'] ?? '') === 'LOGISTICS' && in_array($policy['strategy_key'] ?? '', ['arrival_adaptive_v1', PositionNormalBatchStrategy::KEY], true), \RuntimeException::class, '出荷数量候補は物流発注（店間）の入荷時の補充目標を確認する計算方式で利用してください。');
             app(\App\Services\AutoReplenishment\ShippingQuantityService::class)->assertPolicyMatches($policy, (array) ($shippingUnit['quantities'] ?? []));
         }
     }

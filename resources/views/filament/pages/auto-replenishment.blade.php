@@ -183,14 +183,14 @@
                         @if(($this->recommendation['basis']['basis_type'] ?? '') === 'sales')
                             <label class="ar-review-days">売上基準の日数<input type="number" min="1" max="28" step="1" wire:model="recommendationReviewDays" aria-label="売上基準の日数"></label>
                         @endif
-                        <label class="ar-strategy-label">発注方法<select wire:model.change="form.strategy_key"><option value="arrival_adaptive_v1">通常量をまとめて補充（欠品見込時は小口）</option><option value="arrival_batch_v1">まとめ発注（1回量固定）</option><option value="threshold_capped_v1">商品上限内の1回分を発注し、次回再判定</option><option value="threshold_v1">必要数が上限を超えたら全量保留</option></select></label>
+                        <label class="ar-strategy-label">発注方法<select wire:model.change="form.strategy_key"><option value="position_normal_batch_v1">既発注込みで判定・通常の1回量（60日）</option><option value="arrival_adaptive_v1">通常量をまとめて補充（欠品見込時は小口）</option><option value="arrival_batch_v1">まとめ発注（1回量固定）</option><option value="threshold_capped_v1">商品上限内の1回分を発注し、次回再判定</option><option value="threshold_v1">必要数が上限を超えたら全量保留</option></select></label>
                     </div>
                     <p class="ar-help">発注単位・売上基準の日数を変えたら「おすすめ設定」で再計算してください。安全在庫日数は前の画面で入力します。</p>
                     <details class="ar-quantity-input-panel" open wire:ignore.self wire:key="quantity-settings-{{ $this->form['item_id'] ?? 'new' }}">
                         <summary>発注数量設定</summary>
                         <div class="ar-quantity-input-content">
                             <div class="ar-editor-quantities">
-                                @foreach(['reorder_point_pieces'=>'発注点','max_order_pieces'=>'最大発注数','min_order_pieces'=>'最小発注数','order_multiple_pieces'=>'最小発注単位','target_stock_pieces'=>'過剰在庫線（任意）'] as $key=>$label)
+                                @foreach(['reorder_point_pieces'=>'発注点','max_order_pieces'=>'最大発注数','min_order_pieces'=>'最小発注数','order_multiple_pieces'=>'最小発注単位','target_stock_pieces'=>(($this->form['strategy_key'] ?? '') === 'position_normal_batch_v1' ? '過剰在庫線' : '過剰在庫線（任意）')] as $key=>$label)
                                     @include('filament.pages.auto-replenishment-quantity-input')
                                 @endforeach
                             </div>

@@ -11,6 +11,16 @@ final class StrategyCalculator
         throw_unless(is_string($class) && class_exists($class), \RuntimeException::class, '計算ロジックが未設定です。管理者に商品設定を確認してください。');
         $strategy = app($class);
 
+        if ($strategy instanceof PositionNormalBatchStrategy) {
+            try {
+                $prepared = app(SupplyWindow::class)->prepare($snapshot);
+
+                return $strategy->calculate($policy, app(IncomingAvailability::class)->forCalculation($prepared));
+            } catch (\RuntimeException $e) {
+                return ['phase' => 'HOLD', 'quantity' => 0, 'reason' => $e->getMessage(), 'reason_code' => 'SUPPLY_INPUT_INVALID', 'formula' => []];
+            }
+        }
+
         throw_if(($snapshot['shipping_unit']['mode'] ?? '') === 'SHIPMENT' && ! $strategy instanceof ArrivalBatchStrategy,
             \RuntimeException::class, '出荷数量候補は入荷時の補充目標を確認する計算方式で利用してください。');
 
