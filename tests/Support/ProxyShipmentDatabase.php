@@ -15,6 +15,19 @@ trait ProxyShipmentDatabase
         ], 'app.client_id' => 6, 'client.id' => 6]);
         DB::purge($connection);
         $this->assertSame(':memory:', DB::connection()->getDatabaseName());
+        Schema::create('delivery_courses', function (Blueprint $t) {
+            $t->id();
+            $t->string('code');
+            $t->string('name');
+            $t->boolean('is_active')->default(true);
+        });
+        Schema::create('client_settings', function (Blueprint $t) {
+            $t->id();
+            $t->unsignedBigInteger('client_id');
+            $t->date('system_date');
+        });
+        DB::table('client_settings')->insert(['client_id' => 6, 'system_date' => '2026-10-14']);
+        \App\Models\Sakemaru\ClientSetting::clearCachedSetting();
         Schema::create('trades', function (Blueprint $t) {
             $t->id();
             $t->unsignedBigInteger('client_id');
@@ -145,7 +158,7 @@ trait ProxyShipmentDatabase
         DB::table('trades')->insert([['id' => 10, 'client_id' => 6, 'serial_id' => 1000], ['id' => 20, 'client_id' => 6, 'serial_id' => 2000]]);
         DB::table('trade_items')->insert(['id' => 1, 'trade_id' => 10, 'quantity' => 10]);
         DB::table('wms_shortages')->insert(['id' => 1, 'trade_id' => 10, 'trade_item_id' => 1]);
-        DB::table('wms_shortage_allocations')->insert(['id' => 1, 'shortage_id' => 1]);
+        DB::table('wms_shortage_allocations')->insert(['id' => 1, 'shortage_id' => 1, 'shipment_date' => '2026-10-14']);
         DB::table('warehouses')->insert([['id' => 1, 'code' => '1', 'name' => '元倉庫'], ['id' => 2, 'code' => '2', 'name' => '出荷倉庫']]);
         DB::table('items')->insert(['id' => 1, 'code' => '100', 'name' => '商品']);
         DB::table('real_stocks')->insert(['id' => 1, 'current_quantity' => 30]);

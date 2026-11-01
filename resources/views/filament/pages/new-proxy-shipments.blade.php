@@ -4,7 +4,7 @@
             印刷画面を別タブで開けませんでした。
             <a :href="printUrl" target="_blank" rel="noopener" class="underline">印刷画面を開く</a>
         </div>
-        <p class="text-sm text-gray-500 mb-3">完了後も依頼を表示します。取消は依頼の無効化だけを行い、元伝票を変更しません。</p>
+        <p class="text-sm text-gray-500 mb-3">選択中の倉庫の未完了と当日出荷分の完了を表示します。過去の完了は「完了の表示」フィルタで確認できます。</p>
         {{ $this->content }}
     </div>
 </x-filament-panels::page>

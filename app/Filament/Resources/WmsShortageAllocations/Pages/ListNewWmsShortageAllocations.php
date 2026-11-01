@@ -4,7 +4,7 @@ namespace App\Filament\Resources\WmsShortageAllocations\Pages;
 
 use App\Enums\QuantityType;
 use App\Filament\Resources\WmsShortageAllocations\WmsShortageAllocationResource as Resource;
-use App\Models\Sakemaru\Warehouse;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\WmsShortageAllocation;
 use App\Services\Shortage\ProxyShipmentLifecycleService;
 use App\Services\Shortage\ProxyShipmentPrintRequestService;
@@ -24,6 +24,9 @@ use Sakemaru\Auth\Services\PermissionService;
 
 class ListNewWmsShortageAllocations extends ListRecords
 {
+    use \App\Filament\Concerns\HasExportAction;
+    use \App\Filament\Concerns\HasProxyShipmentPickingListAction;
+
     protected static string $resource = Resource::class;
 
     protected static ?string $title = '新横持ち出荷依頼';
@@ -43,28 +46,9 @@ class ListNewWmsShortageAllocations extends ListRecords
         parent::updatedTableFilters();
     }
 
-    public function getTabs(): array
+    protected function resolveWarehouseIdFromPresetView(): ?int
     {
-        $tabs = ['all' => \Filament\Schemas\Components\Tabs\Tab::make('すべて')];
-        foreach (Warehouse::where('client_id', config('app.client_id'))->where('is_virtual', false)->orderBy('code')->get() as $warehouse) {
-            $tabs['wh_'.$warehouse->id] = \Filament\Schemas\Components\Tabs\Tab::make($warehouse->name)
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('target_warehouse_id', $warehouse->id));
-        }
-
-        return $tabs;
-    }
-
-    public function getDefaultActiveTab(): string|int|null
-    {
-        $key = 'wh_'.auth()->user()?->default_warehouse_id;
-
-        return array_key_exists($key, $this->getCachedTabs()) ? $key : 'all';
-    }
-
-    public function updatedActiveTab(): void
-    {
-        $this->deselectAllTableRecords();
-        parent::updatedActiveTab();
+        return auth()->user()?->getSelectedWarehouseId();
     }
 
     protected function getHeaderActions(): array
@@ -112,6 +96,7 @@ class ListNewWmsShortageAllocations extends ListRecords
     {
         return $table
             ->query(Resource::getEloquentQuery()->whereHas('shortage.trade', fn (Builder $query) => $query->where('client_id', config('app.client_id')))
+                ->where('target_warehouse_id', $this->resolveWarehouseIdFromPresetView() ?? 0)
                 ->with(['sourceWarehouse', 'createQueue.stockTransfer.trade']))
             ->striped()->extraAttributes(['class' => 'sticky-actions'])->recordUrl(null)
             ->defaultSort('id', 'desc')->defaultPaginationPageOption(100)
@@ -119,21 +104,21 @@ class ListNewWmsShortageAllocations extends ListRecords
             ->selectable()->selectCurrentPageOnly()->deselectAllRecordsWhenFiltered()
             ->checkIfRecordIsSelectableUsing(fn (WmsShortageAllocation $record) => $this->printable($record))
             ->columns([
-                TextColumn::make('id')->label('依頼ID')->sortable(),
-                TextColumn::make('shipment_date')->label('出荷日')->date('Y/m/d')->sortable(),
-                TextColumn::make('targetWarehouse.code')->label('出荷倉庫CD'),
-                TextColumn::make('targetWarehouse.name')->label('横持ち出荷倉庫'),
-                TextColumn::make('sourceWarehouse.code')->label('元倉庫CD'),
-                TextColumn::make('sourceWarehouse.name')->label('元倉庫'),
+                TextColumn::make('id')->label('ID')->sortable()->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('shipment_date')->label('出荷日')->date('m/d')->sortable()->width('70px'),
+                TextColumn::make('targetWarehouse.code')->label('出荷倉庫CD')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('targetWarehouse.name')->label('横持ち出荷倉庫')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('sourceWarehouse.code')->label('元倉庫CD')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('sourceWarehouse.name')->label('元倉庫')->limit(12)->tooltip(fn ($state) => $state),
                 TextColumn::make('shortage.item.code')->label('商品CD')->searchable(),
                 TextColumn::make('shortage.item.name')->label('商品名')->grow()->searchable(),
-                TextColumn::make('shortage.item.volume')->label('容量'),
-                TextColumn::make('shortage.item.capacity_case')->label('入数'),
-                TextColumn::make('shortage.trade.partner.name')->label('得意先'),
-                TextColumn::make('deliveryCourse.name')->label('配送コース'),
+                TextColumn::make('shortage.item.volume')->label('容量')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('shortage.item.capacity_case')->label('入数')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('shortage.trade.partner.name')->label('得意先')->limit(14)->tooltip(fn ($state) => $state)->toggleable(),
+                TextColumn::make('deliveryCourse.name')->label('配送コース')->limit(14)->tooltip(fn ($state) => $state)->toggleable(),
                 TextColumn::make('assign_qty_type')->label('単位')->formatStateUsing(fn ($state) => QuantityType::tryFrom($state)?->name() ?? $state),
-                TextColumn::make('assign_qty')->label('予定数'),
-                TextInputColumn::make('picked_qty')->label('ピック数')->type('number')
+                TextColumn::make('assign_qty')->label('予定数')->alignment('center')->width('65px'),
+                TextInputColumn::make('picked_qty')->label('ピック数')->type('number')->alignment('center')->width('75px')->extraInputAttributes(['style' => 'width:64px;text-align:center'])
                     ->rules(['required', 'integer', 'min:0'])->validationAttribute('ピック数')
                     ->disabled(fn (WmsShortageAllocation $record) => ! Resource::canEdit($record) || ! in_array($record->status, ['RESERVED', 'PICKING']))
                     ->updateStateUsing(function (WmsShortageAllocation $record, $state) {
@@ -147,11 +132,11 @@ class ListNewWmsShortageAllocations extends ListRecords
                         });
                     }),
                 TextColumn::make('remaining_qty')->label('欠品数')->state(fn (WmsShortageAllocation $record) => $record->isCancelled() ? '対象外' : $record->remaining_qty),
-                TextColumn::make('status')->label('作業状態')->badge()->formatStateUsing(fn ($state) => self::statuses()[$state] ?? $state),
-                TextColumn::make('transfer_status')->label('倉庫移動伝票')
+                TextColumn::make('status')->label('状態')->badge()->width('80px')->formatStateUsing(fn ($state) => self::statuses()[$state] ?? $state),
+                TextColumn::make('transfer_status')->label('移動伝票')->width('95px')
                     ->state(function (WmsShortageAllocation $record) {
                         if ($this->printable($record)) {
-                            return '移動伝票 '.$record->createQueue->stockTransfer->trade->serial_id;
+                            return (string) $record->createQueue->stockTransfer->trade->serial_id;
                         }
                         if ($record->isCancelled()) {
                             return '取消（無効）';
@@ -172,7 +157,7 @@ class ListNewWmsShortageAllocations extends ListRecords
                     ->url(fn (WmsShortageAllocation $record) => $this->printable($record)
                         ? rtrim(config('app.core_url'), '/').'/stocks/inventory/transfer/form/'.$record->createQueue->stock_transfer_id : null)
                     ->openUrlInNewTab(),
-                TextColumn::make('finished_at')->label('完了日時')->dateTime('m/d H:i'),
+                TextColumn::make('finished_at')->label('完了日時')->dateTime('m/d H:i')->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('cancelled_at')->label('取消日時')->dateTime('m/d H:i')->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('cancel_reason')->label('取消理由')->toggleable(isToggledHiddenByDefault: true),
             ])
@@ -182,10 +167,14 @@ class ListNewWmsShortageAllocations extends ListRecords
                         'only' => $query->where('status', 'CANCELLED'), 'include' => $query, default => $query->activeRequest(),
                     }),
                 SelectFilter::make('status')->label('作業状態')->options(self::statuses()),
-                SelectFilter::make('target_warehouse_id')->label('横持ち出荷倉庫')
-                    ->options(fn () => Warehouse::where('client_id', config('app.client_id'))->where('is_virtual', false)->orderBy('code')->get()
-                        ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"]))
-                    ->searchable(),
+                SelectFilter::make('completed_visibility')->label('完了の表示')
+                    ->options(['today' => '当日出荷分のみ', 'all' => '全期間', 'none' => '完了を除く'])
+                    ->default('today')->query(fn (Builder $query, array $data) => match ($data['value'] ?? 'today') {
+                        'all' => $query,
+                        'none' => $query->where('is_finished', false),
+                        default => $query->where(fn (Builder $q) => $q->where('is_finished', false)
+                            ->orWhereDate('shipment_date', ClientSetting::systemDate(true)->toDateString())),
+                    }),
                 Filter::make('shipment_date')->label('出荷日')->schema([DatePicker::make('from')->label('開始日'), DatePicker::make('until')->label('終了日')])
                     ->query(fn (Builder $query, array $data) => $query->when($data['from'] ?? null, fn ($query, $date) => $query->whereDate('shipment_date', '>=', $date))
                         ->when($data['until'] ?? null, fn ($query, $date) => $query->whereDate('shipment_date', '<=', $date))),
@@ -217,6 +206,8 @@ class ListNewWmsShortageAllocations extends ListRecords
             ])
             ->bulkActions([])
             ->toolbarActions([
+                static::getExportAction(),
+                $this->getProxyShipmentPickingListAction(),
                 Action::make('printTransfers')->label(new \Illuminate\Support\HtmlString('移動伝票PDF生成・印刷（<span x-text="getSelectedRecordsCount()">0</span>件）'))->icon('heroicon-o-printer')
                     ->extraAttributes(['x-data' => '{ printBusy: false }', 'x-bind:disabled' => 'printBusy || getSelectedRecordsCount() === 0'])
                     ->alpineClickHandler(<<<'JS'
