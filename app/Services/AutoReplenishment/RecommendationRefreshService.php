@@ -21,7 +21,8 @@ class RecommendationRefreshService
     public function candidates(int $client, ?int $warehouse = null): Collection
     {
         $ids = [];
-        WmsItemReorderPolicy::where(['client_id' => $client, 'is_configured' => true, 'strategy_key' => 'arrival_adaptive_v1'])
+        WmsItemReorderPolicy::where(['client_id' => $client, 'is_configured' => true])
+            ->whereIn('strategy_key', ['arrival_adaptive_v1', PositionNormalBatchStrategy::KEY])
             ->when($warehouse, fn ($q) => $q->where('warehouse_id', $warehouse))->whereNotNull('calculation_basis')
             ->select(['id', 'calculation_basis'])->lazyById(100)->each(function ($p) use (&$ids) {
                 $basis = $p->calculation_basis;

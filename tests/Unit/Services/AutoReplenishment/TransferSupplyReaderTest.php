@@ -1107,4 +1107,91 @@ class TransferSupplyReaderTest extends TestCase
         self::assertSame(100, (int) DB::connection('sakemaru')->table('real_stocks')->value('current_quantity'));
         self::assertSame(10, (int) DB::connection('sakemaru')->table('wms_order_incoming_schedules')->value('received_quantity'));
     }
+
+    public function test_position_snapshot_excludes_pending_candidates_and_counts_committed_undated_supply_once(): void
+    {
+        $this->insert('wms_order_candidates', ['id' => 1, 'status' => 'PENDING', 'order_quantity' => 1000]);
+        $this->insert('wms_order_candidates', ['id' => 2, 'status' => 'APPROVED', 'order_quantity' => 50]);
+        $this->insert('wms_order_candidates', ['id' => 3, 'status' => 'CONFIRMED', 'order_quantity' => 70]);
+        $this->candidate(10, ['status' => 'PENDING', 'transfer_quantity' => -1]);
+        $this->candidate(11, ['status' => 'APPROVED', 'transfer_quantity' => 80]);
+        $r = $this->snapshot(['strategy_key' => 'position_normal_batch_v1']);
+        self::assertSame(0, $r['claims']);
+        self::assertSame(200, $r['incoming']);
+        self::assertSame(0, $r['incoming_today']);
+        self::assertCount(3, $r['supply_events']);
+        $window = app(\App\Services\AutoReplenishment\SupplyWindow::class)->classify($r['supply_events'], $r['business_date']);
+        self::assertSame(200, $window['undated']);
+        $this->schedule(20, ['order_source' => 'MANUAL', 'order_candidate_id' => 2, 'expected_quantity' => 50, 'expected_arrival_date' => '2026-10-15']);
+        $r = $this->reader->readForSimulation(new WmsItemReorderPolicy(['client_id' => 6, 'warehouse_id' => 1, 'item_id' => 143024,
+            'contractor_id' => 10, 'supplier_id' => 10, 'channel' => 'EOS', 'strategy_key' => 'position_normal_batch_v1']));
+        self::assertSame(200, $r['incoming']);
+        self::assertCount(3, $r['supply_events']);
+        self::assertSame(100, $r['stock']);
+    }
+
+    public function test_position_transfer_keeps_raw_overdue_date_and_queue_without_schedule_is_supply(): void
+    {
+        $this->transfer(1, ['delivered_date' => '2026-10-13']);
+        $this->receipt(100);
+        $this->candidate(2, ['status' => 'APPROVED']);
+        $this->queue(2, ['status' => 'BEFORE', 'stock_transfer_id' => null], [2]);
+        $r = $this->snapshot(['strategy_key' => 'position_normal_batch_v1']);
+        self::assertSame(1436, $r['incoming']);
+        self::assertSame(0, $r['incoming_today']);
+        self::assertSame('2026-10-13', $r['supply_events'][0]['raw_date']);
+        self::assertSame(100, $r['supply_events'][0]['applied_pieces']);
+        self::assertSame(2, count($r['supply_warnings']));
+    }
+
+    public function test_position_external_stock_applied_is_not_added_again_when_schedule_lags(): void
+    {
+        $this->insert('wms_order_candidates', ['id' => 1, 'status' => 'CONFIRMED', 'order_quantity' => 120]);
+        $this->schedule(1, ['order_source' => 'MANUAL', 'order_candidate_id' => 1, 'expected_quantity' => 120, 'received_quantity' => 0]);
+        $this->insert('wms_replenishment_effects', ['id' => 1, 'source_type' => 'order', 'source_id' => 1, 'ordered_pieces' => 120]);
+        $this->insert('wms_replenishment_effect_sources', ['id' => 1, 'effect_id' => 1, 'incoming_schedule_id' => 1, 'stock_applied_pieces' => 80]);
+        $r = $this->snapshot(['strategy_key' => 'position_normal_batch_v1']);
+        self::assertSame(40, $r['incoming']);
+        self::assertSame(80, $r['supply_events'][0]['applied_pieces']);
+        self::assertSame(100, $r['stock']);
+    }
+
+    public function test_position_cancelled_completed_and_pending_candidates_do_not_suppress_orders(): void
+    {
+        foreach (['CANCELLED', 'PENDING'] as $i => $status) {
+            $this->insert('wms_order_candidates', ['id' => $i + 1, 'status' => $status, 'order_quantity' => 100]);
+        }
+        $this->insert('wms_order_candidates', ['id' => 3, 'status' => 'CONFIRMED', 'order_quantity' => 100]);
+        $this->insert('wms_replenishment_effects', ['id' => 3, 'source_type' => 'order', 'source_id' => 3, 'state' => 'COMPLETED']);
+        $r = $this->snapshot(['strategy_key' => 'position_normal_batch_v1']);
+        self::assertSame(0, $r['incoming']);
+        self::assertSame(0, $r['claims']);
+        self::assertSame([], $r['supply_events']);
+    }
+
+    public function test_position_missing_split_remainder_holds_instead_of_silently_dropping_supply(): void
+    {
+        $this->insert('wms_order_candidates', ['id' => 1, 'status' => 'CONFIRMED', 'order_quantity' => 120]);
+        $this->schedule(1, ['order_source' => 'MANUAL', 'order_candidate_id' => 1, 'expected_quantity' => 60]);
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('発注候補ID 1');
+        $this->snapshot(['strategy_key' => 'position_normal_batch_v1']);
+    }
+
+    public function test_position_split_schedules_use_document_capacity_and_only_unapplied_remainders(): void
+    {
+        $this->insert('wms_order_candidates', ['id' => 1, 'status' => 'CONFIRMED', 'order_quantity' => 5, 'quantity_type' => 'CASE']);
+        $this->insert('wms_replenishment_effects', ['id' => 1, 'source_type' => 'order', 'source_id' => 1, 'ordered_pieces' => 120]);
+        foreach ([1 => 2, 2 => 3] as $id => $cases) {
+            $this->schedule($id, ['order_source' => 'MANUAL', 'order_candidate_id' => 1, 'expected_quantity' => $cases,
+                'quantity_type' => 'CASE', 'expected_arrival_date' => '2026-10-14']);
+            $this->insert('wms_replenishment_effect_sources', ['id' => $id, 'effect_id' => 1, 'incoming_schedule_id' => $id,
+                'stock_applied_pieces' => $id === 1 ? 48 : 0]);
+        }
+        DB::connection('sakemaru')->table('items')->update(['capacity_case' => 12]);
+        $r = $this->snapshot(['strategy_key' => 'position_normal_batch_v1']);
+        self::assertSame(72, $r['incoming']);
+        self::assertSame(72, $r['incoming_today']);
+        self::assertSame(1, count($r['supply_events']));
+    }
 }

@@ -97,7 +97,7 @@ class PalletUnitService
         $pieces = (int) $master->pieces_per_pallet;
         throw_unless((int) $values['min_order_pieces'] % $pieces === 0 && (int) $values['max_order_pieces'] >= $pieces,
             \RuntimeException::class, "最小発注数は1パレット（{$pieces}バラ）の倍数、最大発注数は1パレット以上にしてください。");
-        throw_if(in_array($values['strategy_key'] ?? '', ['arrival_batch_v1', 'arrival_adaptive_v1'], true) && (int) ($values['target_stock_pieces'] ?? $values['reorder_point_pieces']) < (int) $values['min_order_pieces'],
+        throw_if(in_array($values['strategy_key'] ?? '', ['arrival_batch_v1', 'arrival_adaptive_v1', PositionNormalBatchStrategy::KEY], true) && (int) ($values['target_stock_pieces'] ?? $values['reorder_point_pieces']) < (int) $values['min_order_pieces'],
             \RuntimeException::class, '補充目標は1回のパレット発注量以上にしてください。');
         $values['order_multiple_pieces'] = $pieces;
 

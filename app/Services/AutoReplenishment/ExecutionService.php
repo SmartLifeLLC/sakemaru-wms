@@ -174,7 +174,7 @@ class ExecutionService
             throw_unless($result['phase'] === 'READY' && $result['quantity'] === (int) $line->quantity_pieces, \RuntimeException::class, '在庫・供給が変わったため再計算が必要です。');
             $actor = (int) config('replenishment.system_actor_id');
             throw_unless(DB::connection('sakemaru')->table('users')->where(['id' => $actor, 'client_id' => $line->client_id, 'is_active' => 1])->exists(), \RuntimeException::class, '有効な自動発注実行ユーザーが未設定です。');
-            $line->update(['confirmation_snapshot' => $s]);
+            $line->update(['confirmation_snapshot' => $s + ($policy->strategy_key === PositionNormalBatchStrategy::KEY ? ['calculation' => $result] : [])]);
             $quantity = $s['quantity_type'] === 'CASE' ? intdiv((int) $line->quantity_pieces, $s['capacity_case']) : (int) $line->quantity_pieces;
             if ($line->channel === 'EOS') {
                 app(OrderRegistrationService::class)->register((int) $line->warehouse_id, [[

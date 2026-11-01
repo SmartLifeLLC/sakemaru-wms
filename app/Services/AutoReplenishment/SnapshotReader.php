@@ -73,6 +73,8 @@ class SnapshotReader
 
     public function read(WmsItemReorderPolicy $policy, ?int $excludeLineId = null, bool $readOnly = false, bool $includeSupplyDates = false, bool $scheduledSimulation = false): array
     {
+        $positionMode = $policy->strategy_key === PositionNormalBatchStrategy::KEY;
+        $includeSupplyDates = $includeSupplyDates || $positionMode;
         // FAX preview is limited to an unsaved, disabled editor model. The batch
         // and ON validation call read() without readOnly and always reject FAX.
         $faxReference = $policy->channel === 'FAX' && $readOnly && ! $policy->exists && ! $policy->is_enabled;
@@ -161,11 +163,12 @@ class SnapshotReader
             }
         }
 
-        $transfer = $this->once('transfer_supply:'.$policy->warehouse_id, fn () => app(TransferSupplyReader::class)->read(
+        $transfer = $this->once('transfer_supply:'.$policy->warehouse_id.':'.(int) $positionMode.':'.(int) $includeSupplyDates, fn () => app(TransferSupplyReader::class)->read(
             $clientId, (int) $policy->warehouse_id, $this->proposalItemIds ?: [(int) $policy->item_id], $allocationIds,
             ! $readOnly && $db->transactionLevel() > 0,
             $includeSupplyDates,
             $businessDate,
+            $positionMode,
         ))[$policy->item_id];
         throw_if(isset($transfer['error']), \RuntimeException::class, $transfer['error'] ?? '移動入荷予定を照合できません。');
         $effects = $this->forItem('effects', $db->table('wms_replenishment_effects')->where(['client_id' => $clientId, 'warehouse_id' => $policy->warehouse_id])->whereIn('state', ['OPEN', 'UNKNOWN', 'RECEIPT_PENDING']), 'item_id', (int) $policy->item_id);
@@ -178,6 +181,16 @@ class SnapshotReader
             $liveSources = $db->table('wms_order_incoming_schedules')->whereIn('id', $sourceIds)
                 ->when(! $readOnly && $db->transactionLevel() > 0, fn ($q) => $q->lockForUpdate())
                 ->get(['id', 'warehouse_id', 'item_id', 'status', 'expected_quantity', 'received_quantity', 'quantity_type', 'purchase_queue_id']);
+            if ($positionMode && $sourceIds->isEmpty() && ! $effect->reconciliation_required && $effect->state === 'OPEN'
+                && (int) ($effect->received_pieces ?? 0) === 0) {
+                // A committed order can precede creation of its receipt schedule. Count it below as undated supply.
+                $committed = $db->table('wms_order_candidates')->where(['id' => $effect->source_id, 'warehouse_id' => $policy->warehouse_id, 'item_id' => $policy->item_id])
+                    ->whereIn('status', ['APPROVED', 'CONFIRMED', 'EXECUTED'])
+                    ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('wms_order_incoming_schedules as s')->whereColumn('s.order_candidate_id', 'wms_order_candidates.id'))->first();
+                if ($committed && $this->pieces((int) $committed->order_quantity, $committed->quantity_type, $effect) === (int) $effect->ordered_pieces) {
+                    continue;
+                }
+            }
             // Completed purchases already belong to current stock. A historical
             // split/quantity mismatch is advisory, not another incoming supply.
             if (($effect->reconciliation_required || $effect->state === 'UNKNOWN')
@@ -229,13 +242,18 @@ class SnapshotReader
             $received = $this->pieces((int) $s->received_quantity, (string) $s->quantity_type, $source ?? $item);
             throw_if($received > (int) ($source?->stock_applied_pieces ?? 0) && ! $this->purchaseApplied($s, $readOnly),
                 \RuntimeException::class, '外部発注の入荷数量が実在庫へ反映されていません。仕入連携の完了後に再計算してください。');
-            $remaining = $this->pieces((int) $s->expected_quantity - (int) $s->received_quantity, (string) $s->quantity_type, $source ?? $item);
+            $ordered = $this->pieces((int) $s->expected_quantity, (string) $s->quantity_type, $source ?? $item);
+            $applied = $positionMode ? max($received, (int) ($source?->stock_applied_pieces ?? 0)) : $received;
+            throw_if($applied > $ordered, \RuntimeException::class, '入荷予定より在庫反映済み数量が多いため、予定と仕入反映の対応を確認してください。');
+            $remaining = $ordered - $applied;
             $incoming += $remaining;
             if (app(IncomingAvailability::class)->isToday($s->expected_arrival_date ?? null, $businessDate)) {
                 $incomingToday += $remaining;
             }
             if ($includeSupplyDates && $remaining > 0) {
-                $supplyEvents[] = ['source' => 'external', 'date' => $s->expected_arrival_date ?? null, 'pieces' => $remaining];
+                $supplyEvents[] = ['source' => 'external', 'date' => $s->expected_arrival_date ?? null, 'pieces' => $remaining]
+                    + ($positionMode ? ['supply_id' => 'external:'.$s->id, 'raw_date' => $s->expected_arrival_date ?? null,
+                        'ordered_pieces' => $ordered, 'applied_pieces' => $applied, 'candidate_id' => $s->order_candidate_id] : []);
             }
         }
         $orderSchedules = $this->forItem('external_order_schedules', $db->table('wms_order_candidates as c')
@@ -251,6 +269,8 @@ class SnapshotReader
             $total = $group->sum(fn ($s) => $this->pieces((int) $s->expected_quantity, $s->quantity_type, $s));
             $ordered = $this->pieces((int) $group->first()->order_quantity, $group->first()->candidate_quantity_type, $group->first());
             throw_if($total > $ordered, \RuntimeException::class, '同じ発注候補の入荷予定数量が発注数量を超えています。管理者に重複・分割内容を確認してください。');
+            throw_if($positionMode && $total < $ordered, \RuntimeException::class,
+                '発注候補ID '.$group->first()->id.' の発注数量 '.$ordered.'バラに対して、入荷予定の合計が '.$total.'バラです。予定の未作成・取消・分割残を確認してください。');
         }
         $pendingReceipts = $this->forItem('external_receipts', $db->table('wms_order_incoming_schedules as s')->where('s.warehouse_id', $policy->warehouse_id)
             ->where('s.order_source', '!=', 'TRANSFER')->whereNull('s.stock_transfer_id')->whereNull('s.transfer_candidate_id')
@@ -270,16 +290,32 @@ class SnapshotReader
         $unmatchedConfirmed = $this->forItem('unmatched', $db->table('wms_order_candidates as c')->where('c.warehouse_id', $policy->warehouse_id)->whereIn('c.status', ['CONFIRMED', 'EXECUTED'])
             ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('wms_order_incoming_schedules as s')->whereColumn('s.order_candidate_id', 'c.id'))
             ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('wms_replenishment_effects as e')->where('e.source_type', 'order')->whereColumn('e.source_id', 'c.id')->whereIn('e.state', ['COMPLETED', 'CANCELLED']))->select('c.item_id'), 'c.item_id', (int) $policy->item_id)->isNotEmpty();
-        throw_if($unmatchedConfirmed, \RuntimeException::class, '確定発注と入荷予定の対応に不整合があります。');
+        throw_if($unmatchedConfirmed && ! $positionMode, \RuntimeException::class, '確定発注と入荷予定の対応に不整合があります。');
         $this->observation['incoming'] = $incoming;
         $this->observation['incoming_today'] = $incomingToday;
         $this->observation['incoming_transfer'] = $transfer['incoming'];
         $this->observation['incoming_external'] = $incoming - $transfer['incoming'];
         $claims = $transfer['claims'];
-        foreach ($this->forItem('claims_order', $db->table('wms_order_candidates')->where('warehouse_id', $policy->warehouse_id)->whereIn('status', ['PENDING', 'APPROVED'])
-            ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('wms_order_incoming_schedules as s')->whereColumn('s.order_candidate_id', 'wms_order_candidates.id')->whereIn('s.status', ['PENDING', 'PARTIAL', 'CONFIRMED', 'TRANSMITTED']))
-            ->select(['item_id', 'order_quantity', 'quantity_type']), 'item_id', (int) $policy->item_id) as $c) {
-            $claims += $this->pieces((int) $c->order_quantity, (string) $c->quantity_type, $item);
+        $knownOrderClaims = [];
+        foreach ($this->forItem('claims_order:'.(int) $positionMode, $db->table('wms_order_candidates')->where('warehouse_id', $policy->warehouse_id)
+            ->whereIn('status', $positionMode ? ['APPROVED', 'CONFIRMED', 'EXECUTED'] : ['PENDING', 'APPROVED'])
+            ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('wms_order_incoming_schedules as s')->whereColumn('s.order_candidate_id', 'wms_order_candidates.id')
+                ->when(! $positionMode, fn ($q) => $q->whereIn('s.status', ['PENDING', 'PARTIAL', 'CONFIRMED', 'TRANSMITTED'])))
+            ->when($positionMode, fn ($q) => $q->whereNotExists(fn ($q) => $q->selectRaw('1')->from('wms_replenishment_effects as e')->where('e.source_type', 'order')
+                ->whereColumn('e.source_id', 'wms_order_candidates.id')->whereIn('e.state', ['COMPLETED', 'CANCELLED'])))
+            ->when(! $readOnly && $db->transactionLevel() > 0, fn ($q) => $q->lockForUpdate())
+            ->select(['id', 'item_id', 'status', 'order_quantity', 'quantity_type']), 'item_id', (int) $policy->item_id) as $c) {
+            if ($positionMode) {
+                $effect = $effects->first(fn ($e) => $e->source_type === 'order' && (int) $e->source_id === (int) $c->id);
+                throw_if($c->status !== 'APPROVED' && $c->quantity_type !== 'PIECE' && ! $effect,
+                    \RuntimeException::class, '確定済み発注の入数が不明です。管理者に発注時の入数を確認してください。');
+                $pieces = $this->pieces((int) $c->order_quantity, (string) $c->quantity_type, $effect ?? $item);
+                $incoming += $pieces;
+                $supplyEvents[] = ['source' => 'external', 'supply_id' => 'order-candidate:'.$c->id, 'date' => null, 'raw_date' => null, 'pieces' => $pieces];
+                $knownOrderClaims[] = (int) $c->id;
+            } else {
+                $claims += $this->pieces((int) $c->order_quantity, (string) $c->quantity_type, $item);
+            }
         }
         $this->observation['claims'] = $claims;
         // Missing/cancelled schedules do not imply cancellation of the order.
@@ -293,6 +329,9 @@ class SnapshotReader
             })
             ->when($excludeLineId, fn ($q) => $q->where('l.id', '!=', $excludeLineId))->select('l.*'), 'l.item_id', (int) $policy->item_id);
         foreach ($openLines as $line) {
+            if ($positionMode && in_array((int) $line->order_candidate_id, $knownOrderClaims, true)) {
+                continue;
+            }
             if ($line->transfer_candidate_id && in_array((int) $line->transfer_candidate_id, $transfer['covered_candidate_ids'], true)) {
                 continue;
             }
@@ -324,8 +363,8 @@ class SnapshotReader
             $arrival = $this->once('logistics-arrival:'.$policy->contractor_id.':'.$policy->warehouse_id,
                 fn () => app(LogisticsArrivalDateService::class)->resolve($policy, $businessDate));
         }
-        $nextArrival = null;
-        if ($policy->strategy_key === 'arrival_adaptive_v1') {
+        $nextArrival = $nextDate = null;
+        if (in_array($policy->strategy_key, ['arrival_adaptive_v1', PositionNormalBatchStrategy::KEY], true)) {
             $schedule = app(GenerationSchedule::class);
             $savedSchedule = $policy->calculation_basis['review_schedule_fingerprint'] ?? null;
             throw_if($savedSchedule !== null && $savedSchedule !== $schedule->fingerprint($config),
@@ -368,6 +407,15 @@ class SnapshotReader
         $orderUnit = $units->resolve($clientId, (int) $item->id, $capacity, $caseOutput, $unitRows, $mode, $unitHistory);
         $packingUnit = $orderUnit['packing_unit'];
 
+        if ($positionMode) {
+            $window = app(SupplyWindow::class)->classify($supplyEvents, $businessDate);
+            throw_unless($window['total'] === $incoming, \RuntimeException::class, '既発注の未入荷残と明細合計が一致しません。');
+            $incomingToday = $window['today'];
+            $this->observation['incoming'] = $incoming;
+            $this->observation['incoming_today'] = $incomingToday;
+            $this->observation['supply_warnings'] = array_merge($this->observation['supply_warnings'] ?? [], $window['warnings']);
+        }
+
         return [
             'item_id' => (int) $item->id, 'item_code' => (string) $item->code, 'item_name' => $item->name,
             'warehouse_code' => (string) $warehouse->code, 'warehouse_name' => $warehouse->name,
@@ -388,6 +436,7 @@ class SnapshotReader
             'supply_warnings' => $this->observation['supply_warnings'] ?? [],
             'policy' => $policy->toArray(), 'observed_at' => now()->toIso8601String(),
         ] + ($includeSupplyDates ? ['supply_events' => $supplyEvents] : [])
+            + ($positionMode ? ['next_generation_date' => $nextDate?->toDateString()] : [])
             + ($simulationAt ? ['simulation_at' => $simulationAt->format('Y-m-d H:i:s')] : []);
     }
 

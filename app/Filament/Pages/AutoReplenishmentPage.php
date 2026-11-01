@@ -437,7 +437,7 @@ abstract class AutoReplenishmentPage extends AdminPage
     public function updatedForm(mixed $value, string $key): void
     {
         if ($key === 'strategy_key' && $this->inventoryProjectionInputs !== null) {
-            $this->refreshInventoryProjection();
+            $this->refreshInventoryProjection(true);
         }
         if ($key === 'order_unit_mode') {
             $this->authorizeOperation('auto-replenishment-settings', 'edit');
@@ -540,7 +540,9 @@ abstract class AutoReplenishmentPage extends AdminPage
             $this->form['shipping_unit_mode'] = 'SHIPMENT';
         }
         if (($this->form['shipping_unit_mode'] ?? '') === 'SHIPMENT') {
-            $this->form['strategy_key'] = 'arrival_adaptive_v1';
+            if (($this->form['strategy_key'] ?? '') !== \App\Services\AutoReplenishment\PositionNormalBatchStrategy::KEY) {
+                $this->form['strategy_key'] = 'arrival_adaptive_v1';
+            }
             if ($this->shippingProfile) {
                 $this->form['order_multiple_pieces'] = app(ShippingQuantitySet::class)->gcd($this->shippingProfile['quantities']);
             }
@@ -663,6 +665,9 @@ abstract class AutoReplenishmentPage extends AdminPage
         }
         // Candidates are kept in Locked state; the browser sends only the selected key.
         $candidate = in_array($key, ['sales', 'history'], true) ? ($this->recommendation['candidates'][$key] ?? null) : null;
+        if ($candidate && ($this->form['strategy_key'] ?? '') === \App\Services\AutoReplenishment\PositionNormalBatchStrategy::KEY) {
+            $candidate = app(SettingsRecommendationService::class)->withPositionStrategy($candidate);
+        }
         if (! $candidate || empty($candidate['available']) || empty($candidate['values']) || empty($candidate['basis'])) {
             throw \Illuminate\Validation\ValidationException::withMessages(['operation' => $candidate['basis']['reason'] ?? 'この候補は入力できません。「おすすめ設定」で計算し直してください。']);
         }
@@ -736,7 +741,9 @@ abstract class AutoReplenishmentPage extends AdminPage
             (int) ($this->shippingProfile['version'] ?? 0), (int) auth()->id()));
         $this->loadPalletEditor();
         $this->form['shipping_unit_mode'] = 'SHIPMENT';
-        $this->form['strategy_key'] = 'arrival_adaptive_v1';
+        if (($this->form['strategy_key'] ?? '') !== \App\Services\AutoReplenishment\PositionNormalBatchStrategy::KEY) {
+            $this->form['strategy_key'] = 'arrival_adaptive_v1';
+        }
         $this->form['order_multiple_pieces'] = app(ShippingQuantitySet::class)->gcd($this->shippingProfile['quantities']);
         $this->clearInventoryProjection();
         $this->recommendation = $this->recommendationContext = null;
@@ -757,7 +764,9 @@ abstract class AutoReplenishmentPage extends AdminPage
         });
         $this->loadPalletEditor();
         $this->form['shipping_unit_mode'] = 'SHIPMENT';
-        $this->form['strategy_key'] = 'arrival_adaptive_v1';
+        if (($this->form['strategy_key'] ?? '') !== \App\Services\AutoReplenishment\PositionNormalBatchStrategy::KEY) {
+            $this->form['strategy_key'] = 'arrival_adaptive_v1';
+        }
         $this->clearInventoryProjection();
         $this->recommendation = $this->recommendationContext = null;
         Notification::make()->success()->title('実出庫から共有候補を登録しました。「おすすめ設定」で店舗の数量条件を確認してください。')->send();

@@ -9,10 +9,27 @@ class SettingsRecommendationService
     public function recommend(int $clientId, int $warehouseId, array $route, array $options = []): array
     {
         $result = $this->calculate($clientId, $warehouseId, $route, $options);
+        if (($route['strategy_key'] ?? '') === PositionNormalBatchStrategy::KEY) {
+            $result = $this->withPositionStrategy($result);
+        }
         $warnings = app(MasterRouteWarnings::class)->forRoute($clientId, $warehouseId, $route);
         $result['basis']['master_warnings'] = $warnings;
         foreach ($result['candidates'] ?? [] as $key => $candidate) {
             $result['candidates'][$key]['basis']['master_warnings'] = $warnings;
+        }
+
+        return $result;
+    }
+
+    /** Preserve an explicit strategy selection; recommendation quantities and demand formulas are unchanged. */
+    public function withPositionStrategy(array $result): array
+    {
+        if ($result['available'] ?? false) {
+            $result['values']['strategy_key'] = PositionNormalBatchStrategy::KEY;
+            $result['basis']['suggested_values']['strategy_key'] = PositionNormalBatchStrategy::KEY;
+        }
+        foreach ($result['candidates'] ?? [] as $key => $candidate) {
+            $result['candidates'][$key] = $this->withPositionStrategy($candidate);
         }
 
         return $result;

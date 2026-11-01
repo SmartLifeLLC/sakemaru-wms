@@ -20,7 +20,7 @@ class PolicySimulationService
             $strategyClass = config('replenishment.strategies.'.$policy->strategy_key);
             throw_unless(is_string($strategyClass) && class_exists($strategyClass), \RuntimeException::class, '計算ロジックが未設定です。管理者に商品設定を確認してください。');
             $strategy = app($strategyClass);
-            if ($strategy instanceof ArrivalBatchStrategy) {
+            if ($strategy instanceof ArrivalBatchStrategy || $strategy instanceof PositionNormalBatchStrategy) {
                 $demandProfile = app(DemandProfile::class)->fromBasis($policy->calculation_basis ?? []);
             }
             $proposal = app(StrategyCalculator::class)->calculate($policy->toArray(), $snapshot);
@@ -79,7 +79,11 @@ class PolicySimulationService
             'simulation_at' => $snapshot['simulation_at'] ?? null,
             'demand_profile' => $demandProfile,
             'shipping_unit' => $snapshot['shipping_unit'] ?? ['mode' => 'STANDARD'],
-            'quantity_settings' => $policy->strategy_key === 'arrival_adaptive_v1' ? [
+            'decision_inventory' => $proposal['decision_inventory'] ?? null,
+            'quantity_calculation' => $proposal['quantity_calculation'] ?? null,
+            'warnings' => $proposal['warnings'] ?? [],
+            'strategy_key' => $policy->strategy_key,
+            'quantity_settings' => in_array($policy->strategy_key, ['arrival_adaptive_v1', PositionNormalBatchStrategy::KEY], true) ? [
                 'normal' => $policy->calculation_basis['batch_quantity_pieces'] ?? null,
                 'safety_days' => $policy->calculation_basis['safety_stock_days'] ?? null,
                 'safety_pieces' => $policy->calculation_basis['safety_stock_pieces'] ?? null,

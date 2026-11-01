@@ -44,6 +44,7 @@ return [
             'file' => ':attributeは1MB以下にしてください。',
         ],
         'min_order_pieces.lte' => '最小発注数は最大発注数以下にしてください。',
+        'target_stock_pieces.gt' => '過剰在庫線は発注点より大きくしてください。',
         'target_stock_pieces.gte' => '補充目標は発注点以上にしてください。',
         'file' => ':attributeを選択し直してください。',
         'item_id.required' => '商品を選択してください。',

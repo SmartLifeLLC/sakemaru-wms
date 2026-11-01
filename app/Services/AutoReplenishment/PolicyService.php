@@ -28,7 +28,7 @@ class PolicyService
                 }
             }
         }
-        throw_if($values['strategy_key'] === 'arrival_adaptive_v1' && $calculationBasis
+        throw_if(in_array($values['strategy_key'], ['arrival_adaptive_v1', PositionNormalBatchStrategy::KEY], true) && $calculationBasis
             && ! in_array($calculationBasis['batch_rule'] ?? '', ['observed-mode-with-historical-maximum', 'mean-demand-times-review-days', 'preserved-store-normal-with-shipping-quantities'], true),
             \RuntimeException::class, '通常量をまとめて補充する方法へ変更する場合は、「おすすめ設定」で実績を再計算してください。');
         $values['calculation_basis'] = $calculationBasis;
@@ -44,14 +44,16 @@ class PolicyService
             'max_order_pieces' => 'required|integer|min:1|max:2147483647',
             'min_order_pieces' => 'required|integer|min:1|lte:max_order_pieces',
             'order_multiple_pieces' => 'required|integer|min:1|max:2147483647',
-            'target_stock_pieces' => in_array($data['strategy_key'] ?? '', ['arrival_batch_v1', 'arrival_adaptive_v1'], true)
-                ? 'nullable|integer|min:1|max:2147483647' : 'nullable|integer|gte:reorder_point_pieces|max:2147483647',
+            'target_stock_pieces' => ($data['strategy_key'] ?? '') === PositionNormalBatchStrategy::KEY
+                ? 'required|integer|gt:reorder_point_pieces|max:2147483647' : (in_array($data['strategy_key'] ?? '', ['arrival_batch_v1', 'arrival_adaptive_v1'], true)
+                ? 'nullable|integer|min:1|max:2147483647' : 'nullable|integer|gte:reorder_point_pieces|max:2147483647'),
             'channel' => 'required|in:EOS,LOGISTICS', 'contractor_id' => 'required|integer|min:1',
             'supplier_id' => 'nullable|integer|min:1', 'source_warehouse_id' => 'nullable|integer|min:1',
             'delivery_course_id' => 'nullable|integer|min:1',
             'order_unit_mode' => 'sometimes|required|in:AUTO,PIECE,CASE',
             'strategy_key' => 'required|in:'.implode(',', array_keys(config('replenishment.strategies'))),
-        ], trans('auto-replenishment.messages', [], 'ja'), trans('auto-replenishment.attributes', [], 'ja'))->validate();
+        ], trans('auto-replenishment.messages', [], 'ja'), array_replace(trans('auto-replenishment.attributes', [], 'ja'),
+            ($data['strategy_key'] ?? '') === PositionNormalBatchStrategy::KEY ? ['target_stock_pieces' => '過剰在庫線'] : []))->validate();
     }
 
     public function saveWithState(int $clientId, int $warehouseId, array $data, bool $enabled, int $actorId, ?array $calculationBasis = null): WmsItemReorderPolicy
@@ -125,7 +127,7 @@ class PolicyService
             if ($enabled) {
                 throw_if($p->channel === 'FAX', \RuntimeException::class, 'FAX発注は参考計算のみです。自動発注はONにできません。');
                 $snapshot = app(SnapshotReader::class)->read($p);
-                if (in_array($p->strategy_key, ['arrival_batch_v1', 'arrival_adaptive_v1'], true)) {
+                if (in_array($p->strategy_key, ['arrival_batch_v1', 'arrival_adaptive_v1', PositionNormalBatchStrategy::KEY], true)) {
                     $result = app(StrategyCalculator::class)->calculate($p->toArray(), $snapshot);
                     throw_if($result['phase'] === 'HOLD', \RuntimeException::class, $result['reason']);
                 }
