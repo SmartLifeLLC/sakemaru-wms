@@ -5,7 +5,9 @@ namespace App\Services\Shortage;
 use App\Models\WmsShortageAllocation;
 use App\Services\QuantityUpdate\AllocationSyncService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class ProxyShipmentLifecycleService
 {
@@ -54,7 +56,7 @@ class ProxyShipmentLifecycleService
 
     public function complete(int $id, ?int $userId = null, ?int $pickerId = null, ?int $pickedQty = null): array
     {
-        return $this->locked($id, function (WmsShortageAllocation $allocation) use ($userId, $pickerId, $pickedQty) {
+        $result = $this->locked($id, function (WmsShortageAllocation $allocation) use ($userId, $pickerId, $pickedQty) {
             if ($allocation->isCancelled()) {
                 throw ValidationException::withMessages(['status' => '取消済みの横持ち出荷依頼は完了できません。']);
             }
@@ -87,9 +89,28 @@ class ProxyShipmentLifecycleService
                     $allocation->shortage->update(['status' => $total >= $allocation->shortage->shortage_qty ? 'SHORTAGE' : 'PARTIAL_SHORTAGE']);
                 }
             }
-            $syncQueue = app(AllocationSyncService::class)->syncAllocationIfReady($allocation);
-
-            return ['allocation' => $allocation->refresh(), 'stock_transfer_queue_id' => $queueId, 'quantity_update_queue_id' => $syncQueue?->id];
+            return ['allocation' => $allocation->refresh(), 'stock_transfer_queue_id' => $queueId, 'quantity_update_queue_id' => null];
         });
+
+        // Completion and transfer registration must remain committed if quantity synchronization fails.
+        // Repeated completion also retries synchronization; the sync service locks siblings, checks
+        // for cancellation and uses an idempotent queue key before updating the original document.
+        $result['quantity_sync_failed'] = false;
+        if ($result['allocation']->status === WmsShortageAllocation::STATUS_SHORTAGE) {
+            try {
+                $queue = app(AllocationSyncService::class)->syncAllocationIfReady($result['allocation']);
+                $result['quantity_update_queue_id'] = $queue?->id;
+                $result['allocation'] = $result['allocation']->refresh();
+            } catch (Throwable $exception) {
+                Log::error('Failed to sync proxy shipment shortage allocation', [
+                    'allocation_id' => $id,
+                    'shortage_id' => $result['allocation']->shortage_id,
+                    'error' => $exception->getMessage(),
+                ]);
+                $result['quantity_sync_failed'] = true;
+            }
+        }
+
+        return $result;
     }
 }

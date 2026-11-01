@@ -201,8 +201,14 @@ class ListNewWmsShortageAllocations extends ListRecords
                     ->modalSubmitActionLabel('完了を確定')->modalSubmitAction(fn ($action) => $action->color('danger'))->modalCancelActionLabel('完了せず閉じる')
                     ->action(function (WmsShortageAllocation $record) {
                         abort_unless(Resource::canEdit($record), 403);
-                        app(ProxyShipmentLifecycleService::class)->complete($record->id, auth()->id());
-                        Notification::make()->title('横持ち出荷を完了しました')->success()->send();
+                        $result = app(ProxyShipmentLifecycleService::class)->complete($record->id, auth()->id());
+                        $notification = Notification::make()->title('横持ち出荷を完了しました');
+                        if ($result['quantity_sync_failed']) {
+                            $notification->body('数量同期に失敗しました。完了状態は保存済みです。横持ち出荷履歴の「手動同期」から再実行してください。')->warning();
+                        } else {
+                            $notification->success();
+                        }
+                        $notification->send();
                     }),
                 Action::make('cancel')->label('取消')->icon('heroicon-o-x-circle')->color('danger')
                     ->visible(fn (WmsShortageAllocation $record) => Resource::canEdit($record))

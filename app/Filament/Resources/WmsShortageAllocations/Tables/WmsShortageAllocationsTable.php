@@ -241,8 +241,14 @@ class WmsShortageAllocationsTable
                     )
                     ->modalCancelActionLabel('確定せず閉じる')
                     ->action(function (WmsShortageAllocation $record): void {
-                        app(\App\Services\Shortage\ProxyShipmentLifecycleService::class)->complete($record->id, auth()->id());
-                        Notification::make()->title('横持ち出荷を完了しました')->success()->send();
+                        $result = app(\App\Services\Shortage\ProxyShipmentLifecycleService::class)->complete($record->id, auth()->id());
+                        $notification = Notification::make()->title('横持ち出荷を完了しました');
+                        if ($result['quantity_sync_failed']) {
+                            $notification->body('数量同期に失敗しました。完了状態は保存済みです。横持ち出荷履歴の「手動同期」から再実行してください。')->warning();
+                        } else {
+                            $notification->success();
+                        }
+                        $notification->send();
                     }),
 
                 // 横持ち出荷修正アクション（残数量がある場合のみ）
