@@ -137,7 +137,10 @@ class JxGenerationGuard
                 DB::connection('sakemaru')->table('wms_auto_order_artifact_links')->where(['line_id' => $line->id, 'artifact_type' => 'incoming', 'artifact_id' => $s->id])->update(['business_number' => $s->slip_number, 'updated_at' => now()]);
             }
             throw_unless($schedulePieces === $pieces, \RuntimeException::class, 'JXと入荷予定の総バラが一致しません。');
-            $actualAmount = bcmul($detail['d_unit_price_decimal'], (string) $detail['d_total_piece_quantity'], 4);
+            // JX原単価は出力単位の価格。ケース発注（パックCDを含む）に総バラ・パック数を掛けない。
+            $pricedQuantity = (int) $detail['d_case_quantity'] > 0
+                ? (int) $detail['d_case_quantity'] : (int) $detail['d_piece_quantity'];
+            $actualAmount = bcmul($detail['d_unit_price_decimal'], (string) $pricedQuantity, 4);
             if (bccomp($actualAmount, (string) $line->amount, 4) > 0) {
                 $line->update(['amount' => $actualAmount]);
                 DB::connection('sakemaru')->table('wms_auto_order_budget_entries')->where('effect_key', $line->effect_key)->where('state', 'RESERVED')->update(['amount' => $actualAmount]);
