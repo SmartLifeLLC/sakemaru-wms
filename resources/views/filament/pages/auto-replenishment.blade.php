@@ -251,7 +251,7 @@
     @endif
     @if($detail)
         @php $s=$detail->confirmation_snapshot ?: $detail->proposal_snapshot; $p=$s['policy'] ?? []; @endphp
-        <div class="ar-backdrop" wire:click="$set('detailId', null)"></div><section class="ar-drawer" role="dialog" aria-modal="true" aria-label="発注内容の詳細"><header><b>{{ $screen === 'history' ? '自動発注履歴' : '試算の根拠' }}</b><button wire:click="$set('detailId', null)" aria-label="閉じる">×</button></header><div class="ar-drawer-body">
+        <div class="ar-backdrop" wire:click="closeDetail"></div><section class="ar-drawer" role="dialog" aria-modal="true" aria-label="発注内容の詳細"><header><b>{{ $screen === 'history' ? '自動発注履歴' : '試算の根拠' }}</b><button type="button" wire:click="closeDetail" aria-label="閉じる">×</button></header><div class="ar-drawer-body">
             @include('filament.pages.auto-replenishment-route-warnings', ['masterWarnings' => $s['master_warnings'] ?? []])
             <h2>[{{ $s['item_code'] ?? '' }}] {{ $s['item_name'] ?? '設定確認が必要です' }}</h2><span class="ar-badge">{{ $labels[$detail->phase] ?? $detail->phase }}</span><p>{{ $detail->reason }}</p>
             <div class="ar-grid three">@foreach(['stock'=>'現在庫','incoming'=>'未入荷残','claims'=>'他の候補確保','arrival_date'=>'入荷予定日','business_date'=>'業務発注日','observed_at'=>'確認時刻'] as $key=>$name)<div class="ar-value"><small>{{ $name }}</small><b>{{ $s[$key] ?? '—' }}</b></div>@endforeach</div>
@@ -274,7 +274,7 @@
                 <div class="ar-notice warn">既存の入荷予定を再作成せず、未完了の工程だけを再開します。</div>@if(in_array($detail->phase,['INCOMING_CREATED','TRANSFER_PREPARED','FAILED_RETRYABLE']))<button class="ar-btn danger" wire:click="requestConfirmation('resume', {{ $detail->id }})">未完了工程を再開</button>@endif
                 <label>未公開処理の中止理由<textarea wire:model="abortReason"></textarea></label><button class="ar-btn" wire:click="requestConfirmation('abort', {{ $detail->id }})">未公開処理を中止・照合完了</button>
             @endif
-        </div><footer><button class="ar-btn" wire:click="$set('detailId', null)">閉じる</button></footer></section>
+        </div><footer><button type="button" class="ar-btn" wire:click="closeDetail">閉じる</button></footer></section>
     @endif
     @if($this->confirmation)
         @php $confirm = $this->confirmation; @endphp
