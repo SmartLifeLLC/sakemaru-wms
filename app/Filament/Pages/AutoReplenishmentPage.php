@@ -921,6 +921,11 @@ abstract class AutoReplenishmentPage extends AdminPage
         $this->detailId = $id;
     }
 
+    public function closeDetail(): void
+    {
+        $this->detailId = null;
+    }
+
     private function detailQuery(): \Illuminate\Database\Eloquent\Builder
     {
         return WmsAutoOrderRunLine::where(['client_id' => $this->clientId(), 'warehouse_id' => $this->warehouseId])
