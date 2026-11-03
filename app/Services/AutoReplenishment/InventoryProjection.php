@@ -59,12 +59,12 @@ class InventoryProjection
         }
         foreach ($events as &$event) {
             $date = $event['date'];
-            if (! $date || (! $positionMode && ($date < $start->toDateString() || CarbonImmutable::parse($date)->isSunday()))) {
+            if (! $date || (! $positionMode && $date < $start->toDateString())) {
                 $unknown += $event['pieces'];
                 $event['date'] = null;
             }
             if ($positionMode) {
-                // A future Sunday was resolved once at the start. Keep the resolved date when the simulated day advances.
+                // Keep the recorded future date as simulated days advance; overdue/unknown supply stays undated.
                 $event['original_date'] = $event['raw_date'];
                 $event['raw_date'] = $event['date'];
             }

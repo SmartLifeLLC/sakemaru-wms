@@ -15,12 +15,12 @@ final class IncomingAvailability
         }
         $arrival = CarbonImmutable::parse($date === null || $date < $businessDate ? $businessDate : $date);
 
-        return ($arrival->isSunday() ? $arrival->addDay() : $arrival)->toDateString();
+        return $arrival->toDateString();
     }
 
     public function isToday(?string $date, ?string $businessDate): bool
     {
-        return $businessDate !== null && $date === $businessDate && ! CarbonImmutable::parse($businessDate)->isSunday();
+        return $businessDate !== null && $date === $businessDate;
     }
 
     public function forCalculation(array $snapshot): array

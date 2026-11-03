@@ -44,7 +44,7 @@ class ArrivalCalendar
         // apply this fallback to EOS/logistics or to a fully booked holiday range.
         if ($referenceOnly && $delivery['weekdays'] === []) {
             $arrivals = array_map(fn (Carbon $day) => $day->copy()->addDay(), $orderDates);
-            $delivery['weekdays'] = range(1, 6);
+            $delivery['weekdays'] = range(0, 6);
         }
         $dates = array_values(array_filter($arrivals));
         if ($dates === []) {
@@ -54,8 +54,7 @@ class ArrivalCalendar
         $range = [min($strings), Carbon::parse(max($strings))->addDays(27)->toDateString()];
         $db = DB::connection('sakemaru');
         $holidays = array_merge(
-            $db->table('wms_warehouse_calendars')->where(['warehouse_id' => $warehouse, 'is_holiday' => 1])
-                ->whereBetween('target_date', $range)->pluck('target_date')->all(),
+            $this->warehouseHolidays($warehouse, $range),
             $db->table('wms_contractor_holidays')->where('contractor_id', $contractor)
                 ->whereBetween('holiday_date', $range)->pluck('holiday_date')->all());
 
@@ -67,11 +66,12 @@ class ArrivalCalendar
     {
         $row = DB::connection('sakemaru')->table('wms_contractor_warehouse_delivery_days')
             ->where(['contractor_id' => $contractor, 'warehouse_id' => $warehouse])->first();
-        // Missing settings retain the existing lead-time fallback, excluding Sunday.
+        // Missing settings retain the existing lead-time fallback. Receiving
+        // warehouse holidays are checked separately for every arrival date.
         $allowed = [];
-        foreach (['mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as $index => $name) {
+        foreach (['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as $index => $name) {
             if ($row === null || $row->{'delivery_'.$name}) {
-                $allowed[] = $index + 1;
+                $allowed[] = $index;
             }
         }
 
@@ -83,11 +83,30 @@ class ArrivalCalendar
         $arrival = $date->copy()->startOfDay();
         $holidays = array_fill_keys($holidays, true);
         for ($i = 0; $i < 28; $i++, $arrival->addDay()) {
-            if (! $arrival->isSunday() && in_array($arrival->dayOfWeek, $allowed, true) && ! isset($holidays[$arrival->toDateString()])) {
+            if (in_array($arrival->dayOfWeek, $allowed, true) && ! isset($holidays[$arrival->toDateString()])) {
                 return $arrival;
             }
         }
 
         return null;
+    }
+
+    /** Dated receiving rules override the warehouse's Sunday default; no global Sunday closure. */
+    private function warehouseHolidays(int $warehouse, array $range): array
+    {
+        $db = DB::connection('sakemaru');
+        $dated = $db->table('wms_warehouse_calendars')->where('warehouse_id', $warehouse)
+            ->whereBetween('target_date', $range)->pluck('is_holiday', 'target_date')->all();
+        $sundayClosed = (bool) $db->table('wms_warehouse_auto_order_settings')->where('warehouse_id', $warehouse)
+            ->value('exclude_sunday_arrival');
+        $holidays = [];
+        for ($day = Carbon::parse($range[0]); $day->toDateString() <= $range[1]; $day->addDay()) {
+            $date = $day->toDateString();
+            if (array_key_exists($date, $dated) ? (bool) $dated[$date] : ($sundayClosed && $day->isSunday())) {
+                $holidays[] = $date;
+            }
+        }
+
+        return $holidays;
     }
 }
