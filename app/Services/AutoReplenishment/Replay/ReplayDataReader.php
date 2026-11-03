@@ -242,6 +242,8 @@ class ReplayDataReader
             return app(RecommendationArrivalSchedule::class)->calculate($warehouse, $contractor, $channel, $asOf, $config, 120)['opportunities'];
         };
 
-        return ReplayCalendar::scheduled($provider, max(1, min(7, $interval)));
+        return ReplayCalendar::scheduled($provider, max(1, min(7, $interval)),
+            fn (string $asOf, int $days) => app(RecommendationArrivalSchedule::class)->calculate(
+                $warehouse, $contractor, $channel, $asOf, $config, $days));
     }
 }

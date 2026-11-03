@@ -70,8 +70,10 @@ class SettingsRecommendationHistoryScheduleTest extends TestCase
     public function test_same_arrival_from_multiple_generation_days_is_counted_once(): void
     {
         $result = $this->calculate('LOGISTICS', [], fn (Carbon $date): Carbon => $date->copy()->next(Carbon::MONDAY));
-        self::assertSame(56, $result['generation_count']);
-        self::assertSame(9, $result['distinct_arrival_count']);
+        self::assertSame(8, $result['generation_count']);
+        self::assertSame(8, $result['distinct_arrival_count']);
+        self::assertSame(1, $result['nominal_lead_days']);
+        self::assertSame(7, $result['review_interval_days']);
         self::assertSame(7, $result['maximum_gap_days']);
     }
 
@@ -85,14 +87,14 @@ class SettingsRecommendationHistoryScheduleTest extends TestCase
     public function test_single_distinct_arrival_is_not_interpreted_as_zero_gap(): void
     {
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('今後56日の設定から入荷間隔を算定できません。');
+        $this->expectExceptionMessage('既存の配送設定から入荷可能日を算定できません。');
         $this->calculate('EOS', [], fn () => Carbon::parse('2026-12-20'));
     }
 
     public function test_extreme_arrival_gap_is_not_used_for_recommendations(): void
     {
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('入荷間隔が56日を超えるため');
+        $this->expectExceptionMessage('今後56日の設定から入荷間隔を算定できません。');
         $this->calculate('EOS', [], fn (Carbon $date) => $date->isSameDay('2026-10-18')
             ? Carbon::parse('2026-10-19') : Carbon::parse('2027-03-01'));
     }

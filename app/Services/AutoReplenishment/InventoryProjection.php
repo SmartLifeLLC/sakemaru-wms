@@ -107,6 +107,11 @@ class InventoryProjection
             $afterReceipt = $stock;
             $pendingAtDecision = array_sum(array_column($events, 'pieces'));
             $proposal = ['phase' => 'SKIP', 'quantity' => 0, 'reason' => '倉庫の自動発注の実行曜日ではありません。'];
+            if (isset($input['calendar']['deferred'][$key])) {
+                $deferred = $input['calendar']['deferred'][$key];
+                $proposal = app(StrategyCalculator::class)->calculate($policy, ['order_timing' => [
+                    'eligible' => false, 'reason' => "入荷予定日 {$deferred['arrival_date']} に間に合う {$deferred['generation_date']} の実行時に在庫を再判定します。"]]);
+            }
             $arrival = $arrivals[$key] ?? null;
             $picking = null;
             $decisionInventory = null;
@@ -121,6 +126,7 @@ class InventoryProjection
                 // Pass the pre-receipt snapshot through the same adapter as the test and batch.
                 // The graph applies the receipt to its day balance exactly once above.
                 $dailySnapshot = array_replace($snapshot, ['stock' => $opening, 'incoming' => $pendingAtDecision + $received,
+                    'order_timing' => ['eligible' => true],
                     'incoming_today' => $received,
                     'business_date' => $key, 'arrival_date' => $arrival, 'next_arrival_date' => $arrivals[$dates[$index + 1] ?? ''] ?? null]);
                 if ($positionMode) {

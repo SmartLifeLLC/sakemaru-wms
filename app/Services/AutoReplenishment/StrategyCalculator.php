@@ -7,6 +7,10 @@ final class StrategyCalculator
 {
     public function calculate(array $policy, array $snapshot): array
     {
+        if (isset($snapshot['order_timing']) && ! $snapshot['order_timing']['eligible']) {
+            return ['phase' => 'NO_ORDER', 'quantity' => 0, 'reason' => $snapshot['order_timing']['reason'],
+                'reason_code' => 'WAIT_ORDER_DAY', 'formula' => [$snapshot['order_timing']['reason']]];
+        }
         $class = config('replenishment.strategies.'.($policy['strategy_key'] ?? ''));
         throw_unless(is_string($class) && class_exists($class), \RuntimeException::class, '計算ロジックが未設定です。管理者に商品設定を確認してください。');
         $strategy = app($class);
