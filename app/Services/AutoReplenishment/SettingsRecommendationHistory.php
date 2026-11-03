@@ -307,8 +307,12 @@ class SettingsRecommendationHistory
                 't.client_id' => $client, 't.is_active' => 1, 't.is_latest' => 1, 't.trade_category' => 'EARNING', 'e.is_active' => 1, 'e.warehouse_id' => $warehouse, 'e.is_direct_delivery' => 0, 'e.is_delivered' => 1])
             ->whereRaw('COALESCE(e.delivered_date,t.process_date) BETWEEN ? AND ?', array_values($period))->groupByRaw('COALESCE(e.delivered_date,t.process_date)')
             ->selectRaw("COALESCE(e.delivered_date,t.process_date) date,SUM(CASE WHEN t.is_returned=1 OR t.trade_direction='RETURN' THEN -ABS(CAST(ti.total_piece_quantity AS SIGNED)) ELSE CAST(ti.total_piece_quantity AS SIGNED) END) pieces")->get();
+        // Count physical outbound demand once at its source warehouse. A linked wholesale sale belongs to the
+        // destination warehouse; do not join its sales/queue/schedule rows here (split links multiply quantities).
+        // Receipt history intentionally keeps transferLink(): only proven receipts determine a usual order lot.
         $transfers = $this->transferBase($client, $item, $allocation, $period)->where('st.from_warehouse_id', $warehouse)
-            ->whereExists(fn ($q) => $this->transferLink($q))->groupBy('st.picking_date')->selectRaw('st.picking_date date,SUM(CAST(ti.total_piece_quantity AS SIGNED)) pieces')->get();
+            ->whereColumn('st.from_warehouse_id', '<>', 'st.to_warehouse_id')
+            ->groupBy('st.picking_date')->selectRaw('st.picking_date date,SUM(CAST(ti.total_piece_quantity AS SIGNED)) pieces')->get();
         foreach ([$pos, $components, $earnings, $transfers] as $rows) {
             foreach ($rows as $row) {
                 if (array_key_exists($row->date, $daily) && $daily[$row->date] !== null) {
@@ -318,6 +322,6 @@ class SettingsRecommendationHistory
         }
         $daily = array_map(fn ($q) => $q === null ? null : max(0, $q), $daily);
 
-        return ['daily' => (new DemandObservationExclusions)->mask($client, $warehouse, $daily), 'warnings' => $coverage ? [] : ['POS適用実績がない倉庫のため、確定売上出荷・WMS発注連携出庫で需要を算定しています。']];
+        return ['daily' => (new DemandObservationExclusions)->mask($client, $warehouse, $daily), 'warnings' => $coverage ? [] : ['POS適用実績がない倉庫のため、確定売上出荷・倉庫移動出庫で需要を算定しています。']];
     }
 }
