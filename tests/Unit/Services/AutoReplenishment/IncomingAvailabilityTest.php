@@ -31,26 +31,26 @@ class IncomingAvailabilityTest extends TestCase
         self::assertSame($calculated, $service->forCalculation($calculated));
     }
 
-    public function test_future_overdue_unknown_and_sunday_do_not_become_available_today(): void
+    public function test_future_overdue_unknown_remain_incoming_and_sunday_today_is_available(): void
     {
         $service = new IncomingAvailability;
         self::assertTrue($service->isToday('2026-10-19', '2026-10-19'));
         foreach ([null, '2026-10-18', '2026-10-20'] as $date) {
             self::assertFalse($service->isToday($date, '2026-10-19'));
         }
-        self::assertFalse($service->isToday('2026-10-18', '2026-10-18'));
+        self::assertTrue($service->isToday('2026-10-18', '2026-10-18'));
         $raw = ['stock' => 30, 'incoming' => 60, 'claims' => 5];
         self::assertSame($raw, $service->forCalculation($raw));
     }
 
-    public function test_actual_transfer_dates_include_overdue_and_unknown_supply_without_sunday_receipts(): void
+    public function test_actual_transfer_dates_keep_sunday_receipts_and_preserve_legacy_overdue_fallback(): void
     {
         $service = new IncomingAvailability;
         foreach ([null, '2026-10-28', '2026-10-30', '2026-10-31'] as $date) {
             self::assertSame('2026-10-31', $service->transferDate($date, '2026-10-31'));
         }
-        self::assertSame('2026-11-02', $service->transferDate(null, '2026-11-01'));
-        self::assertSame('2026-11-02', $service->transferDate('2026-11-01', '2026-10-31'));
+        self::assertSame('2026-11-01', $service->transferDate(null, '2026-11-01'));
+        self::assertSame('2026-11-01', $service->transferDate('2026-11-01', '2026-10-31'));
         self::assertSame('2026-11-04', $service->transferDate('2026-11-04', '2026-10-31'));
         self::assertNull($service->transferDate(null, null));
     }
@@ -166,5 +166,35 @@ class IncomingAvailabilityTest extends TestCase
             self::assertSame(60, $line->proposal_snapshot['incoming_today']);
         }
         $db->disconnect();
+    }
+
+    public function test_sunday_existing_supply_is_counted_once_by_graph_test_and_batch_for_both_channels(): void
+    {
+        foreach (['EOS', 'LOGISTICS'] as $channel) {
+            foreach (['arrival_adaptive_v1', 'position_normal_batch_v1'] as $strategy) {
+                $policy = array_replace(InventoryProjectionTest::policy(), ['channel' => $channel, 'strategy_key' => $strategy]);
+                $input = InventoryProjectionTest::inputs();
+                $input['snapshot'] = array_replace($input['snapshot'], [
+                    'business_date' => '2026-10-25', 'stock' => 30, 'incoming' => 120, 'incoming_today' => 120,
+                    'supply_events' => [['supply_id' => 'existing:1', 'date' => '2026-10-25', 'pieces' => 120]],
+                ]);
+                $snapshot = $input['snapshot'] + ['arrival_date' => '2026-10-27', 'next_arrival_date' => '2026-10-28',
+                    'route_snapshot' => ['effective_picking_lead_days' => 1]];
+                $original = serialize($snapshot);
+                $chart = app(InventoryProjection::class)->calculate($policy, $input);
+                $batch = app(StrategyCalculator::class)->calculate($policy, $snapshot);
+                $reader = Mockery::mock(SnapshotReader::class);
+                $reader->shouldReceive('readForSimulation')->once()->andReturn($snapshot);
+                $test = (new PolicySimulationService($reader, new ProposalSafety, new LogisticsPickingDate))->simulate(new WmsItemReorderPolicy($policy));
+                self::assertSame('NO_ORDER', $batch['phase']);
+                self::assertSame($batch['quantity'], $test['quantity_pieces']);
+                self::assertSame($batch['quantity'], $chart['days'][0]['ordered']);
+                self::assertSame(150, $chart['days'][0]['after_receipt']);
+                self::assertSame(120, $chart['days'][0]['existing_receipt']);
+                self::assertSame(120, array_sum(array_column($chart['days'], 'existing_receipt')));
+                self::assertSame(0, $chart['undated_incoming']);
+                self::assertSame($original, serialize($snapshot));
+            }
+        }
     }
 }

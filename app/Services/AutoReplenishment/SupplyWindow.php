@@ -29,8 +29,8 @@ final class SupplyWindow
             $bucket = 'undated';
             $code = $raw === null || $raw === '' ? 'SUPPLY_DATE_UNKNOWN' : ($valid ? 'SUPPLY_DATE_OVERDUE' : 'SUPPLY_DATE_INVALID');
             if ($valid && $raw >= $businessDate) {
-                $arrival = CarbonImmutable::parse($raw);
-                $date = ($arrival->isSunday() ? $arrival->addDay() : $arrival)->toDateString();
+                // Existing supply keeps its recorded date, including an individually arranged Sunday receipt.
+                $date = $raw;
                 $bucket = $date === $businessDate ? 'today' : ($date <= $cutoff ? 'future' : 'excluded');
             }
             $totals[$bucket] += $pieces;

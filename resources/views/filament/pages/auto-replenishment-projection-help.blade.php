@@ -27,12 +27,12 @@
         @endforeach
     </div>
     @include('filament.pages.auto-replenishment-demand-note', ['demandProfile' => $chart['demand']])
-    <p>納品：{{ implode('・',array_map(fn($d)=>['日','月','火','水','木','金','土'][$d],$chart['calendar']['weekdays'])) }}（日曜なし）</p>
-    @if($chart['undated_incoming']>0 || $chart['claims']>0)<p class="ar-projection-warning">日付未定・期限超過・日曜予定 {{ number_format($chart['undated_incoming']) }}バラ／未確定候補 {{ number_format($chart['claims']) }}バラ。発注判定に含め、グラフでは入荷扱いにしていません。</p>@endif
-    @if($chart['calendar']['adjusted'] || $chart['calendar']['sunday_master_enabled'])<p class="ar-projection-warning">納品設定と試算条件に差があります。おすすめ設定・グラフ・テスト・自動発注は共通で、日曜・休日を避けて次の納品可能日に移します。運用前に納品曜日・休日設定を確認してください。</p>@endif
+    <p>発注先の納品曜日：{{ implode('・',array_map(fn($d)=>['日','月','火','水','木','金','土'][$d],$chart['calendar']['weekdays'])) }}。受入倉庫の受付可能日と発注先の納品可能日が両方満たされる日に入荷します。おすすめ設定・グラフ・テスト・自動発注は同じ入荷日計算を使用します。</p>
+    @if($chart['undated_incoming']>0 || $chart['claims']>0)<p class="ar-projection-warning">日付未定・期限超過 {{ number_format($chart['undated_incoming']) }}バラ／未確定候補 {{ number_format($chart['claims']) }}バラ。発注判定に含め、グラフでは入荷扱いにしていません。</p>@endif
+    @if($chart['calendar']['adjusted'])<p class="ar-projection-warning">納品曜日・休日設定に従い、次の入荷可能日に調整しています。</p>@endif
     <strong>計算の前提</strong>
     <p>1日の順序は「入荷 → 発注判定 → 消費」。当日入荷予定は計算上の在庫へ加え、未入荷残から差し引きます。おすすめ設定・テスト・バッチも同じ前提で、実在庫は変更しません。入荷までの消費と日々の在庫減少は同じ保存済み需要データを使用し、1バラ未満の端数を日をまたいで繰り越します。</p>
-    <p>作成済みの倉庫間移動伝票は、入荷予定の確定前でも未入荷残を含めます。@if($chart['position_mode'] ?? false)期限超過・日付未定分は発注判定在庫に含めますが、入荷日は補完せず見込在庫線には加算しません。@else期限超過・日付未定分は試算開始日に入荷する前提です。@endif日曜は翌月曜に繰り越し、入荷済み分は重複加算しません。実在庫や入荷確定状態は変更しません。</p>
+    <p>作成済みの倉庫間移動伝票は、入荷予定の確定前でも未入荷残を含めます。@if($chart['position_mode'] ?? false)期限超過・日付未定分は発注判定在庫に含めますが、入荷日は補完せず見込在庫線には加算しません。@else期限超過・日付未定分は試算開始日に入荷する前提です。@endif当日以降の日付がある予定は日曜も登録日で扱い、入荷済み分は重複加算しません。実在庫や入荷確定状態は変更しません。</p>
     <p>その他の既発注は登録済みの入荷予定日を使用。今回の試算分は納品可能日に全数入荷する前提です。販売・入荷時刻、移動元の欠品、納品遅れによって実際の在庫は変わります。</p>
     @if(!empty($chart['demand']['legacy']))<p>保存済みの平均消費量を使用しており、新しい期間の履歴は集計していません。</p>
     @else<p>消費はPOS販売・セット商品の消費・確定売上出荷・WMS連携の物流出庫を集計。観測 {{ $chart['demand']['observed_days'] }}日、未連携 {{ $chart['demand']['missing_days'] }}日は除外。販売ゼロ日は含め、※の曜日は全体平均を使用します。</p>@endif
@@ -40,7 +40,7 @@
     <p>在庫・予定の取得：{{ $chart['observed_at'] }}。「在庫・予定を再取得」で更新できます。試算では発注・設定を保存しません。</p>
 </div>
 
-@if($chart['calendar']['reference_assumed'] ?? false)<p class="ar-projection-warning">FAXの納品曜日が未設定のため、翌営業日（月〜土）入荷と仮定した参考値です。実際の納品日を確認して手動発注してください。</p>@endif
+@if($chart['calendar']['reference_assumed'] ?? false)<p class="ar-projection-warning">FAXの納品曜日が未設定のため、翌日以降の倉庫受付可能日に入荷すると仮定した参考値です。実際の納品日を確認して手動発注してください。</p>@endif
 
 @foreach(($chart['supply_warnings'] ?? []) as $warning)
     <p>{{ $warning['message'] }}</p>
