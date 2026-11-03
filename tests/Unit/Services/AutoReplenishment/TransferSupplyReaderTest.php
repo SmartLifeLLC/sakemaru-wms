@@ -53,7 +53,8 @@ class TransferSupplyReaderTest extends TestCase
             'wms_contractor_settings' => 'contractor_id INTEGER, transmission_type TEXT, supply_warehouse_id INTEGER',
             'suppliers' => 'id INTEGER PRIMARY KEY, client_id INTEGER DEFAULT 6',
             'real_stocks' => 'id INTEGER PRIMARY KEY, client_id INTEGER DEFAULT 6, warehouse_id INTEGER DEFAULT 1, item_id INTEGER DEFAULT 143024, stock_allocation_id INTEGER DEFAULT 1, current_quantity INTEGER DEFAULT 100, reserved_quantity INTEGER DEFAULT 0',
-            'wms_order_candidates' => "id INTEGER PRIMARY KEY, warehouse_id INTEGER DEFAULT 1, item_id INTEGER DEFAULT 143024, order_quantity INTEGER DEFAULT 100, quantity_type TEXT DEFAULT 'PIECE', status TEXT DEFAULT 'PENDING'",
+            'wms_order_candidates' => "id INTEGER PRIMARY KEY, warehouse_id INTEGER DEFAULT 1, item_id INTEGER DEFAULT 143024, order_quantity INTEGER DEFAULT 100, quantity_type TEXT DEFAULT 'PIECE', status TEXT DEFAULT 'PENDING', contractor_id INTEGER DEFAULT 10, ordering_code TEXT, order_channel TEXT, wms_order_jx_document_id INTEGER",
+            'wms_order_jx_documents' => 'id INTEGER PRIMARY KEY, contractor_id INTEGER, status TEXT, order_date TEXT, transmitted_at TEXT',
             'wms_auto_order_run_lines' => 'id INTEGER PRIMARY KEY, run_id INTEGER, client_id INTEGER, warehouse_id INTEGER, item_id INTEGER, generated_at TEXT, phase TEXT, order_candidate_id INTEGER, transfer_candidate_id INTEGER',
             'wms_auto_order_runs' => 'id INTEGER PRIMARY KEY, is_preview INTEGER DEFAULT 0',
             'wms_auto_order_artifact_links' => 'line_id INTEGER, artifact_type TEXT, artifact_id INTEGER',
@@ -336,6 +337,30 @@ class TransferSupplyReaderTest extends TestCase
         return $this->reader->readForSimulation(new WmsItemReorderPolicy($policyValues + [
             'client_id' => 6, 'warehouse_id' => 1, 'item_id' => 143024, 'contractor_id' => 10, 'supplier_id' => 10, 'channel' => 'EOS',
         ]));
+    }
+
+    public function test_snapshot_uses_matching_sent_eos_history_for_auto_and_preserves_explicit_piece(): void
+    {
+        for ($id = 1; $id <= 5; $id++) {
+            $this->insert('wms_order_jx_documents', ['id' => $id, 'contractor_id' => 10, 'status' => 'TRANSMITTED',
+                'order_date' => '2026-10-13', 'transmitted_at' => '2026-10-13 13:40:00']);
+            $this->insert('wms_order_candidates', ['id' => $id, 'status' => 'EXECUTED', 'quantity_type' => 'CASE',
+                'ordering_code' => '0123456789012', 'wms_order_jx_document_id' => $id]);
+            $this->insert('wms_replenishment_effects', ['id' => $id, 'source_type' => 'order',
+                'source_id' => $id, 'state' => 'COMPLETED']);
+        }
+        $auto = $this->snapshot();
+        self::assertSame('CASE', $auto['quantity_type']);
+        self::assertSame(24, $auto['packing_unit']);
+        self::assertSame(5, $auto['order_unit']['history']['case_count']);
+        $piece = $this->reader->readForSimulation(new WmsItemReorderPolicy([
+            'client_id' => 6, 'warehouse_id' => 1, 'item_id' => 143024, 'contractor_id' => 10, 'supplier_id' => 10,
+            'channel' => 'EOS', 'order_unit_mode' => 'PIECE',
+        ]));
+        self::assertSame('PIECE', $piece['quantity_type']);
+        self::assertSame(1, $piece['packing_unit']);
+        self::assertSame($auto['stock'], $piece['stock']);
+        self::assertSame($auto['incoming'], $piece['incoming']);
     }
 
     #[DataProvider('simulationCutoffCases')]

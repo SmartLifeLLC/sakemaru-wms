@@ -403,6 +403,10 @@ class SnapshotReader
                 $clientId, (int) $policy->source_warehouse_id,
                 $items ? $items->mapWithKeys(fn ($product) => [(int) $product->id => (int) $product->capacity_case])->all() : [(int) $item->id => $capacity], $businessDate));
             $unitHistory = $histories[$item->id] ?? null;
+        } elseif ($policy->channel === 'EOS' && $mode === 'AUTO' && ! $caseOutput) {
+            $unitHistory = $this->once('eos_unit_history:'.$policy->warehouse_id.':'.$item->id.':'.$policy->contractor_id.':'.$orderingCode.':'.$businessDate,
+                fn () => app(EosOrderUnitHistory::class)->read($clientId, (int) $policy->warehouse_id, (int) $item->id,
+                    (int) $policy->contractor_id, $orderingCode, $businessDate));
         }
         $orderUnit = $units->resolve($clientId, (int) $item->id, $capacity, $caseOutput, $unitRows, $mode, $unitHistory);
         $packingUnit = $orderUnit['packing_unit'];

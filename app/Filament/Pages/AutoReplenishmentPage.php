@@ -1210,8 +1210,8 @@ abstract class AutoReplenishmentPage extends AdminPage
         $orderUnit = null;
         if ($selectedItem) {
             try {
-                $orderUnit = app(\App\Services\AutoReplenishment\OrderUnitService::class)->forEditor($clientId, $selectedItem, $this->form['channel'] ?? 'EOS', source: (int) ($this->form['source_warehouse_id'] ?? 0));
-                $orderUnit = app(\App\Services\AutoReplenishment\OrderUnitService::class)->select($orderUnit, $this->form['order_unit_mode'] ?? 'AUTO');
+                $orderUnit = app(\App\Services\AutoReplenishment\OrderUnitService::class)->forEditor($clientId, $selectedItem, $this->form['channel'] ?? 'EOS',
+                    $this->form['order_unit_mode'] ?? 'AUTO', (int) ($this->form['source_warehouse_id'] ?? 0), (int) $this->warehouseId, (int) ($this->form['contractor_id'] ?? 0));
             } catch (\RuntimeException $e) {
                 $orderUnit = array_replace($orderUnit ?? [], ['label' => '発注単位を要確認', 'reason' => $e->getMessage()]);
             }
