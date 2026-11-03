@@ -369,19 +369,12 @@ class SnapshotReader
             $savedSchedule = $policy->calculation_basis['review_schedule_fingerprint'] ?? null;
             throw_if($savedSchedule !== null && $savedSchedule !== $schedule->fingerprint($config),
                 \RuntimeException::class, '倉庫の実行曜日・時刻が変更されています。「おすすめ設定」で数量条件を再計算して保存してください。');
-            $nextDate = $schedule->nextRunDate($businessDate, $config);
-            $nextOrderDay = Carbon::parse($nextDate->toDateString());
-            if ($policy->channel === 'EOS' && ! $nextOrderDay->isSunday()
-                && (int) substr($schedule->executionTimeForDate($nextDate->toDateString(), $config), 0, 2) >= 13) {
-                $nextOrderDay->addDay();
-            }
-            $nextArrival = $this->once('next-arrival:'.$policy->channel.':'.$policy->contractor_id.':'.$policy->warehouse_id.':'.$nextOrderDay->toDateString(),
-                fn () => $faxReference
-                    ? app(ArrivalCalendar::class)->referenceArrivalDates((int) $policy->contractor_id, (int) $policy->warehouse_id, ['next' => $nextOrderDay])['next']
-                    : app(ArrivalCalendar::class)->earliestArrivalDate((int) $policy->contractor_id, (int) $policy->warehouse_id, $nextOrderDay));
-            // A missing next date blocks only a small order that needs a waiting decision.
-            // A valid usual batch for the current arrival must remain orderable.
         }
+        $orderSchedule = $this->once('order-timing:'.json_encode([$policy->channel, $policy->contractor_id, $policy->warehouse_id, $businessDate, $config]),
+            fn () => app(RecommendationArrivalSchedule::class)->calculate((int) $policy->warehouse_id, (int) $policy->contractor_id, $policy->channel, $businessDate, $config));
+        $orderTiming = app(OrderTiming::class)->decision($businessDate, $arrival->toDateString(), $orderSchedule, $config);
+        $nextDate = $orderTiming['next_generation_date'] ? Carbon::parse($orderTiming['next_generation_date']) : null;
+        $nextArrival = $orderTiming['next_arrival_date'] ? Carbon::parse($orderTiming['next_arrival_date']) : null;
         $search = app(OrderRegistrationSearchService::class);
         $orderingCode = $faxReference ? null : ($this->proposalItemIds
             ? $this->once('ordering_codes', fn () => $db->table('item_search_information')->whereIn('item_id', $this->proposalItemIds)->where('is_used_for_ordering', true)->where('is_active', true)->whereRaw("search_string REGEXP '[1-9]'")->orderBy('id')->get(['item_id', 'search_string'])->unique('item_id')->mapWithKeys(fn ($row) => [$row->item_id => str_pad((string) $row->search_string, 13, '0', STR_PAD_LEFT)]))->get($item->id)
@@ -429,6 +422,7 @@ class SnapshotReader
             'packing_unit' => $packingUnit, 'quantity_type' => $orderUnit['quantity_type'], 'order_unit' => $orderUnit, 'capacity_case' => (int) $item->capacity_case,
             'capacity_carton' => (int) $item->capacity_carton, 'ordering_code' => $orderingCode,
             'business_date' => $businessDate, 'arrival_date' => $arrival->toDateString(),
+            'order_timing' => $orderTiming,
             'next_arrival_date' => $nextArrival?->toDateString(),
             'jx_route_hash' => $policy->channel === 'EOS' ? $this->once('jx_route:'.$policy->contractor_id, fn () => app(JxRouteFingerprint::class)->fingerprint((int) $policy->contractor_id)) : null,
             // Price is not used by quantity/date simulation; its accessor refreshes a cache.

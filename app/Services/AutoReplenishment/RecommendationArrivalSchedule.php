@@ -19,7 +19,8 @@ class RecommendationArrivalSchedule
         $start = Carbon::parse($asOf, 'Asia/Tokyo')->startOfDay();
         $orderDates = [];
         $generationDates = [];
-        for ($offset = 0; $offset < $lookahead; $offset++) {
+        // Include the tail so the final display day is not mistaken for the last chance to order.
+        for ($offset = 0; $offset < $lookahead + self::LOOKAHEAD_DAYS; $offset++) {
             $day = $start->copy()->addDays($offset);
             if (! in_array($day->dayOfWeek, $weekdays, true)) {
                 continue;
@@ -33,13 +34,31 @@ class RecommendationArrivalSchedule
         $calendar = app(ArrivalCalendar::class);
         $arrivals = $channel === 'FAX' ? $calendar->referenceArrivalDates($contractorId, $warehouseId, $orderDates)
             : $calendar->earliestArrivalDates($contractorId, $warehouseId, $orderDates);
-        $opportunities = [];
-        $distinct = [];
-        $lead = 1;
+        $candidates = [];
         foreach ($generationDates as $key => $day) {
             $arrival = $arrivals[$key] ?? null;
             throw_unless($arrival instanceof Carbon && $arrival->gt($orderDates[$key]), \RuntimeException::class,
                 '既存の配送設定から入荷可能日を算定できません。発注先の納品曜日・休日設定を確認してください。');
+            $candidates[] = ['generation_date' => $key, 'order_base_date' => $orderDates[$key]->toDateString(), 'arrival_date' => $arrival->toDateString()];
+        }
+        $selection = app(OrderTiming::class)->selectLatest($candidates);
+        $end = $start->copy()->addDays($lookahead - 1)->toDateString();
+        $opportunities = array_values(array_filter($selection['opportunities'], fn ($o) => $o['generation_date'] <= $end));
+        $distinct = [];
+        $lead = 1;
+        $reviewInterval = 1;
+        $previous = null;
+        foreach ($opportunities as $opportunity) {
+            $key = $opportunity['generation_date'];
+            $day = $generationDates[$key];
+            $arrival = $arrivals[$key];
+            throw_if($arrival->gte($start->copy()->addDays($lookahead + self::LOOKAHEAD_DAYS)), \RuntimeException::class,
+                '発注日の逆算範囲を超えています。リードタイムと納品曜日を確認してください。');
+            $execution = $day->copy()->setTimeFromTimeString($schedule->executionTimeForDate($key, $config));
+            if ($previous !== null) {
+                $reviewInterval = max($reviewInterval, (int) ceil($previous->diffInMinutes($execution) / 1440));
+            }
+            $previous = $execution;
             // Preserve the original seven-calendar-day nominal lead calculation.
             // Extending the target's horizon must not change the reorder point.
             if ($day->lt($start->copy()->addDays(7))) {
@@ -47,7 +66,6 @@ class RecommendationArrivalSchedule
             }
             $arrivalDate = $arrival->toDateString();
             $distinct[$arrivalDate] = true;
-            $opportunities[] = ['generation_date' => $key, 'order_base_date' => $orderDates[$key]->toDateString(), 'arrival_date' => $arrivalDate];
         }
         $dates = array_keys($distinct);
         sort($dates, SORT_STRING);
@@ -67,8 +85,11 @@ class RecommendationArrivalSchedule
             'distinct_arrival_count' => count($dates),
             'maximum_gap_days' => $maximumGap,
             'nominal_lead_days' => $lead,
+            'review_interval_days' => $reviewInterval,
+            'review_weekdays' => array_values(array_unique(array_map(fn ($o) => Carbon::parse($o['generation_date'])->dayOfWeek, $opportunities))),
             'arrival_dates' => $dates,
             'opportunities' => $opportunities,
+            'deferred' => array_filter($selection['deferred'], fn ($key) => $key <= $end, ARRAY_FILTER_USE_KEY),
             'schedule_fingerprint' => $schedule->fingerprint($config),
         ];
     }

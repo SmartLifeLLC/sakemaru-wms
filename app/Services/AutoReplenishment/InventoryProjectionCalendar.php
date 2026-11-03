@@ -17,7 +17,7 @@ class InventoryProjectionCalendar
             $delivery['weekdays'] = range(0, 6);
         }
 
-        return ['arrivals' => array_column($schedule['opportunities'], 'arrival_date', 'generation_date'), 'adjusted' => false]
+        return ['arrivals' => array_column($schedule['opportunities'], 'arrival_date', 'generation_date'), 'deferred' => $schedule['deferred'] ?? [], 'adjusted' => false]
             + $delivery;
     }
 

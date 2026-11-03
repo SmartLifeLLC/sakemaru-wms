@@ -14,7 +14,7 @@ final class ReplayCalendar
     /** @var array<string, string|null> order date => arrival date */
     private array $arrivals = [];
 
-    private function __construct(private ?\Closure $provider, private int $lead, private array $stops, private array $weekdays, private int $reviewInterval = 1) {}
+    private function __construct(private ?\Closure $provider, private int $lead, private array $stops, private array $weekdays, private int $reviewInterval = 1, private ?\Closure $scheduleProvider = null) {}
 
     /**
      * @param  array<int, array{0: string, 1: string}>  $stops  inclusive date ranges without arrivals (例：['2025-12-31', '2026-01-03'])
@@ -30,11 +30,11 @@ final class ReplayCalendar
     /**
      * @param  \Closure(string $asOf): array<int, array{generation_date: string, arrival_date: string}>  $provider  opportunities from $asOf for at least 56 days
      */
-    public static function scheduled(\Closure $provider, int $reviewInterval = 1): self
+    public static function scheduled(\Closure $provider, int $reviewInterval = 1, ?\Closure $scheduleProvider = null): self
     {
         throw_unless($reviewInterval >= 1 && $reviewInterval <= 7, \RuntimeException::class, '実行間隔は1〜7日で指定してください。');
 
-        return new self($provider, 1, [], range(0, 6), $reviewInterval);
+        return new self($provider, 1, [], range(0, 6), $reviewInterval, $scheduleProvider);
     }
 
     /** True for a calendar built from the store's delivery schedule (scheduled), false for a simple lead-day calendar. */
@@ -111,6 +111,11 @@ final class ReplayCalendar
     /** The recommendation's arrival schedule shape for the calculator, from $asOf over $days days. */
     public function schedule(string $asOf, int $days = 56): array
     {
+        if ($this->scheduleProvider !== null) {
+            $schedule = ($this->scheduleProvider)($asOf, $days);
+
+            return $schedule + ['weekdays' => $schedule['review_weekdays']];
+        }
         $start = CarbonImmutable::parse($asOf);
         $opportunities = [];
         $distinct = [];

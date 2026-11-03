@@ -36,9 +36,23 @@ class ArrivalCalendar
         }
         $adjustment = app(JxOrderArrivalDateAdjustmentService::class);
         $arrivals = [];
-        foreach (array_chunk($orderDates, self::BATCH_SIZE, true) as $chunk) {
-            $arrivals += $adjustment->earliestArrivalDates($contractor, $warehouse, $chunk);
+        $chunk = [];
+        $minimum = $maximum = null;
+        foreach ($orderDates as $key => $day) {
+            $date = $day->toDateString();
+            $from = $minimum === null ? $date : min($minimum, $date);
+            $to = $maximum === null ? $date : max($maximum, $date);
+            // Sparse execution weekdays can span more than 56 days with fewer than 56 entries.
+            if ($chunk && (count($chunk) >= self::BATCH_SIZE || Carbon::parse($from)->diffInDays(Carbon::parse($to)) > self::BATCH_SIZE)) {
+                $arrivals += $adjustment->earliestArrivalDates($contractor, $warehouse, $chunk);
+                $chunk = [];
+                $from = $to = $date;
+            }
+            $chunk[$key] = $day;
+            $minimum = $from;
+            $maximum = $to;
         }
+        $arrivals += $adjustment->earliestArrivalDates($contractor, $warehouse, $chunk);
         $delivery = $this->deliveryDays($contractor, $warehouse);
         // All weekdays OFF is common for manually arranged FAX orders. Do not
         // apply this fallback to EOS/logistics or to a fully booked holiday range.
