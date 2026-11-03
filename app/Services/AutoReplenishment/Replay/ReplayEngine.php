@@ -268,7 +268,7 @@ final class ReplayEngine
                 $reviewInterval = max($reviewInterval, (int) CarbonImmutable::parse($generation[$i - 1])->diffInDays(CarbonImmutable::parse($generation[$i])));
             }
             $history = ['scope' => $scope, 'period' => $period, 'receipts' => $receipts, 'daily' => $daily, 'warnings' => [],
-                'nominal_lead_days' => $schedule['nominal_lead_days'], 'review_interval_days' => min(7, $reviewInterval), 'review_weekdays' => $schedule['weekdays'],
+                'nominal_lead_days' => $schedule['nominal_lead_days'], 'review_interval_days' => $schedule['review_interval_days'] ?? min(7, $reviewInterval), 'review_weekdays' => $schedule['weekdays'],
                 'maximum_arrival_gap_days' => $schedule['maximum_gap_days'], 'arrival_schedule' => $schedule];
             $options = ['unit_mode' => $unitMode, 'review_days' => $reviewDays, 'safety_stock_days' => $safetyDays,
                 'existing_reorder_point' => $previous['reorder_point_pieces'] ?? null, 'variability_buffer' => (bool) ($scenario['variability_buffer'] ?? false)];

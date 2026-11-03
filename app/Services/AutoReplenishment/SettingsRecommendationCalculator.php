@@ -160,9 +160,9 @@ final class SettingsRecommendationCalculator
         if ($lead > 14) {
             return $this->unavailable($basis, '入荷までの日数が14日を超えています。配送設定を確認してください。');
         }
-        $reviewInterval = filter_var($history['review_interval_days'] ?? 1, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 7]]);
+        $reviewInterval = filter_var($history['review_interval_days'] ?? 1, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 56]]);
         if ($reviewInterval === false) {
-            return $this->unavailable($basis, '倉庫の実行間隔を確認できません。倉庫の自動発注設定を保存し直してください。');
+            return $this->unavailable($basis, '発注可能日の間隔を確認できません。倉庫の実行曜日と発注先の納品曜日・休日を確認してください。');
         }
         $arrivalGap = filter_var(array_key_exists('maximum_arrival_gap_days', $history) ? $history['maximum_arrival_gap_days'] : $reviewInterval,
             FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 56]]);
@@ -174,7 +174,7 @@ final class SettingsRecommendationCalculator
             'maximum_arrival_gap_days' => $arrivalGap];
         if (isset($history['arrival_schedule']) && is_array($history['arrival_schedule'])) {
             $basis['arrival_schedule'] = array_intersect_key($history['arrival_schedule'], array_flip([
-                'start', 'end', 'generation_count', 'distinct_arrival_count', 'maximum_gap_days', 'schedule_fingerprint',
+                'start', 'end', 'generation_count', 'distinct_arrival_count', 'maximum_gap_days', 'review_interval_days', 'review_weekdays', 'schedule_fingerprint',
             ]));
         }
         if (isset($history['review_schedule_fingerprint'])) {

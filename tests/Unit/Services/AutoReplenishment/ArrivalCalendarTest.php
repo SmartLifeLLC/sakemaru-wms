@@ -78,14 +78,15 @@ class ArrivalCalendarTest extends TestCase
         $calendar = app(ArrivalCalendar::class);
         foreach ([70, 120] as $days) {
             $schedule = app(RecommendationArrivalSchedule::class)->calculate(1, 1021, 'EOS', '2026-10-24', [], $days);
-            self::assertCount($days, $schedule['opportunities']); // every day is a generation day with an empty config
+            self::assertLessThan($days, count($schedule['opportunities']));
+            self::assertSame(count($schedule['opportunities']), count(array_unique(array_column($schedule['opportunities'], 'arrival_date'))));
             foreach ($schedule['opportunities'] as $opportunity) {
                 self::assertSame($opportunity['arrival_date'], $calendar->earliestArrivalDate(1021, 1, Carbon::parse($opportunity['order_base_date']))->toDateString());
             }
         }
         $graph = app(InventoryProjectionCalendar::class)->read(1, 1021, 'EOS', '2026-10-24', [], 70);
         self::assertSame('2026-10-25', $graph['arrivals']['2026-10-24']);
-        self::assertCount(70, $graph['arrivals']);
+        self::assertCount(30, $graph['arrivals']);
         // The adjustment service itself keeps its 56-date bound; the calendar is what chunks.
         $dates = [];
         for ($i = 0; $i < 57; $i++) {
@@ -145,6 +146,42 @@ class ArrivalCalendarTest extends TestCase
         self::assertNull($calendar->earliestArrivalDate(1021, 1, Carbon::parse('2026-10-24')), 'Reference calls must not leak fallback into execution.');
     }
 
+    public function test_obama_latest_order_days_respect_lead_holidays_cutoff_and_enabled_runs(): void
+    {
+        $db = DB::connection('sakemaru');
+        $db->table('lead_times')->update(array_fill_keys([
+            'lead_time_sun', 'lead_time_mon', 'lead_time_tue', 'lead_time_wed', 'lead_time_thu', 'lead_time_fri', 'lead_time_sat'], 1));
+        $db->table('wms_contractor_warehouse_delivery_days')->update([
+            'delivery_sun' => 0, 'delivery_mon' => 0, 'delivery_tue' => 1, 'delivery_wed' => 0,
+            'delivery_thu' => 1, 'delivery_fri' => 1, 'delivery_sat' => 1]);
+        $config = ['execution_time' => '01:00', 'sunday_execution_time' => '22:00'];
+        $schedule = app(RecommendationArrivalSchedule::class)->calculate(1, 1021, 'EOS', '2026-11-01', $config);
+        $arrivals = array_column($schedule['opportunities'], 'arrival_date', 'generation_date');
+        self::assertArrayNotHasKey('2026-11-01', $arrivals);
+        self::assertSame('2026-11-03', $arrivals['2026-11-02']);
+        self::assertArrayNotHasKey('2026-11-03', $arrivals);
+        self::assertSame('2026-11-05', $arrivals['2026-11-04']);
+        self::assertSame(1, $schedule['nominal_lead_days']);
+        self::assertSame(3, $schedule['review_interval_days']);
+        // The last day also looks beyond the visible 56-day window.
+        self::assertArrayNotHasKey('2026-12-26', $arrivals);
+        self::assertSame('2026-12-28', $schedule['deferred']['2026-12-26']['generation_date']);
+        // If Monday is not an enabled run, Sunday remains the latest run for Tuesday delivery.
+        $limited = app(RecommendationArrivalSchedule::class)->calculate(1, 1021, 'EOS', '2026-11-01', $config + ['weekdays' => [0, 2, 3, 4, 5, 6]]);
+        self::assertSame('2026-11-03', array_column($limited['opportunities'], 'arrival_date', 'generation_date')['2026-11-01']);
+        // The existing EOS cutoff remains effective: an afternoon Wednesday run cannot reach Thursday.
+        $afternoon = app(RecommendationArrivalSchedule::class)->calculate(1, 1021, 'EOS', '2026-11-01', ['execution_time' => '14:00']);
+        $afternoonArrivals = array_column($afternoon['opportunities'], 'arrival_date', 'generation_date');
+        self::assertSame('2026-11-05', $afternoonArrivals['2026-11-03']);
+        self::assertSame('2026-11-06', $afternoonArrivals['2026-11-04']);
+        // Closing Thursday defers both Tuesday and Wednesday to Thursday for Friday delivery.
+        $db->table('wms_contractor_holidays')->insert(['contractor_id' => 1021, 'holiday_date' => '2026-11-05']);
+        $holiday = app(RecommendationArrivalSchedule::class)->calculate(1, 1021, 'EOS', '2026-11-01', $config);
+        $holidayArrivals = array_column($holiday['opportunities'], 'arrival_date', 'generation_date');
+        self::assertArrayNotHasKey('2026-11-04', $holidayArrivals);
+        self::assertSame('2026-11-06', $holidayArrivals['2026-11-05']);
+    }
+
     public function test_sunday_only_delivery_is_available_when_the_receiving_warehouse_is_open(): void
     {
         $this->sundayRoute();
@@ -185,4 +222,17 @@ class ArrivalCalendarTest extends TestCase
         $db->table('wms_contractor_warehouse_delivery_days')->update(['delivery_sun' => 0]);
         self::assertSame('2027-01-05', $calendar->earliestArrivalDate(1021, 1, $saturday)->toDateString(), 'Warehouse opening cannot override a supplier closure.');
     }
+    public function test_sparse_weekly_runs_do_not_exceed_the_existing_jx_batch_date_span(): void
+    {
+        $this->sundayRoute();
+        $schedule = app(RecommendationArrivalSchedule::class)->calculate(1, 1021, 'EOS', '2026-10-24', ['weekdays' => [1]], 120);
+        self::assertCount(17, $schedule['opportunities']);
+        self::assertSame(7, $schedule['review_interval_days']);
+        foreach ($schedule['opportunities'] as $opportunity) {
+            self::assertSame(1, Carbon::parse($opportunity['generation_date'])->dayOfWeek);
+            self::assertSame($opportunity['arrival_date'], app(ArrivalCalendar::class)
+                ->earliestArrivalDate(1021, 1, Carbon::parse($opportunity['order_base_date']))->toDateString());
+        }
+    }
+
 }

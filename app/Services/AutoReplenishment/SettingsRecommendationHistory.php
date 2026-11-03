@@ -69,7 +69,6 @@ class SettingsRecommendationHistory
         $demand = $this->dailyDemand($clientId, $warehouseId, (int) $item->id, $allocation, $period);
         $scheduleConfig = $this->warehouseScheduleConfig($warehouseId);
         $schedule = app(GenerationSchedule::class);
-        $weekdays = $schedule->weekdays($scheduleConfig);
         $arrivalSchedule = $this->arrivalSchedule($clientId, $warehouseId, $route, $asOf, $scheduleConfig);
         $lead = $arrivalSchedule['nominal_lead_days'];
         if (! isset($scheduleConfig['weekdays'])) {
@@ -82,7 +81,7 @@ class SettingsRecommendationHistory
             'delivery_course_id' => $channel === 'LOGISTICS' ? (int) $route['delivery_course_id'] : null,
             'capacity_case' => (int) $item->capacity_case, 'packing_unit' => $packing, 'order_unit' => $orderUnit, 'order_unit_mode' => $mode],
             'period' => $period, 'receipts' => $receipts, 'daily' => $demand['daily'], 'warnings' => $demand['warnings'], 'nominal_lead_days' => $lead,
-            'review_interval_days' => $schedule->maxReviewIntervalDays($scheduleConfig), 'review_weekdays' => $weekdays,
+            'review_interval_days' => $arrivalSchedule['review_interval_days'], 'review_weekdays' => $arrivalSchedule['review_weekdays'],
             'review_schedule_fingerprint' => $schedule->fingerprint($scheduleConfig),
             'maximum_arrival_gap_days' => $arrivalSchedule['maximum_gap_days'], 'arrival_schedule' => $arrivalSchedule];
     }

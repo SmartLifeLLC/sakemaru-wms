@@ -315,12 +315,17 @@ class TransferSupplyReaderTest extends TestCase
         $route->shouldReceive('assertReferenceEligible')->with(6, 10);
         $this->app->instance(OrderRouteEligibility::class, $route);
         $dates = Mockery::mock(ArrivalCalendar::class);
-        $dates->shouldReceive('referenceArrivalDates')->andReturn(['current' => Carbon::parse('2026-10-15')]);
         if ($arrivalResolver) {
             $dates->shouldReceive('earliestArrivalDate')->andReturnUsing($arrivalResolver);
         } else {
             $dates->shouldReceive('earliestArrivalDate')->andReturn(Carbon::parse('2026-10-15'));
         }
+        $dates->shouldReceive('earliestArrivalDates')->andReturnUsing(function ($contractor, $warehouse, $days) use ($arrivalResolver) {
+            return array_map(fn ($day) => $arrivalResolver
+                ? $arrivalResolver($contractor, $warehouse, $day)
+                : $day->copy()->addDay(), $days);
+        })->byDefault();
+        $dates->shouldReceive('referenceArrivalDates')->andReturnUsing(fn ($contractor, $warehouse, $days) => array_map(fn ($day) => $day->copy()->addDay(), $days))->byDefault();
         $this->app->instance(ArrivalCalendar::class, $dates);
         $search = Mockery::mock(OrderRegistrationSearchService::class);
         $search->shouldReceive('orderingCodeForItem')->andReturn('0123456789012');
@@ -835,7 +840,7 @@ class TransferSupplyReaderTest extends TestCase
 
                 return $orderDay->copy()->addDay();
             });
-        self::assertSame($expectedOrderDays, $orderDays);
+        self::assertSame($expectedOrderDays, array_slice(array_values(array_unique($orderDays)), 0, 2));
         self::assertSame($expectedArrival, $snapshot['next_arrival_date']);
         self::assertSame(0, DB::connection('sakemaru')->table('wms_order_candidates')->count());
         self::assertSame(0, DB::connection('sakemaru')->table('wms_auto_order_run_lines')->count());
@@ -874,7 +879,7 @@ class TransferSupplyReaderTest extends TestCase
                 // Represent the existing route/calendar resolver selecting the second day.
                 return $orderDay->copy()->addDays(2);
             });
-        self::assertSame(['2026-10-14', '2026-10-21'], $orderDays);
+        self::assertSame(['2026-10-14', '2026-10-21'], array_slice(array_values(array_unique($orderDays)), 0, 2));
         self::assertSame('2026-10-16', $snapshot['arrival_date']);
         self::assertSame('2026-10-23', $snapshot['next_arrival_date']);
         self::assertSame(1, $snapshot['route_snapshot']['effective_picking_lead_days']);
@@ -923,20 +928,21 @@ class TransferSupplyReaderTest extends TestCase
     }
 
     #[DataProvider('legacySnapshotStrategies')]
-    public function test_legacy_strategy_does_not_load_next_arrival_or_validate_new_schedule(string $strategy): void
+    public function test_legacy_strategy_uses_order_timing_but_does_not_validate_adaptive_basis(string $strategy): void
     {
         $calls = 0;
         $snapshot = $this->snapshot([
             'strategy_key' => $strategy,
             'calculation_basis' => ['review_schedule_fingerprint' => 'stale'],
-        ], ['weekdays' => []], function () use (&$calls) {
+        ], ['weekdays' => [3, 4]], function ($contractor, $warehouse, Carbon $day) use (&$calls) {
             $calls++;
 
-            return Carbon::parse('2026-10-15');
+            return $day->copy()->addDay();
         });
-        self::assertSame(1, $calls);
+        self::assertGreaterThan(1, $calls);
         self::assertSame('2026-10-15', $snapshot['arrival_date']);
-        self::assertNull($snapshot['next_arrival_date']);
+        self::assertSame('2026-10-16', $snapshot['next_arrival_date']);
+        self::assertTrue($snapshot['order_timing']['eligible']);
     }
 
     public static function legacySnapshotStrategies(): array
@@ -944,8 +950,7 @@ class TransferSupplyReaderTest extends TestCase
         return [['arrival_batch_v1'], ['threshold_v1'], ['threshold_capped_v1']];
     }
 
-    #[DataProvider('unavailableNextArrivalCases')]
-    public function test_missing_next_arrival_only_holds_small_orders_that_need_the_waiting_decision(int $stock, string $phase, int $quantity): void
+    public function test_unknown_future_calendar_prevents_an_unverified_early_order(): void
     {
         config(['app.timezone' => 'Asia/Tokyo']);
         $this->travelTo(Carbon::parse('2026-10-14 10:00:00', 'Asia/Tokyo'));
@@ -956,31 +961,24 @@ class TransferSupplyReaderTest extends TestCase
             'reorder_point_pieces' => 20, 'target_stock_pieces' => 16,
             'min_order_pieces' => 1, 'max_order_pieces' => 12, 'order_multiple_pieces' => 1,
         ];
-        $snapshot = $this->snapshot($values, ['weekdays' => [3, 4], 'execution_time' => '10:00'],
-            fn (int $contractor, int $warehouse, Carbon $orderDay): ?Carbon => $orderDay->toDateString() === '2026-10-14'
-                ? Carbon::parse('2026-10-15') : null);
-        self::assertSame('2026-10-15', $snapshot['arrival_date']);
-        self::assertNull($snapshot['next_arrival_date']);
-        DB::connection('sakemaru')->table('real_stocks')->where('id', 1)->update(['current_quantity' => $stock]);
-        $result = (new PolicySimulationService(new SnapshotReader, new ProposalSafety, new LogisticsPickingDate))
-            ->simulate(new WmsItemReorderPolicy($values));
-        self::assertSame($phase, $result['phase']);
-        self::assertSame($quantity, $result['quantity_pieces']);
-        self::assertSame('2026-10-15', $result['arrival_date']);
-        self::assertNull($result['next_arrival_date']);
-        if ($phase === 'HOLD') {
-            self::assertStringContainsString('次回の入荷予定日を確認できません', $result['reason']);
+        try {
+            $this->snapshot($values, ['weekdays' => [3, 4], 'execution_time' => '10:00'],
+                fn (int $contractor, int $warehouse, Carbon $orderDay): ?Carbon => $orderDay->toDateString() === '2026-10-14'
+                    ? Carbon::parse('2026-10-15') : null);
+            self::fail('The next order day cannot be established from an incomplete calendar.');
+        } catch (\RuntimeException $e) {
+            self::assertStringContainsString('既存の配送設定から入荷可能日を算定できません', $e->getMessage());
+        }
+        foreach ([0, 16] as $stock) {
+            DB::connection('sakemaru')->table('real_stocks')->where('id', 1)->update(['current_quantity' => $stock]);
+            $result = (new PolicySimulationService(new SnapshotReader, new ProposalSafety, new LogisticsPickingDate))
+                ->simulate(new WmsItemReorderPolicy($values));
+            self::assertSame('HOLD', $result['phase']);
+            self::assertSame(0, $result['quantity_pieces']);
+            self::assertStringContainsString('納品曜日・休日設定を確認', $result['reason']);
         }
         self::assertSame(0, DB::connection('sakemaru')->table('wms_order_candidates')->count());
         self::assertSame(0, DB::connection('sakemaru')->table('wms_auto_order_run_lines')->count());
-    }
-
-    public static function unavailableNextArrivalCases(): array
-    {
-        return [
-            'usual batch can use the valid current arrival' => [0, 'READY', 12],
-            'small quantity cannot decide whether waiting is safe' => [16, 'HOLD', 0],
-        ];
     }
 
     public function test_dated_projection_uses_transfer_remainder_once_and_keeps_external_supply(): void
