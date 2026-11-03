@@ -1034,12 +1034,12 @@ class TransferSupplyReaderTest extends TestCase
         self::assertSame(0, $r['incoming_today']);
     }
 
-    public function test_sunday_transfer_is_kept_incoming_instead_of_available(): void
+    public function test_sunday_transfer_is_available_on_its_recorded_date(): void
     {
         $this->transfer(1, ['delivered_date' => '2026-10-18']);
         $r = (new TransferSupplyReader)->read(6, 1, [143024], [1], availabilityDate: '2026-10-18')[143024];
         self::assertSame(768, $r['incoming']);
-        self::assertSame(0, $r['incoming_today']);
+        self::assertSame(768, $r['incoming_today']);
     }
 
     public function test_overdue_actual_transfer_without_schedule_is_plotted_once_and_matches_batch(): void

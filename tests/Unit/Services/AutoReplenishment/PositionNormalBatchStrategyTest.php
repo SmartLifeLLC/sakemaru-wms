@@ -75,7 +75,7 @@ class PositionNormalBatchStrategyTest extends TestCase
         self::assertSame(172, $r2['decision_inventory']['position']);
     }
 
-    public function test_sixty_day_inclusive_boundary_sunday_resolution_unknown_and_invalid_dates(): void
+    public function test_sixty_day_inclusive_boundary_preserves_sunday_unknown_and_invalid_dates(): void
     {
         $window = app(SupplyWindow::class)->classify([
             ['date' => '2026-12-30', 'pieces' => 1], ['date' => '2026-12-31', 'pieces' => 2],
@@ -87,10 +87,11 @@ class PositionNormalBatchStrategyTest extends TestCase
         self::assertSame(2, $window['excluded']);
         self::assertSame(18, $window['undated']);
         self::assertSame(0, $window['today']);
-        self::assertSame('2026-11-02', $window['events'][6]['date']);
+        self::assertSame('2026-11-01', $window['events'][6]['date']);
         self::assertCount(4, $window['warnings']);
         $window = app(SupplyWindow::class)->classify([['date' => '2026-12-27', 'pieces' => 9]], '2026-10-28');
-        self::assertSame(9, $window['excluded']); // Sunday D+60 -> Monday D+61
+        self::assertSame(9, $window['future']); // Sunday D+60 is included on its recorded date.
+        self::assertSame(0, $window['excluded']);
     }
 
     public function test_shipment_values_are_not_combined_and_minimum_excludes_sixteen_cases(): void
@@ -159,8 +160,8 @@ class PositionNormalBatchStrategyTest extends TestCase
         unset($arrival);
         $chart = app(InventoryProjection::class)->calculate($p, $input);
         self::assertSame(120, array_sum(array_column($chart['days'], 'existing_receipt')));
-        self::assertSame(120, $chart['days'][7]['existing_receipt']);
-        self::assertSame(0, $chart['days'][6]['existing_receipt']);
+        self::assertSame(120, $chart['days'][6]['existing_receipt']);
+        self::assertSame(0, $chart['days'][7]['existing_receipt']);
         self::assertSame(array_sum(array_column($chart['orders'], 'pieces')), array_sum(array_column($chart['days'], 'new_receipt')));
     }
 
@@ -316,7 +317,7 @@ class PositionNormalBatchStrategyTest extends TestCase
             $outside = $d->addDays(61)->toDateString();
             $w = app(SupplyWindow::class)->classify([['date' => $inside, 'pieces' => 3], ['date' => $outside, 'pieces' => 7]], $day);
             self::assertSame($inside, $w['cutoff_date']);
-            self::assertSame($d->addDays(60)->isSunday() ? 0 : 3, $w['future']);
+            self::assertSame(3, $w['future']);
             self::assertSame(10, $w['total']);
         }
         foreach ([1 => 24, 25 => 48, 200 => 192] as $normal => $expected) {

@@ -14,7 +14,7 @@ class InventoryProjectionCalendar
         $delivery = app(ArrivalCalendar::class)->deliveryDays($contractor, $warehouse);
         $delivery['reference_assumed'] = $channel === 'FAX' && $delivery['weekdays'] === [];
         if ($delivery['reference_assumed']) {
-            $delivery['weekdays'] = range(1, 6);
+            $delivery['weekdays'] = range(0, 6);
         }
 
         return ['arrivals' => array_column($schedule['opportunities'], 'arrival_date', 'generation_date'), 'adjusted' => false]

@@ -49,6 +49,22 @@ class InventoryProjectionTest extends TestCase
             ->assertSee($warning['message']);
     }
 
+    public function test_help_explains_configured_sunday_receipts_without_the_old_global_exclusion(): void
+    {
+        $input = self::inputs();
+        $input['calendar']['weekdays'] = [0, 2, 4];
+        $input['calendar']['sunday_master_enabled'] = true;
+        $input['calendar']['adjusted'] = false;
+        $chart = (new InventoryProjection)->calculate(self::policy(), $input);
+        \Livewire\Livewire::test(SupplyWarningProjectionHelpFixture::class, ['chart' => $chart])
+            ->assertSee('発注先の納品曜日：日・火・木')
+            ->assertSee('受入倉庫の受付可能日と発注先の納品可能日')
+            ->assertSee('当日以降の日付がある予定は日曜も登録日で扱い')
+            ->assertDontSee('日曜なし')
+            ->assertDontSee('日曜は翌月曜')
+            ->assertDontSee('納品設定と試算条件に差があります');
+    }
+
     public function test_weekday_average_includes_observed_zero_and_excludes_missing_feeds(): void
     {
         $r = (new WeekdayDemand)->summarize(['2026-10-05' => 10, '2026-10-12' => 0, '2026-10-19' => null, '2026-10-06' => 30]);
@@ -66,13 +82,13 @@ class InventoryProjectionTest extends TestCase
         (new WeekdayDemand)->summarize(['2026-10-19' => null]);
     }
 
-    public function test_calendar_excludes_sundays_and_skips_holidays_on_allowed_weekdays(): void
+    public function test_calendar_includes_allowed_sundays_and_skips_holidays(): void
     {
         $r = (new InventoryProjectionCalendar)->normalize([
             ['generation_date' => '2026-10-23', 'arrival_date' => '2026-10-25'],
             ['generation_date' => '2026-10-24', 'arrival_date' => '2026-10-26'],
         ], [0, 1, 3, 5], ['2026-10-26']);
-        self::assertSame(['2026-10-23' => '2026-10-28', '2026-10-24' => '2026-10-28'], $r['arrivals']);
+        self::assertSame(['2026-10-23' => '2026-10-25', '2026-10-24' => '2026-10-28'], $r['arrivals']);
         self::assertTrue($r['adjusted']);
     }
 
@@ -133,10 +149,11 @@ class InventoryProjectionTest extends TestCase
             ['date' => '2026-10-18', 'pieces' => 100], ['date' => '2026-10-25', 'pieces' => 100]];
         $r = (new InventoryProjection)->calculate(self::policy(), $input);
         self::assertSame(0, $r['order_count']);
-        self::assertSame(0, array_sum(array_column($r['days'], 'received')));
-        self::assertSame(300, $r['undated_incoming']);
-        self::assertSame(800, $r['outstanding_after_period']);
-        self::assertGreaterThan(0, $r['shortage_days']);
+        self::assertSame(100, array_sum(array_column($r['days'], 'received')));
+        self::assertSame(100, $r['days'][6]['existing_receipt']); // Registered Sunday receipt stays on October 25.
+        self::assertSame(200, $r['undated_incoming']);
+        self::assertSame(700, $r['outstanding_after_period']);
+        self::assertSame(0, $r['shortage_days']);
     }
 
     public function test_negative_stock_is_retained_until_arrival_without_fictitious_debt(): void
