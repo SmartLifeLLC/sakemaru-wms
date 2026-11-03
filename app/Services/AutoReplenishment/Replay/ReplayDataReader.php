@@ -207,7 +207,7 @@ class ReplayDataReader
             $allocation = $history->allocation($client);
             $key = ($series['policy_id'] ?? 0).':'.$warehouseId.':'.$itemId;
             $constraint = $constraints[$key] ??= $recommendations->unitConstraints($client, $route);
-            $orderUnit = $history->orderUnit($client, $item, $channel, $source, (string) ($route['order_unit_mode'] ?? 'AUTO'), $asOf);
+            $orderUnit = $history->orderUnit($client, $item, $channel, $source, (string) ($route['order_unit_mode'] ?? 'AUTO'), $asOf, $warehouseId, $contractor);
             $options = $recommendations->constrainedOptions($constraint, (int) $item->capacity_case, []);
             // The policy's binding row (bound version / pieces) as SnapshotReader reads it: the daily step runs the production assertBinding
             // against it, so a stale binding holds the order in the replay exactly as it does in production.

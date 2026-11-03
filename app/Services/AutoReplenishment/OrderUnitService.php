@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\DB;
 /** One output unit per automatic policy; master permissions always apply. */
 class OrderUnitService
 {
-    public function forEditor(int $client, object $item, string $channel, string $mode = 'AUTO', int $source = 0): array
+    public function forEditor(int $client, object $item, string $channel, string $mode = 'AUTO', int $source = 0, int $warehouse = 0, int $contractor = 0): array
     {
         $caseOutput = false;
         if ($channel === 'EOS') {
@@ -22,6 +22,9 @@ class OrderUnitService
 
         $history = $channel === 'LOGISTICS' && $source > 0
             ? (app(LogisticsOrderUnitHistory::class)->read($client, $source, [(int) $item->id => (int) $item->capacity_case])[$item->id] ?? null) : null;
+        if ($channel === 'EOS' && $mode === 'AUTO' && ! $caseOutput && $warehouse > 0 && $contractor > 0) {
+            $history = app(EosOrderUnitHistory::class)->read($client, $warehouse, (int) $item->id, $contractor, $code);
+        }
 
         return $this->resolve($client, (int) $item->id, (int) $item->capacity_case, $caseOutput, mode: $mode, history: $history);
     }
@@ -46,7 +49,19 @@ class OrderUnitService
             'packing_unit' => $piece ? 1 : $capacity, 'label' => $piece ? 'バラ発注' : 'ケース発注',
             'reason' => $piece ? '商品マスターで1バラが発注可のため、バラで発注します。'
                 : ($caseOutput ? '発注用CDの出力条件に従い、ケースで発注します。' : '商品マスターで1バラが発注不可のため、ケースで発注します。')];
-        if ($history !== null) {
+        if (($history['source'] ?? null) === 'eos_transmitted_orders') {
+            $automatic['history'] = $history;
+            if ($piece && $capacity > 1) {
+                if ($type = $history['preferred_type'] ?? null) {
+                    $automatic['quantity_type'] = $type;
+                    $automatic['packing_unit'] = $type === 'CASE' ? $capacity : 1;
+                    $automatic['label'] = $automatic['automatic_label'] = $type === 'CASE' ? 'ケース発注' : 'バラ発注';
+                    $automatic['reason'] = "同じ店舗・商品・発注先の送信済み発注：ケース {$history['case_count']}回・バラ {$history['piece_count']}回。{$automatic['label']}が80％以上のため採用します。";
+                } else {
+                    $automatic['reason'] .= ' 送信済み発注履歴は'.($history['decision'] === 'insufficient_history' ? '5件未満' : 'ケース・バラが混在（いずれも80％未満）').'のため、商品マスターの判定を使用します。';
+                }
+            }
+        } elseif ($history !== null) {
             $automatic['history'] = $history;
             $cases = (int) ($history['case_count'] ?? 0);
             $pieces = (int) ($history['piece_count'] ?? 0);

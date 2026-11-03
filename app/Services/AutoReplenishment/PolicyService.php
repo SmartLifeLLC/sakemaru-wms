@@ -84,9 +84,9 @@ class PolicyService
             $mode = $values['order_unit_mode'] ?? $policy->order_unit_mode ?? 'AUTO';
             $units = app(OrderUnitService::class);
             $units->assertRecommendationMode($values['calculation_basis'], $mode);
-            if ($mode !== 'AUTO' || ($values['channel'] === 'LOGISTICS' && array_key_exists('order_unit_mode', $values))) {
+            if ($mode !== 'AUTO' || (in_array($values['channel'], ['EOS', 'LOGISTICS'], true) && array_key_exists('order_unit_mode', $values))) {
                 $item = $db->table('items')->where(['id' => $values['item_id'], 'client_id' => $clientId])->first();
-                $unit = $units->forEditor($clientId, $item, $values['channel'], $mode, (int) ($values['source_warehouse_id'] ?? 0));
+                $unit = $units->forEditor($clientId, $item, $values['channel'], $mode, (int) ($values['source_warehouse_id'] ?? 0), $warehouseId, (int) $values['contractor_id']);
                 $multiple = app(ShippingQuantitySet::class)->gcd([$values['order_multiple_pieces'], $unit['packing_unit']]);
                 $step = intdiv($values['order_multiple_pieces'], $multiple) * $unit['packing_unit'];
                 throw_if((int) (ceil($values['min_order_pieces'] / $step) * $step) > $values['max_order_pieces'], \RuntimeException::class,

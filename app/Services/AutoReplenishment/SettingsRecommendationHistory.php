@@ -63,7 +63,7 @@ class SettingsRecommendationHistory
             throw_unless($source && $source !== $warehouseId && $db->table('warehouse_stock_transfer_delivery_courses')->where(['from_warehouse_id' => $source, 'to_warehouse_id' => $warehouseId, 'delivery_course_id' => $route['delivery_course_id'] ?? 0])->exists(), \RuntimeException::class, '移動元倉庫・配送コースを選択してください。');
         }
         $mode = $route['order_unit_mode'] ?? 'AUTO';
-        $orderUnit = $this->orderUnit($clientId, $item, $channel, $source, $mode, $asOf);
+        $orderUnit = $this->orderUnit($clientId, $item, $channel, $source, $mode, $asOf, $warehouseId, $contractor);
         $packing = $orderUnit['packing_unit'];
         $receipts = $this->linkedReceipts($clientId, (int) $item->id, $channel, $contractor, $supplier, $source, $allocation, $period);
         $demand = $this->dailyDemand($clientId, $warehouseId, (int) $item->id, $allocation, $period);
@@ -115,10 +115,10 @@ class SettingsRecommendationHistory
     }
 
     /**
-     * The output unit of the route (EOS: ordering-code output condition; LOGISTICS: the source warehouse's shipment history up to $asOf),
+     * The output unit of the route (EOS: output condition and sent order history; LOGISTICS: source shipments up to $asOf),
      * resolved by the same service as the editor and the weekly refresh.
      */
-    public function orderUnit(int $clientId, Item $item, string $channel, int $source, string $mode, string $asOf): array
+    public function orderUnit(int $clientId, Item $item, string $channel, int $source, string $mode, string $asOf, int $warehouse = 0, int $contractor = 0): array
     {
         $caseOutput = false;
         if ($channel === 'EOS') {
@@ -130,6 +130,9 @@ class SettingsRecommendationHistory
         }
         $unitHistory = $channel === 'LOGISTICS'
             ? (app(LogisticsOrderUnitHistory::class)->read($clientId, $source, [(int) $item->id => (int) $item->capacity_case], $asOf)[$item->id] ?? null) : null;
+        if ($channel === 'EOS' && $mode === 'AUTO' && ! $caseOutput && $warehouse > 0 && $contractor > 0) {
+            $unitHistory = app(EosOrderUnitHistory::class)->read($clientId, $warehouse, (int) $item->id, $contractor, $code, $asOf);
+        }
 
         return app(OrderUnitService::class)->resolve($clientId, (int) $item->id, (int) $item->capacity_case, $caseOutput, mode: $mode, history: $unitHistory);
     }
