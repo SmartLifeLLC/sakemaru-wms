@@ -207,28 +207,6 @@ foreach (['07:00', '12:30'] as $time) {
 //     ->onOneServer()
 //     ->appendOutputTo(storage_path('logs/auto-order-holidays.log'));
 
-/*
- * 定期在庫スナップショット (朝・夕)
- */
-
-Schedule::command('wms:snapshot-stocks --time=morning')
-    ->dailyAt('06:00')
-    ->withoutOverlapping()
-    ->onOneServer()
-    ->appendOutputTo(storage_path('logs/wms-stock-snapshot.log'));
-
-Schedule::command('wms:snapshot-stocks --time=evening')
-    ->dailyAt('18:00')
-    ->withoutOverlapping()
-    ->onOneServer()
-    ->appendOutputTo(storage_path('logs/wms-stock-snapshot.log'));
-
-Schedule::command('wms:snapshot-archive')
-    ->monthlyOn(1, '03:00')
-    ->withoutOverlapping()
-    ->onOneServer()
-    ->appendOutputTo(storage_path('logs/wms-stock-snapshot-archive.log'));
-
 // v2 defaults to OFF; its client/warehouse/product gates are checked again at publication.
 Schedule::command('wms:run-auto-replenishment')->everyMinute()->withoutOverlapping(10);
 
