@@ -1251,7 +1251,6 @@ class ListWaves extends ListRecords
             ->table('trade_items as ti')
             ->join('items as i', 'ti.item_id', '=', 'i.id')
             ->join('trades as ti_trade', 'ti.trade_id', '=', 'ti_trade.id')
-            ->leftJoin('srh_searchable_items as ssi', 'ssi.item_id', '=', 'i.id')
             ->whereIn('ti.trade_id', array_keys($sourcesByTradeId))
             ->where('ti.is_active', true)
             ->select([
@@ -1264,7 +1263,7 @@ class ListWaves extends ListRecords
                 'i.name as item_name',
                 'i.capacity_case',
                 'i.packaging',
-                'ssi.jancode as jan_code',
+                DB::raw('(SELECT jan_source.jancode FROM srh_searchable_items AS jan_source WHERE jan_source.item_id = i.id ORDER BY jan_source.id LIMIT 1) as jan_code'),
             ])
             ->orderBy('ti_trade.serial_id')
             ->orderBy('ti.id')
