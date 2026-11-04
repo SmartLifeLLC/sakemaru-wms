@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Sakemaru\Warehouse;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
@@ -13,38 +14,68 @@ use PhpOffice\PhpSpreadsheet\Reader\Xlsx;
 
 class ItemContractorNoteImport
 {
-    public function import(int $clientId, string $path, string $extension): int
+    /** @return list<array{id: int, code: string, name: string}> */
+    public function warehouseOptions(int $clientId): array
+    {
+        return Warehouse::query()
+            ->where('warehouses.client_id', $clientId)
+            ->whereIn('warehouses.id', fn ($query) => $query->select('warehouse_id')
+                ->from('item_contractors')->where('client_id', $clientId))
+            ->orderBy('code')
+            ->get(['id', 'code', 'name'])
+            ->map(fn (Warehouse $warehouse) => ['id' => (int) $warehouse->id, 'code' => (string) $warehouse->code, 'name' => $warehouse->name])
+            ->all();
+    }
+
+    public function import(int $clientId, array $warehouseIds, string $path, string $extension): int
     {
         if ($clientId <= 0) {
             throw new InvalidArgumentException('更新対象の会社を確認してください。');
         }
 
+        if ($warehouseIds === []) {
+            throw new InvalidArgumentException('対象倉庫を1つ以上選択してください。');
+        }
+
+        $allowedIds = array_column($this->warehouseOptions($clientId), 'id');
+        foreach ($warehouseIds as $id) {
+            if (filter_var($id, FILTER_VALIDATE_INT) === false || ! in_array((int) $id, $allowedIds, true)) {
+                throw new InvalidArgumentException('選択した倉庫に更新できない倉庫が含まれています。対象倉庫を選び直してください。');
+            }
+        }
+
         $rows = $this->readRows($path, $extension);
         $db = DB::connection('sakemaru');
 
-        return $db->transaction(function () use ($db, $clientId, $rows): int {
+        return $db->transaction(function () use ($db, $clientId, $warehouseIds, $rows): int {
             $contractors = $db->table('item_contractors')->where('item_contractors.client_id', $clientId);
+            $master = (clone $contractors)->join('items', 'items.id', '=', 'item_contractors.item_id')
+                ->where('items.client_id', $clientId);
             $updated = 0;
             foreach (array_chunk($rows, 500, preserve_keys: true) as $chunk) {
-                $matches = (clone $contractors)
-                    ->join('items', 'items.id', '=', 'item_contractors.item_id')
-                    ->where('items.client_id', $clientId)
-                    ->whereIn('items.code', array_keys($chunk))
+                $byCode = (clone $master)->whereIn('items.code', array_keys($chunk));
+                $matches = (clone $byCode)->whereIn('item_contractors.warehouse_id', $warehouseIds)
                     ->orderBy('item_contractors.id')
                     ->lockForUpdate()
                     ->get(['item_contractors.id', 'item_contractors.note', 'items.code'])
                     ->groupBy('code');
 
+                $registered = null;
                 foreach ($chunk as $code => $row) {
                     $records = $matches->get($code);
                     if ($records === null) {
-                        throw new InvalidArgumentException("{$row['line']}行目の商品コード「{$code}」は商品発注管理に未登録です。商品コードを確認してください。");
+                        $registered ??= $byCode->distinct()->pluck('items.code')->flip();
+                        if (! $registered->has($code)) {
+                            throw new InvalidArgumentException("{$row['line']}行目の商品コード「{$code}」は商品発注管理に未登録です。商品コードを確認してください。");
+                        }
+
+                        continue;
                     }
 
                     $changedIds = $records->filter(fn ($record) => $record->note !== $row['note'])->pluck('id');
                     if ($changedIds->isNotEmpty()) {
                         // Saving via the model can also change the legacy auto-order flags.
-                        $updated += (clone $contractors)->whereIn('id', $changedIds)
+                        $updated += (clone $contractors)->whereIn('warehouse_id', $warehouseIds)->whereIn('id', $changedIds)
                             ->update(['note' => $row['note'], 'updated_at' => now()]);
                     }
                 }

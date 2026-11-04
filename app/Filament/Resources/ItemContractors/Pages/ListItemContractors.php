@@ -10,6 +10,7 @@ use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Support\Enums\Alignment;
@@ -35,20 +36,34 @@ class ListItemContractors extends ListRecords
         return [
             Actions\Action::make('importNotes')
                 ->label('備考更新')
+                ->color('success')
                 ->authorize(fn () => ItemContractorResource::can('update') && (int) auth()->user()?->client_id > 0)
                 ->modalHeading('商品発注管理の備考更新')
+                ->modalWidth('5xl')
                 ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                 ->modalFooterActionsAlignment(Alignment::End)
                 ->modalSubmitAction(fn ($action) => $action->label('備考を更新')->color('danger'))
                 ->modalCancelActionLabel('更新せず閉じる')
-                ->schema([
-                    FileUpload::make('file')
-                        ->label('備考更新ファイル')
-                        ->helperText('Excel（.xls、.xlsx）の先頭シートまたはCSV（.csv）の1行目に「商品コード」「備考」を入れてください。ログイン中の会社の全倉庫で、商品コードが一致する既存の発注先設定を更新します。備考が空欄の行は備考を消去します。')
-                        ->maxSize(5120)
-                        ->storeFiles(false)
-                        ->required(),
-                ])
+                ->schema(function (): array {
+                    $warehouses = app(ItemContractorNoteImport::class)->warehouseOptions((int) auth()->user()?->client_id);
+
+                    return [
+                        ViewField::make('warehouse_ids')
+                            ->label('対象倉庫')
+                            ->view('filament.forms.components.warehouse-card-grid')
+                            ->viewData(['warehouses' => $warehouses])
+                            ->default(array_column($warehouses, 'id'))
+                            ->rules(['array', 'list'])
+                            ->required()
+                            ->validationMessages(['required' => '対象倉庫を1つ以上選択してください。']),
+                        FileUpload::make('file')
+                            ->label('備考更新ファイル')
+                            ->helperText('Excel（.xls、.xlsx）の先頭シートまたはCSV（.csv）の1行目に「商品コード」「備考」を入れてください。選択した倉庫の備考を更新します。備考が空欄の行は備考を消去します。')
+                            ->maxSize(5120)
+                            ->storeFiles(false)
+                            ->required(),
+                    ];
+                })
                 ->action(function (array $data, Actions\Action $action): void {
                     try {
                         $file = $data['file'] ?? null;
@@ -57,6 +72,7 @@ class ListItemContractors extends ListRecords
                         }
                         $count = app(ItemContractorNoteImport::class)->import(
                             (int) auth()->user()->client_id,
+                            $data['warehouse_ids'] ?? [],
                             $file->getRealPath(),
                             pathinfo($file->getClientOriginalName(), PATHINFO_EXTENSION),
                         );
