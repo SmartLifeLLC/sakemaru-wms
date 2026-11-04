@@ -355,10 +355,11 @@ SELECT
     WHEN sub_partner.id IS NOT NULL THEN COALESCE(NULLIF(sub_partner.abbreviation, ''), '')
     ELSE COALESCE(NULLIF(item_supplier_partner.abbreviation, ''), '')
     END AS `仕入先名`,
+    category2.code AS `中分類CD`,
+    category2.name AS `中分類名`,
     COALESCE(piece_jan.search_string, '') AS `JANCD`,
     i.code AS `単品CD`,
     i.name AS `商品名`,
-    category2.code AS `中分類CD`,
     i.capacity_case AS `入数`,
     COALESCE(
     ss.shelf_number,
