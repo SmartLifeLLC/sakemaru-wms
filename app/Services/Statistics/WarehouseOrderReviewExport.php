@@ -30,10 +30,10 @@ class WarehouseOrderReviewExport
         $headers[14] = '受注'.$pieceLabel;
         $headers[15] = '移動'.$caseLabel;
         $headers[16] = '移動'.$pieceLabel;
-        $headers = array_merge($headers, array_pad(array_map(fn ($date) => date('y/m/d', strtotime($date)), $dates), 7, ''), ['備考']);
+        $headers = array_merge($headers, array_pad(array_map(fn ($date) => date('y/m/d', strtotime($date)), $dates), 7, ''), ['備考', '中分類CD']);
 
-        $groups = array_fill(0, 29, '');
-        foreach (array_merge(range(0, 10), [28]) as $index) {
+        $groups = array_fill(0, 30, '');
+        foreach (array_merge(range(0, 10), [28, 29]) as $index) {
             $groups[$index] = $headers[$index];
             $headers[$index] = '';
         }
@@ -58,12 +58,12 @@ class WarehouseOrderReviewExport
         $fractionalCells = [];
         foreach ($grouped as $group) {
             $values = array_map(fn ($key) => $group['base'][$key] ?? null, self::BASE_KEYS);
-            $values = array_merge($values, array_pad(array_map(fn ($date) => $group['arrivals'][$date] ?? null, $dates), 7, null), [(string) ($group['base']['備考'] ?? '')]);
+            $values = array_merge($values, array_pad(array_map(fn ($date) => $group['arrivals'][$date] ?? null, $dates), 7, null), [$group['base']['備考'] ?? null, $group['base']['中分類CD'] ?? null]);
             foreach ($values as $index => $value) {
                 $cell = Coordinate::stringFromColumnIndex($index + 1).$line;
                 if ($index === 0 && $value) {
                     $sheet->setCellValueExplicit($cell, Date::PHPToExcel(new \DateTimeImmutable($value)), DataType::TYPE_NUMERIC);
-                } elseif (in_array($index, [1, 2, 3, 4, 5, 6, 7, 9, 28], true)) {
+                } elseif (in_array($index, [1, 2, 3, 4, 5, 6, 7, 9, 28, 29], true)) {
                     // Master text (including formula-like notes and leading-zero JANs) stays literal.
                     $sheet->setCellValueExplicit($cell, (string) ($value ?? ''), DataType::TYPE_STRING);
                 } elseif ($value !== null && $value !== '') {
@@ -83,14 +83,14 @@ class WarehouseOrderReviewExport
         foreach (['L1:M1', 'N1:O1', 'P1:Q1', 'R1:U1', 'V1:AB1'] as $range) {
             $sheet->mergeCells($range);
         }
-        foreach (array_merge(range('A', 'K'), ['AC']) as $column) {
+        foreach (array_merge(range('A', 'K'), ['AC', 'AD']) as $column) {
             $sheet->mergeCells($column.'1:'.$column.'2');
         }
         $book->getDefaultStyle()->getFont()->setName('Yu Gothic')->setSize(10);
         $sheet->setShowGridlines(false);
         $sheet->freezePane('A3');
-        $sheet->setAutoFilter('A2:AC'.$last);
-        $sheet->getStyle('A1:AC2')->applyFromArray([
+        $sheet->setAutoFilter('A2:AD'.$last);
+        $sheet->getStyle('A1:AD2')->applyFromArray([
             'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
             'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => '1E293B']],
             'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
@@ -98,7 +98,7 @@ class WarehouseOrderReviewExport
         ]);
         $sheet->getRowDimension(1)->setRowHeight(24);
         $sheet->getRowDimension(2)->setRowHeight(24);
-        foreach (range(1, 29) as $index) {
+        foreach (range(1, 30) as $index) {
             $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($index))->setWidth(match ($index) {
                 3, 5 => 22, 6 => 18, 8 => 48, 10 => 18, 29 => 40, default => 12,
             });
@@ -109,12 +109,12 @@ class WarehouseOrderReviewExport
             foreach ($fractionalCells as $cell) {
                 $sheet->getStyle($cell)->getNumberFormat()->setFormatCode('#,##0.0');
             }
-            foreach (['B3:H', 'J3:J', 'AC3:AC'] as $range) {
+            foreach (['B3:H', 'J3:J', 'AC3:AD'] as $range) {
                 $sheet->getStyle($range.$last)->getNumberFormat()->setFormatCode('@');
                 $sheet->getStyle($range.$last)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
             }
             $sheet->getStyle('AC3:AC'.$last)->getAlignment()->setWrapText(true);
-            $sheet->getStyle('A3:AC'.$last)->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
+            $sheet->getStyle('A3:AD'.$last)->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
         }
 
         return $book;
