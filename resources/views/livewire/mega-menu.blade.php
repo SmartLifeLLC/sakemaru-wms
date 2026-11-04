@@ -21,6 +21,21 @@
                     <a href="/admin" class="hidden sm:flex items-center bg-white rounded-md px-2 py-1">
                         <img src="/images/logo.png" alt="酒丸蔵" class="h-6 w-auto object-contain">
                     </a>
+                    @auth
+                        <button
+                            type="button"
+                            aria-label="このページをブックマークに追加"
+                            title="このページをブックマークに追加"
+                            class="flex shrink-0 items-center gap-1 rounded-md border border-amber-400/60 px-2 py-1 text-xs font-semibold whitespace-nowrap text-amber-300 hover:bg-slate-700 disabled:opacity-50"
+                            @click="$wire.addBookmark(window.location.href, document.title)"
+                            wire:loading.attr="disabled"
+                            wire:target="addBookmark"
+                        >
+                            <x-filament::icon icon="heroicon-s-bookmark" class="h-3.5 w-3.5" aria-hidden="true" />
+                            <x-filament::icon icon="heroicon-m-plus" class="h-2.5 w-2.5 2xl:hidden" aria-hidden="true" />
+                            <span class="hidden 2xl:inline">ブックマーク</span>
+                        </button>
+                    @endauth
                     <div x-data="dateBadge()" class="flex items-center gap-1.5 bg-slate-900/60 border border-slate-500/40 rounded-lg px-2.5 py-1 text-sm select-none cursor-default">
                         <i class="fa-regular fa-calendar-days text-amber-400"></i>
                         <span class="font-bold text-white tracking-wide" x-text="dateStr"></span>
@@ -35,7 +50,9 @@
                                 type="button"
                                 class="flex shrink-0 items-center gap-1 px-2 xl:px-2.5 py-1 text-xs xl:text-sm font-medium whitespace-nowrap transition-colors duration-200 rounded-md"
                                 :class="openTab === '{{ $tab['id'] }}' ? 'text-white bg-slate-700' : 'text-slate-200 hover:text-white hover:bg-slate-700'"
-                                @click="openTab = openTab === '{{ $tab['id'] }}' ? null : '{{ $tab['id'] }}'"
+                                aria-label="{{ $tab['label'] }}"
+                                :aria-expanded="openTab === '{{ $tab['id'] }}'"
+                                @click="openTab = openTab === '{{ $tab['id'] }}' ? null : '{{ $tab['id'] }}'; @if($tab['id'] === 'sakemaru_series' && auth()->check()) if (openTab) $wire.loadBookmarks(); @endif"
                             >
                                 <i class="fa-solid {{ $tab['icon'] }}"></i>
                                 <span class="hidden lg:inline whitespace-nowrap">{{ $tab['label'] }}</span>
@@ -70,14 +87,17 @@
 
         <!-- Mega Menu Dropdowns -->
         @foreach($menuStructure as $tab)
+            @php
+                $isSeriesTab = $tab['id'] === 'sakemaru_series';
+            @endphp
             <div
                 x-show="openTab === '{{ $tab['id'] }}'"
                 class="absolute left-0 right-0 bg-white border-b border-slate-200 shadow-xl z-[100]"
                 style="top: 40px;"
                 x-cloak
             >
-                <div class="w-full px-4 py-3 overflow-x-auto">
-                    <div class="flex gap-6 justify-start">
+                <div class="w-full px-4 py-3 overflow-x-auto @if($isSeriesTab) max-h-[calc(100dvh-2.5rem)] overflow-y-auto @endif">
+                    <div class="flex gap-6 justify-start @if($isSeriesTab) flex-col sm:flex-row @endif">
                         @foreach($tab['groups'] as $index => $group)
                             @php
                                 $itemCount = count($group['items']);
@@ -144,6 +164,40 @@
                                 </div>
                             </div>
                         @endforeach
+                        @if($isSeriesTab)
+                            @auth
+                                <section class="min-w-0 flex-1 border-t border-slate-200 pt-2 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-6" aria-label="ブックマーク">
+                                    <h3 class="flex items-center gap-1.5 border-b border-slate-100 pb-1.5 text-xs font-bold text-slate-800">
+                                        <x-filament::icon icon="heroicon-s-bookmark" class="h-3.5 w-3.5 text-indigo-600" aria-hidden="true" />
+                                        ブックマーク
+                                    </h3>
+                                    @if(! $bookmarksLoaded)
+                                        <p class="py-2 text-xs text-slate-500" role="status">読み込み中…</p>
+                                    @elseif(($bookmarks = $this->bookmarks) === null)
+                                        <p class="py-2 text-xs text-slate-500" role="status">ブックマークを読み込めませんでした</p>
+                                    @else
+                                        <ul class="flex flex-wrap gap-2 pt-2">
+                                            @forelse($bookmarks as $bookmark)
+                                                <li class="max-w-full" wire:key="menu-bookmark-{{ $bookmark->id }}">
+                                                    <a
+                                                        href="{{ $bookmark->url }}"
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        title="{{ $bookmark->title }}"
+                                                        class="flex max-w-full items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+                                                    >
+                                                        <span class="truncate">{{ $bookmark->title }}</span>
+                                                        <x-filament::icon icon="heroicon-m-arrow-top-right-on-square" class="h-3 w-3 shrink-0 text-slate-400" aria-hidden="true" />
+                                                    </a>
+                                                </li>
+                                            @empty
+                                                <li class="text-xs text-slate-500">登録したブックマークはありません</li>
+                                            @endforelse
+                                        </ul>
+                                    @endif
+                                </section>
+                            @endauth
+                        @endif
                     </div>
                 </div>
 
