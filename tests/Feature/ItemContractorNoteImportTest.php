@@ -22,6 +22,8 @@ class ItemContractorNoteImportTest extends TestCase
         config(['database.connections.sakemaru' => ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']]);
         DB::purge('sakemaru');
         $db = DB::connection('sakemaru');
+        $db->statement('CREATE TABLE warehouses (id INTEGER PRIMARY KEY, client_id INTEGER, code INTEGER, name TEXT, is_active INTEGER)');
+        $db->statement("INSERT INTO warehouses VALUES (91, 1, 91, '倉庫91', 1), (92, 1, 92, '倉庫92', 1), (93, 2, 93, '対象外', 1)");
         $db->statement('CREATE TABLE items (id INTEGER PRIMARY KEY, client_id INTEGER, code INTEGER)');
         $db->statement('CREATE TABLE item_contractors (id INTEGER PRIMARY KEY, client_id INTEGER, item_id INTEGER, warehouse_id INTEGER, note TEXT, safety_stock INTEGER, is_auto_order INTEGER, updated_at TEXT)');
         $db->statement('INSERT INTO items VALUES (1, 1, 100), (2, 1, 200), (3, 2, 100)');
@@ -60,12 +62,41 @@ class ItemContractorNoteImportTest extends TestCase
         }
 
         $service = new ItemContractorNoteImport;
-        self::assertSame(3, $service->import(1, $this->path, strtoupper($extension)));
-        self::assertSame(0, $service->import(1, $this->path, $extension));
+        self::assertSame(3, $service->import(1, [91, 92], $this->path, strtoupper($extension)));
+        self::assertSame(0, $service->import(1, [91, 92], $this->path, $extension));
         $table = DB::connection('sakemaru')->table('item_contractors')->orderBy('id');
         self::assertSame([$note, $note, null, '他社'], $table->pluck('note')->all());
         self::assertSame([10, 20, 30, 40], $table->pluck('safety_stock')->all());
         self::assertSame([1, 1, 0, 0], $table->pluck('is_auto_order')->all());
+    }
+
+    public function test_only_selected_warehouses_are_updated(): void
+    {
+        file_put_contents($this->path, "商品コード,備考\n100,更新\n200,対象外");
+        $service = new ItemContractorNoteImport;
+
+        self::assertSame([91, 92], array_column($service->warehouseOptions(1), 'id'));
+        self::assertSame(1, $service->import(1, ['92'], $this->path, 'csv'));
+        self::assertSame(['旧1', '更新', '旧3', '他社'],
+            DB::connection('sakemaru')->table('item_contractors')->orderBy('id')->pluck('note')->all());
+    }
+
+    public static function invalidSelections(): array
+    {
+        return [[[], '1つ以上'], [[91, 93], '更新できない倉庫']];
+    }
+
+    #[DataProvider('invalidSelections')]
+    public function test_invalid_selection_cannot_update_notes(array $warehouseIds, string $error): void
+    {
+        file_put_contents($this->path, "商品コード,備考\n100,更新");
+        try {
+            (new ItemContractorNoteImport)->import(1, $warehouseIds, $this->path, 'csv');
+            self::fail('Expected an invalid warehouse selection error.');
+        } catch (InvalidArgumentException $exception) {
+            self::assertStringContainsString($error, $exception->getMessage());
+        }
+        self::assertSame('旧1', DB::connection('sakemaru')->table('item_contractors')->where('id', 1)->value('note'));
     }
 
     public static function invalidFiles(): array
@@ -83,7 +114,7 @@ class ItemContractorNoteImportTest extends TestCase
     {
         file_put_contents($this->path, $csv);
         try {
-            (new ItemContractorNoteImport)->import(1, $this->path, 'csv');
+            (new ItemContractorNoteImport)->import(1, [91, 92], $this->path, 'csv');
             self::fail('Expected an invalid file error.');
         } catch (InvalidArgumentException $exception) {
             self::assertStringContainsString($error, $exception->getMessage());
