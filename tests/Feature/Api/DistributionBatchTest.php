@@ -6,6 +6,7 @@ use App\Models\Sakemaru\User;
 use App\Services\Distribution\DistributionBatchService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Mockery;
@@ -176,6 +177,20 @@ class DistributionBatchTest extends TestCase
         $data['expected_revision'] = 1;
         $this->patchJson('/api/distribution/batches/'.$batch, $data)->assertOk()->assertJsonPath('result.data.responsible_department', 'headquarters');
         self::assertSame(0, DB::connection('sakemaru')->table('wms_distribution_rows')->where('distribution_batch_id', $batch)->count());
+    }
+
+    public function test_excel_preview_rejects_a_missing_product_header_without_reporting_it(): void
+    {
+        Exceptions::fake();
+        $batch = $this->batch();
+
+        $response = $this->post('/api/distribution/batches/'.$batch.'/excel/preview', [
+            'file' => $this->spreadsheet([['商品名', '本店'], ['商品A', 3]]),
+            'quantity_unit' => 'piece', 'store_mode' => 'name',
+        ], ['Accept' => 'application/json'])->assertUnprocessable();
+
+        self::assertStringStartsWith('先頭シートに商品CDまたはJANの見出しがありません', $response->json('result.error_message'));
+        Exceptions::assertNothingReported();
     }
 
     public function test_excel_preview_resolves_active_jan_and_product_code_to_the_same_item(): void

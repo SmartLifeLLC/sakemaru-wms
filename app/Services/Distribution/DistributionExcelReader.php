@@ -2,6 +2,7 @@
 
 namespace App\Services\Distribution;
 
+use App\Exceptions\DistributionExcelHeaderMissingException;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\IOFactory;
@@ -101,7 +102,7 @@ class DistributionExcelReader
                 }
             }
             if (! $codeColumn) {
-                throw new RuntimeException('先頭シートに商品CDまたはJANの見出しがありません（単品CD・自社CD・自社コード・華CD・CD・JAN CD・JANコード）。');
+                throw new DistributionExcelHeaderMissingException('先頭シートに商品CDまたはJANの見出しがありません。店舗別数量のシートを一番左に置き、商品CDまたはJANの見出しを確認してから、再アップロードしてください。');
             }
             $result['code_column'] = Coordinate::stringFromColumnIndex($codeColumn);
             $result['code_header'] = (string) $sheet->getCell([$codeColumn, $result['header_row']])->getValue();
