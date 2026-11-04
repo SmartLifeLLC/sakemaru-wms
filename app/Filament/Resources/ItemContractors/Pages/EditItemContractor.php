@@ -5,6 +5,7 @@ namespace App\Filament\Resources\ItemContractors\Pages;
 use App\Filament\Resources\ItemContractors\ItemContractorResource;
 use Filament\Actions;
 use Filament\Resources\Pages\EditRecord;
+use Illuminate\Support\Arr;
 
 class EditItemContractor extends EditRecord
 {
@@ -17,6 +18,11 @@ class EditItemContractor extends EditRecord
         return [
             Actions\DeleteAction::make(),
         ];
+    }
+
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        return Arr::except($data, ['safety_stock', 'max_stock', 'auto_order_quantity']);
     }
 
     protected function getRedirectUrl(): string
