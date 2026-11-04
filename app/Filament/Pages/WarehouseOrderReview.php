@@ -4,7 +4,6 @@ namespace App\Filament\Pages;
 
 use App\Enums\EMenu;
 use App\Filament\Support\AdminPage;
-use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Warehouse;
 use App\Services\Statistics\WarehouseOrderReviewRunService;
 use BackedEnum;
@@ -53,7 +52,7 @@ class WarehouseOrderReview extends AdminPage
         $lastRun = app(WarehouseOrderReviewRunService::class)->owned((int) auth()->id(), $this->clientId())->latest('id')->first();
         $this->runId = $lastRun?->id;
         $this->form->fill([
-            'date' => $lastRun?->filters['date'] ?? ClientSetting::systemDateYMD(),
+            'date' => today()->toDateString(),
             'warehouse_id' => $lastRun?->filters['warehouse_id'] ?? $defaultWarehouse,
         ]);
     }
