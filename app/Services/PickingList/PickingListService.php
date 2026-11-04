@@ -1145,7 +1145,6 @@ class PickingListService
             ->leftJoin('warehouses as wh', 'pt.warehouse_id', '=', 'wh.id')
             ->leftJoin('items as i', 'pir.item_id', '=', 'i.id')
             ->leftJoin('trade_items as qty_ti', 'pir.trade_item_id', '=', 'qty_ti.id')
-            ->leftJoin('srh_searchable_items as ssi', 'ssi.item_id', '=', 'i.id')
             ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
             ->leftJoin('item_incoming_default_locations as idl', function ($join) {
                 $join->on('idl.item_id', '=', 'pir.item_id')
@@ -1169,7 +1168,7 @@ class PickingListService
                 DB::raw("COALESCE(i.name, '商品マスターなし') as item_name"),
                 DB::raw('COALESCE(qty_ti.capacity_case, i.capacity_case, 1) as capacity_case'),
                 DB::raw('COALESCE(qty_ti.capacity_carton, i.capacity_carton, qty_ti.capacity_case, i.capacity_case, 1) as capacity_carton'),
-                'ssi.jancode as jan_code',
+                DB::raw('(SELECT jan_source.jancode FROM srh_searchable_items AS jan_source WHERE jan_source.item_id = i.id ORDER BY jan_source.id LIMIT 1) as jan_code'),
                 DB::raw('COALESCE(pir.location_id, idl.location_id) as location_id'),
                 DB::raw('COALESCE(l.code1, default_l.code1) as code1'),
                 DB::raw('COALESCE(l.code2, default_l.code2) as code2'),
@@ -1308,7 +1307,6 @@ class PickingListService
             ->leftJoin('warehouses as wh', 'pt.warehouse_id', '=', 'wh.id')
             ->leftJoin('items as i', 'pir.item_id', '=', 'i.id')
             ->leftJoin('trade_items as qty_ti', 'pir.trade_item_id', '=', 'qty_ti.id')
-            ->leftJoin('srh_searchable_items as ssi', 'ssi.item_id', '=', 'i.id')
             ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
             ->leftJoin('item_incoming_default_locations as idl', function ($join) {
                 $join->on('idl.item_id', '=', 'pir.item_id')
@@ -1332,7 +1330,7 @@ class PickingListService
                 DB::raw("COALESCE(i.name, '商品マスターなし') as item_name"),
                 DB::raw('COALESCE(qty_ti.capacity_case, i.capacity_case, 1) as capacity_case'),
                 DB::raw('COALESCE(qty_ti.capacity_carton, i.capacity_carton, qty_ti.capacity_case, i.capacity_case, 1) as capacity_carton'),
-                'ssi.jancode as jan_code',
+                DB::raw('(SELECT jan_source.jancode FROM srh_searchable_items AS jan_source WHERE jan_source.item_id = i.id ORDER BY jan_source.id LIMIT 1) as jan_code'),
                 DB::raw('COALESCE(pir.location_id, idl.location_id) as location_id'),
                 DB::raw('COALESCE(l.code1, default_l.code1) as code1'),
                 DB::raw('COALESCE(l.code2, default_l.code2) as code2'),
@@ -1488,7 +1486,6 @@ class PickingListService
             ->leftJoin('delivery_courses as dc', 'pt.delivery_course_id', '=', 'dc.id')
             ->leftJoin('items as i', 'pir.item_id', '=', 'i.id')
             ->leftJoin('trade_items as qty_ti', 'pir.trade_item_id', '=', 'qty_ti.id')
-            ->leftJoin('srh_searchable_items as ssi', 'ssi.item_id', '=', 'i.id')
             ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
             ->leftJoin('item_incoming_default_locations as idl', function ($join) {
                 $join->on('idl.item_id', '=', 'pir.item_id')
@@ -1513,7 +1510,7 @@ class PickingListService
                 DB::raw("COALESCE(i.name, '商品マスターなし') as item_name"),
                 DB::raw('COALESCE(qty_ti.capacity_case, i.capacity_case, 1) as capacity_case'),
                 DB::raw('COALESCE(qty_ti.capacity_carton, i.capacity_carton, qty_ti.capacity_case, i.capacity_case, 1) as capacity_carton'),
-                'ssi.jancode as jan_code',
+                DB::raw('(SELECT jan_source.jancode FROM srh_searchable_items AS jan_source WHERE jan_source.item_id = i.id ORDER BY jan_source.id LIMIT 1) as jan_code'),
                 DB::raw('COALESCE(pir.location_id, idl.location_id) as location_id'),
                 DB::raw('COALESCE(l.code1, default_l.code1) as code1'),
                 DB::raw('COALESCE(l.code2, default_l.code2) as code2'),

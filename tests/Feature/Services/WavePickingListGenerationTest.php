@@ -353,6 +353,51 @@ class WavePickingListGenerationTest extends TestCase
     }
 
     #[Test]
+    public function duplicate_search_rows_do_not_multiply_planned_or_shortage_quantities(): void
+    {
+        [$wine] = $this->product(151533, 9, 0);
+        [$short] = $this->product(151534, 1, 0);
+        [$unindexed] = $this->product(151535, 3, 0);
+        $this->order($wine, 9, 'PIECE', 1, '07:00:00');
+        $this->order($short, 4, 'PIECE', 1, '07:00:01');
+        $this->order($unindexed, 3, 'PIECE', 1, '07:00:02');
+        DB::connection('sakemaru')->table('srh_searchable_items')->insert([
+            ['item_id' => $wine, 'jancode' => '1515336,4901777404861'],
+            ['item_id' => $wine, 'jancode' => '1515336,4901777404861'],
+            ['item_id' => $short, 'jancode' => '1515343'],
+            ['item_id' => $short, 'jancode' => 'different-newer-value'],
+        ]);
+
+        $page = new \App\Filament\Resources\Waves\Pages\ListWaves;
+        $provisionalMethod = new \ReflectionMethod($page, 'buildProvisionalPickingRows');
+        $provisionalRows = $provisionalMethod->invoke($page, [
+            'warehouse_id' => $this->fixtureWarehouseId,
+            'shipping_date' => '2026-10-12',
+            'delivery_course_ids' => [1],
+        ]);
+        foreach ([151533 => [9, 0, '1515336'], 151534 => [1, 3, '1515343'], 151535 => [3, 0, '']] as $code => [$planned, $shortage, $jan]) {
+            $rows = $provisionalRows->where('item_code', $code);
+            $this->assertSame($planned, $rows->sum('planned_qty'));
+            $this->assertSame($shortage, $rows->sum('shortage_qty'));
+            $this->assertSame($jan, $rows->first()['jan_code']);
+        }
+
+        $result = (new WaveGroupGenerationService)->generate($this->group(), 1);
+        $this->assertSixPdfs($result);
+        $listService = new PickingListService;
+        foreach (['generateCourseGroupedListByWaveIds', 'generateCourseGroupedListV2ByWaveIds', 'generateBuyerGroupedListByWaveIds'] as $method) {
+            $lists = $listService->{$method}($result['wave_ids']);
+            $items = collect($lists)->pluck('items')->flatten(1);
+            foreach ([151533 => [9, 0, '1515336'], 151534 => [1, 3, '1515343'], 151535 => [3, 0, '']] as $code => [$planned, $shortage, $jan]) {
+                $rows = $items->where('item_code', $code);
+                $this->assertSame($planned, $rows->sum('total_pieces'), $method.' planned '.$code);
+                $this->assertSame($shortage, $rows->sum('shortage_qty'), $method.' shortage '.$code);
+                $this->assertSame($jan, $rows->first()['jan_code']);
+            }
+        }
+    }
+
+    #[Test]
     public function missing_location_and_missing_search_index_still_print_all_formats(): void
     {
         [$item, , $lot] = $this->product(210006, 6, 0);
