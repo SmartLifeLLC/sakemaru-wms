@@ -17,7 +17,7 @@ use Tests\TestCase;
 
 class ItemContractorStockQuantityTest extends TestCase
 {
-    private const QUANTITY_COLUMNS = ['safety_stock', 'max_stock', 'min_stock', 'auto_order_quantity'];
+    private const QUANTITY_COLUMNS = ['min_stock'];
 
     public function test_form_save_data_replaces_blank_quantities_with_zero_and_preserves_numbers(): void
     {
@@ -28,6 +28,10 @@ class ItemContractorStockQuantityTest extends TestCase
             public array $data = [];
         };
         $schema = ItemContractorForm::configure(Schema::make($livewire)->statePath('data'));
+
+        foreach (['safety_stock', 'max_stock', 'auto_order_quantity'] as $name) {
+            $this->assertNull($schema->getComponentByStatePath($name, withHidden: true));
+        }
 
         foreach (self::QUANTITY_COLUMNS as $name) {
             $field = $schema->getComponentByStatePath($name, withHidden: true);
@@ -55,6 +59,10 @@ class ItemContractorStockQuantityTest extends TestCase
     public function test_inline_edit_saves_and_returns_zero_for_blank_quantities(): void
     {
         $table = ItemContractorsTable::configure(Table::make(Mockery::mock(HasTable::class)));
+
+        foreach (['safety_stock', 'max_stock', 'auto_order_quantity'] as $name) {
+            $this->assertNull($table->getColumn($name));
+        }
 
         foreach (self::QUANTITY_COLUMNS as $name) {
             $column = $table->getColumn($name);
