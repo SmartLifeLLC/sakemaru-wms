@@ -83,24 +83,6 @@ class ItemContractorsTable
                     ->tooltip(fn (?string $state): ?string => filled($state) ? $state : null)
                     ->toggleable(isToggledHiddenByDefault: true),
 
-                TextInputColumn::make('safety_stock')
-                    ->label('発注点')
-                    ->type('number')
-                    ->rules(['integer', 'min:0'])
-                    ->updateStateUsing(fn (ItemContractor $record, $state) => static::updateStockQuantity($record, 'safety_stock', $state))
-                    ->sortable()
-                    ->alignEnd()
-                    ->width('100px'),
-
-                TextInputColumn::make('max_stock')
-                    ->label('最大在庫')
-                    ->type('number')
-                    ->rules(['integer', 'min:0'])
-                    ->updateStateUsing(fn (ItemContractor $record, $state) => static::updateStockQuantity($record, 'max_stock', $state))
-                    ->sortable()
-                    ->alignEnd()
-                    ->width('100px'),
-
                 TextInputColumn::make('min_stock')
                     ->label('最低在庫')
                     ->type('number')
@@ -110,15 +92,6 @@ class ItemContractorsTable
                     ->alignEnd()
                     ->toggleable(isToggledHiddenByDefault: true)
                     ->width('100px'),
-
-                TextInputColumn::make('auto_order_quantity')
-                    ->label('自動発注数')
-                    ->type('number')
-                    ->rules(['integer', 'min:0'])
-                    ->updateStateUsing(fn (ItemContractor $record, $state) => static::updateStockQuantity($record, 'auto_order_quantity', $state))
-                    ->sortable()
-                    ->alignEnd()
-                    ->width('110px'),
 
                 ToggleColumn::make('use_safety_stock_auto_update')
                     ->label('在庫自動更新')
