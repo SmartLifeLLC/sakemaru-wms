@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\ExportStatus;
+use App\Filament\Pages\WarehouseOrderReview;
 use App\Jobs\GenerateWarehouseOrderReview;
 use App\Models\User;
 use App\Models\WmsExportLog;
@@ -14,6 +15,7 @@ use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Livewire\Livewire;
 use Mockery;
 use Sakemaru\Auth\Services\PermissionService;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -54,6 +56,35 @@ class WarehouseOrderReviewRunTest extends TestCase
     private function start(): WmsExportLog
     {
         return $this->service->start(991, 6, ['date' => '2026-10-29', 'warehouse_id' => 1, 'warehouse_code' => 91, 'warehouse_name' => 'テスト倉庫']);
+    }
+
+    public function test_report_form_opens_with_today_when_a_previous_export_exists(): void
+    {
+        Schema::connection('sakemaru')->create('warehouses', function (Blueprint $table) {
+            $table->id();
+            $table->integer('client_id');
+            $table->integer('code');
+            $table->string('name');
+            $table->boolean('is_active');
+            $table->boolean('is_virtual');
+        });
+        DB::connection('sakemaru')->table('warehouses')->insert([
+            'id' => 1, 'client_id' => 6, 'code' => 91, 'name' => 'テスト倉庫',
+            'is_active' => true, 'is_virtual' => false,
+        ]);
+        $user = new User(['client_id' => 6]);
+        $user->id = 991;
+        $this->actingAs($user);
+        $this->mock(PermissionService::class, fn ($mock) => $mock->shouldReceive('check')->andReturnTrue());
+        $this->withoutVite();
+        $run = $this->start();
+
+        $this->travelTo(now()->setDate(2026, 11, 5)->setTime(0, 1));
+        Livewire::test(WarehouseOrderReview::class)
+            ->assertSet('data.date', '2026-11-05')
+            ->assertSet('data.warehouse_id', 1)
+            ->assertSet('runId', $run->id)
+            ->assertSee('基準日 2026-10-29');
     }
 
     public function test_repeated_request_reuses_active_run_and_dispatches_once(): void

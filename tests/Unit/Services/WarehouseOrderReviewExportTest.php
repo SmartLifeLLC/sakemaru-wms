@@ -17,7 +17,7 @@ class WarehouseOrderReviewExportTest extends TestCase
             $rows[] = [
                 '__item_id' => 10, '日付' => '2026-10-29', '発注先CD' => '0012', '発注先名' => '=supplier',
                 '仕入先CD' => '123', '仕入先名' => '仕入先', '単品CD' => '00101', 'JANCD' => '0012345678901',
-                '商品名' => '商品', '中分類CD' => '02015', '入数' => 24, '発注点' => 0, '在庫CS' => -1.5, '在庫バラ' => -36,
+                '商品名' => '商品', '中分類CD' => '02015', '中分類名' => '果実酒', '入数' => 24, '発注点' => 0, '在庫CS' => -1.5, '在庫バラ' => -36,
                 '受注CS' => 2.5, '受注バラ' => 60, '移動CS' => 3, '移動バラ' => 72,
                 '1週' => 123, '2週' => 456, '3週' => 789, '前月' => 1000,
                 '入荷予定日' => sprintf('2026-11-%02d', $day), '入荷予定CS' => $day / 2,
@@ -33,31 +33,36 @@ class WarehouseOrderReviewExportTest extends TestCase
             (new Xlsx($book))->save($tmp);
             $saved = IOFactory::load($tmp);
             $sheet = $saved->getActiveSheet();
-            $this->assertSame('AD', $sheet->getHighestColumn());
+            $this->assertSame('AE', $sheet->getHighestColumn());
             $this->assertSame(4, $sheet->getHighestRow());
             $this->assertSame('発注先CD', $sheet->getCell('B1')->getValue());
             $this->assertSame('仕入先CD', $sheet->getCell('D1')->getValue());
-            $this->assertSame('備考', $sheet->getCell('AC1')->getValue());
-            $this->assertSame('26/11/07', $sheet->getCell('AB2')->getValue());
-            $this->assertSame(2.5, $sheet->getCell('V3')->getValue());
-            $this->assertSame(3.5, $sheet->getCell('AB3')->getValue());
-            $this->assertSame(-1.5, $sheet->getCell('L3')->getValue());
-            $this->assertEquals(-36, $sheet->getCell('M3')->getValue());
-            $this->assertEquals(0, $sheet->getCell('M4')->getValue());
-            $this->assertEquals(123, $sheet->getCell('R3')->getValue());
-            $this->assertEquals(1000, $sheet->getCell('U3')->getValue());
-            $this->assertSame('0012345678901', $sheet->getCell('F3')->getValue());
-            $this->assertSame('00101', $sheet->getCell('G3')->getValue());
+            $this->assertSame('備考', $sheet->getCell('AE1')->getValue());
+            $this->assertSame('26/11/07', $sheet->getCell('AD2')->getValue());
+            $this->assertSame(2.5, $sheet->getCell('X3')->getValue());
+            $this->assertSame(3.5, $sheet->getCell('AD3')->getValue());
+            $this->assertSame(-1.5, $sheet->getCell('N3')->getValue());
+            $this->assertEquals(-36, $sheet->getCell('O3')->getValue());
+            $this->assertEquals(0, $sheet->getCell('O4')->getValue());
+            $this->assertEquals(123, $sheet->getCell('T3')->getValue());
+            $this->assertEquals(1000, $sheet->getCell('W3')->getValue());
+            $this->assertSame('0012345678901', $sheet->getCell('H3')->getValue());
+            $this->assertSame('00101', $sheet->getCell('I3')->getValue());
             $this->assertSame('s', $sheet->getCell('C3')->getDataType());
-            $this->assertSame("=memo\n二行目", $sheet->getCell('AC3')->getValue());
-            $this->assertSame('s', $sheet->getCell('AC3')->getDataType());
-            $this->assertSame('中分類CD', $sheet->getCell('AD1')->getValue());
-            $this->assertSame('02015', $sheet->getCell('AD3')->getValue());
-            $this->assertSame('s', $sheet->getCell('AD3')->getDataType());
-            $this->assertNull($sheet->getCell('AD4')->getValue());
-            $this->assertArrayHasKey('AD1:AD2', $sheet->getMergeCells());
-            $this->assertSame('A2:AD4', $sheet->getAutoFilter()->getRange());
-            $this->assertArrayHasKey('V1:AB1', $sheet->getMergeCells());
+            $this->assertSame("=memo\n二行目", $sheet->getCell('AE3')->getValue());
+            $this->assertSame('s', $sheet->getCell('AE3')->getDataType());
+            $this->assertSame('中分類CD', $sheet->getCell('F1')->getValue());
+            $this->assertSame('中分類名', $sheet->getCell('G1')->getValue());
+            $this->assertSame('JANCD', $sheet->getCell('H1')->getValue());
+            $this->assertSame('02015', $sheet->getCell('F3')->getValue());
+            $this->assertSame('果実酒', $sheet->getCell('G3')->getValue());
+            $this->assertSame('s', $sheet->getCell('F3')->getDataType());
+            $this->assertNull($sheet->getCell('F4')->getValue());
+            $this->assertNull($sheet->getCell('G4')->getValue());
+            $this->assertArrayHasKey('F1:F2', $sheet->getMergeCells());
+            $this->assertArrayHasKey('G1:G2', $sheet->getMergeCells());
+            $this->assertSame('A2:AE4', $sheet->getAutoFilter()->getRange());
+            $this->assertArrayHasKey('X1:AD1', $sheet->getMergeCells());
             $saved->disconnectWorksheets();
         } finally {
             $book->disconnectWorksheets();
@@ -69,8 +74,8 @@ class WarehouseOrderReviewExportTest extends TestCase
     {
         $book = (new WarehouseOrderReviewExport)->spreadsheet([], 92);
         $sheet = $book->getActiveSheet();
-        $this->assertSame('92ケース', $sheet->getCell('L2')->getValue());
-        $this->assertSame('備考', $sheet->getCell('AC1')->getValue());
+        $this->assertSame('92ケース', $sheet->getCell('N2')->getValue());
+        $this->assertSame('備考', $sheet->getCell('AE1')->getValue());
         $this->assertSame(2, $sheet->getHighestRow());
         $book->disconnectWorksheets();
     }
