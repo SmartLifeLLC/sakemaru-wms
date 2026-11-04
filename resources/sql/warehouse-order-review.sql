@@ -358,6 +358,7 @@ SELECT
     COALESCE(piece_jan.search_string, '') AS `JANCD`,
     i.code AS `単品CD`,
     i.name AS `商品名`,
+    category2.code AS `中分類CD`,
     i.capacity_case AS `入数`,
     COALESCE(
     ss.shelf_number,
@@ -396,6 +397,9 @@ FROM base_item_ids bii
 INNER JOIN items i ON i.id = bii.item_id
 CROSS JOIN target_warehouse tw
 CROSS JOIN params p
+LEFT JOIN item_categories category2
+    ON category2.id = i.item_category2_id
+    AND category2.client_id = __CLIENT_ID__
 LEFT JOIN manufacturers m
     ON m.id = i.manufacturer_id
     AND m.client_id = __CLIENT_ID__
