@@ -9,6 +9,7 @@ use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\ItemCategory;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsContractorSetting;
+use App\Services\AutoReplenishment\AutoOrderDisplayStatus;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -38,22 +39,9 @@ class OrderRegistrationSearchService
             return [];
         }
 
-        return DB::connection('sakemaru')->table('wms_item_reorder_policies as p')
-            ->join('wms_auto_order_controls as c', 'c.client_id', '=', 'p.client_id')
-            ->join('wms_warehouse_auto_order_settings as s', 's.warehouse_id', '=', 'p.warehouse_id')
-            ->join('warehouses as w', function ($join): void {
-                $join->on('w.id', '=', 'p.warehouse_id')->on('w.client_id', '=', 'p.client_id');
-            })
-            ->where('p.client_id', $clientId)
+        return app(AutoOrderDisplayStatus::class)->activePolicies()
             ->where('p.warehouse_id', $warehouseId)
             ->whereIn('p.item_id', $itemIds)
-            ->where('p.is_enabled', true)
-            ->where('p.is_configured', true)
-            ->where('c.enabled', true)
-            ->where('c.reset_state', 'COMPLETE')
-            ->where('s.is_auto_order_enabled', true)
-            ->where('w.is_active', true)
-            ->where('w.is_virtual', false)
             ->pluck('p.item_id')
             ->mapWithKeys(fn ($id): array => [(int) $id => true])
             ->all();
