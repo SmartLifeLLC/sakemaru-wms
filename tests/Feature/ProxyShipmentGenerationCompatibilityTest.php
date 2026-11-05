@@ -35,7 +35,10 @@ class ProxyShipmentGenerationCompatibilityTest extends \Tests\TestCase
             $t->integer('created_by')->nullable();
             $t->integer('updated_by')->nullable();
         });
-        Schema::table('trade_items', fn (Blueprint $t) => $t->decimal('price')->nullable());
+        Schema::table('trade_items', function (Blueprint $t) {
+            $t->decimal('price')->nullable();
+            $t->boolean('is_active')->default(true);
+        });
         foreach (['item_partner_prices', 'item_prices'] as $name) {
             Schema::create($name, function (Blueprint $t) {
                 $t->id();
@@ -60,6 +63,9 @@ class ProxyShipmentGenerationCompatibilityTest extends \Tests\TestCase
         Schema::table('wms_picking_item_results', function (Blueprint $t) {
             $t->integer('picking_task_id')->nullable();
             $t->integer('item_id')->nullable();
+            $t->integer('trade_item_id')->nullable();
+            $t->integer('earning_id')->nullable();
+            $t->integer('stock_transfer_id')->nullable();
             $t->string('status')->nullable();
             $t->string('source_type')->default('EARNING');
         });
@@ -89,7 +95,7 @@ class ProxyShipmentGenerationCompatibilityTest extends \Tests\TestCase
         });
         DB::table('earnings')->insert(['id' => 1, 'trade_id' => 10]);
         DB::table('wms_picking_tasks')->insert(['id' => 1, 'delivery_course_id' => 1, 'shipment_date' => '2026-10-14', 'status' => 'COMPLETED']);
-        DB::table('wms_picking_item_results')->insert(['id' => 1, 'picking_task_id' => 1, 'item_id' => 1, 'status' => 'SHORTAGE']);
+        DB::table('wms_picking_item_results')->insert(['id' => 1, 'picking_task_id' => 1, 'item_id' => 1, 'trade_item_id' => 1, 'earning_id' => 1, 'status' => 'SHORTAGE']);
         DB::table('wms_shortages')->where('id', 1)->update(['source_pick_result_id' => 1, 'shipment_date' => '2026-10-14']);
     }
 

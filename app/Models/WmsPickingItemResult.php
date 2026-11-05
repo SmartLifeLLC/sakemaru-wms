@@ -6,8 +6,10 @@ use App\Models\Sakemaru\Earning;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\StockTransfer;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 
 class WmsPickingItemResult extends Model
 {
@@ -154,6 +156,39 @@ class WmsPickingItemResult extends Model
     public function shortage(): \Illuminate\Database\Eloquent\Relations\HasOne
     {
         return $this->hasOne(WmsShortage::class, 'source_pick_result_id', 'id');
+    }
+
+    /**
+     * 取消・削除された元伝票の明細は、同期待ち・出荷可否の判定対象外とする。
+     */
+    public function scopeWithActiveSourceDocument(Builder $query): Builder
+    {
+        $table = $this->getTable();
+
+        return $query
+            ->whereExists(function (QueryBuilder $query) use ($table) {
+                $query->selectRaw('1')
+                    ->from('trade_items as source_ti')
+                    ->whereColumn('source_ti.id', "{$table}.trade_item_id")
+                    ->where('source_ti.is_active', true);
+            })
+            ->where(function (Builder $query) use ($table) {
+                $query->whereExists(function (QueryBuilder $query) use ($table) {
+                    $query->selectRaw('1')
+                        ->from('earnings as source_e')
+                        ->join('trades as source_et', 'source_e.trade_id', '=', 'source_et.id')
+                        ->whereColumn('source_e.id', "{$table}.earning_id")
+                        ->where('source_e.is_active', true)
+                        ->where('source_et.is_active', true);
+                })->orWhereExists(function (QueryBuilder $query) use ($table) {
+                    $query->selectRaw('1')
+                        ->from('stock_transfers as source_st')
+                        ->join('trades as source_stt', 'source_st.trade_id', '=', 'source_stt.id')
+                        ->whereColumn('source_st.id', "{$table}.stock_transfer_id")
+                        ->where('source_st.is_active', true)
+                        ->where('source_stt.is_active', true);
+                });
+            });
     }
 
     /**

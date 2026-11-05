@@ -1566,12 +1566,13 @@ class WmsShipmentSlipsTable
         $allTaskIds = $allTasks->pluck('id');
         $unsyncedByTask = collect();
         if ($allTaskIds->isNotEmpty()) {
-            $unsyncedByTask = WmsShortage::query()
-                ->join('wms_picking_item_results', 'wms_shortages.source_pick_result_id', '=', 'wms_picking_item_results.id')
-                ->whereIn('wms_picking_item_results.picking_task_id', $allTaskIds)
-                ->where('wms_shortages.shortage_qty', '>', 0)
-                ->where('wms_shortages.is_synced', false)
-                ->select('wms_picking_item_results.picking_task_id')
+            $unsyncedByTask = WmsPickingItemResult::query()
+                ->withActiveSourceDocument()
+                ->whereIn('picking_task_id', $allTaskIds)
+                ->whereHas('shortage', fn (Builder $query) => $query
+                    ->where('shortage_qty', '>', 0)
+                    ->where('is_synced', false))
+                ->select('picking_task_id')
                 ->distinct()
                 ->pluck('picking_task_id')
                 ->flip();
