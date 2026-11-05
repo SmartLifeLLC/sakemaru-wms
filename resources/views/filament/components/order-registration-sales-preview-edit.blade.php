@@ -10,7 +10,7 @@
         '商品名' => '商品マスタの商品名です。',
         '規格' => '商品の規格・入数です。',
         '棚番' => '選択中の倉庫で設定されている入荷デフォルト棚番です。',
-        '発注点' => '選択中の倉庫・発注先・商品に設定されている発注点です。',
+        '発注点' => '全体・倉庫・商品の自動発注設定が有効な商品は「自動発注中」と表示します。発注の有無は実行時に判定されます。それ以外は、選択中の倉庫・発注先・商品の発注点です。',
         '予定日' => '今回この画面から発注した場合の入荷予定日です。必要に応じて明細ごとに変更できます。',
         'ケース' => 'ケース単位で発注する数量を入力します。ケースとバラはどちらか一方を入力します。',
         'バラ' => 'バラ単位で発注する数量を入力します。ケースとバラはどちらか一方を入力します。',
@@ -555,7 +555,7 @@
                             </td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-slate-600 dark:text-slate-300" x-text="row.item_packaging || '-'"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 font-mono text-slate-700 dark:text-slate-200" x-text="row.default_location_code || '-'"></td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.safety_stock)"></td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="row.is_auto_order_active ? '自動発注中' : formatNumber(row.safety_stock)"></td>
                             <td class="logistics-candidate-order-qty whitespace-nowrap border-l-2 border-slate-300 bg-amber-50 px-1 py-1.5 text-center dark:border-slate-600 dark:bg-amber-950/30">
                                 <input
                                     type="text"
