@@ -175,7 +175,10 @@ class WmsAutoOrderExecutionLogsTable
                     ->label('再実行')
                     ->icon('heroicon-o-arrow-path')
                     ->color('warning')
-                    ->visible(fn ($record) => $record->status === 'FAILED')
+                    // 旧管理者メニューと同じ発注点ベースの計算を起動するため、再実行も停止する。
+                    // 再利用時は倉庫ON/OFFとの分離・対象0件・旧商品設定の初期化を検証すること。
+                    ->hidden()
+                    ->disabled()
                     ->requiresConfirmation()
                     ->modalHeading('この仕入先の発注計算を再実行しますか？')
                     ->modalDescription(fn ($record) => "仕入先: {$record->contractor->name}\n前回エラー: ".Str::limit($record->error_details, 100))

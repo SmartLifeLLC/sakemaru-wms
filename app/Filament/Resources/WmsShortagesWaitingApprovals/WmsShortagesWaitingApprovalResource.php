@@ -28,7 +28,7 @@ class WmsShortagesWaitingApprovalResource extends AdminResource
                 'confirmedBy:id,name',
                 'confirmedUser:id,name',
             ])
-            ->withSum('allocations as allocations_total_qty', 'assign_qty');
+            ->withSum(['allocations as allocations_total_qty' => fn ($query) => $query->activeRequest()], 'assign_qty');
     }
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCheckCircle;

@@ -2,12 +2,16 @@
 
 namespace App\Filament\Resources\WmsContractorWarehouseSettings\Schemas;
 
+use App\Filament\Support\ContractorWarehouseSettingCreation;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsContractorWarehouseSetting;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
+use Illuminate\Validation\Rules\Unique;
 
 class WmsContractorWarehouseSettingForm
 {
@@ -36,6 +40,13 @@ class WmsContractorWarehouseSettingForm
                                 ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}] {$w->name}"]))
                             ->searchable()
                             ->required()
+                            ->unique(
+                                table: WmsContractorWarehouseSetting::class,
+                                ignoreRecord: true,
+                                modifyRuleUsing: fn (Unique $rule, Get $get): Unique => $rule
+                                    ->where('contractor_id', $get('contractor_id')),
+                            )
+                            ->validationMessages(['unique' => ContractorWarehouseSettingCreation::DUPLICATE_MESSAGE])
                             ->disabledOn('edit'),
 
                         TextInput::make('designated_code')

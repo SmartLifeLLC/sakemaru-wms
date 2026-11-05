@@ -8,8 +8,10 @@ use App\Models\WaveGroup;
 use App\Models\WaveSetting;
 use App\Models\WmsPickingItemResult;
 use App\Models\WmsQueueProgress;
+use App\Models\WmsShortage;
 use App\Services\PickingList\PickingListPdfService;
 use App\Services\PickingList\PickingListService;
+use App\Support\DbMutex;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -17,14 +19,62 @@ use Illuminate\Support\Facades\Storage;
 
 class WaveGroupGenerationService
 {
+    private ?WaveAllocationBudget $allocationBudget = null;
+
+    private array $allocationResults = [];
+
+    private array $allocationWarnings = [];
+
+    private array $pickingListErrors = [];
+
     /**
      * @return array{wave_ids: array<int>, earning_count: int, stock_transfer_count: int, picking_lists: array<string, array<string, mixed>>, timings_ms: array<string, int>}
      */
+    /**
+     * 波動生成の前段でロット調節を実行する。
+     *
+     * 【最重要】調節の成否・例外は波動生成に一切影響させない。
+     * - LotAdjustmentRunner::runForWaveGeneration() は内部で全例外を握りつぶし、失敗を
+     *   ロット調節履歴（wms_lot_adjustment_logs）に残す。
+     * - 念のためここでも Throwable を握りつぶし、波動生成を必ず継続する。
+     * - 調節は独立したトランザクションで完結しており、波動生成と DB トランザクションを共有しない。
+     */
+    private function runPreWaveLotAdjustment(int $warehouseId): void
+    {
+        try {
+            app(\App\Services\LotAdjustment\LotAdjustmentRunner::class)
+                ->runForWaveGeneration($warehouseId);
+        } catch (\Throwable $e) {
+            // 二重の安全網: ここで握りつぶし、波動生成は継続する
+            Log::error('[LOT_ADJUSTMENT] pre-wave lot adjustment failed; wave generation continues', [
+                'warehouse_id' => $warehouseId,
+                'error' => $e->getMessage(),
+                'error_class' => $e::class,
+            ]);
+        }
+    }
+
     public function generate(WaveGroup $waveGroup, int $userId, ?WmsQueueProgress $progress = null): array
+    {
+        $result = DbMutex::withLockOrFail(
+            'wave_group_generation:'.$waveGroup->id,
+            fn () => $this->generateLocked($waveGroup, $userId, $progress),
+            10,
+            'sakemaru',
+        );
+        if ($result === null) {
+            throw new \RuntimeException('この生成グループは既に処理中です。生成状況を確認してください');
+        }
+
+        return $result;
+    }
+
+    private function generateLocked(WaveGroup $waveGroup, int $userId, ?WmsQueueProgress $progress): array
     {
         ini_set('memory_limit', '1024M');
         set_time_limit(3600);
 
+        $waveGroup->refresh();
         $startedAt = microtime(true);
         $timings = [];
         $data = $waveGroup->conditions ?? [];
@@ -35,15 +85,30 @@ class WaveGroupGenerationService
         $data['generation_type'] = $waveGroup->generation_type;
         $data['target_document_types'] = $waveGroup->target_document_types ?? ['shipment', 'transfer'];
 
-        $progress?->markAsProcessing(100, '在庫同期を開始しています');
-
         $phaseStartedAt = microtime(true);
-        $stockSyncResult = app(Warehouse91StockLotSyncService::class)->sync([], false);
-        $timings['stock_sync'] = $this->elapsedMilliseconds($phaseStartedAt);
+        $progress?->markAsProcessing(100, '波動生成を開始しています');
+        if ($waveGroup->cancelled_at || $waveGroup->waves()->where('status', 'CANCELLED')->exists()) {
+            throw new \RuntimeException('取消済みの生成グループは再実行できません');
+        }
+        $existingWaveIds = $waveGroup->waves()->orderBy('id')->pluck('id')->all();
+        if ($existingWaveIds !== []) {
+            // A PDF/storage failure happens after allocation has committed.
+            // Retrying this group renders the same waves, never allocates again.
+            $generationResult = array_merge(['earning_count' => 0, 'stock_transfer_count' => 0, 'allocation_warnings' => []], $waveGroup->generation_result ?? [], ['wave_ids' => $existingWaveIds]);
+        } else {
+            // Serialize only stock adjustment/allocation for this warehouse.
+            // PDF rendering/storage for other groups must not wait for that lock.
+            $generationResult = DbMutex::withLockOrFail('wave_generation:'.$waveGroup->warehouse_id, function () use ($waveGroup, $data, $userId) {
+                $this->runPreWaveLotAdjustment((int) $waveGroup->warehouse_id);
 
-        $phaseStartedAt = microtime(true);
-        $progress?->updateProgress(10, '在庫同期が完了しました。波動生成を開始しています');
-        $generationResult = $this->createWavesFromCourses($data, $waveGroup, $userId);
+                return $this->createWavesFromCourses($data, $waveGroup, $userId);
+            }, 10, 'sakemaru');
+            if ($generationResult === null) {
+                throw new \RuntimeException('同じ倉庫の在庫引当が実行中です。完了後に再実行してください');
+            }
+            $waveGroup->update(['generation_result' => $generationResult]);
+        }
+        $this->allocationWarnings = $generationResult['allocation_warnings'] ?? [];
         $timings['wave_generation'] = $this->elapsedMilliseconds($phaseStartedAt);
 
         $waveIds = $generationResult['wave_ids'];
@@ -58,8 +123,12 @@ class WaveGroupGenerationService
 
         $result = [
             ...$generationResult,
-            'stock_sync' => $stockSyncResult,
+            'stock_sync' => [
+                'skipped' => true,
+                'reason' => 'automatic stock lot sync is disabled for wave generation',
+            ],
             'picking_lists' => $pickingLists,
+            'picking_list_errors' => $this->pickingListErrors,
             'timings_ms' => $timings,
             'started_at' => now()->toDateTimeString(),
             'completed_at' => now()->toDateTimeString(),
@@ -79,7 +148,11 @@ class WaveGroupGenerationService
             'timings_ms' => $timings,
         ]);
 
-        $progress?->markAsCompleted($result, '波動生成とピッキングリスト保存が完了しました');
+        $message = '波動生成とピッキングリスト保存が完了しました';
+        if ($this->allocationWarnings !== [] || $this->pickingListErrors !== []) {
+            $message = '波動生成完了：再計算・欠品処理記録 '.count($this->allocationWarnings).'件、帳票出力失敗 '.count($this->pickingListErrors).'種類。生成結果を確認してください';
+        }
+        $progress?->markAsCompleted($result, $message);
 
         return $result;
     }
@@ -91,12 +164,51 @@ class WaveGroupGenerationService
     public function savePickingLists(WaveGroup $waveGroup, array $waveIds): array
     {
         $listService = new PickingListService;
-        $pdfService = new PickingListPdfService;
+        $pdfService = new PickingListPdfService($this->allocationWarnings ?: ($waveGroup->generation_result['allocation_warnings'] ?? []));
         $separateFloors = (bool) (($waveGroup->conditions['separate_floors'] ?? true));
         $shippingDate = $waveGroup->shipping_date->format('Y-m-d');
         $datePath = $waveGroup->shipping_date->format('Y/m/d');
 
-        $renderers = [
+        $renderers = $this->pickingListRenderers($listService, $pdfService, $waveIds, $separateFloors);
+        $this->pickingListErrors = [];
+        $saved = $waveGroup->picking_lists ?? [];
+        $previousErrors = $waveGroup->generation_result['picking_list_errors'] ?? [];
+        foreach ($renderers as $listType => $renderer) {
+            try {
+                if (isset($saved[$listType]) && ! isset($previousErrors[$listType]) && Storage::disk($saved[$listType]['disk'])->exists($saved[$listType]['path'])) {
+                    continue;
+                }
+                $pdf = $renderer();
+                $filename = "wave-group-{$waveGroup->group_no}-{$listType}-{$shippingDate}.pdf";
+                $path = "wms/picking-lists/{$datePath}/wave-group-{$waveGroup->id}/{$filename}";
+                if (! $this->storePickingList($path, $pdf)) {
+                    throw new \RuntimeException("ピッキングリストの保存に失敗しました: {$listType}");
+                }
+                $saved[$listType] = [
+                    'disk' => 's3', 'path' => $path, 'filename' => $filename,
+                    'mime_type' => 'application/pdf', 'size' => strlen($pdf),
+                    'checksum' => 'sha256:'.hash('sha256', $pdf), 'generated_at' => now()->toDateTimeString(),
+                    'source' => ['wave_ids' => array_values($waveIds), 'separate_floors' => $separateFloors],
+                ];
+                // Save every successful format before attempting the next one.
+                $waveGroup->update(['picking_lists' => $saved]);
+            } catch (\Throwable $e) {
+                $this->pickingListErrors[$listType] = '帳票の生成または保存に失敗しました。この生成グループを再実行してください';
+                Log::error('Picking list failed; remaining formats continue', ['wave_group_id' => $waveGroup->id, 'list_type' => $listType, 'error' => $e->getMessage()]);
+            }
+        }
+
+        return $saved;
+    }
+
+    protected function storePickingList(string $path, string $pdf): bool
+    {
+        return Storage::disk('s3')->put($path, $pdf);
+    }
+
+    protected function pickingListRenderers(PickingListService $listService, PickingListPdfService $pdfService, array $waveIds, bool $separateFloors): array
+    {
+        return [
             'primary' => fn (): string => $pdfService->renderBatchPrimaryPdf(
                 $listService->generatePrimaryCourseListPages($waveIds, $separateFloors)
             ),
@@ -117,32 +229,6 @@ class WaveGroupGenerationService
             ),
         ];
 
-        $saved = [];
-        foreach ($renderers as $listType => $renderer) {
-            $pdf = $renderer();
-            $filename = "wave-group-{$waveGroup->group_no}-{$listType}-{$shippingDate}.pdf";
-            $path = "wms/picking-lists/{$datePath}/wave-group-{$waveGroup->id}/{$filename}";
-
-            if (! Storage::disk('s3')->put($path, $pdf)) {
-                throw new \RuntimeException("ピッキングリストのS3保存に失敗しました: {$listType}");
-            }
-
-            $saved[$listType] = [
-                'disk' => 's3',
-                'path' => $path,
-                'filename' => $filename,
-                'mime_type' => 'application/pdf',
-                'size' => strlen($pdf),
-                'checksum' => 'sha256:'.hash('sha256', $pdf),
-                'generated_at' => now()->toDateTimeString(),
-                'source' => [
-                    'wave_ids' => array_values($waveIds),
-                    'separate_floors' => $separateFloors,
-                ],
-            ];
-        }
-
-        return $saved;
     }
 
     /**
@@ -155,7 +241,7 @@ class WaveGroupGenerationService
         $generationType = $data['generation_type'] ?? 'delivery_course';
         $deliveryCourseIds = $data['delivery_course_ids'] ?? [];
         $buyerIds = $data['buyer_ids'] ?? [];
-        $includePast = $data['include_past'] ?? true;
+        $includePast = (bool) ($data['include_past'] ?? false);
         $targetDocumentTypes = $this->normalizeTargetDocumentTypes($data['target_document_types'] ?? null);
 
         if (empty($shippingDates)) {
@@ -214,19 +300,7 @@ class WaveGroupGenerationService
             return ['wave_ids' => [], 'earning_count' => 0, 'stock_transfer_count' => 0];
         }
 
-        $earningsByKey = $earnings->groupBy(
-            fn ($earning): string => Carbon::parse($earning->delivered_date)->format('Y-m-d').'|'.$earning->delivery_course_id
-        );
         $generationShippingDate = Carbon::parse($data['shipping_date'] ?? $this->latestShippingDate($shippingDates))->format('Y-m-d');
-        $stockTransfersByKey = $stockTransfers->groupBy(
-            fn ($stockTransfer): string => $generationShippingDate.'|'.$stockTransfer->delivery_course_id
-        );
-
-        $keys = $earningsByKey->keys()
-            ->merge($stockTransfersByKey->keys())
-            ->unique()
-            ->sort()
-            ->values();
 
         $createdWaveIds = [];
         $totalEarnings = 0;
@@ -234,15 +308,40 @@ class WaveGroupGenerationService
 
         DB::connection('sakemaru')->transaction(function () use (
             $warehouseId,
-            $keys,
-            $earningsByKey,
-            $stockTransfersByKey,
+            $generationShippingDate,
+            $earnings,
+            $stockTransfers,
             $waveGroup,
             $userId,
             &$createdWaveIds,
             &$totalEarnings,
             &$totalStockTransfers
         ) {
+            $createdWaveIds = [];
+            $totalEarnings = 0;
+            $totalStockTransfers = 0;
+            $snapshots = [];
+            foreach (['EARNING' => $earnings, 'STOCK_TRANSFER' => $stockTransfers] as $type => $sources) {
+                foreach ($sources as $source) {
+                    $values = (array) ($source instanceof \Illuminate\Database\Eloquent\Model ? $source->getAttributes() : $source);
+                    $snapshots[$type.':'.$source->id] = array_intersect_key($values, array_flip(['trade_id', 'delivery_course_id', 'delivered_date', 'picking_date', 'warehouse_id', 'from_warehouse_id', 'to_warehouse_id']));
+                }
+            }
+            $this->allocationBudget = new WaveAllocationBudget(
+                $earnings->pluck('id')->all(),
+                $stockTransfers->pluck('id')->all(),
+                $snapshots,
+            );
+            $this->allocationResults = [];
+            $this->allocationWarnings = [];
+            $this->allocationBudget->prepare($warehouseId, skipChangedSources: true);
+            $this->allocationWarnings = $this->allocationBudget->warnings();
+            $earnings = $earnings->whereIn('id', $this->allocationBudget->earningIds());
+            $stockTransfers = $stockTransfers->whereIn('id', $this->allocationBudget->stockTransferIds());
+            $earningsByKey = $earnings->groupBy(fn ($earning) => Carbon::parse($earning->delivered_date)->format('Y-m-d').'|'.$earning->delivery_course_id);
+            $stockTransfersByKey = $stockTransfers->groupBy(fn ($transfer) => $generationShippingDate.'|'.$transfer->delivery_course_id);
+            $keys = $earningsByKey->keys()->merge($stockTransfersByKey->keys())->unique()->sort()->values();
+            $courses = [];
             $warehouse = DB::connection('sakemaru')
                 ->table('warehouses')
                 ->where('id', $warehouseId)
@@ -272,6 +371,15 @@ class WaveGroupGenerationService
 
                 $wave = $this->createWaveSafely($waveSetting, $warehouse, $course, $shippingDate, $waveGroup);
 
+                $courses[] = compact('wave', 'waveSetting', 'course', 'shippingDate', 'courseEarnings', 'courseStockTransfers');
+                $createdWaveIds[] = $wave->id;
+            }
+
+            // Course numbers are only a grouping key. Allocate every selected
+            // line in order of its core trade creation, across all courses and source types.
+            $this->allocateOrderedLines($courses, $warehouseId);
+            foreach ($courses as $courseData) {
+                ['wave' => $wave, 'waveSetting' => $waveSetting, 'course' => $course, 'shippingDate' => $shippingDate, 'courseEarnings' => $courseEarnings, 'courseStockTransfers' => $courseStockTransfers] = $courseData;
                 if ($courseEarnings->isNotEmpty()) {
                     $this->processEarningsForWave($wave, $waveSetting, $courseEarnings, $warehouse, $course, $shippingDate);
                     $totalEarnings += $courseEarnings->count();
@@ -282,15 +390,190 @@ class WaveGroupGenerationService
                     $totalStockTransfers += $courseStockTransfers->count();
                 }
 
-                $createdWaveIds[] = $wave->id;
             }
+            $waveGroup->update(['generation_result' => ['wave_ids' => $createdWaveIds, 'earning_count' => $totalEarnings, 'stock_transfer_count' => $totalStockTransfers, 'allocation_warnings' => $this->allocationWarnings, 'allocation_recalculations' => $this->allocationBudget->recalculations()]]);
         });
 
         return [
             'wave_ids' => $createdWaveIds,
             'earning_count' => $totalEarnings,
             'stock_transfer_count' => $totalStockTransfers,
+            'allocation_warnings' => $this->allocationWarnings,
+            'allocation_recalculations' => $this->allocationBudget->recalculations(),
         ];
+    }
+
+    protected function earningAllocationService(): StockAllocationService
+    {
+        return new StockAllocationService($this->allocationBudget);
+    }
+
+    protected function transferAllocationService(): StockTransferLotAllocationService
+    {
+        return new StockTransferLotAllocationService($this->allocationBudget);
+    }
+
+    private function allocateOrderedLines(array $courses, int $warehouseId): void
+    {
+        $sources = [];
+        foreach ($courses as $course) {
+            foreach (['EARNING' => 'courseEarnings', 'STOCK_TRANSFER' => 'courseStockTransfers'] as $type => $key) {
+                foreach ($course[$key] as $source) {
+                    $sources[$source->trade_id] = ['type' => $type, 'source' => $source, 'wave_id' => $course['wave']->id];
+                }
+            }
+        }
+        $lines = DB::connection('sakemaru')->table('trade_items as ti')
+            ->join('trades as t', 'ti.trade_id', '=', 't.id')
+            ->leftJoin('items as i', 'ti.item_id', '=', 'i.id')
+            ->whereIn('ti.trade_id', array_keys($sources))->where('ti.is_active', true)
+            ->orderBy('t.created_at')->orderBy('t.id')->orderBy('ti.id')->select('ti.*', 'i.code as item_code', 't.serial_id as serial_id')->get();
+        $earningService = $this->earningAllocationService();
+        $transferService = $this->transferAllocationService();
+        foreach ($lines as $line) {
+            $scope = $sources[$line->trade_id];
+            $source = $scope['source'];
+            $key = $scope['type'].':'.$source->id.':'.$line->id;
+            if ((int) $line->quantity <= 0) {
+                // Returns and zero-quantity lines do not create an outbound claim.
+                $this->allocationResults[$key] = ['allocated' => 0, 'shortage' => 0, 'ordered_qty' => 0, 'qty_type' => in_array($line->quantity_type, ['CASE', 'CARTON', 'PIECE'], true) ? $line->quantity_type : 'PIECE'];
+
+                continue;
+            }
+            $result = $this->allocateLineWithOneRecalculation($scope, $source, $warehouseId, $line, $earningService, $transferService);
+            $this->allocationResults[$key] = $result;
+        }
+    }
+
+    private function allocateLineWithOneRecalculation(array $scope, object $source, int $warehouseId, object $line, StockAllocationService $earningService, StockTransferLotAllocationService $transferService): array
+    {
+        $recalculated = false;
+        // One initial attempt plus, only after this item's one reload, one retry.
+        // No recursive generation, queue redispatch, or whole-wave recalculation.
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $checkpoint = $this->allocationBudget->checkpoint();
+            try {
+                if ($line->item_code === null || ! in_array($line->quantity_type, ['CASE', 'CARTON', 'PIECE'], true)) {
+                    throw new \RuntimeException('注文の商品・数量単位が不正です');
+                }
+                $result = DB::connection('sakemaru')->transaction(function () use ($scope, $source, $warehouseId, $line, $earningService, $transferService) {
+                    $result = $scope['type'] === 'EARNING'
+                        ? $earningService->allocateForItem($scope['wave_id'], $warehouseId, $line->item_id, $line->quantity, $line->quantity_type, $source->id, $line->id, 'EARNING', $source->buyer_id)
+                        : $transferService->allocateForTradeItem($scope['wave_id'], $warehouseId, $source->id, $line);
+                    if (($result['lock_failed'] ?? false) || ($result['allocation_issue'] ?? false)) {
+                        throw new \RuntimeException($result['allocation_issue'] ?? '在庫引当ロックを取得できませんでした');
+                    }
+
+                    $allocated = (int) ($result['allocated'] ?? -1);
+                    $shortage = (int) ($result['shortage'] ?? -1);
+                    $ordered = (int) ($result['ordered_qty'] ?? $line->quantity);
+                    $type = $result['qty_type'] ?? $line->quantity_type;
+                    if ($allocated < 0 || $shortage < 0 || $ordered <= 0 || $allocated + $shortage !== $ordered
+                        || ! in_array($type, ['CASE', 'CARTON', 'PIECE'], true)) {
+                        throw new \RuntimeException('引当数量と欠品数量の合計が注文数量に一致しません');
+                    }
+
+                    return $result;
+                });
+                if ($recalculated) {
+                    $this->recordAllocationProcessing($scope, $source, $line, '該当商品の再計算1回後、引当・欠品数量を確定しました');
+                }
+
+                return $result;
+            } catch (\Throwable $e) {
+                $this->allocationBudget->restore($checkpoint);
+                $this->throwIfTransactionCannotContinue($e);
+                Log::warning('Wave line allocation failed; limited item recalculation or shortage follows', ['trade_item_id' => $line->id, 'attempt' => $attempt + 1, 'error' => $e->getMessage()]);
+                if ($attempt === 0) {
+                    try {
+                        $recalculated = $this->allocationBudget->recalculateItem($warehouseId, (int) $line->item_id);
+                        if ($recalculated) {
+                            continue;
+                        }
+                    } catch (\Throwable $reloadError) {
+                        $this->throwIfTransactionCannotContinue($reloadError);
+                        Log::error('Wave item recalculation failed; line becomes shortage', ['item_id' => $line->item_id, 'error' => $reloadError->getMessage()]);
+                    }
+                }
+                break;
+            }
+        }
+
+        // A recoverable line error has a terminal allocation outcome: full
+        // shortage. It consumes no stock and never holds later orders.
+        $type = in_array($line->quantity_type, ['CASE', 'CARTON', 'PIECE'], true) ? $line->quantity_type : 'PIECE';
+        $quantity = max(0, (int) $line->quantity);
+        DB::connection('sakemaru')->table('wms_reservations')->insert([
+            'warehouse_id' => $warehouseId, 'location_id' => null, 'real_stock_id' => null,
+            'item_id' => $line->item_id, 'expiry_date' => null, 'received_at' => null,
+            'purchase_id' => null, 'unit_cost' => null, 'qty_each' => 0, 'qty_type' => $type,
+            'shortage_qty' => $quantity, 'source_type' => $scope['type'], 'source_id' => $source->id,
+            'source_line_id' => $line->id, 'wave_id' => $scope['wave_id'], 'status' => 'SHORTAGE',
+            'created_by' => 0, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $note = '該当商品の再計算は最大1回。引当不能のため全数を欠品処理しました';
+        $this->recordAllocationProcessing($scope, $source, $line, $note);
+
+        return ['allocated' => 0, 'shortage' => $quantity, 'qty_type' => $type, 'ordered_qty' => $quantity, 'shortage_note' => $note];
+    }
+
+    private function throwIfTransactionCannotContinue(\Throwable $e): void
+    {
+        if (! DB::connection('sakemaru')->getPdo()->inTransaction()
+            || ($e instanceof \Illuminate\Database\QueryException && in_array((int) ($e->errorInfo[1] ?? 0), [1213, 1305, 2006, 2013], true))) {
+            throw $e; // A lost database transaction cannot safely persist any outcome.
+        }
+    }
+
+    private function recordAllocationProcessing(array $scope, object $source, object $line, string $message): void
+    {
+        $this->allocationWarnings[] = ['source_type' => $scope['type'], 'source_id' => (int) $source->id, 'trade_item_id' => (int) $line->id, 'item_id' => (int) $line->item_id, 'item_code' => $line->item_code, 'serial_id' => $line->serial_id, 'message' => $message];
+    }
+
+    private function reservationSegments(int $waveId, string $sourceType, int $sourceId, object $line, array $result): array
+    {
+        $rows = DB::connection('sakemaru')->table('wms_reservations')
+            ->where('wave_id', $waveId)->where('source_type', $sourceType)
+            ->where('source_id', $sourceId)->where('source_line_id', $line->id)
+            ->where('qty_each', '>', 0)->orderBy('id')->get();
+        $segments = [];
+        foreach ($rows->groupBy(fn ($row) => $row->real_stock_id.':'.($row->location_id ?? 'null')) as $group) {
+            $row = $group->first();
+            $segments[] = ['allocated_qty' => (int) $group->sum('qty_each'), 'real_stock_id' => $row->real_stock_id, 'location_id' => $row->location_id];
+        }
+        $segments = $segments ?: [['allocated_qty' => $result['allocated'], 'real_stock_id' => null, 'location_id' => null]];
+        foreach ($segments as $index => &$segment) {
+            // Put the unallocated remainder on one segment, exactly once.
+            // Both order and shortage totals still equal the original line.
+            $segment['shortage_qty'] = $index === 0 ? ($result['shortage'] ?? 0) : 0;
+            $segment['ordered_qty'] = $segment['allocated_qty'] + $segment['shortage_qty'];
+            $segment['qty_type'] = $result['qty_type'] ?? $line->quantity_type ?? 'PIECE';
+            $segment['walking_order'] = null;
+            $segment['shortage_note'] = $result['shortage_note'] ?? null;
+        }
+        unset($segment);
+
+        return $segments;
+    }
+
+    private function recordAllocationShortage(int $pickResultId, Wave $wave, WaveSetting $setting, object $line, array $result, string $type, int $orderQty, ?int $earningId = null): void
+    {
+        if (! ($result['shortage_note'] ?? null)) {
+            return;
+        }
+        // The reservation/PIR allocation outcome is already SHORTAGE. BEFORE
+        // remains the existing shortage confirmation workflow, not an allocation hold.
+        WmsShortage::create([
+            'wave_id' => $wave->id, 'warehouse_id' => $setting->warehouse_id,
+            'shipment_date' => $wave->shipping_date, 'delivery_course_id' => $setting->delivery_course_id,
+            'item_id' => $line->item_id, 'trade_id' => $line->trade_id, 'trade_item_id' => $line->id,
+            'earning_id' => $earningId, 'source_pick_result_id' => $pickResultId,
+            'order_qty' => $orderQty, 'planned_qty' => 0, 'picked_qty' => 0,
+            'shortage_qty' => $orderQty, 'allocation_shortage_qty' => $orderQty, 'picking_shortage_qty' => 0,
+            'qty_type_at_order' => $type, 'case_size_snap' => max(1, (int) $line->capacity_case),
+            'status' => WmsShortage::STATUS_BEFORE, 'reason_code' => WmsShortage::REASON_OTHER,
+            'note' => $result['shortage_note'], 'is_confirmed' => false, 'is_synced' => false,
+        ]);
     }
 
     protected function createWaveSafely(WaveSetting $waveSetting, $warehouse, $course, string $shippingDate, WaveGroup $waveGroup): Wave
@@ -330,12 +613,14 @@ class WaveGroupGenerationService
             })
             ->delete();
 
-        DB::connection('sakemaru')
-            ->table('wms_reservations')
-            ->where('wave_id', $wave->id)
-            ->whereIn('source_id', $earningIds)
-            ->where('source_type', 'EARNING')
-            ->delete();
+        if ($this->allocationResults === []) {
+            DB::connection('sakemaru')
+                ->table('wms_reservations')
+                ->where('wave_id', $wave->id)
+                ->whereIn('source_id', $earningIds)
+                ->where('source_type', 'EARNING')
+                ->delete();
+        }
 
         $tradeItems = DB::connection('sakemaru')
             ->table('trade_items')
@@ -349,7 +634,7 @@ class WaveGroupGenerationService
 
         $tradeIdToEarningId = $earnings->pluck('id', 'trade_id')->toArray();
         $tradeIdToBuyerId = $earnings->pluck('buyer_id', 'trade_id')->toArray();
-        $allocationService = new StockAllocationService;
+        $allocationService = new StockAllocationService($this->allocationBudget);
         $locationCache = [];
         $itemLocationCache = [];
         $defaultAreaCache = [];
@@ -364,104 +649,88 @@ class WaveGroupGenerationService
                 continue;
             }
 
-            $result = $allocationService->allocateForItem(
-                $wave->id,
-                $waveSetting->warehouse_id,
-                $tradeItem->item_id,
-                $tradeItem->quantity,
-                $tradeItem->quantity_type ?? 'PIECE',
-                $earningId,
-                $tradeItem->id,
-                'EARNING',
-                $buyerId
+            $result = $this->allocationResults['EARNING:'.$earningId.':'.$tradeItem->id] ?? $allocationService->allocateForItem(
+                $wave->id, $waveSetting->warehouse_id, $tradeItem->item_id,
+                $tradeItem->quantity, $tradeItem->quantity_type ?? 'PIECE',
+                $earningId, $tradeItem->id, 'EARNING', $buyerId
             );
-
-            $primaryReservation = DB::connection('sakemaru')
-                ->table('wms_reservations')
-                ->where('wave_id', $wave->id)
-                ->where('item_id', $tradeItem->item_id)
-                ->where('source_id', $earningId)
-                ->whereNotNull('location_id')
-                ->orderBy('qty_each', 'desc')
-                ->orderBy('id', 'asc')
-                ->first();
-
-            $reservationResult = [
-                'allocated_qty' => $result['allocated'],
-                'shortage_qty' => $result['shortage'] ?? 0,
-                'real_stock_id' => $primaryReservation->real_stock_id ?? null,
-                'location_id' => $primaryReservation->location_id ?? null,
-                'walking_order' => null,
-            ];
-
-            $reservationResults[$tradeItem->id] = $reservationResult;
-
-            $pickingAreaId = null;
-            $floorId = null;
-            $temperatureType = null;
-            $isRestrictedArea = false;
-
-            if ($reservationResult['location_id']) {
-                $location = $locationCache[$reservationResult['location_id']] ??= DB::connection('sakemaru')
-                    ->table('locations')
-                    ->where('id', $reservationResult['location_id'])
-                    ->first();
-                $floorId = $location->floor_id ?? null;
-                $temperatureType = $location->temperature_type ?? null;
-                $isRestrictedArea = $location->is_restricted_area ?? false;
-                $pickingAreaId = $location->wms_picking_area_id ?? null;
+            if ($result['lock_failed'] ?? false) {
+                throw new \RuntimeException('在庫引当のロックを取得できませんでした。波動生成を再実行してください');
             }
 
-            if ($pickingAreaId === null || $floorId === null) {
-                $itemLocation = $itemLocationCache[$tradeItem->item_id] ??= DB::connection('sakemaru')
-                    ->table('real_stocks as rs')
-                    ->join('real_stock_lots as rsl', 'rs.id', '=', 'rsl.real_stock_id')
-                    ->join('locations as l', 'rsl.location_id', '=', 'l.id')
-                    ->where('rs.warehouse_id', $waveSetting->warehouse_id)
-                    ->where('rs.item_id', $tradeItem->item_id)
-                    ->whereNotNull('l.wms_picking_area_id')
-                    ->select('l.id as location_id', 'rs.id as real_stock_id', 'l.wms_picking_area_id', 'l.floor_id', 'l.temperature_type', 'l.is_restricted_area')
-                    ->first();
+            $segments = $this->reservationSegments($wave->id, 'EARNING', $earningId, $tradeItem, $result);
+            foreach ($segments as $segmentIndex => $reservationResult) {
+                $tradeItem = clone $tradeItem;
+                $tradeItem->allocation_row_key = $tradeItem->id.':'.$segmentIndex;
+                $reservationResults[$tradeItem->allocation_row_key] = $reservationResult;
 
-                if ($itemLocation) {
-                    if ($reservationResult['location_id'] === null) {
-                        $reservationResult['location_id'] = $itemLocation->location_id;
-                        $reservationResult['real_stock_id'] = $itemLocation->real_stock_id;
-                        $reservationResults[$tradeItem->id] = $reservationResult;
-                    }
-                    $pickingAreaId = $pickingAreaId ?? $itemLocation->wms_picking_area_id;
-                    $floorId = $floorId ?? $itemLocation->floor_id;
-                    $temperatureType = $temperatureType ?? $itemLocation->temperature_type;
-                    $isRestrictedArea = $isRestrictedArea ?? $itemLocation->is_restricted_area;
-                } else {
-                    $defaultArea = $defaultAreaCache[$waveSetting->warehouse_id] ??= DB::connection('sakemaru')
-                        ->table('wms_picking_areas')
-                        ->where('warehouse_id', $waveSetting->warehouse_id)
-                        ->where('is_active', true)
-                        ->orderBy('display_order', 'asc')
+                $pickingAreaId = null;
+                $floorId = null;
+                $temperatureType = null;
+                $isRestrictedArea = false;
+
+                if ($reservationResult['location_id']) {
+                    $location = $locationCache[$reservationResult['location_id']] ??= DB::connection('sakemaru')
+                        ->table('locations')
+                        ->where('id', $reservationResult['location_id'])
                         ->first();
-                    $pickingAreaId = $pickingAreaId ?? ($defaultArea->id ?? null);
+                    $floorId = $location->floor_id ?? null;
+                    $temperatureType = $location->temperature_type ?? null;
+                    $isRestrictedArea = $location->is_restricted_area ?? false;
+                    $pickingAreaId = $location->wms_picking_area_id ?? null;
                 }
-            }
 
-            $groupKey = ($floorId ?? 'null');
-            if (! isset($itemsByGroup[$groupKey])) {
-                $itemsByGroup[$groupKey] = [
-                    'floor_id' => $floorId,
-                    'picking_area_id' => $pickingAreaId,
-                    'temperature_type' => $temperatureType,
-                    'is_restricted_area' => $isRestrictedArea,
-                    'items' => [],
-                ];
+                if ($pickingAreaId === null || $floorId === null) {
+                    $itemLocation = $itemLocationCache[$tradeItem->item_id] ??= DB::connection('sakemaru')
+                        ->table('real_stocks as rs')
+                        ->join('real_stock_lots as rsl', 'rs.id', '=', 'rsl.real_stock_id')
+                        ->join('locations as l', 'rsl.location_id', '=', 'l.id')
+                        ->where('rs.warehouse_id', $waveSetting->warehouse_id)
+                        ->where('rs.item_id', $tradeItem->item_id)
+                        ->whereNotNull('l.wms_picking_area_id')
+                        ->select('l.id as location_id', 'rs.id as real_stock_id', 'l.wms_picking_area_id', 'l.floor_id', 'l.temperature_type', 'l.is_restricted_area')
+                        ->first();
+
+                    if ($itemLocation) {
+                        if ($reservationResult['location_id'] === null) {
+                            $reservationResult['location_id'] = $itemLocation->location_id;
+                            $reservationResult['real_stock_id'] = $itemLocation->real_stock_id;
+                            $reservationResults[$tradeItem->allocation_row_key ?? $tradeItem->id] = $reservationResult;
+                        }
+                        $pickingAreaId = $pickingAreaId ?? $itemLocation->wms_picking_area_id;
+                        $floorId = $floorId ?? $itemLocation->floor_id;
+                        $temperatureType = $temperatureType ?? $itemLocation->temperature_type;
+                        $isRestrictedArea = $isRestrictedArea ?? $itemLocation->is_restricted_area;
+                    } else {
+                        $defaultArea = $defaultAreaCache[$waveSetting->warehouse_id] ??= DB::connection('sakemaru')
+                            ->table('wms_picking_areas')
+                            ->where('warehouse_id', $waveSetting->warehouse_id)
+                            ->where('is_active', true)
+                            ->orderBy('display_order', 'asc')
+                            ->first();
+                        $pickingAreaId = $pickingAreaId ?? ($defaultArea->id ?? null);
+                    }
+                }
+
+                $groupKey = ($floorId ?? 'null');
+                if (! isset($itemsByGroup[$groupKey])) {
+                    $itemsByGroup[$groupKey] = [
+                        'floor_id' => $floorId,
+                        'picking_area_id' => $pickingAreaId,
+                        'temperature_type' => $temperatureType,
+                        'is_restricted_area' => $isRestrictedArea,
+                        'items' => [],
+                    ];
+                }
+                $itemsByGroup[$groupKey]['items'][] = $tradeItem;
             }
-            $itemsByGroup[$groupKey]['items'][] = $tradeItem;
         }
 
         foreach ($itemsByGroup as $groupData) {
             $validItems = [];
             $hasRestrictedItem = false;
             foreach ($groupData['items'] as $tradeItem) {
-                $reservationResult = $reservationResults[$tradeItem->id] ?? null;
+                $reservationResult = $reservationResults[$tradeItem->allocation_row_key ?? $tradeItem->id] ?? null;
                 if (! $reservationResult) {
                     continue;
                 }
@@ -498,14 +767,11 @@ class WaveGroupGenerationService
             ]);
 
             foreach ($validItems as $tradeItem) {
-                $reservationResult = $reservationResults[$tradeItem->id];
+                $reservationResult = $reservationResults[$tradeItem->allocation_row_key ?? $tradeItem->id];
                 $earningId = $tradeIdToEarningId[$tradeItem->trade_id] ?? null;
 
-                if (! $tradeItem->quantity_type) {
-                    throw new \RuntimeException("quantity_type must be specified for trade_item ID {$tradeItem->id}");
-                }
-
-                DB::connection('sakemaru')->table('wms_picking_item_results')->insert([
+                $quantityType = $reservationResult['qty_type'];
+                $pickResultId = DB::connection('sakemaru')->table('wms_picking_item_results')->insertGetId([
                     'picking_task_id' => $pickingTaskId,
                     'earning_id' => $earningId,
                     'source_type' => WmsPickingItemResult::SOURCE_TYPE_EARNING,
@@ -516,18 +782,19 @@ class WaveGroupGenerationService
                     'real_stock_id' => $reservationResult['real_stock_id'],
                     'location_id' => $reservationResult['location_id'],
                     'walking_order' => $reservationResult['walking_order'],
-                    'ordered_qty' => $tradeItem->quantity,
-                    'ordered_qty_type' => $tradeItem->quantity_type,
+                    'ordered_qty' => $reservationResult['ordered_qty'],
+                    'ordered_qty_type' => $quantityType,
                     'planned_qty' => $reservationResult['allocated_qty'],
-                    'planned_qty_type' => $tradeItem->quantity_type,
+                    'planned_qty_type' => $quantityType,
                     'picked_qty' => 0,
-                    'picked_qty_type' => $tradeItem->quantity_type,
+                    'picked_qty_type' => $quantityType,
                     'shortage_qty' => $reservationResult['shortage_qty'] ?? 0,
                     'status' => 'PENDING',
                     'picker_id' => null,
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
+                $this->recordAllocationShortage($pickResultId, $wave, $waveSetting, $tradeItem, $reservationResult, $quantityType, (int) $reservationResult['ordered_qty'], $earningId);
             }
         }
 
@@ -555,12 +822,14 @@ class WaveGroupGenerationService
             })
             ->delete();
 
-        DB::connection('sakemaru')
-            ->table('wms_reservations')
-            ->where('wave_id', $wave->id)
-            ->whereIn('source_id', $stockTransferIds)
-            ->where('source_type', 'STOCK_TRANSFER')
-            ->delete();
+        if ($this->allocationResults === []) {
+            DB::connection('sakemaru')
+                ->table('wms_reservations')
+                ->where('wave_id', $wave->id)
+                ->whereIn('source_id', $stockTransferIds)
+                ->where('source_type', 'STOCK_TRANSFER')
+                ->delete();
+        }
 
         $tradeIdToStockTransferId = $stockTransfers->pluck('id', 'trade_id')->toArray();
         $tradeItems = DB::connection('sakemaru')
@@ -573,7 +842,7 @@ class WaveGroupGenerationService
             ->select('trade_items.*')
             ->get();
 
-        $allocationService = new StockAllocationService;
+        $allocationService = new StockTransferLotAllocationService($this->allocationBudget);
         $locationCache = [];
         $itemLocationCache = [];
         $defaultAreaCache = [];
@@ -584,131 +853,111 @@ class WaveGroupGenerationService
                 continue;
             }
 
-            $result = $allocationService->allocateForItem(
-                $wave->id,
-                $waveSetting->warehouse_id,
-                $tradeItem->item_id,
-                $tradeItem->quantity,
-                $tradeItem->quantity_type ?? 'PIECE',
-                $stockTransferId,
-                $tradeItem->id,
-                'STOCK_TRANSFER',
-                null
+            $result = $this->allocationResults['STOCK_TRANSFER:'.$stockTransferId.':'.$tradeItem->id] ?? $allocationService->allocateForTradeItem(
+                $wave->id, $waveSetting->warehouse_id, $stockTransferId, $tradeItem
             );
+            $wmsQuantityType = $result['qty_type'] ?? $tradeItem->quantity_type;
+            $wmsOrderQty = $result['ordered_qty'] ?? $tradeItem->quantity;
 
-            $primaryReservation = DB::connection('sakemaru')
-                ->table('wms_reservations')
-                ->where('wave_id', $wave->id)
-                ->where('item_id', $tradeItem->item_id)
-                ->where('source_id', $stockTransferId)
-                ->where('source_type', 'STOCK_TRANSFER')
-                ->whereNotNull('location_id')
-                ->orderBy('qty_each', 'desc')
-                ->orderBy('id', 'asc')
-                ->first();
+            $segments = $this->reservationSegments($wave->id, 'STOCK_TRANSFER', $stockTransferId, $tradeItem, $result);
+            foreach ($segments as $segmentIndex => $reservationResult) {
+                $tradeItem = clone $tradeItem;
+                $tradeItem->allocation_row_key = $tradeItem->id.':'.$segmentIndex;
+                $wmsOrderQty = $reservationResult['ordered_qty'];
 
-            $reservationResult = [
-                'allocated_qty' => $result['allocated'],
-                'shortage_qty' => $result['shortage'] ?? 0,
-                'real_stock_id' => $primaryReservation->real_stock_id ?? null,
-                'location_id' => $primaryReservation->location_id ?? null,
-                'walking_order' => null,
-            ];
+                $pickingAreaId = null;
+                $floorId = null;
 
-            $pickingAreaId = null;
-            $floorId = null;
-
-            if ($reservationResult['location_id']) {
-                $location = $locationCache[$reservationResult['location_id']] ??= DB::connection('sakemaru')
-                    ->table('locations')
-                    ->where('id', $reservationResult['location_id'])
-                    ->first();
-                $floorId = $location->floor_id ?? null;
-                $pickingAreaId = $location->wms_picking_area_id ?? null;
-            }
-
-            if ($pickingAreaId === null || $floorId === null) {
-                $itemLocation = $itemLocationCache[$tradeItem->item_id] ??= DB::connection('sakemaru')
-                    ->table('real_stocks as rs')
-                    ->join('real_stock_lots as rsl', 'rs.id', '=', 'rsl.real_stock_id')
-                    ->join('locations as l', 'rsl.location_id', '=', 'l.id')
-                    ->where('rs.warehouse_id', $waveSetting->warehouse_id)
-                    ->where('rs.item_id', $tradeItem->item_id)
-                    ->whereNotNull('l.wms_picking_area_id')
-                    ->select('l.id as location_id', 'rs.id as real_stock_id', 'l.wms_picking_area_id', 'l.floor_id')
-                    ->first();
-
-                if ($itemLocation) {
-                    if ($reservationResult['location_id'] === null) {
-                        $reservationResult['location_id'] = $itemLocation->location_id;
-                        $reservationResult['real_stock_id'] = $itemLocation->real_stock_id;
-                    }
-                    $pickingAreaId = $pickingAreaId ?? $itemLocation->wms_picking_area_id;
-                    $floorId = $floorId ?? $itemLocation->floor_id;
-                } else {
-                    $defaultArea = $defaultAreaCache[$waveSetting->warehouse_id] ??= DB::connection('sakemaru')
-                        ->table('wms_picking_areas')
-                        ->where('warehouse_id', $waveSetting->warehouse_id)
-                        ->where('is_active', true)
-                        ->orderBy('display_order', 'asc')
+                if ($reservationResult['location_id']) {
+                    $location = $locationCache[$reservationResult['location_id']] ??= DB::connection('sakemaru')
+                        ->table('locations')
+                        ->where('id', $reservationResult['location_id'])
                         ->first();
-                    $pickingAreaId = $pickingAreaId ?? ($defaultArea->id ?? null);
+                    $floorId = $location->floor_id ?? null;
+                    $pickingAreaId = $location->wms_picking_area_id ?? null;
                 }
-            }
 
-            $existingTask = DB::connection('sakemaru')
-                ->table('wms_picking_tasks')
-                ->where('wave_id', $wave->id)
-                ->where('floor_id', $floorId)
-                ->first();
+                if ($pickingAreaId === null || $floorId === null) {
+                    $itemLocation = $itemLocationCache[$tradeItem->item_id] ??= DB::connection('sakemaru')
+                        ->table('real_stocks as rs')
+                        ->join('real_stock_lots as rsl', 'rs.id', '=', 'rsl.real_stock_id')
+                        ->join('locations as l', 'rsl.location_id', '=', 'l.id')
+                        ->where('rs.warehouse_id', $waveSetting->warehouse_id)
+                        ->where('rs.item_id', $tradeItem->item_id)
+                        ->whereNotNull('l.wms_picking_area_id')
+                        ->select('l.id as location_id', 'rs.id as real_stock_id', 'l.wms_picking_area_id', 'l.floor_id')
+                        ->first();
 
-            if ($existingTask) {
-                $pickingTaskId = $existingTask->id;
-            } else {
-                $pickingTaskId = DB::connection('sakemaru')->table('wms_picking_tasks')->insertGetId([
-                    'wave_id' => $wave->id,
-                    'wms_picking_area_id' => $pickingAreaId,
-                    'warehouse_id' => $waveSetting->warehouse_id,
-                    'warehouse_code' => $warehouse->code,
-                    'floor_id' => $floorId,
-                    'delivery_course_id' => $waveSetting->delivery_course_id,
-                    'delivery_course_code' => $course->code,
-                    'shipment_date' => $shippingDate,
+                    if ($itemLocation) {
+                        if ($reservationResult['location_id'] === null) {
+                            $reservationResult['location_id'] = $itemLocation->location_id;
+                            $reservationResult['real_stock_id'] = $itemLocation->real_stock_id;
+                        }
+                        $pickingAreaId = $pickingAreaId ?? $itemLocation->wms_picking_area_id;
+                        $floorId = $floorId ?? $itemLocation->floor_id;
+                    } else {
+                        $defaultArea = $defaultAreaCache[$waveSetting->warehouse_id] ??= DB::connection('sakemaru')
+                            ->table('wms_picking_areas')
+                            ->where('warehouse_id', $waveSetting->warehouse_id)
+                            ->where('is_active', true)
+                            ->orderBy('display_order', 'asc')
+                            ->first();
+                        $pickingAreaId = $pickingAreaId ?? ($defaultArea->id ?? null);
+                    }
+                }
+
+                $existingTask = DB::connection('sakemaru')
+                    ->table('wms_picking_tasks')
+                    ->where('wave_id', $wave->id)
+                    ->where('floor_id', $floorId)
+                    ->first();
+
+                if ($existingTask) {
+                    $pickingTaskId = $existingTask->id;
+                } else {
+                    $pickingTaskId = DB::connection('sakemaru')->table('wms_picking_tasks')->insertGetId([
+                        'wave_id' => $wave->id,
+                        'wms_picking_area_id' => $pickingAreaId,
+                        'warehouse_id' => $waveSetting->warehouse_id,
+                        'warehouse_code' => $warehouse->code,
+                        'floor_id' => $floorId,
+                        'delivery_course_id' => $waveSetting->delivery_course_id,
+                        'delivery_course_code' => $course->code,
+                        'shipment_date' => $shippingDate,
+                        'status' => 'PENDING',
+                        'task_type' => 'WAVE',
+                        'picker_id' => null,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                }
+
+                $wmsQuantityType = $wmsQuantityType ?: 'PIECE';
+                $pickResultId = DB::connection('sakemaru')->table('wms_picking_item_results')->insertGetId([
+                    'picking_task_id' => $pickingTaskId,
+                    'earning_id' => null,
+                    'source_type' => WmsPickingItemResult::SOURCE_TYPE_STOCK_TRANSFER,
+                    'stock_transfer_id' => $stockTransferId,
+                    'trade_id' => $tradeItem->trade_id,
+                    'trade_item_id' => $tradeItem->id,
+                    'item_id' => $tradeItem->item_id,
+                    'real_stock_id' => $reservationResult['real_stock_id'],
+                    'location_id' => $reservationResult['location_id'],
+                    'walking_order' => $reservationResult['walking_order'],
+                    'ordered_qty' => $wmsOrderQty,
+                    'ordered_qty_type' => $wmsQuantityType,
+                    'planned_qty' => $reservationResult['allocated_qty'],
+                    'planned_qty_type' => $wmsQuantityType,
+                    'picked_qty' => 0,
+                    'picked_qty_type' => $wmsQuantityType,
+                    'shortage_qty' => $reservationResult['shortage_qty'] ?? 0,
                     'status' => 'PENDING',
-                    'task_type' => 'WAVE',
                     'picker_id' => null,
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
+                $this->recordAllocationShortage($pickResultId, $wave, $waveSetting, $tradeItem, $reservationResult, $wmsQuantityType, (int) $wmsOrderQty);
             }
-
-            if (! $tradeItem->quantity_type) {
-                throw new \RuntimeException("quantity_type must be specified for trade_item ID {$tradeItem->id}");
-            }
-
-            DB::connection('sakemaru')->table('wms_picking_item_results')->insert([
-                'picking_task_id' => $pickingTaskId,
-                'earning_id' => null,
-                'source_type' => WmsPickingItemResult::SOURCE_TYPE_STOCK_TRANSFER,
-                'stock_transfer_id' => $stockTransferId,
-                'trade_id' => $tradeItem->trade_id,
-                'trade_item_id' => $tradeItem->id,
-                'item_id' => $tradeItem->item_id,
-                'real_stock_id' => $reservationResult['real_stock_id'],
-                'location_id' => $reservationResult['location_id'],
-                'walking_order' => $reservationResult['walking_order'],
-                'ordered_qty' => $tradeItem->quantity,
-                'ordered_qty_type' => $tradeItem->quantity_type,
-                'planned_qty' => $reservationResult['allocated_qty'],
-                'planned_qty_type' => $tradeItem->quantity_type,
-                'picked_qty' => 0,
-                'picked_qty_type' => $tradeItem->quantity_type,
-                'shortage_qty' => $reservationResult['shortage_qty'] ?? 0,
-                'status' => 'PENDING',
-                'picker_id' => null,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
         }
 
         DB::connection('sakemaru')
@@ -745,6 +994,8 @@ class WaveGroupGenerationService
             ->where('st.is_active', true)
             ->where('st_trade.is_active', true)
             ->where('st.picking_status', 'BEFORE')
+            ->where('st.is_delivered', false)
+            ->where('st.is_confirmed', false)
             ->whereIn('st.from_warehouse_id', $warehouseIds)
             ->whereIn('dc.warehouse_id', $warehouseIds)
             ->whereNotNull('st.delivery_course_id')

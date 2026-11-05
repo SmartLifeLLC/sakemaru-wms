@@ -11,6 +11,7 @@ use Filament\Resources\RelationManagers\RelationManagerConfiguration;
 use Filament\Schemas\Components\Livewire;
 use Filament\Schemas\Components\Tabs;
 use Filament\Schemas\Components\Tabs\Tab;
+use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 use Filament\Support\Enums\Width;
 
@@ -20,7 +21,7 @@ class EditContractor extends EditRecord
 
     protected static ?string $title = '発注先編集';
 
-    protected Width | string | null $maxContentWidth = Width::Full;
+    protected Width|string|null $maxContentWidth = Width::Full;
 
     /**
      * フォームスキーマをオーバーライド
@@ -55,6 +56,9 @@ class EditContractor extends EditRecord
         return $schema
             ->columns(1)
             ->components([
+                View::make('filament.pages.auto-replenishment-master-edit-warning')
+                    ->viewData(fn () => app(\App\Services\AutoReplenishment\MasterRouteWarnings::class)
+                        ->masterEditNotice((int) auth()->user()?->client_id, 'contractor', ['contractor_id' => $ownerRecord->id])),
                 Tabs::make('contractor-tabs')
                     ->contained(false)
                     ->persistTabInQueryString('tab')
@@ -115,6 +119,7 @@ class EditContractor extends EditRecord
         $wmsSetting = $this->record->wmsSetting;
 
         if ($wmsSetting) {
+            $data['wms_order_conditions'] = $wmsSetting->order_conditions;
             $data['wms_order_mail'] = $wmsSetting->order_mail;
             $data['wms_order_mail_from'] = $wmsSetting->order_mail_from;
             $data['wms_order_mail_title'] = $wmsSetting->order_mail_title;
@@ -133,6 +138,13 @@ class EditContractor extends EditRecord
             $data['wms_is_transmission_sat'] = $wmsSetting->is_transmission_sat;
             $data['wms_is_transmission_sun'] = $wmsSetting->is_transmission_sun;
             $data['wms_is_auto_transmission'] = $wmsSetting->is_auto_transmission;
+            $data['wms_is_jx_auto_generation_enabled'] = $wmsSetting->is_jx_auto_generation_enabled;
+            $data['wms_jx_generation_time'] = $wmsSetting->jx_generation_time;
+            $data['wms_jx_generation_cutoff_time'] = $wmsSetting->jx_generation_cutoff_time;
+            $data['wms_jx_generation_sunday_time'] = $wmsSetting->jx_generation_sunday_time;
+            $data['wms_jx_generation_sunday_cutoff_time'] = $wmsSetting->jx_generation_sunday_cutoff_time;
+            $data['wms_jx_transmission_time'] = $wmsSetting->jx_transmission_time;
+            $data['wms_jx_transmission_sunday_time'] = $wmsSetting->jx_transmission_sunday_time;
             $data['wms_transmission_contractor_id'] = $wmsSetting->transmission_contractor_id;
             $data['wms_format_strategy_class'] = $wmsSetting->format_strategy_class;
             $data['wms_is_receive_enabled'] = $wmsSetting->is_receive_enabled;
@@ -155,6 +167,7 @@ class EditContractor extends EditRecord
         $data = $this->form->getState();
 
         $wmsFields = [
+            'order_conditions' => $data['wms_order_conditions'] ?? null,
             'order_mail' => $data['wms_order_mail'] ?? null,
             'order_mail_from' => $data['wms_order_mail_from'] ?? null,
             'order_mail_title' => $data['wms_order_mail_title'] ?? null,
@@ -173,6 +186,13 @@ class EditContractor extends EditRecord
             'is_transmission_sat' => $data['wms_is_transmission_sat'] ?? false,
             'is_transmission_sun' => $data['wms_is_transmission_sun'] ?? false,
             'is_auto_transmission' => $data['wms_is_auto_transmission'] ?? false,
+            'is_jx_auto_generation_enabled' => $data['wms_is_jx_auto_generation_enabled'] ?? false,
+            'jx_generation_time' => $data['wms_jx_generation_time'] ?? null,
+            'jx_generation_cutoff_time' => $data['wms_jx_generation_cutoff_time'] ?? null,
+            'jx_generation_sunday_time' => $data['wms_jx_generation_sunday_time'] ?? null,
+            'jx_generation_sunday_cutoff_time' => $data['wms_jx_generation_sunday_cutoff_time'] ?? null,
+            'jx_transmission_time' => $data['wms_jx_transmission_time'] ?? null,
+            'jx_transmission_sunday_time' => $data['wms_jx_transmission_sunday_time'] ?? null,
             'transmission_contractor_id' => $data['wms_transmission_contractor_id'] ?? null,
             'format_strategy_class' => $data['wms_format_strategy_class'] ?? null,
             'is_receive_enabled' => $data['wms_is_receive_enabled'] ?? false,

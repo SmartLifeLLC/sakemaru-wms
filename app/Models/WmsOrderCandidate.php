@@ -4,6 +4,8 @@ namespace App\Models;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
+use App\Enums\AutoOrder\OrderChannel;
+use App\Enums\AutoOrder\OrderEntrySource;
 use App\Enums\AutoOrder\OriginType;
 use App\Enums\QuantityType;
 use App\Models\Concerns\HasOptimisticLock;
@@ -39,6 +41,15 @@ class WmsOrderCandidate extends WmsModel
     protected ?ItemContractor $preloadedItemContractor = null;
 
     protected bool $itemContractorPreloaded = false;
+
+    protected static function booted(): void
+    {
+        static::updating(function (self $candidate): void {
+            if ($candidate->isDirty(['order_quantity', 'quantity_type', 'expected_arrival_date', 'ordering_code', 'warehouse_id', 'item_id', 'contractor_id', 'supplier_id', 'purchase_unit_price'])) {
+                app(\App\Services\AutoReplenishment\JxGenerationGuard::class)->assertEditable($candidate);
+            }
+        });
+    }
 
     protected $fillable = [
         'batch_code',
@@ -78,6 +89,8 @@ class WmsOrderCandidate extends WmsModel
         'modified_by',
         'modified_at',
         'origin_type',
+        'order_channel',
+        'entry_source',
         'exclusion_reason',
         'transmission_status',
         'transmitted_at',
@@ -95,6 +108,8 @@ class WmsOrderCandidate extends WmsModel
         'quantity_type' => QuantityType::class,
         'is_manually_modified' => 'boolean',
         'origin_type' => OriginType::class,
+        'order_channel' => OrderChannel::class,
+        'entry_source' => OrderEntrySource::class,
         'lot_fee_amount' => 'decimal:2',
         'demand_breakdown' => 'array',
         'current_effective_stock' => 'integer',
@@ -213,10 +228,12 @@ class WmsOrderCandidate extends WmsModel
         }
 
         // プリロードされていない場合はクエリを実行
-        return WmsOrderCalculationLog::where('batch_code', $this->batch_code)
+        $query = WmsOrderCalculationLog::where('batch_code', $this->batch_code)
             ->where('warehouse_id', $this->warehouse_id)
-            ->where('item_id', $this->item_id)
-            ->first();
+            ->where('item_id', $this->item_id);
+
+        return (clone $query)->where('calculation_details->candidate_id', $this->id)->first()
+            ?? $query->whereNull('calculation_details->candidate_id')->first();
     }
 
     /**
@@ -246,12 +263,15 @@ class WmsOrderCandidate extends WmsModel
         )->get();
 
         // キーでインデックス化
-        $logsIndexed = $logs->keyBy(fn ($log) => "{$log->batch_code}_{$log->warehouse_id}_{$log->item_id}");
+        $logsByCandidate = $logs->filter(fn ($log) => ! empty($log->calculation_details['candidate_id']))
+            ->keyBy(fn ($log) => (int) $log->calculation_details['candidate_id']);
+        $logsIndexed = $logs->filter(fn ($log) => empty($log->calculation_details['candidate_id']))
+            ->keyBy(fn ($log) => "{$log->batch_code}_{$log->warehouse_id}_{$log->item_id}");
 
         // 各候補にログをセット
-        $candidates->each(function ($candidate) use ($logsIndexed) {
+        $candidates->each(function ($candidate) use ($logsIndexed, $logsByCandidate) {
             $key = "{$candidate->batch_code}_{$candidate->warehouse_id}_{$candidate->item_id}";
-            $candidate->setPreloadedCalculationLog($logsIndexed->get($key));
+            $candidate->setPreloadedCalculationLog($logsByCandidate->get($candidate->id) ?? $logsIndexed->get($key));
         });
     }
 
@@ -302,6 +322,29 @@ class WmsOrderCandidate extends WmsModel
         }
 
         return $this->calculationLog?->current_effective_stock;
+    }
+
+    /**
+     * 現時点の理論在庫（引当可能数）を基幹 real_stocks からライブ取得する
+     *
+     * 発注計算バッチ（OrderCandidateCalculationService）と同じく
+     * wms_v_stock_available の available_for_wms（= real_stocks.available_quantity =
+     * current_quantity - reserved_quantity）を real_stock_id で重複排除して集計する。
+     * バッチ時点のスナップショット（current_effective_stock）と異なり、常に最新値を返す。
+     */
+    public function liveAvailableStock(): int
+    {
+        $rows = \Illuminate\Support\Facades\DB::connection('sakemaru')->select(
+            'SELECT SUM(stock_qty) AS total
+             FROM (
+                 SELECT DISTINCT real_stock_id, available_for_wms AS stock_qty
+                 FROM wms_v_stock_available
+                 WHERE warehouse_id = ? AND item_id = ?
+             ) dedup',
+            [$this->warehouse_id, $this->item_id]
+        );
+
+        return (int) ($rows[0]->total ?? 0);
     }
 
     /**

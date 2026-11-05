@@ -16,6 +16,32 @@ use Illuminate\Support\Facades\Log;
  */
 class PurchasePriceService
 {
+    /** Incoming comparisons have a separate policy; order prices retain getPrice(). */
+    public function getIncomingPrice(int $itemId, ?int $supplierPartnerId, ?int $warehouseId, string $date): array
+    {
+        if (config('wms.client') !== 'hana') {
+            return $this->getPrice($itemId, $supplierPartnerId, $warehouseId, $date);
+        }
+
+        $price = DB::connection('sakemaru')->table('item_prices as ip')
+            ->join('items as i', 'i.id', '=', 'ip.item_id')
+            // Older WMS config caches only contain app.client_id.
+            ->where('i.client_id', config('client.id', config('app.client_id')))
+            ->where('i.is_active', true)
+            ->where('ip.item_id', $itemId)->where('ip.is_active', true)
+            ->where('ip.start_date', '<=', $date)
+            ->orderByDesc('ip.start_date')->orderByDesc('ip.id')
+            ->first(['ip.cost_unit_price', 'ip.cost_case_price', 'i.capacity_case']);
+
+        $unitPrice = $price?->cost_unit_price === null ? null : (float) $price->cost_unit_price;
+        return [
+            'unit_price' => $unitPrice,
+            'case_price' => $price && (int) $price->capacity_case <= 1
+                ? $unitPrice : ($price?->cost_case_price === null ? null : (float) $price->cost_case_price),
+            'source' => $price ? 'ITEM_COST' : 'NONE',
+        ];
+    }
+
     private array $partnerPriceCache = [];
 
     private array $itemPriceCache = [];

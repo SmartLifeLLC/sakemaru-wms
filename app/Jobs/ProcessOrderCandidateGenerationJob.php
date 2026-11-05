@@ -56,6 +56,9 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
      */
     public function handle(): void
     {
+        if ($this->createdBy === null || in_array($this->originType, ['AUTO_SAFETY_STOCK', 'AUTO_SALES_BASED'], true)) {
+            app(\App\Services\AutoReplenishment\ReplenishmentGuard::class)->assertLegacyAllowed();
+        }
         ini_set('memory_limit', '-1');
 
         $this->createdBy ??= \App\Models\Sakemaru\User::resolveAutomatorId();

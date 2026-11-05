@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class LogPdfExport extends CustomModel
 {
+    protected bool $hasIsActiveColumn = false;
+
     protected $guarded = [];
 
     public function trades(): MorphMany

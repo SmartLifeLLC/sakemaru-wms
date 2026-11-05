@@ -1,0 +1,272 @@
+<?php
+
+namespace App\Filament\Resources\WmsShortageAllocations\Pages;
+
+use App\Enums\QuantityType;
+use App\Filament\Resources\WmsShortageAllocations\WmsShortageAllocationResource as Resource;
+use App\Models\Sakemaru\ClientSetting;
+use App\Models\WmsShortageAllocation;
+use App\Services\Shortage\ProxyShipmentLifecycleService;
+use App\Services\Shortage\ProxyShipmentPrintRequestService;
+use Filament\Actions\Action;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Textarea;
+use Filament\Notifications\Notification;
+use Filament\Resources\Pages\ListRecords;
+use Filament\Support\Enums\Alignment;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\TextInputColumn;
+use Filament\Tables\Filters\Filter;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Sakemaru\Auth\Services\PermissionService;
+
+class ListNewWmsShortageAllocations extends ListRecords
+{
+    use \App\Filament\Concerns\HasExportAction;
+    use \App\Filament\Concerns\HasProxyShipmentPickingListAction;
+
+    protected static string $resource = Resource::class;
+
+    protected static ?string $title = '新横持ち出荷依頼';
+
+    protected string $view = 'filament.pages.new-proxy-shipments';
+
+    public function updatedPaginators($page, $pageName): void
+    {
+        $this->deselectAllTableRecords();
+    }
+
+    public function updatedTableFilters(): void
+    {
+        if (($this->tableFilters['status']['value'] ?? null) === 'CANCELLED') {
+            $this->tableFilters['cancellation']['value'] = 'only';
+        }
+        parent::updatedTableFilters();
+    }
+
+    protected function resolveWarehouseIdFromPresetView(): ?int
+    {
+        return auth()->user()?->getSelectedWarehouseId();
+    }
+
+    protected function getHeaderActions(): array
+    {
+        return [];
+    }
+
+    private function printable(WmsShortageAllocation $record): bool
+    {
+        $queue = $record->createQueue;
+        $transfer = $queue?->stockTransfer;
+
+        return $record->is_finished && in_array($record->status, ['FULFILLED', 'SHORTAGE'], true)
+            && $record->picked_qty > 0 && $queue?->status === 'FINISHED' && $queue->is_success
+            && (int) $queue->proxy_create_count === 1
+            && (int) $queue->client_id === (int) config('app.client_id')
+            && $transfer?->is_active && $transfer->trade?->is_active && $transfer->trade?->is_latest
+            && (int) $transfer->client_id === (int) config('app.client_id')
+            && (int) $transfer->trade->client_id === (int) config('app.client_id')
+            && (! $record->stock_transfer_queue_id || (int) $record->stock_transfer_queue_id === (int) $queue->id);
+    }
+
+    private function transferUrl(WmsShortageAllocation $record): ?string
+    {
+        if (! $this->printable($record)) {
+            return null;
+        }
+
+        return app(\App\Services\Navigation\MegaMenuBuilder::class)->sakemaruSystemUrl()
+            .'/stocks/inventory/transfer/form/'.$record->createQueue->stock_transfer_id;
+    }
+
+    public function prepareTransferPrint(string $operationKey, string $copyType = 'both'): ?string
+    {
+        abort_unless(Resource::canViewAny(), 403);
+        foreach (['sakemaru.stock-transfers.view', 'sakemaru.stock-transfers.print'] as $permission) {
+            abort_unless(app(PermissionService::class)->check(auth()->user(), $permission), 403);
+        }
+        // Selection is explicitly limited to the visible page, including the active tab and filters.
+        $visible = collect($this->getTableRecords()->items())->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $ids = array_values(array_unique(array_map('intval', $this->selectedTableRecords)));
+        if ($this->isTrackingDeselectedTableRecords || array_diff($ids, $visible)) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['allocation_ids' => '現在のページから印刷対象を選び直してください。']);
+        }
+        try {
+            return app(ProxyShipmentPrintRequestService::class)->create($ids, (int) config('app.client_id'), auth()->id(), $operationKey, $copyType);
+        } catch (\Illuminate\Validation\ValidationException $exception) {
+            Notification::make()->title('印刷を開始できません')->body(collect($exception->errors())->flatten()->first())->danger()->send();
+
+            return null;
+        }
+    }
+
+    public function table(Table $table): Table
+    {
+        return $table
+            ->query(Resource::getEloquentQuery()->whereHas('shortage.trade', fn (Builder $query) => $query->where('client_id', config('app.client_id')))
+                ->where('target_warehouse_id', $this->resolveWarehouseIdFromPresetView() ?? 0)
+                ->with(['sourceWarehouse', 'createQueue.stockTransfer.trade']))
+            ->striped()->extraAttributes(['class' => 'sticky-actions'])->recordUrl(null)
+            ->defaultSort('id', 'desc')->defaultPaginationPageOption(100)
+            ->paginationPageOptions([100, 500, 1000])
+            ->selectable()->selectCurrentPageOnly()->deselectAllRecordsWhenFiltered()
+            ->checkIfRecordIsSelectableUsing(fn (WmsShortageAllocation $record) => $this->printable($record))
+            ->columns([
+                TextColumn::make('id')->label('ID')->sortable()->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('shipment_date')->label('出荷日')->date('m/d')->sortable()->width('70px'),
+                TextColumn::make('targetWarehouse.code')->label('出荷倉庫CD')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('targetWarehouse.name')->label('横持ち出荷倉庫')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('sourceWarehouse.code')->label('元倉庫CD')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('sourceWarehouse.name')->label('元倉庫')->limit(12)->tooltip(fn ($state) => $state),
+                TextColumn::make('shortage.item.code')->label('商品CD')->searchable(),
+                TextColumn::make('shortage.item.name')->label('商品名')->grow()->searchable(),
+                TextColumn::make('shortage.item.volume')->label('容量')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('shortage.item.capacity_case')->label('入数')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('shortage.trade.partner.name')->label('得意先')->width('180px')->limit(18)->tooltip(fn ($state) => $state)->toggleable(),
+                TextColumn::make('deliveryCourse.name')->label('配送コース')->width('170px')->formatStateUsing(fn ($state) => preg_replace('/^\[[^\]]+\]/u', '', $state ?? ''))->limit(18)->tooltip(fn ($state) => $state)->toggleable(),
+                TextColumn::make('assign_qty_type')->label('単位')->formatStateUsing(fn ($state) => QuantityType::tryFrom($state)?->name() ?? $state),
+                TextColumn::make('assign_qty')->label('予定数')->alignment('center')->width('65px'),
+                TextInputColumn::make('picked_qty')->label('ピック数')->type('number')->alignment('center')->width('75px')->extraInputAttributes(['style' => 'width:64px;text-align:center'])
+                    ->rules(['required', 'integer', 'min:0'])->validationAttribute('ピック数')
+                    ->disabled(fn (WmsShortageAllocation $record) => ! Resource::canEdit($record) || ! in_array($record->status, ['RESERVED', 'PICKING']))
+                    ->updateStateUsing(function (WmsShortageAllocation $record, $state) {
+                        abort_unless(Resource::canEdit($record), 403);
+
+                        return app(ProxyShipmentLifecycleService::class)->locked($record->id, function ($locked) use ($state) {
+                            $locked->assertWorkable();
+                            $locked->update(['picked_qty' => (int) $state]);
+
+                            return $locked->picked_qty;
+                        });
+                    }),
+                TextColumn::make('remaining_qty')->label('欠品数')->state(fn (WmsShortageAllocation $record) => $record->isCancelled() ? '対象外' : $record->remaining_qty),
+                TextColumn::make('status')->label('状態')->badge()->width('80px')->formatStateUsing(fn ($state) => self::statuses()[$state] ?? $state),
+                TextColumn::make('transfer_status')->label('移動伝票')->width('95px')
+                    ->state(function (WmsShortageAllocation $record) {
+                        if ($this->printable($record)) {
+                            return (string) $record->createQueue->stockTransfer->trade->serial_id;
+                        }
+                        if ($record->isCancelled()) {
+                            return '取消（無効）';
+                        }
+                        if ($record->transfer_not_required_reason) {
+                            return '移動不要';
+                        }
+                        if (! $record->is_finished) {
+                            return '未作成';
+                        }
+
+                        return match ($record->createQueue?->status) {
+                            'BEFORE' => '作成待ち', 'PROCESSING' => '作成中',
+                            'FINISHED' => $record->createQueue->is_success ? '伝票無効／要確認' : '作成失敗',
+                            default => '紐付け未確認',
+                        };
+                    })
+                    ->url(fn (WmsShortageAllocation $record) => $this->transferUrl($record))
+                    ->openUrlInNewTab(),
+                TextColumn::make('finished_at')->label('完了日時')->dateTime('m/d H:i')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('cancelled_at')->label('取消日時')->dateTime('m/d H:i')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('cancel_reason')->label('取消理由')->toggleable(isToggledHiddenByDefault: true),
+            ])
+            ->filters([
+                SelectFilter::make('cancellation')->label('取消の表示')->options(['exclude' => '取消を除く', 'include' => '取消を含む', 'only' => '取消のみ'])
+                    ->default('exclude')->query(fn (Builder $query, array $data) => match ($data['value'] ?? 'exclude') {
+                        'only' => $query->where('status', 'CANCELLED'), 'include' => $query, default => $query->activeRequest(),
+                    }),
+                SelectFilter::make('status')->label('作業状態')->options(self::statuses()),
+                SelectFilter::make('completed_visibility')->label('完了の表示')
+                    ->options(['today' => '当日出荷分のみ', 'all' => '全期間', 'none' => '完了を除く'])
+                    ->default('today')->query(fn (Builder $query, array $data) => match ($data['value'] ?? null) {
+                        'none' => $query->where('is_finished', false),
+                        'today' => $query->where(fn (Builder $q) => $q->where('is_finished', false)
+                            ->orWhereDate('shipment_date', ClientSetting::systemDate(true)->toDateString())),
+                        default => $query,
+                    }),
+                Filter::make('shipment_date')->label('出荷日')->schema([DatePicker::make('from')->label('開始日'), DatePicker::make('until')->label('終了日')])
+                    ->query(fn (Builder $query, array $data) => $query->when($data['from'] ?? null, fn ($query, $date) => $query->whereDate('shipment_date', '>=', $date))
+                        ->when($data['until'] ?? null, fn ($query, $date) => $query->whereDate('shipment_date', '<=', $date))),
+            ])
+            ->recordActions([
+                Action::make('viewTransfer')->label('移動伝票')->icon('heroicon-o-arrow-top-right-on-square')->color('info')
+                    ->visible(fn (WmsShortageAllocation $record) => $this->printable($record))
+                    ->url(fn (WmsShortageAllocation $record) => $this->transferUrl($record))
+                    ->openUrlInNewTab(),
+                Action::make('complete')->label('完了')->icon('heroicon-o-check-circle')->color('success')
+                    ->visible(fn (WmsShortageAllocation $record) => Resource::canEdit($record) && in_array($record->status, ['RESERVED', 'PICKING']))
+                    ->requiresConfirmation()->modalHeading('横持ち出荷の完了確認')
+                    ->modalDescription(fn (WmsShortageAllocation $record) => "予定数 {$record->assign_qty}、ピック数 {$record->picked_qty}。不足がある場合は代理側欠品として確定します。")
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitActionLabel('完了を確定')->modalSubmitAction(fn ($action) => $action->color('danger'))->modalCancelActionLabel('完了せず閉じる')
+                    ->action(function (WmsShortageAllocation $record) {
+                        abort_unless(Resource::canEdit($record), 403);
+                        $result = app(ProxyShipmentLifecycleService::class)->complete($record->id, auth()->id());
+                        $notification = Notification::make()->title('横持ち出荷を完了しました');
+                        if ($result['quantity_sync_failed']) {
+                            $notification->body('数量同期に失敗しました。完了状態は保存済みです。横持ち出荷履歴の「手動同期」から再実行してください。')->warning();
+                        } else {
+                            $notification->success();
+                        }
+                        $notification->send();
+                    }),
+                Action::make('cancel')->label('取消')->icon('heroicon-o-x-circle')->color('danger')
+                    ->visible(fn (WmsShortageAllocation $record) => Resource::canEdit($record))
+                    ->modalHeading('横持ち出荷依頼を取り消します')
+                    ->modalDescription('この商品の倉庫移動はキャンセルされます。必ず本部受注センターと売上伝票確認を実施してください。')
+                    ->schema([Textarea::make('cancel_reason')->label('取消理由')->required()->maxLength(500)])
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal proxy-shipment-cancel-modal'])->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitActionLabel('取消を確定')->modalCancelActionLabel('取消せず閉じる')
+                    ->action(function (WmsShortageAllocation $record, array $data) {
+                        abort_unless(Resource::canEdit($record), 403);
+                        app(ProxyShipmentLifecycleService::class)->cancel($record->id, auth()->id(), $data['cancel_reason']);
+                        Notification::make()->title('依頼を取り消しました。元伝票は変更していません。')->success()->send();
+                    }),
+            ])
+            ->bulkActions([])
+            ->toolbarActions([
+                static::getExportAction(),
+                $this->getProxyShipmentPickingListAction(),
+                Action::make('printTransfers')->label(new \Illuminate\Support\HtmlString('移動伝票PDF生成・印刷（<span x-text="getSelectedRecordsCount()">0</span>件）'))->icon('heroicon-o-printer')->accessSelectedRecords()
+                    ->extraAttributes(['x-bind:disabled' => 'getSelectedRecordsCount() === 0'])
+                    ->modalHeading('移動伝票の印刷')
+                    ->modalDescription(fn () => '選択した依頼 '.count($this->selectedTableRecords).'件の印刷内容を選択してください。')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal proxy-shipment-print-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->schema([\Filament\Forms\Components\Radio::make('copy_type')->label('印刷内容')
+                        ->options(['both' => '入出庫セット', 'outbound' => '出庫用のみ'])->default('both')->required()])
+                    ->modalCancelActionLabel('印刷せず閉じる')
+                    ->modalSubmitAction(fn ($action) => $action->label('印刷を開始')->color('danger')->submit(null)->action(null)
+                        ->extraAttributes(['x-data' => '{ printBusy: false, printOperationKey: null, printOperationType: null }', 'x-bind:disabled' => 'printBusy'])
+                        ->alpineClickHandler(<<<'JS'
+                            (async () => {
+                                if (printBusy) return;
+                                printBusy = true;
+                                const popup = window.open('', '_blank');
+                                if (popup) popup.document.body.textContent = '印刷対象を確認しています…';
+                                try {
+                                    const copyType = $wire.get('mountedActions.0.data.copy_type');
+                                    if (printOperationType !== copyType) { printOperationType = copyType; printOperationKey = crypto.randomUUID(); }
+                                    const url = await $wire.prepareTransferPrint(printOperationKey, copyType);
+                                    if (!url) { if (popup) popup.close(); return; }
+                                    if (popup) { popup.opener = null; popup.location.href = url; }
+                                    else { $wire.dispatch('proxy-print-link', { url }); }
+                                    await $wire.unmountAction();
+                                } catch (error) { if (popup) popup.close(); }
+                                finally { printBusy = false; }
+                            })()
+                        JS))
+                    ->action(function (array $data) {
+                        $url = $this->prepareTransferPrint((string) \Illuminate\Support\Str::uuid(), $data['copy_type']);
+                        if ($url) {
+                            $this->dispatch('proxy-print-link', url: $url);
+                        }
+                    }),
+            ]);
+    }
+
+    private static function statuses(): array
+    {
+        return ['PENDING' => '承認待ち', 'RESERVED' => '引当済み', 'PICKING' => 'ピッキング中', 'FULFILLED' => '完了', 'SHORTAGE' => '代理側欠品', 'CANCELLED' => '取消'];
+    }
+}

@@ -1,0 +1,18 @@
+@props(['value' => "''", 'min' => "''", 'max' => null, 'label' => '入荷予定日', 'model' => null, 'reset' => '0'])
+@php
+    if ($model !== null) $value = '$wire.entangle('.json_encode($model).').live';
+    $max ??= json_encode(\App\Support\OrderArrivalDate::maximum());
+@endphp
+<div x-data="HqOrderInputs.dateInput({{ $value }}, {{ $min }}, {{ $max }})"
+    @if ($model === null) x-effect="syncExternal({{ $value }}, {{ $reset }})" @endif
+    {{ $attributes->class(['relative inline-block']) }}>
+    <div class="flex items-center gap-1">
+        <input type="text" inputmode="numeric" autocomplete="off" aria-label="{{ $label }}" placeholder="日／月日／年月日" title="日・月日・年月日を入力（例：25、1105、20261105）"
+            x-model="display" x-on:input="edit($event)" x-on:focus="$event.target.select()" x-on:blur="commit($event)" x-on:keydown.enter="commitOnEnter($event)"
+            x-on:compositionstart="startComposition()" x-on:compositionend="endComposition($event)"
+            x-bind:aria-invalid="!!error" class="w-32 rounded-md border-2 border-sky-300 bg-sky-50 px-2 py-1 text-xs font-mono text-slate-900 shadow-sm hover:border-sky-500 focus:border-sky-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-200 aria-invalid:border-danger-500 aria-invalid:bg-danger-50 dark:border-sky-700 dark:bg-gray-900 dark:text-gray-100 dark:focus:bg-gray-900 dark:focus:ring-sky-900 dark:aria-invalid:border-danger-400 dark:aria-invalid:bg-danger-950">
+        <button type="button" x-on:click="openPicker()" aria-label="カレンダーを開く" class="text-slate-500 dark:text-gray-300">▦</button>
+        <input type="date" x-ref="picker" x-bind:value="value" x-bind:min="min" x-bind:max="max" x-on:change="pick($event)" tabindex="-1" aria-hidden="true" class="pointer-events-none absolute bottom-0 right-0 h-px w-px opacity-0">
+    </div>
+    <p x-cloak x-show="error" x-text="error" role="alert" class="max-w-64 whitespace-normal text-xs text-danger-600 dark:text-danger-400"></p>
+</div>

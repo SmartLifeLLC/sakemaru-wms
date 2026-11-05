@@ -5,6 +5,11 @@ namespace App\Livewire;
 use App\Models\Sakemaru\ClientSetting;
 use App\Services\Navigation\MegaMenuBuilder;
 use Filament\Facades\Filament;
+use Filament\Notifications\Notification;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Collection;
+use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 class MegaMenu extends Component
@@ -14,6 +19,9 @@ class MegaMenu extends Component
     public string $systemDateDisplay = '';
 
     public string $systemDayOfWeek = '';
+
+    #[Locked]
+    public bool $bookmarksLoaded = false;
 
     public function mount()
     {
@@ -28,6 +36,86 @@ class MegaMenu extends Component
     public function render()
     {
         return view('livewire.mega-menu');
+    }
+
+    public function loadBookmarks(): void
+    {
+        $this->bookmarksLoaded = true;
+    }
+
+    #[Computed]
+    public function bookmarks(): ?Collection
+    {
+        $user = auth()->user();
+        if (! $user) {
+            return collect();
+        }
+
+        try {
+            return $user->getConnection()->table('menu_bookmarks')
+                ->where('user_id', $user->getKey())
+                ->orderBy('order')
+                ->orderBy('id')
+                ->get(['id', 'title', 'url'])
+                ->filter(fn ($bookmark) => $this->isBookmarkUrl($bookmark->url));
+        } catch (QueryException $exception) {
+            report($exception);
+
+            return null;
+        }
+    }
+
+    public function addBookmark(string $url, string $title): void
+    {
+        $user = auth()->user();
+        abort_unless($user, 403);
+
+        if (strlen($url) > 65535 || ! $this->isBookmarkUrl($url)
+            || ! str_starts_with($url, request()->getSchemeAndHttpHost().'/')) {
+            Notification::make()->danger()->title('このページはブックマークできません')->send();
+
+            return;
+        }
+
+        $title = mb_substr(trim($title) ?: $url, 0, 255);
+        $connection = $user->getConnection();
+        $userId = $user->getKey();
+
+        try {
+            $connection->transaction(function () use ($connection, $user, $userId, $url, $title) {
+                // Core and the other apps lock the same user row before registering a bookmark.
+                $user->newQuery()->whereKey($userId)->lockForUpdate()->firstOrFail([$user->getKeyName()]);
+
+                $bookmarks = $connection->table('menu_bookmarks');
+                $existingUrls = (clone $bookmarks)->where('user_id', $userId)->where('url', $url)->pluck('url');
+                if ($existingUrls->containsStrict($url)) {
+                    return;
+                }
+
+                $timestamp = now();
+                $bookmarks->insert([
+                    'user_id' => $userId,
+                    'url' => $url,
+                    'title' => $title,
+                    'order' => 9999,
+                    'created_at' => $timestamp,
+                    'updated_at' => $timestamp,
+                ]);
+            }, 3);
+        } catch (QueryException $exception) {
+            report($exception);
+            Notification::make()->danger()->title('ブックマークを登録できませんでした')->send();
+
+            return;
+        }
+
+        Notification::make()->success()->title('ブックマークに登録しました')->send();
+    }
+
+    private function isBookmarkUrl(string $url): bool
+    {
+        return filter_var($url, FILTER_VALIDATE_URL) !== false
+            && in_array(parse_url($url, PHP_URL_SCHEME), ['http', 'https'], true);
     }
 
     public function getUserMenuItems(): array
@@ -74,8 +162,8 @@ class MegaMenu extends Component
                 'label' => $system['label'],
                 'url' => $url,
                 'isActive' => false,
-                'icon' => null,
-                'openInSplitView' => true,
+                'icon' => 'heroicon-o-arrow-top-right-on-square',
+                'openInNewTab' => true,
                 'desc' => $system['desc'],
             ];
         }

@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsStockTransferCandidates\Tables;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\PaginationOptions;
+use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
 use App\Filament\Concerns\HasModifierDisplay;
 use App\Filament\Concerns\HasOptimizedFilters;
@@ -125,8 +126,18 @@ class WmsStockTransferCandidatesTable
                     ->toggleable()
                     ->width('100px'),
 
+                // 発注数は発注した単位（ケース / バラ）で表示し、総バラ数を別の列に出す
                 TextColumn::make('transfer_quantity')
-                    ->label('発注バラ数')
+                    ->label('発注数')
+                    ->formatStateUsing(fn ($state, $record): string => number_format((int) $state).' '.($record->quantity_type?->name() ?? QuantityType::PIECE->name()))
+                    ->alignEnd()
+                    ->color('danger')
+                    ->weight('bold')
+                    ->width('80px'),
+
+                TextColumn::make('total_piece_quantity')
+                    ->label('総バラ数')
+                    ->state(fn ($record): int => $record->totalPieceQuantity())
                     ->numeric()
                     ->alignEnd()
                     ->color('danger')
@@ -434,6 +445,7 @@ class WmsStockTransferCandidatesTable
 
                         return [
                             'transfer_quantity' => $record->transfer_quantity,
+                            'quantity_type' => static::editableQuantityType($record->quantity_type)->value,
                             'expected_arrival_date' => $record->expected_arrival_date,
                             'delivery_course_id' => $record->delivery_course_id,
                             'safety_stock' => $record->safety_stock,
@@ -508,6 +520,8 @@ class WmsStockTransferCandidatesTable
                                     'statusLabel' => $record->status->label(),
                                     'suggestedQuantity' => $record->suggested_quantity ?? 0,
                                     'transferQuantity' => $record->transfer_quantity ?? 0,
+                                    'quantityTypeLabel' => $record->quantity_type?->name() ?? QuantityType::PIECE->name(),
+                                    'totalPieceQuantity' => $record->totalPieceQuantity(),
                                     'hasCalculationLog' => ! empty($details),
                                     'formula' => str_replace(['安全在庫', '入庫予定'], ['発注点', '入荷予定'], $details['計算式'] ?? '-'),
                                     'effectiveStock' => $details['有効在庫'] ?? 0,
@@ -523,12 +537,25 @@ class WmsStockTransferCandidatesTable
                         ];
 
                         if ($isEditable) {
-                            $schema[] = Grid::make(3)->schema([
+                            $capacityCase = max(1, (int) ($item?->capacity_case ?? 1));
+
+                            $schema[] = Grid::make(4)->schema([
                                 TextInput::make('transfer_quantity')
                                     ->label('発注数')
                                     ->numeric()
                                     ->required()
-                                    ->minValue(0),
+                                    ->minValue(0)
+                                    ->helperText("ケースで発注すると 1 ケース = {$capacityCase} バラで移動します"),
+                                Select::make('quantity_type')
+                                    ->label('単位')
+                                    ->options([
+                                        QuantityType::PIECE->value => QuantityType::PIECE->name(),
+                                        QuantityType::CASE->value => QuantityType::CASE->name(),
+                                    ])
+                                    ->disableOptionWhen(fn (string $value): bool => $value === QuantityType::CASE->value
+                                        && ! WmsStockTransferCandidate::canOrderByCase($item?->capacity_case))
+                                    ->selectablePlaceholder(false)
+                                    ->required(),
                                 DatePicker::make('expected_arrival_date')
                                     ->label('入荷予定日')
                                     ->required(),
@@ -582,7 +609,14 @@ class WmsStockTransferCandidatesTable
                     })
                     ->action(function ($record, array $data) {
                         $itemContractor = static::resolveItemContractor($record);
+                        $currentQuantityType = static::editableQuantityType($record->quantity_type);
+                        $newQuantityType = QuantityType::tryFrom((string) ($data['quantity_type'] ?? ''));
+                        if (! in_array($newQuantityType, [QuantityType::CASE, QuantityType::PIECE], true)) {
+                            $newQuantityType = $currentQuantityType;
+                        }
+
                         $hasChanges = $data['transfer_quantity'] != $record->transfer_quantity
+                            || $newQuantityType !== $record->quantity_type
                             || $data['expected_arrival_date'] != $record->expected_arrival_date?->format('Y-m-d')
                             || $data['delivery_course_id'] != $record->delivery_course_id
                             || (isset($data['safety_stock']) && (int) $data['safety_stock'] !== (int) $record->safety_stock)
@@ -590,12 +624,32 @@ class WmsStockTransferCandidatesTable
                             || (array_key_exists('is_auto_order', $data) && (bool) $data['is_auto_order'] !== (bool) ($itemContractor?->is_auto_order ?? false))
                             || (isset($data['ordering_code']) && $data['ordering_code'] !== ($record->search_code ?? $record->ordering_code));
 
+                        // 入数が未設定（0）の商品はケース発注できない（基幹側で総バラ数が 0 になる）
+                        if ($newQuantityType === QuantityType::CASE
+                            && (int) $data['transfer_quantity'] > 0
+                            && ! WmsStockTransferCandidate::canOrderByCase($record->item?->capacity_case)) {
+                            Notification::make()
+                                ->title('ケース発注できません')
+                                ->body('入数が未設定の商品です。バラで発注してください。')
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
                         if ($hasChanges) {
-                            $oldQuantity = $record->transfer_quantity;
-                            $newQuantity = (int) $data['transfer_quantity'];
+                            // 関連発注候補の再計算はバラ換算の数量で判定する
+                            $oldQuantity = $record->totalPieceQuantity();
+                            $newQuantity = WmsStockTransferCandidate::toPieceQuantity(
+                                (int) $data['transfer_quantity'],
+                                $newQuantityType,
+                                $record->item?->capacity_case,
+                                $record->item?->capacity_carton,
+                            );
 
                             $updateData = [
-                                'transfer_quantity' => $newQuantity,
+                                'transfer_quantity' => (int) $data['transfer_quantity'],
+                                'quantity_type' => $newQuantityType,
                                 'expected_arrival_date' => $data['expected_arrival_date'],
                                 'delivery_course_id' => $data['delivery_course_id'],
                                 'is_manually_modified' => true,
@@ -899,27 +953,61 @@ class WmsStockTransferCandidatesTable
             ->defaultSort('batch_code', 'desc');
     }
 
-    public static function applyTransferQuantityChange(WmsStockTransferCandidate $record, int $newQuantity, ?int $userId): ?\App\Models\WmsOrderCandidate
-    {
+    /**
+     * 発注数量（と単位）を変更する。
+     *
+     * @param  int  $newQuantity  新しい数量（$newQuantityType の単位。省略時は現在の単位）
+     * @param  QuantityType|null  $newQuantityType  新しい単位（ケース / バラ）。null のときは単位を変えない
+     */
+    public static function applyTransferQuantityChange(
+        WmsStockTransferCandidate $record,
+        int $newQuantity,
+        ?int $userId,
+        ?QuantityType $newQuantityType = null,
+    ): ?\App\Models\WmsOrderCandidate {
         if ($record->status !== CandidateStatus::PENDING) {
             return null;
         }
 
-        $oldQuantity = (int) $record->transfer_quantity;
+        // 入数が未設定（0）の商品はケース発注できない（基幹側で総バラ数が 0 になる）
+        $resultingQuantityType = $newQuantityType ?? $record->quantity_type;
+        if ($resultingQuantityType === QuantityType::CASE
+            && $newQuantity > 0
+            && ! WmsStockTransferCandidate::canOrderByCase($record->item?->capacity_case)) {
+            throw new \InvalidArgumentException('入数が未設定のためケース発注できません');
+        }
 
-        $record->update([
+        // 関連発注候補の再計算はバラ換算の数量で判定する
+        $oldPieceQuantity = $record->totalPieceQuantity();
+
+        $updateData = [
             'transfer_quantity' => $newQuantity,
             'is_manually_modified' => true,
             'modified_by' => $userId,
             'modified_at' => now(),
-        ]);
+        ];
+        if ($newQuantityType !== null) {
+            $updateData['quantity_type'] = $newQuantityType;
+        }
 
-        if ($oldQuantity === $newQuantity) {
+        $record->update($updateData);
+
+        $newPieceQuantity = $record->totalPieceQuantity();
+
+        if ($oldPieceQuantity === $newPieceQuantity) {
             return null;
         }
 
         return app(TransferOrderRecalculationService::class)
-            ->recalculateOrderForTransfer($record, $oldQuantity, $newQuantity);
+            ->recalculateOrderForTransfer($record, $oldPieceQuantity, $newPieceQuantity);
+    }
+
+    /**
+     * 画面で編集できる単位はケースかバラのみ。それ以外（未設定など）はバラとして扱う。
+     */
+    private static function editableQuantityType(?QuantityType $quantityType): QuantityType
+    {
+        return $quantityType === QuantityType::CASE ? QuantityType::CASE : QuantityType::PIECE;
     }
 
     private static function resolveItemContractor(WmsStockTransferCandidate $record): ?ItemContractor

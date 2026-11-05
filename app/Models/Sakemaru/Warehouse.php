@@ -45,6 +45,14 @@ class Warehouse extends CustomModel
         return $this->belongsTo(ClientCalendar::class);
     }
 
+    /**
+     * 所属支店
+     */
+    public function branch(): BelongsTo
+    {
+        return $this->belongsTo(Branch::class);
+    }
+
     public function warehouse_contractors(): HasMany
     {
         return $this->hasMany(WarehouseContractor::class);

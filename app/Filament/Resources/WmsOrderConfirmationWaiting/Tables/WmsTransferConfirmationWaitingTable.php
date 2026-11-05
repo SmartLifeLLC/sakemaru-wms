@@ -136,8 +136,16 @@ class WmsTransferConfirmationWaitingTable
                     ->alignEnd()
                     ->width('60px'),
 
+                // 移動数は発注した単位（ケース / バラ）で表示し、総バラ数を別の列に出す
                 TextColumn::make('transfer_quantity')
                     ->label('移動数')
+                    ->formatStateUsing(fn ($state, $record): string => number_format((int) $state).' '.($record->quantity_type?->name() ?? 'バラ'))
+                    ->alignEnd()
+                    ->width('80px'),
+
+                TextColumn::make('total_piece_quantity')
+                    ->label('総バラ数')
+                    ->state(fn ($record): int => $record->totalPieceQuantity())
                     ->numeric()
                     ->alignEnd()
                     ->width('70px'),
@@ -321,6 +329,8 @@ class WmsTransferConfirmationWaitingTable
                                     'statusLabel' => $record->status->label(),
                                     'suggestedQuantity' => $record->suggested_quantity ?? 0,
                                     'transferQuantity' => $record->transfer_quantity ?? 0,
+                                    'quantityTypeLabel' => $record->quantity_type?->name() ?? 'バラ',
+                                    'totalPieceQuantity' => $record->totalPieceQuantity(),
                                     'hasCalculationLog' => ! empty($details),
                                     'formula' => $details['計算式'] ?? '-',
                                     'effectiveStock' => $details['有効在庫'] ?? 0,

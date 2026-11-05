@@ -44,7 +44,7 @@ class DashboardShortageAllocationsWidget extends Widget
 
     protected function loadWarehouses(): void
     {
-        $warehouseIds = WmsShortageAllocation::query()
+        $warehouseIds = WmsShortageAllocation::query()->activeRequest()
             ->where('shipment_date', $this->filterDate)
             ->distinct()
             ->pluck('target_warehouse_id')
@@ -82,7 +82,7 @@ class DashboardShortageAllocationsWidget extends Widget
 
     public function loadAllocations(): void
     {
-        $query = WmsShortageAllocation::query()
+        $query = WmsShortageAllocation::query()->activeRequest()
             ->where('shipment_date', $this->filterDate)
             ->with([
                 'shortage.warehouse',

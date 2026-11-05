@@ -155,6 +155,12 @@ npm run dev      # Vite dev サーバー（HMR）
 
 ## Development Commands
 
+### Local Web UI Login For Verification Agents
+- For authenticated browser checks in this repository, use the shared credentials from `/Users/jungsinyu/Projects/sakemaru-ai-core/.env`.
+- Read the login ID from `ADMIN_USER_EMAIL` and the password from `ADMIN_PASS` at runtime.
+- Never print, copy, commit, or hard-code the credential values.
+- Do not treat missing `ADMIN_USER_EMAIL` or `ADMIN_PASS` in this repository's own `.env` as a blocker; always check `/Users/jungsinyu/Projects/sakemaru-ai-core/.env` first unless the user explicitly provides different credentials.
+
 ```bash
 # Initial Setup
 composer setup  # Installs dependencies, generates key, runs migrations, builds assets
@@ -188,6 +194,24 @@ php artisan wms:update-daily-stats      # Update daily statistics
 - Search base URL: `https://search.sakemaru.test`
 - Local DB: `hana_local`
 - Local DB user: `ROOT` (`root` in `.env`)
+
+### 利用者向けエラーメッセージ
+
+- エラーは担当者が理解できる日本語で表示し、対象項目と修正方法を具体的に伝える。
+- バリデーションには画面と同じ日本語の項目名を設定し、DBカラム名・変数名・英語の内部名称をそのまま表示しない。
+- 例: `max_order_pieces is required` ではなく「最大発注数を入力してください。」。
+
+### 自動発注の数量制御（2026-10-18 ユーザー指定）
+
+- 発注数量は倉庫×商品ごとの商品別発注設定にある最大発注数で制限する。
+- 倉庫別・全倉庫共通の数量／件数／金額上限、および商品別の日次追加上限は設けない。
+- 「在庫同期確認済み」の手動チェックは要求しない。在庫区分「正常品」はシステムで特定する。
+- 商品別の最小数・発注単位・最大発注数の検証、既発注照合、二重発注防止は維持する。
+- 商品未登録・商品設定が全件OFFでも、倉庫ONを許可する。実行対象0件の場合は発注を生成せずに終了する。
+- 商品の一括変更は選択ON・選択OFFの両方を提供し、同じ状態の商品は変更しない。確認はブラウザー標準のconfirm/alertではなく画面内モーダルで行う。
+- 外部の自動発注はEOS対象の問屋に限定し、FAX発注は対象外とする。物流発注はINTERNAL設定の発注先を利用する。
+- 入荷日・出庫日は発注先・倉庫・配送コースの既存設定と既存処理から算定する。商品別の独自入荷ルールや「確認済み」の手動承認は要求しない。
+- 商品別の編集画面内でON／OFFと数量条件をまとめて保存する。個別状態変更の専用モーダルは設けない。ON保存時の検証に失敗した場合は設定・状態を同一トランザクションで取り消す。CSV取込は全件OFFを維持する。
 
 ## Architecture
 

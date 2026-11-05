@@ -26,6 +26,7 @@ class SyncMonthlySafetyStocksCommand extends Command
 
     public function handle(): int
     {
+        app(\App\Services\AutoReplenishment\ReplenishmentGuard::class)->assertLegacyAllowed();
         // デフォルトは翌月（月末に実行して翌月の発注点を事前設定）
         $month = $this->option('month') ?? Carbon::now()->addMonth()->month;
         $dryRun = $this->option('dry-run');

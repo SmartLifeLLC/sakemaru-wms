@@ -7,8 +7,8 @@ use Filament\Facades\Filament;
 use Filament\Navigation\NavigationGroup;
 use Filament\Navigation\NavigationItem;
 use Filament\Support\Contracts\HasLabel;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Str;
 use ReflectionClass;
 use UnitEnum;
 
@@ -159,7 +159,7 @@ class MegaMenuBuilder
         return $itemsByLabel;
     }
 
-    protected function resolveGroupLabel(string | UnitEnum | null $group): ?string
+    protected function resolveGroupLabel(string|UnitEnum|null $group): ?string
     {
         if ($group === null) {
             return null;
@@ -203,7 +203,7 @@ class MegaMenuBuilder
                         'url' => $item['url'] ?? null,
                         'source_type' => $item['sourceType'] ?? (($item['permissionResource'] ?? null) ? 'navigation' : 'external'),
                         'is_external' => $item['isExternal'] ?? (($item['permissionResource'] ?? null) === null),
-                        'opens_in_new_tab' => (bool) ($item['openInSplitView'] ?? false),
+                        'opens_in_new_tab' => (bool) ($item['openInNewTab'] ?? $item['openInSplitView'] ?? false),
                         'tab_sort' => $tabIndex + 1,
                         'group_sort' => $groupIndex + 1,
                         'item_sort' => $itemIndex + 1,
@@ -300,14 +300,27 @@ class MegaMenuBuilder
         ];
     }
 
+    /** The series menu and document links must resolve to the same environment. */
+    public function sakemaruSystemUrl(?string $subdomain = null): string
+    {
+        // APP_URL can be an Android emulator IP; web navigation uses its WMS origin.
+        $origin = str_starts_with(request()->getHost(), 'wms.')
+            ? request()->getSchemeAndHttpHost()
+            : config('app.url');
+        $parsed = parse_url($origin);
+        if (! str_starts_with($parsed['host'] ?? '', 'wms.')) {
+            $parsed = parse_url(config('app.core_url'));
+        }
+        $scheme = $parsed['scheme'] ?? 'https';
+        $baseDomain = preg_replace('/^wms\./', '', $parsed['host'] ?? 'localhost');
+        $host = $subdomain ? $subdomain.'.'.$baseDomain : $baseDomain;
+        $port = isset($parsed['port']) ? ':'.$parsed['port'] : '';
+
+        return "{$scheme}://{$host}{$port}";
+    }
+
     protected function buildSakemaruSeriesTab(): array
     {
-        $appUrl = config('app.url');
-        $parsed = parse_url($appUrl);
-        $scheme = $parsed['scheme'] ?? 'https';
-        $host = $parsed['host'] ?? 'localhost';
-        $baseDomain = preg_replace('/^[^.]+\./', '', $host);
-
         $systems = [
             ['label' => '酒丸（基幹システム）', 'subdomain' => null, 'desc' => '基幹業務システム', 'targetSystem' => 'sakemaru'],
             ['label' => '酒丸千里眼', 'subdomain' => 'search', 'desc' => '高度検索システム', 'targetSystem' => 'search'],
@@ -320,16 +333,14 @@ class MegaMenuBuilder
 
         $items = [];
         foreach ($systems as $itemSort => $system) {
-            $url = $system['subdomain']
-                ? "{$scheme}://{$system['subdomain']}.{$baseDomain}"
-                : "{$scheme}://{$baseDomain}";
+            $url = $this->sakemaruSystemUrl($system['subdomain']);
 
             $items[] = [
                 'label' => $system['label'],
                 'url' => $this->normalizeUrl($url),
                 'isActive' => false,
-                'icon' => null,
-                'openInSplitView' => true,
+                'icon' => 'heroicon-o-arrow-top-right-on-square',
+                'openInNewTab' => true,
                 'desc' => $system['desc'],
                 'permissionResource' => null,
                 'sourceType' => 'external',
@@ -371,6 +382,7 @@ class MegaMenuBuilder
                 'icon' => 'fa-cart-shopping',
                 'categories' => [
                     EMenuCategory::AUTO_ORDER,
+                    EMenuCategory::AUTO_REPLENISHMENT,
                     EMenuCategory::ORDER_HISTORY,
                     EMenuCategory::ORDER_SETTINGS,
                 ],
@@ -391,6 +403,14 @@ class MegaMenuBuilder
                     EMenuCategory::OUTBOUND,
                     EMenuCategory::SHORTAGE,
                     EMenuCategory::HORIZONTAL_SHIPMENT,
+                ],
+            ],
+            [
+                'id' => 'distribution',
+                'label' => '分配',
+                'icon' => 'fa-share-nodes',
+                'categories' => [
+                    EMenuCategory::DISTRIBUTION,
                 ],
             ],
             [
@@ -425,6 +445,8 @@ class MegaMenuBuilder
                 'label' => 'システム',
                 'icon' => 'fa-cogs',
                 'categories' => [
+                    EMenuCategory::ORDER_TRANSMISSION,
+                    EMenuCategory::WAVE_MANAGEMENT,
                     EMenuCategory::SETTINGS,
                     EMenuCategory::TEST_DATA,
                 ],
@@ -448,7 +470,7 @@ class MegaMenuBuilder
                 'permissionResource' => 'api-document',
             ],
             [
-                'url' => config('app.core_url') . '/stocks/inventory/transfer',
+                'url' => config('app.core_url').'/stocks/inventory/transfer',
                 'permissionResource' => 'warehouse-stock-transfer-delivery-course',
             ],
         ];
@@ -489,7 +511,7 @@ class MegaMenuBuilder
             return 'sakemaru';
         }
 
-        if (str_ends_with($host, '.' . $baseDomain)) {
+        if (str_ends_with($host, '.'.$baseDomain)) {
             return Str::before($host, '.');
         }
 
@@ -551,7 +573,7 @@ class MegaMenuBuilder
         }
 
         if ($iconClass && (str_starts_with($iconClass, 'o-') || str_starts_with($iconClass, 's-')) && ! str_starts_with($iconClass, 'heroicon-')) {
-            return 'heroicon-' . $iconClass;
+            return 'heroicon-'.$iconClass;
         }
 
         return $iconClass;

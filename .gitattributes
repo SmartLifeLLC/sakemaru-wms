@@ -6,6 +6,10 @@
 *.md diff=markdown
 *.php diff=php
 
+# Preserve fixed-width padding, archived Shift_JIS bytes, and LF/CRLF separators.
+/tests/Fixtures/jx/*_sample.txt -text -whitespace
+/tests/Fixtures/jx/generated/*.dat -text -whitespace
+
 /.github export-ignore
 CHANGELOG.md export-ignore
 .styleci.yml export-ignore

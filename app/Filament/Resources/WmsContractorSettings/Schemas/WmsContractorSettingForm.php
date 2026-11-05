@@ -13,6 +13,7 @@ use Filament\Forms\Components\TimePicker;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Fieldset;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 
 class WmsContractorSettingForm
@@ -20,6 +21,10 @@ class WmsContractorSettingForm
     public static function configure(Schema $schema): Schema
     {
         return $schema->components([
+            View::make('filament.pages.auto-replenishment-master-edit-warning')
+                ->viewData(fn ($record) => app(\App\Services\AutoReplenishment\MasterRouteWarnings::class)
+                    ->masterEditNotice((int) auth()->user()?->client_id, 'contractor', $record?->getAttributes() ?? []))
+                ->columnSpanFull(),
             Section::make('基本設定')
                 ->schema([
                     Select::make('contractor_id')
@@ -74,8 +79,20 @@ class WmsContractorSettingForm
                     TimePicker::make('transmission_time')
                         ->label('送信時刻')
                         ->seconds(false)
-                        ->visible(fn ($get) => $get('is_auto_transmission'))
-                        ->required(fn ($get) => $get('is_auto_transmission')),
+                        ->visible(fn ($get) => $get('is_auto_transmission') && $get('transmission_type') !== TransmissionType::JX_FINET->value)
+                        ->required(fn ($get) => $get('is_auto_transmission') && $get('transmission_type') !== TransmissionType::JX_FINET->value),
+
+                    TimePicker::make('jx_transmission_time')
+                        ->label('JX送信時刻（月-土）')
+                        ->seconds(false)
+                        ->visible(fn ($get) => $get('transmission_type') === TransmissionType::JX_FINET->value && blank($get('transmission_contractor_id')))
+                        ->helperText('JX自動送信で使用します。通常運用: 13:40'),
+
+                    TimePicker::make('jx_transmission_sunday_time')
+                        ->label('JX送信時刻（日）')
+                        ->seconds(false)
+                        ->visible(fn ($get) => $get('transmission_type') === TransmissionType::JX_FINET->value && blank($get('transmission_contractor_id')))
+                        ->helperText('JX自動送信で使用します。通常運用: 23:40'),
 
                     TextInput::make('auto_order_generation_time')
                         ->label('自動発注生成時刻')

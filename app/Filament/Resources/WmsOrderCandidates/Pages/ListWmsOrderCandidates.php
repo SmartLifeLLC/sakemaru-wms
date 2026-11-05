@@ -25,7 +25,6 @@ use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
-use App\Models\WmsWarehouseAutoOrderSetting;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
@@ -118,6 +117,31 @@ class ListWmsOrderCandidates extends ListRecords
                     'capacity_case' => $item->capacity_case ?? 1,
                 ];
             })
+            ->toArray();
+    }
+
+    public function searchContractorsForOrderCreate(string $search): array
+    {
+        $search = trim(mb_convert_kana($search, 'as'));
+        if ($search === '' || (mb_strlen($search) < 2 && ! preg_match('/^\d+$/', $search))) {
+            return [];
+        }
+
+        return Contractor::query()
+            ->select(['id', 'code', 'name'])
+            ->where(function ($query) use ($search) {
+                $query->where('code', 'like', "{$search}%")
+                    ->orWhere('name', 'like', "%{$search}%");
+            })
+            ->orderBy('code')
+            ->limit(30)
+            ->get()
+            ->map(fn ($contractor) => [
+                'id' => $contractor->id,
+                'code' => $contractor->code,
+                'name' => $contractor->name,
+                'label' => "[{$contractor->code}]{$contractor->name}",
+            ])
             ->toArray();
     }
 
@@ -1120,6 +1144,8 @@ class ListWmsOrderCandidates extends ListRecords
                 GREATEST(sales.sales_qty - (COALESCE(stocks.effective_stock, 0) + COALESCE(incoming.incoming_qty, 0)), 0) as shortage_qty,
                 COALESCE(item_contractors.purchase_unit, 1) as purchase_unit
             ')
+            ->orderBy('contractors.code')
+            ->orderBy('supplier_partners.code')
             ->orderBy('items.code')
             ->get()
             ->map(fn ($row) => [
@@ -1495,14 +1521,7 @@ class ListWmsOrderCandidates extends ListRecords
 
     private function getSalesBasedExternalOrderGenerationWarehouseIds(int $warehouseId): array
     {
-        $enabledWarehouseIds = WmsWarehouseAutoOrderSetting::enabled()
-            ->pluck('warehouse_id')
-            ->toArray();
-
-        return array_values(array_intersect(
-            $enabledWarehouseIds,
-            [$warehouseId],
-        ));
+        return app(\App\Services\AutoOrder\ManualOrderWarehouseResolver::class)->selected($warehouseId);
     }
 
     private function getMountedSalesBasedExternalOrderActionData(): array
@@ -1528,9 +1547,6 @@ class ListWmsOrderCandidates extends ListRecords
                         'contractor',
                         'supplier.partner',
                     ])
-                    ->orderBy('batch_code', 'desc')
-                    ->orderBy('warehouse_id')
-                    ->orderBy('item_id')
             ));
     }
 

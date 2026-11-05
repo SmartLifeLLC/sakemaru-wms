@@ -78,7 +78,7 @@ class ShortageApprovalService
             return;
         }
 
-        $pickResult->shortage_allocated_qty = (int) $shortage->allocations()->sum('assign_qty');
+        $pickResult->shortage_allocated_qty = (int) $shortage->allocations()->activeRequest()->sum('assign_qty');
         $pickResult->shortage_allocated_qty_type = $shortage->qty_type_at_order;
         $pickResult->is_ready_to_shipment = true;
         $pickResult->shipment_ready_at = $pickResult->shipment_ready_at ?? now();
@@ -198,7 +198,9 @@ class ShortageApprovalService
             $query->where('wave_id', $waveId);
         }
 
-        $tasks = $query->with(['pickingItemResults.item'])->get();
+        $tasks = $query->with([
+            'pickingItemResults' => fn ($query) => $query->withActiveSourceDocument()->with('item'),
+        ])->get();
 
         if ($tasks->isEmpty()) {
             return [
@@ -235,7 +237,16 @@ class ShortageApprovalService
             }
         }
 
-        // チェック2: 該当ピッキング明細に紐づく欠品が全てis_synced=trueであるか
+        if ($itemResultsById->isEmpty()) {
+            return [
+                'can_print' => false,
+                'error_message' => '印刷対象の有効な伝票明細がありません。',
+                'incomplete_items' => [],
+                'unsynced_shortages' => [],
+            ];
+        }
+
+        // チェック2: 有効な元伝票のピッキング明細に紐づく欠品が全てis_synced=trueであるか
         $shortages = WmsShortage::query()
             ->whereIn('source_pick_result_id', $itemResultsById->keys())
             ->where('shortage_qty', '>', 0)

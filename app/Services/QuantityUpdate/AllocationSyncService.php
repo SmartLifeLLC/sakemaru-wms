@@ -3,6 +3,8 @@
 namespace App\Services\QuantityUpdate;
 
 use App\Models\QuantityUpdateQueue;
+use App\Models\Sakemaru\ClientSetting;
+use App\Models\WmsShortage;
 use App\Models\WmsShortageAllocation;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -16,32 +18,33 @@ class AllocationSyncService
     /**
      * 指定倉庫の未同期欠品allocationを欠品単位で同期
      *
-     * @return array{synced_count: int, queue_created: int, skipped: int, errors: array}
+     * @return array{syncedCount: int, queueCreated: int, skipped: int, errors: array, synced_count: int, queue_created: int}
      */
-    public function syncByWarehouse(int $warehouseId): array
+    public function syncByWarehouse(int $warehouseId, ?string $shipmentDate = null): array
     {
         $allocations = WmsShortageAllocation::needingSync()
             ->where('target_warehouse_id', $warehouseId)
+            ->when($shipmentDate, fn ($query) => $query->where('shipment_date', $shipmentDate))
             ->with(['shortage.trade', 'shortage.wave', 'shortage.allocations'])
             ->get();
 
         if ($allocations->isEmpty()) {
-            return ['synced_count' => 0, 'queue_created' => 0, 'skipped' => 0, 'errors' => []];
+            return $this->formatResult(0, 0, 0, []);
         }
 
-        $grouped = $allocations->groupBy('shortage_id');
+        $grouped = $allocations->groupBy('shortage_id')->sortKeys();
 
         $syncedCount = 0;
         $queueCreated = 0;
         $skipped = 0;
         $errors = [];
 
-        DB::connection('sakemaru')->transaction(function () use ($grouped, &$syncedCount, &$queueCreated, &$skipped, &$errors) {
+        DB::connection('sakemaru')->transaction(function () use ($grouped, $shipmentDate, &$syncedCount, &$queueCreated, &$skipped, &$errors) {
             $queueService = app(QuantityUpdateQueueService::class);
 
             foreach ($grouped as $shortageId => $groupAllocations) {
                 try {
-                    $result = $this->syncShortageGroup($groupAllocations, $queueService);
+                    $result = $this->syncShortageIdIfReady((int) $shortageId, $queueService, $shipmentDate);
                     if ($result) {
                         $queueCreated++;
                         $syncedCount += $groupAllocations->count();
@@ -60,12 +63,93 @@ class AllocationSyncService
 
         Log::info('AllocationSyncService: sync completed', [
             'warehouse_id' => $warehouseId,
+            'shipment_date' => $shipmentDate,
             'synced_count' => $syncedCount,
             'queue_created' => $queueCreated,
             'skipped' => $skipped,
         ]);
 
-        return compact('syncedCount', 'queueCreated', 'skipped', 'errors');
+        return $this->formatResult($syncedCount, $queueCreated, $skipped, $errors);
+    }
+
+    /**
+     * 完了した代理側欠品を、同じ欠品IDの横持ち割当がすべて完了していれば同期する。
+     */
+    public function syncAllocationIfReady(WmsShortageAllocation $allocation): ?QuantityUpdateQueue
+    {
+        if (! $allocation->shortage_id) {
+            return null;
+        }
+
+        $systemShipmentDate = $this->systemShipmentDate();
+
+        return DB::connection('sakemaru')->transaction(function () use ($allocation, $systemShipmentDate): ?QuantityUpdateQueue {
+            WmsShortage::whereKey($allocation->shortage_id)->lockForUpdate()->firstOrFail();
+            WmsShortageAllocation::query()
+                ->where('shortage_id', $allocation->shortage_id)
+                ->orderBy('id')->lockForUpdate()
+                ->get(['id']);
+
+            $lockedAllocation = WmsShortageAllocation::query()
+                ->whereKey($allocation->getKey())
+                ->first();
+
+            if (! $lockedAllocation?->needsSync()) {
+                return null;
+            }
+
+            if (! $systemShipmentDate || ! $this->matchesShipmentDate($lockedAllocation, $systemShipmentDate)) {
+                Log::info('AllocationSyncService: auto sync skipped because shipment date is not system date', [
+                    'allocation_id' => $lockedAllocation->id,
+                    'shortage_id' => $lockedAllocation->shortage_id,
+                    'shipment_date' => $lockedAllocation->shipment_date?->toDateString(),
+                    'system_shipment_date' => $systemShipmentDate,
+                ]);
+
+                return null;
+            }
+
+            return $this->syncShortageIdIfReady(
+                (int) $lockedAllocation->shortage_id,
+                app(QuantityUpdateQueueService::class),
+                $systemShipmentDate,
+            );
+        });
+    }
+
+    protected function syncShortageIdIfReady(int $shortageId, QuantityUpdateQueueService $queueService, ?string $shipmentDate = null): ?QuantityUpdateQueue
+    {
+        WmsShortage::whereKey($shortageId)->lockForUpdate()->firstOrFail();
+        WmsShortageAllocation::query()
+            ->where('shortage_id', $shortageId)
+            ->orderBy('id')->lockForUpdate()
+            ->get(['id']);
+
+        if (WmsShortageAllocation::where('shortage_id', $shortageId)->where('status', WmsShortageAllocation::STATUS_CANCELLED)->exists()) {
+            return null;
+        }
+
+        $allocations = WmsShortageAllocation::needingSync()
+            ->where('shortage_id', $shortageId)
+            ->when($shipmentDate, fn ($query) => $query->where('shipment_date', $shipmentDate))
+            ->with(['shortage.trade', 'shortage.wave', 'shortage.allocations'])
+            ->get();
+
+        if ($allocations->isEmpty()) {
+            return null;
+        }
+
+        if ($this->hasUnfinishedAllocation($shortageId, $shipmentDate)) {
+            Log::info('AllocationSyncService: shortage group sync skipped because allocations remain unfinished', [
+                'shortage_id' => $shortageId,
+                'shipment_date' => $shipmentDate,
+                'allocation_ids' => $allocations->pluck('id')->sort()->values()->all(),
+            ]);
+
+            return null;
+        }
+
+        return $this->syncShortageGroup($allocations, $queueService);
     }
 
     /**
@@ -106,6 +190,19 @@ class AllocationSyncService
         return $queue;
     }
 
+    protected function hasUnfinishedAllocation(int $shortageId, ?string $shipmentDate = null): bool
+    {
+        return WmsShortageAllocation::query()
+            ->where('shortage_id', $shortageId)
+            ->when($shipmentDate, fn ($query) => $query->where('shipment_date', $shipmentDate))
+            ->where('is_finished', false)
+            ->where(function ($query): void {
+                $query->whereNull('status')
+                    ->orWhere('status', '!=', WmsShortageAllocation::STATUS_CANCELLED);
+            })
+            ->exists();
+    }
+
     protected function markAllocationsAsSynced($allocations): void
     {
         $ids = $allocations->pluck('id')->toArray();
@@ -118,10 +215,44 @@ class AllocationSyncService
     /**
      * 指定倉庫の未同期件数を取得
      */
-    public function getUnsyncedCount(int $warehouseId): int
+    public function getUnsyncedCount(int $warehouseId, ?string $shipmentDate = null): int
     {
         return WmsShortageAllocation::needingSync()
             ->where('target_warehouse_id', $warehouseId)
+            ->when($shipmentDate, fn ($query) => $query->where('shipment_date', $shipmentDate))
             ->count();
+    }
+
+    protected function systemShipmentDate(): ?string
+    {
+        return ClientSetting::systemDate(true)?->toDateString();
+    }
+
+    protected function matchesShipmentDate(WmsShortageAllocation $allocation, string $shipmentDate): bool
+    {
+        $allocation->loadMissing('shortage');
+
+        if ($allocation->shipment_date?->toDateString() !== $shipmentDate) {
+            return false;
+        }
+
+        $shortageShipmentDate = $allocation->shortage?->shipment_date?->toDateString();
+
+        return $shortageShipmentDate === null || $shortageShipmentDate === $shipmentDate;
+    }
+
+    /**
+     * @return array{syncedCount: int, queueCreated: int, skipped: int, errors: array, synced_count: int, queue_created: int}
+     */
+    protected function formatResult(int $syncedCount, int $queueCreated, int $skipped, array $errors): array
+    {
+        return [
+            'syncedCount' => $syncedCount,
+            'queueCreated' => $queueCreated,
+            'skipped' => $skipped,
+            'errors' => $errors,
+            'synced_count' => $syncedCount,
+            'queue_created' => $queueCreated,
+        ];
     }
 }

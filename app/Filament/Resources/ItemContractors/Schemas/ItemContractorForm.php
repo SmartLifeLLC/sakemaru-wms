@@ -7,9 +7,11 @@ use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Supplier;
 use App\Models\Sakemaru\Warehouse;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Toggle;
+use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 
 class ItemContractorForm
@@ -18,18 +20,23 @@ class ItemContractorForm
     {
         return $schema
             ->components([
+                View::make('filament.pages.auto-replenishment-master-edit-warning')
+                    ->viewData(fn ($record) => app(\App\Services\AutoReplenishment\MasterRouteWarnings::class)
+                        ->masterEditNotice((int) auth()->user()?->client_id, 'item', $record?->getAttributes() ?? []))
+                    ->columnSpanFull(),
                 Section::make('基本情報')
                     ->schema([
                         Select::make('item_id')
                             ->label('商品')
                             ->searchable()
                             ->getSearchResultsUsing(fn (string $search) => Item::query()
-                                ->where('item_code', 'like', "%{$search}%")
-                                ->orWhere('item_name', 'like', "%{$search}%")
+                                ->where('code', 'like', "%{$search}%")
+                                ->orWhere('name', 'like', "%{$search}%")
+                                ->orderBy('code')
                                 ->limit(50)
-                                ->get()
-                                ->mapWithKeys(fn ($item) => [$item->id => "[{$item->item_code}] {$item->item_name}"]))
-                            ->getOptionLabelUsing(fn ($value) => ($item = Item::find($value)) ? "[{$item->item_code}] {$item->item_name}" : null)
+                                ->get(['id', 'code', 'name'])
+                                ->mapWithKeys(fn ($item) => [$item->id => "[{$item->code}] {$item->name}"]))
+                            ->getOptionLabelUsing(fn ($value) => ($item = Item::find($value)) ? "[{$item->code}] {$item->name}" : null)
                             ->required()
                             ->helperText('発注対象の商品を選択'),
 
@@ -56,6 +63,13 @@ class ItemContractorForm
                             ->searchable()
                             ->nullable()
                             ->helperText('仕入先（任意）'),
+
+                        Textarea::make('note')
+                            ->label('備考')
+                            ->nullable()
+                            ->rows(4)
+                            ->columnSpanFull()
+                            ->helperText('商品発注先に関するメモや備考を自由に入力できます'),
                     ])
                     ->columns(2),
 
@@ -64,46 +78,35 @@ class ItemContractorForm
                         TextInput::make('safety_stock')
                             ->label('発注点')
                             ->numeric()
+                            ->rules(['integer'])
                             ->default(0)
+                            ->dehydrateStateUsing(fn ($state) => (int) ($state ?? 0))
                             ->minValue(0)
-                            ->suffix('個')
-                            ->helperText('この数を下回ると発注を検討'),
+                            ->maxValue(4294967295)
+                            ->suffix('バラ')
+                            ->visible(fn ($record): bool => ! $record?->is_auto_order_active)
+                            ->helperText('手動発注の参考値です。'),
 
-                        TextInput::make('max_stock')
-                            ->label('最大在庫')
-                            ->numeric()
-                            ->default(0)
-                            ->minValue(0)
-                            ->suffix('個')
-                            ->helperText('在庫の上限目安'),
+                        TextEntry::make('automatic_reorder_point')
+                            ->label('発注点')
+                            ->state('自動発注中')
+                            ->visible(fn ($record): bool => (bool) $record?->is_auto_order_active),
 
                         TextInput::make('min_stock')
                             ->label('最低在庫')
                             ->numeric()
                             ->default(0)
+                            ->dehydrateStateUsing(fn ($state) => $state ?? 0)
                             ->minValue(0)
                             ->suffix('個')
                             ->helperText('旧システムの最低在庫数'),
 
-                        TextInput::make('auto_order_quantity')
-                            ->label('自動発注数')
-                            ->numeric()
-                            ->default(0)
-                            ->minValue(0)
-                            ->suffix('個')
-                            ->helperText('設定時は不足数ではなくこの数量を発注数量に使用'),
-
-                        Toggle::make('is_auto_order')
-                            ->label('自動発注対象')
-                            ->default(false)
-                            ->helperText('自動発注の対象にする場合はON'),
-
-                        Toggle::make('use_safety_stock_auto_update')
-                            ->label('安全在庫自動更新')
-                            ->default(true)
-                            ->helperText('OFFにすると月次の安全在庫同期で上書きされません'),
+                        TextEntry::make('automatic_order_status')
+                            ->label('自動発注')
+                            ->state(fn ($record): string => $record?->is_auto_order_active ? '自動発注中' : '自動発注OFF')
+                            ->helperText('自動発注の設定は「商品別発注設定」で変更します。'),
                     ])
-                    ->columns(3),
+                    ->columns(2),
             ]);
     }
 }

@@ -12,6 +12,8 @@ use TCPDF;
  */
 class PickingListPdfService
 {
+    public function __construct(private array $allocationWarnings = []) {}
+
     // フォントサイズ（pt）
     private const FONT_SIZE_TITLE = 14;
 
@@ -102,7 +104,7 @@ class PickingListPdfService
 
         // 左側
         $this->pdf->SetXY(self::MARGIN, $this->currentY);
-        $this->pdf->Cell(95, self::LINE_HEIGHT, '波動番号:'.($header['wave_no'] ?? ''), 0, 0, 'L');
+        $this->pdf->Cell(95, self::LINE_HEIGHT, ($header['wave_label'] ?? '波動番号').':'.(isset($header['distribution_name']) ? $this->truncateText($header['wave_no'], 80) : ($header['wave_no'] ?? '')), 0, 0, 'L');
 
         // 右側
         $this->pdf->SetXY(self::MARGIN + 95, $this->currentY);
@@ -189,7 +191,7 @@ class PickingListPdfService
 
             $rowData = [
                 $index + 1,
-                $item['location_code'] ?? '',
+                PickingListLocationLabel::format($item['location_code'] ?? null),
                 $item['item_code'],
                 $item['item_name'],
                 $item['packaging'] ?? '',
@@ -370,7 +372,7 @@ class PickingListPdfService
                 $item['serial_id'] ?? '',
                 $item['partner_name'] ?? '',
                 $item['salesman_name'] ?? '',
-                $item['location_code'] ?? '',
+                PickingListLocationLabel::format($item['location_code'] ?? null),
                 $item['item_code'],
                 $item['item_name'],
                 $item['packaging'] ?? '',
@@ -428,7 +430,7 @@ class PickingListPdfService
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_HEADER);
         $this->pdf->SetXY(self::MARGIN, $this->currentY);
         $this->pdf->Cell(self::SHORTAGE_CONTENT_WIDTH, self::LINE_HEIGHT,
-            sprintf('合計  件数: %d  /  欠品総数: %d',
+            sprintf('合計  件数: %d  /  欠品総数（総バラ）: %d',
                 $summary['sku_count'], $summary['total_shortage']
             ), 0, 0, 'L');
     }
@@ -555,7 +557,7 @@ class PickingListPdfService
             $y = $this->currentY;
 
             $rowData = [
-                $item['location_code'],
+                PickingListLocationLabel::format($item['location_code'] ?? null),
                 $item['item_code'],
                 $this->truncateText($item['item_name'], $widths[2] - 2),
                 $item['total_pick_qty'],
@@ -738,7 +740,7 @@ class PickingListPdfService
             $y = $this->currentY;
 
             $rowData = [
-                $item['location_code'],
+                PickingListLocationLabel::format($item['location_code'] ?? null),
                 $item['item_code'],
                 $this->truncateText($item['item_name'], $widths[2] - 2),
                 $item['case_qty'] ?: '',
@@ -975,7 +977,7 @@ class PickingListPdfService
                 $item['jan_code'],
                 $this->truncateText($item['item_name'], $widths[4] - 2),
                 $this->truncateText($item['packaging'] ?? '', $widths[5] - 2),
-                $item['location_code'],
+                PickingListLocationLabel::format($item['location_code'] ?? null),
                 $item['qty_type'],
                 $item['assign_qty'],
                 '',
@@ -1031,6 +1033,12 @@ class PickingListPdfService
             $this->renderPrimaryHeader($data['header']);
             $this->renderPrimaryTable($data['items'], $data['header']);
             $this->renderPrimarySummary($data['summary']);
+        }
+
+        if ($this->pdf->getNumPages() === 0) {
+            $this->pdf->AddPage();
+            $this->pdf->SetXY(self::MARGIN, self::MARGIN);
+            $this->pdf->Cell(self::PRIMARY_CONTENT_WIDTH, 10, '対象明細なし', 0, 0, 'C');
         }
 
         $this->totalPages = $this->pdf->getNumPages();
@@ -1123,8 +1131,34 @@ class PickingListPdfService
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
     }
 
+    private function appendAllocationWarnings(): void
+    {
+        if ($this->allocationWarnings === []) {
+            return;
+        }
+        $width = $this->pdf->getPageWidth() - 20;
+        foreach (array_chunk($this->allocationWarnings, 12) as $warnings) {
+            $this->pdf->AddPage();
+            $this->pdf->SetFont('kozminproregular', '', 14);
+            $this->pdf->SetXY(10, 20);
+            $this->pdf->Cell($width, 8, '波動生成の処理記録', 0, 1);
+            $this->pdf->SetFont('kozminproregular', '', 9);
+            $this->pdf->SetXY(10, 32);
+            $this->pdf->MultiCell($width, 10, '再計算・欠品処理などの結果です。各明細の引当数量・欠品数量に従って処理してください。');
+            $y = 48;
+            foreach ($warnings as $warning) {
+                $this->pdf->SetXY(10, $y);
+                $text = ($warning['source_type'] ?? '').' ID '.($warning['source_id'] ?? '-').' / 明細ID '.($warning['trade_item_id'] ?? '-').' / 商品CD '.($warning['item_code'] ?? $warning['item_id'] ?? '-')."\n".($warning['message'] ?? '処理記録');
+                $this->pdf->MultiCell($width, 12, $text, 1);
+                $y += 12;
+            }
+        }
+    }
+
     private function renderPageNumbers(float $pageWidth, float $pageHeight): void
     {
+        $this->appendAllocationWarnings();
+        $this->totalPages = $this->pdf->getNumPages();
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
 
         for ($i = 1; $i <= $this->totalPages; $i++) {
@@ -1280,9 +1314,9 @@ class PickingListPdfService
 
         $isCourseGrouped = array_key_exists('slip_count', $header);
         $this->pdf->SetXY($infoX, $this->currentY);
-        $this->pdf->Cell($labelW, $infoLineH, $isCourseGrouped ? '伝票数：' : '伝票No：', 0, 0, 'L');
+        $this->pdf->Cell($labelW, $infoLineH, isset($header['distribution_name']) ? '分配：' : ($isCourseGrouped ? '伝票数：' : '伝票No：'), 0, 0, 'L');
         $this->pdf->SetXY($infoX + $labelW, $this->currentY);
-        $this->pdf->Cell($valueW, $infoLineH, $isCourseGrouped ? ((string) $header['slip_count']).'件' : (string) ($header['slip_no'] ?? ''), 0, 0, 'L');
+        $this->pdf->Cell($valueW, $infoLineH, isset($header['distribution_name']) ? $this->truncateText($header['distribution_name'], $valueW) : ($isCourseGrouped ? ((string) $header['slip_count']).'件' : (string) ($header['slip_no'] ?? '')), 0, 0, 'L');
         $this->currentY += $infoLineH;
 
         $shippingDate = $header['shipping_date'] ?? '';
@@ -1406,7 +1440,7 @@ class PickingListPdfService
             // 棚番（太字）
             $this->pdf->SetFont('kozgopromedium', 'B', $shelfFontSize);
             $this->pdf->SetXY($colX, $y);
-            $this->pdf->Cell($widths[1], $rowH, (string) ($item['location_code'] ?? ''), 0, 0, 'C');
+            $this->pdf->Cell($widths[1], $rowH, PickingListLocationLabel::format($item['location_code'] ?? null), 0, 0, 'C');
             $colX += $widths[1];
 
             // 商品CD（上、太字）+ JAN（直下、小）— 行高に関わらず上端に密着配置
@@ -1537,6 +1571,8 @@ class PickingListPdfService
      */
     private function renderCourseGroupedPageNumbers(): void
     {
+        $this->appendAllocationWarnings();
+        $this->totalPages = $this->pdf->getNumPages();
         $this->pdf->SetFont('kozgopromedium', '', 10);
         $total = $this->totalPages;
 
@@ -1669,9 +1705,9 @@ class PickingListPdfService
         $infoLineH = 6;
 
         $this->pdf->SetXY($infoX, $this->currentY);
-        $this->pdf->Cell($labelW, $infoLineH, '伝票No：', 0, 0, 'L');
+        $this->pdf->Cell($labelW, $infoLineH, isset($header['distribution_name']) ? '分配：' : '伝票No：', 0, 0, 'L');
         $this->pdf->SetXY($infoX + $labelW, $this->currentY);
-        $this->pdf->Cell($valueW, $infoLineH, (string) ($header['wave_no'] ?? ''), 0, 0, 'L');
+        $this->pdf->Cell($valueW, $infoLineH, isset($header['distribution_name']) ? $this->truncateText($header['distribution_name'], $valueW) : (string) ($header['wave_no'] ?? ''), 0, 0, 'L');
         $this->currentY += $infoLineH;
 
         $shippingDate = $header['shipping_date'] ?? '';
@@ -1770,7 +1806,7 @@ class PickingListPdfService
             // 棚番（太字）
             $this->pdf->SetFont('kozgopromedium', 'B', $shelfFontSize);
             $this->pdf->SetXY($colX, $y);
-            $this->pdf->Cell($widths[1], $rowH, (string) ($item['location_code'] ?? ''), 0, 0, 'C');
+            $this->pdf->Cell($widths[1], $rowH, PickingListLocationLabel::format($item['location_code'] ?? null), 0, 0, 'C');
             $colX += $widths[1];
 
             // 得意先（左寄せ折返し、上寄せ）
@@ -1886,6 +1922,8 @@ class PickingListPdfService
 
     private function renderBuyerGroupedPageNumbers(): void
     {
+        $this->appendAllocationWarnings();
+        $this->totalPages = $this->pdf->getNumPages();
         $this->pdf->SetFont('kozgopromedium', '', 8);
         $total = $this->totalPages;
         for ($i = 1; $i <= $total; $i++) {

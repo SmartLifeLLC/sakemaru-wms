@@ -72,8 +72,11 @@
             this.results.forEach(item => {
                 const key = String(item.id);
                 if (!(key in this.quantities)) {
+                    // 承認前の候補がすでにある商品は、その数量を発注した単位の欄に表示する
+                    const pendingIsCase = item.pending_quantity_type === 'CASE';
                     this.quantities[key] = {
-                        qty: item.pending_qty ?? null,
+                        caseQty: pendingIsCase ? (item.pending_qty ?? null) : null,
+                        pieceQty: pendingIsCase ? null : (item.pending_qty ?? null),
                         item_code: item.code,
                         search_code: item.search_code || '',
                     };
@@ -185,8 +188,8 @@
     updatePinnedItems() {
         this.results.forEach(item => {
             const key = String(item.id);
-            const qty = this.quantities[key]?.qty;
-            if (qty > 0) {
+            const qty = this.quantities[key];
+            if (qty && (qty.caseQty > 0 || qty.pieceQty > 0)) {
                 this.pinnedItems[key] = { ...item };
             } else {
                 delete this.pinnedItems[key];
@@ -230,17 +233,41 @@
         this.syncToWire();
     },
 
+    // ケースとバラはどちらか一方だけ。片方に数量を入れたら、もう片方は空にする。
+    setQty(item, field, oppositeField, value) {
+        const qty = this.getQty(item.id);
+        const parsed = value === '' || value === null ? null : Math.max(0, parseInt(value, 10) || 0);
+        qty[field] = parsed;
+        if (parsed > 0) {
+            qty[oppositeField] = null;
+        }
+        this.onQtyChange();
+    },
+
+    // 総バラ数（ケースは入数を掛ける）
+    totalPieces(item) {
+        const qty = this.getQty(item.id);
+        const capacityCase = Math.max(1, Number(item.capacity_case || 1));
+        const caseQty = Math.max(0, Number(qty.caseQty || 0));
+        const pieceQty = Math.max(0, Number(qty.pieceQty || 0));
+
+        return caseQty > 0 ? caseQty * capacityCase : pieceQty;
+    },
+
     syncToWire() {
         const items = [];
         for (const [itemId, qty] of Object.entries(this.quantities)) {
             const item = this.results.find(r => String(r.id) === itemId);
             const itemCode = item?.code || qty.item_code;
-            if (!itemCode || !qty.qty || qty.qty <= 0) continue;
+            const caseQty = Math.max(0, Number(qty.caseQty || 0));
+            const pieceQty = Math.max(0, Number(qty.pieceQty || 0));
+            if (!itemCode || (caseQty <= 0 && pieceQty <= 0)) continue;
             items.push({
                 item_id: parseInt(itemId),
                 item_code: itemCode,
                 search_code: item?.search_code || qty.search_code || '',
-                quantity: qty.qty,
+                case_qty: caseQty > 0 ? caseQty : 0,
+                piece_qty: caseQty > 0 ? 0 : pieceQty,
             });
         }
         $wire.set('transferOrderItems', items);
@@ -249,7 +276,7 @@
     get validCount() {
         let count = 0;
         for (const qty of Object.values(this.quantities)) {
-            if (qty.qty > 0) count++;
+            if (qty.caseQty > 0 || qty.pieceQty > 0) count++;
         }
         return count;
     },
@@ -257,7 +284,7 @@
     getQty(itemId) {
         const key = String(itemId);
         if (!(key in this.quantities)) {
-            this.quantities[key] = { qty: null, item_code: null, search_code: '' };
+            this.quantities[key] = { caseQty: null, pieceQty: null, item_code: null, search_code: '' };
         }
         return this.quantities[key];
     }
@@ -281,8 +308,9 @@
                     class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
             </div>
             <div>
-                <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">JANコード</label>
+                <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">JANコード・自社コード等</label>
                 <input type="text" x-model="filters.janCode" @keydown.enter.prevent="search(1)"
+                    placeholder="単品CD・自社CDも検索可"
                     class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
             </div>
             <div>
@@ -429,13 +457,16 @@
         </div>
 
         <div class="border border-gray-200 dark:border-white/10 rounded-lg overflow-auto" style="max-height: 230px">
-            <table class="w-full min-w-[1180px] text-sm table-fixed">
+            <table class="w-full text-sm table-fixed" style="min-width: 1217px">
                 <colgroup>
                     <col style="width: 70px" />
-                    <col style="width: 360px" />
-                    <col style="width: 60px" />
-                    <col style="width: 70px" />
-                    <col style="width: 150px" />
+                    <col style="width: 290px" />
+                    {{-- 一覧テーブル用の CSS（.transfer-candidates-table の 3・4 列目を 140px 固定）がこの表にも効くため、インラインで打ち消す --}}
+                    <col style="width: 90px !important" />
+                    <col style="width: 62px !important" />
+                    <col style="width: 62px" />
+                    <col style="width: 64px" />
+                    <col style="width: 170px" />
                     <col style="width: 55px" />
                     <col style="width: 75px" />
                     <col style="width: 65px" />
@@ -449,8 +480,10 @@
                     <tr class="divide-x divide-gray-200 dark:divide-white/10">
                         <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">商品CD</th>
                         <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">商品名</th>
-                        <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">規格</th>
-                        <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">バラ総数</th>
+                        <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400" style="width: 90px !important; min-width: 0 !important">規格</th>
+                        <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400" style="width: 62px !important; min-width: 0 !important" title="ケース単位で発注する数量。ケースとバラはどちらか一方を入力します。">ケース</th>
+                        <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400" title="バラ単位で発注する数量。ケースとバラはどちらか一方を入力します。">バラ</th>
+                        <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400" title="ケース入力は入数を掛け、バラ入力はそのままの発注数量です。">総バラ</th>
                         <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">発注先</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">発注点</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">自動発注数</th>
@@ -481,16 +514,36 @@
                                 ></span>
                                 <span x-show="String(item.contractor_code) !== '9012'" class="text-[10px] font-bold text-red-600 dark:text-red-400">本部発注対象ではありません</span>
                             </td>
-                            <td class="px-1.5 py-0.5"><span class="text-xs text-gray-500 dark:text-gray-400" x-text="item.packaging || '-'"></span></td>
-                            <td class="px-0.5 py-0.5">
+                            <td class="px-1.5 py-0.5" style="width: 90px !important; min-width: 0 !important"><span class="text-xs text-gray-500 dark:text-gray-400" x-text="item.packaging || '-'"></span></td>
+                            <td class="px-0.5 py-0.5" style="width: 62px !important; min-width: 0 !important">
                                 <input type="number"
-                                    :value="getQty(item.id).qty"
-                                    @input="getQty(item.id).qty = $event.target.value ? parseInt($event.target.value) : null; onQtyChange()"
+                                    :value="getQty(item.id).caseQty"
+                                    @input="setQty(item, 'caseQty', 'pieceQty', $event.target.value)"
                                     @keydown.enter.prevent
                                     min="0"
                                     placeholder=""
+                                    :disabled="item.can_order_case === false"
+                                    :title="item.can_order_case === false ? '入数が未設定のためケース発注できません' : ''"
+                                    data-transfer-case-input
+                                    class="disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400 dark:disabled:border-gray-700 dark:disabled:bg-gray-800 w-full border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-xs text-right font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                                />
+                            </td>
+                            <td class="px-0.5 py-0.5">
+                                <input type="number"
+                                    :value="getQty(item.id).pieceQty"
+                                    @input="setQty(item, 'pieceQty', 'caseQty', $event.target.value)"
+                                    @keydown.enter.prevent
+                                    min="0"
+                                    placeholder=""
+                                    data-transfer-piece-input
                                     class="w-full border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-xs text-right font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
                                 />
+                            </td>
+                            <td class="px-1.5 py-0.5 text-right">
+                                <span class="text-xs font-mono font-bold"
+                                    :class="totalPieces(item) > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-400'"
+                                    x-text="totalPieces(item) > 0 ? totalPieces(item).toLocaleString('ja-JP') : '-'"
+                                    data-transfer-total-pieces></span>
                             </td>
                             <td class="px-1.5 py-0.5">
                                 <span class="text-xs whitespace-normal break-words"
@@ -509,7 +562,7 @@
                     </template>
                     <template x-if="results.length === 0">
                         <tr>
-                            <td colspan="13" class="px-4 py-6 text-center text-sm text-gray-400 dark:text-gray-500">
+                            <td colspan="15" class="px-4 py-6 text-center text-sm text-gray-400 dark:text-gray-500">
                                 検索結果がありません
                             </td>
                         </tr>

@@ -5,8 +5,8 @@ namespace App\Filament\Resources\Waves\Tables;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
 use App\Filament\Resources\Waves\WaveResource;
-use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\ClientPrinterDriver;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\Wave;
 use App\Models\WaveGroup;
@@ -101,6 +101,12 @@ class WaveGroupsTable
                     ->suffix('件')
                     ->sortable(false),
 
+                TextColumn::make('generation_issues')
+                    ->label('処理記録')
+                    ->state(fn (WaveGroup $record): int => count($record->generation_result['allocation_warnings'] ?? []) + count($record->generation_result['picking_list_errors'] ?? []))
+                    ->badge()
+                    ->color(fn (int $state): string => $state > 0 ? 'warning' : 'gray'),
+
                 TextColumn::make('picking_lists')
                     ->label('ピッキングリスト')
                     ->badge()
@@ -166,6 +172,8 @@ class WaveGroupsTable
                     ->modalCancelActionLabel('閉じる')
                     ->modalContent(fn (WaveGroup $record): HtmlString => static::waveGenerationProgressHtml($record)),
 
+                static::retryPickingListsAction(),
+
                 Action::make('downloadSavedPickingList')
                     ->label('ピッキングリスト出力')
                     ->icon(Heroicon::OutlinedPrinter)
@@ -225,6 +233,23 @@ class WaveGroupsTable
                 static::getExportAction(),
             ])
             ->defaultSort('created_at', 'desc');
+    }
+
+    public static function retryPickingListsAction(): Action
+    {
+        return Action::make('retryPickingLists')
+            ->label('帳票再生成')
+            ->icon(Heroicon::OutlinedArrowPath)
+            ->color('warning')
+            ->visible(fn (WaveGroup $record): bool => WaveResource::canCreate() && ! empty($record->generation_result['picking_list_errors']) && $record->waves()->where('status', '!=', 'CANCELLED')->exists())
+            ->action(function (WaveGroup $record): void {
+                abort_unless(WaveResource::canCreate(), 403);
+                // Re-render the committed waves. Never create another allocation.
+                $userId = auth()->id() ?? 1;
+                $progress = WmsQueueProgress::createJob(WmsQueueProgress::JOB_TYPE_WAVE_GENERATION, $userId, ['wave_group_id' => $record->id, 'group_no' => $record->group_no, 'warehouse_id' => $record->warehouse_id]);
+                \App\Jobs\ProcessWaveGroupGenerationJob::dispatch($record->id, $progress->job_id, $userId);
+                Notification::make()->title('帳票の再生成を開始しました')->body('保存済みの正常な帳票は引き続き出力できます。')->success()->send();
+            });
     }
 
     public static function targetDocumentTypeLabels(WaveGroup $record): array
@@ -432,7 +457,7 @@ class WaveGroupsTable
             return $path;
         }
 
-        return $prefix . '/' . $path;
+        return $prefix.'/'.$path;
     }
 
     public static function printerSelectionSchema(?int $warehouseId = null): array
@@ -603,6 +628,12 @@ class WaveGroupsTable
         ];
 
         $html = '<div class="space-y-3">';
+        foreach ($record->generation_result['allocation_warnings'] ?? [] as $warning) {
+            $html .= '<div class="text-sm text-orange-700">'.e(($warning['source_type'] ?? '').' ID '.($warning['source_id'] ?? '').' / 明細 '.($warning['trade_item_id'] ?? '-').'：'.($warning['message'] ?? '処理記録')).'</div>';
+        }
+        foreach ($record->generation_result['picking_list_errors'] ?? [] as $type => $error) {
+            $html .= '<div class="text-sm text-red-700">'.e($type.'：'.$error).'</div>';
+        }
         foreach ($jobs as $job) {
             $result = $job->result ?? [];
             $status = $job->status?->value ?? (string) $job->status;

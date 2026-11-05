@@ -5,7 +5,10 @@ namespace App\Filament\Resources\ItemContractors\Tables;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\Contractor;
+use App\Models\Sakemaru\ItemContractor;
 use App\Models\Sakemaru\Supplier;
+use App\Services\AutoReplenishment\AutoOrderDisplayStatus;
+use App\Services\ItemContractorReorderPoint;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
@@ -13,11 +16,11 @@ use Filament\Actions\EditAction;
 use Filament\Forms\Components\TextInput;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\TextInputColumn;
-use Filament\Tables\Columns\ToggleColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class ItemContractorsTable
 {
@@ -31,9 +34,12 @@ class ItemContractorsTable
             ->paginationPageOptions(PaginationOptions::all())
             ->extraAttributes(['class' => 'sticky-actions'])
             ->columns([
-                ToggleColumn::make('is_auto_order')
+                TextColumn::make('is_auto_order_active')
                     ->label('自動発注')
-                    ->sortable()
+                    ->state(fn (ItemContractor $record): string => $record->is_auto_order_active ? '自動発注中' : '自動発注OFF')
+                    ->badge()
+                    ->color(fn (ItemContractor $record): string => $record->is_auto_order_active ? 'success' : 'gray')
+                    ->tooltip('全体・倉庫・商品がONで、この発注先・仕入先が対象の場合に表示します。設定は「商品別発注設定」で変更します。')
                     ->alignCenter(),
 
                 TextColumn::make('item.code')
@@ -76,44 +82,34 @@ class ItemContractorsTable
                     ->label('仕入先名')
                     ->sortable(),
 
+                TextColumn::make('note')
+                    ->label('備考')
+                    ->limit(40)
+                    ->tooltip(fn (?string $state): ?string => filled($state) ? $state : null)
+                    ->toggleable(isToggledHiddenByDefault: true),
+
                 TextInputColumn::make('safety_stock')
                     ->label('発注点')
-                    ->type('number')
-                    ->rules(['integer', 'min:0'])
+                    ->type(fn (ItemContractor $record): string => $record->is_auto_order_active ? 'text' : 'number')
+                    ->state(fn (ItemContractor $record) => $record->is_auto_order_active ? '自動発注中' : $record->safety_stock)
+                    ->disabled(fn (ItemContractor $record): bool => (bool) $record->is_auto_order_active)
+                    ->rules(['integer', 'min:0', 'max:4294967295'])
+                    ->validationAttribute('発注点')
+                    ->updateStateUsing(fn (ItemContractor $record, $state) => static::updateStockQuantity($record, 'safety_stock', $state))
                     ->sortable()
                     ->alignEnd()
-                    ->width('100px'),
-
-                TextInputColumn::make('max_stock')
-                    ->label('最大在庫')
-                    ->type('number')
-                    ->rules(['integer', 'min:0'])
-                    ->sortable()
-                    ->alignEnd()
-                    ->width('100px'),
+                    ->width('120px'),
 
                 TextInputColumn::make('min_stock')
                     ->label('最低在庫')
                     ->type('number')
                     ->rules(['integer', 'min:0'])
+                    ->updateStateUsing(fn (ItemContractor $record, $state) => static::updateStockQuantity($record, 'min_stock', $state))
                     ->sortable()
                     ->alignEnd()
                     ->toggleable(isToggledHiddenByDefault: true)
                     ->width('100px'),
 
-                TextInputColumn::make('auto_order_quantity')
-                    ->label('自動発注数')
-                    ->type('number')
-                    ->rules(['integer', 'min:0'])
-                    ->sortable()
-                    ->alignEnd()
-                    ->width('110px'),
-
-                ToggleColumn::make('use_safety_stock_auto_update')
-                    ->label('在庫自動更新')
-                    ->sortable()
-                    ->alignCenter()
-                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 Filter::make('item_code')
@@ -145,11 +141,16 @@ class ItemContractorsTable
                         ->toArray())
                     ->searchable(),
 
-                TernaryFilter::make('is_auto_order')
+                TernaryFilter::make('is_auto_order_active')
                     ->label('自動発注')
                     ->placeholder('すべて')
-                    ->trueLabel('自動発注のみ')
-                    ->falseLabel('手動発注のみ'),
+                    ->trueLabel('自動発注中')
+                    ->falseLabel('自動発注OFF')
+                    ->queries(
+                        true: fn (Builder $query) => app(AutoOrderDisplayStatus::class)->filterItemContractors($query, true),
+                        false: fn (Builder $query) => app(AutoOrderDisplayStatus::class)->filterItemContractors($query, false),
+                        blank: fn (Builder $query) => $query,
+                    ),
 
             ])
             ->recordActionsColumnLabel('操作')
@@ -164,5 +165,16 @@ class ItemContractorsTable
                 ]),
             ])
             ->defaultSort('item_id', 'asc');
+    }
+
+    private static function updateStockQuantity(ItemContractor $record, string $column, mixed $state): int
+    {
+        if ($column === 'safety_stock') {
+            return app(ItemContractorReorderPoint::class)->update($record, ['safety_stock' => $state])->safety_stock;
+        }
+        $quantity = (int) ($state ?? 0);
+        $record->update([$column => $quantity]);
+
+        return $quantity;
     }
 }

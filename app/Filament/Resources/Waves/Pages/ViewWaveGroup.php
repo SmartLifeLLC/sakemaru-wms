@@ -45,6 +45,7 @@ class ViewWaveGroup extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            WaveGroupsTable::retryPickingListsAction(),
             Action::make('downloadSavedPickingList')
                 ->label('ピッキングリスト出力')
                 ->icon(Heroicon::OutlinedPrinter)
