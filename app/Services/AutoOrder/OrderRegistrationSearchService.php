@@ -25,6 +25,41 @@ class OrderRegistrationSearchService
     private ?string $defaultArrivalSystemDate = null;
 
     /**
+     * Display-only status, loaded once for the visible products (no per-row queries).
+     * This indicates enabled settings, not whether an order will be generated today.
+     *
+     * @return array<int, true>
+     */
+    public function activeAutoOrderItems(int $warehouseId, array $itemIds): array
+    {
+        $clientId = (int) config('app.client_id');
+        $itemIds = array_values(array_unique(array_filter(array_map('intval', $itemIds), fn (int $id): bool => $id > 0)));
+        if (! config('replenishment.enabled') || $clientId < 1 || $warehouseId < 1 || $itemIds === []) {
+            return [];
+        }
+
+        return DB::connection('sakemaru')->table('wms_item_reorder_policies as p')
+            ->join('wms_auto_order_controls as c', 'c.client_id', '=', 'p.client_id')
+            ->join('wms_warehouse_auto_order_settings as s', 's.warehouse_id', '=', 'p.warehouse_id')
+            ->join('warehouses as w', function ($join): void {
+                $join->on('w.id', '=', 'p.warehouse_id')->on('w.client_id', '=', 'p.client_id');
+            })
+            ->where('p.client_id', $clientId)
+            ->where('p.warehouse_id', $warehouseId)
+            ->whereIn('p.item_id', $itemIds)
+            ->where('p.is_enabled', true)
+            ->where('p.is_configured', true)
+            ->where('c.enabled', true)
+            ->where('c.reset_state', 'COMPLETE')
+            ->where('s.is_auto_order_enabled', true)
+            ->where('w.is_active', true)
+            ->where('w.is_virtual', false)
+            ->pluck('p.item_id')
+            ->mapWithKeys(fn ($id): array => [(int) $id => true])
+            ->all();
+    }
+
+    /**
      * @return array<int, array{id: int, code: string, name: string, label: string}>
      */
     public function warehouseOptions(): array
