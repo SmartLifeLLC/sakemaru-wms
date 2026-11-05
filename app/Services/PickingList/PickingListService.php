@@ -3,6 +3,7 @@
 namespace App\Services\PickingList;
 
 use App\Enums\QuantityType;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Location;
 use Illuminate\Support\Facades\DB;
 
@@ -557,7 +558,16 @@ class PickingListService
             return ['header' => [], 'items' => [], 'summary' => []];
         }
 
-        $today = now()->toDateString();
+        // Match core BuyerDetail::getCurrent(): active history as of the business
+        // date, with the newest ID breaking ties on the effective date.
+        $currentBuyerDetailId = $this->db()->table('buyer_details')
+            ->select('id')
+            ->whereColumn('buyer_id', 'b.id')
+            ->whereDate('start_date', '<=', ClientSetting::systemDate(true)->toDateString())
+            ->where('is_active', true)
+            ->orderByDesc('start_date')
+            ->orderByDesc('id')
+            ->limit(1);
 
         $rows = $this->db()->table('wms_shortages as ws')
             ->leftJoin('items as i', 'ws.item_id', '=', 'i.id')
@@ -572,14 +582,7 @@ class PickingListService
             ->leftJoin('partners as tp', 't.partner_id', '=', 'tp.id')
             ->leftJoin('earnings as e', 'ws.earning_id', '=', 'e.id')
             ->leftJoin('buyers as b', 'e.buyer_id', '=', 'b.id')
-            ->leftJoin(
-                DB::raw("(SELECT bd1.buyer_id, bd1.salesman_id
-                    FROM buyer_details bd1
-                    INNER JOIN (SELECT buyer_id, MAX(start_date) as max_date FROM buyer_details WHERE start_date <= '{$today}' GROUP BY buyer_id) bd2
-                    ON bd1.buyer_id = bd2.buyer_id AND bd1.start_date = bd2.max_date
-                ) as bd"),
-                'bd.buyer_id', '=', 'b.id'
-            )
+            ->leftJoin('buyer_details as bd', fn ($join) => $join->where('bd.id', '=', $currentBuyerDetailId))
             ->leftJoin('users as salesman', 'salesman.id', '=', 'bd.salesman_id')
             ->whereIn('ws.wave_id', $waveIds)
             ->where('ws.shortage_qty', '>', 0)
@@ -626,14 +629,7 @@ class PickingListService
                     ->whereColumn('idl.warehouse_id', 'pt.warehouse_id');
             })
             ->leftJoin('locations as default_l', 'idl.location_id', '=', 'default_l.id')
-            ->leftJoin(
-                DB::raw("(SELECT bd1.buyer_id, bd1.salesman_id
-                    FROM buyer_details bd1
-                    INNER JOIN (SELECT buyer_id, MAX(start_date) as max_date FROM buyer_details WHERE start_date <= '{$today}' GROUP BY buyer_id) bd2
-                    ON bd1.buyer_id = bd2.buyer_id AND bd1.start_date = bd2.max_date
-                ) as bd"),
-                'bd.buyer_id', '=', 'b.id'
-            )
+            ->leftJoin('buyer_details as bd', fn ($join) => $join->where('bd.id', '=', $currentBuyerDetailId))
             ->leftJoin('users as salesman', 'salesman.id', '=', 'bd.salesman_id')
             ->whereIn('pt.wave_id', $waveIds)
             ->where('pir.shortage_qty', '>', 0)

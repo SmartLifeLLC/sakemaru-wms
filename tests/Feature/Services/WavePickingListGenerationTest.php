@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Services;
 
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\WaveGroup;
 use App\Services\LotAdjustment\LotAdjustmentRunner;
 use App\Services\PickingList\PickingListPdfService;
@@ -11,6 +12,7 @@ use App\Services\StockTransferLotAllocationService;
 use App\Services\WaveGroupGenerationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Support\WaveAllocationFixtures;
 use Tests\TestCase;
@@ -57,7 +59,8 @@ class WavePickingListGenerationTest extends TestCase
             'floors' => 'name TEXT',
             'partners' => 'code INTEGER, name TEXT',
             'buyers' => 'partner_id INTEGER',
-            'buyer_details' => 'buyer_id INTEGER, salesman_id INTEGER, start_date TEXT',
+            'buyer_details' => 'buyer_id INTEGER, salesman_id INTEGER, start_date TEXT, is_active INTEGER DEFAULT 1',
+            'client_settings' => 'client_id INTEGER, system_date TEXT',
             'users' => 'name TEXT',
             'item_incoming_default_locations' => 'warehouse_id INTEGER, item_id INTEGER, location_id INTEGER',
             'srh_searchable_items' => 'item_id INTEGER, jancode TEXT',
@@ -71,6 +74,7 @@ class WavePickingListGenerationTest extends TestCase
             }
         }
         $db = DB::connection('sakemaru');
+        ClientSetting::clearCachedSetting();
         if ($mysql) {
             // Enforce the critical live production enum and idempotency constraints.
             $pdo->exec("ALTER TABLE wms_reservations MODIFY status ENUM('RESERVED','PARTIAL','RELEASED','CONSUMED','CANCELLED','SHORTAGE'), MODIFY qty_type ENUM('CASE','PIECE','CARTON'), MODIFY source_type ENUM('EARNING','PURCHASE','REPLENISH','COUNT','MOVE','STOCK_TRANSFER') NOT NULL");
@@ -102,6 +106,7 @@ class WavePickingListGenerationTest extends TestCase
 
     protected function tearDown(): void
     {
+        ClientSetting::clearCachedSetting();
         while (DB::connection('sakemaru')->transactionLevel() > 0) {
             DB::connection('sakemaru')->rollBack();
         }
@@ -200,6 +205,67 @@ class WavePickingListGenerationTest extends TestCase
             ->whereIn('pt.wave_id', $result['wave_ids'])
             ->where(fn ($q) => $q->whereColumn('pir.ordered_qty_type', '!=', 'pir.planned_qty_type')->orWhereColumn('pir.planned_qty_type', '!=', 'pir.picked_qty_type'))->count());
         file_put_contents($this->outputRoot.'/result.json', json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+    }
+
+    #[Test]
+    #[DataProvider('currentBuyerDetailCases')]
+    public function shortage_lists_select_one_current_buyer_detail_without_changing_quantities(array $details, ?int $expectedSalesmanId, ?string $systemDate): void
+    {
+        $this->travelTo(\Carbon\Carbon::parse('2026-11-06 09:00:00', 'Asia/Tokyo'));
+        $db = DB::connection('sakemaru');
+        $db->table('client_settings')->insert(['client_id' => 1, 'system_date' => $systemDate]);
+        foreach ($details as [$id, $startDate, $active]) {
+            $db->table('users')->insert(['id' => $id, 'name' => '担当者'.$id]);
+            $db->table('buyer_details')->insert(['id' => $id, 'buyer_id' => 1, 'salesman_id' => $id, 'start_date' => $startDate, 'is_active' => $active]);
+        }
+        // Another buyer's newer setting must never supply this buyer's salesman.
+        $db->table('users')->insert(['id' => 999, 'name' => '別得意先の担当者']);
+        $db->table('buyer_details')->insert(['id' => 999, 'buyer_id' => 2, 'salesman_id' => 999, 'start_date' => '2026-10-12', 'is_active' => true]);
+        $db->table('wms_wave_settings')->insert(['id' => 1, 'delivery_course_id' => 1]);
+        $db->table('wms_waves')->insert(['id' => 1, 'wms_wave_setting_id' => 1, 'wave_no' => 'W-BUYER-DETAIL', 'shipping_date' => '2026-10-12']);
+        $db->table('wms_picking_tasks')->insert(['id' => 1, 'wave_id' => 1, 'warehouse_id' => $this->fixtureWarehouseId]);
+        [$item] = $this->product(810007, 0, 0);
+        $serialIds = [];
+        foreach ([true, false] as $hasShortageRecord) {
+            $line = $this->order($item, 5, 'PIECE', 1, '07:00:00');
+            $serialIds[] = $line->id;
+            $db->table('wms_picking_item_results')->insert([
+                'picking_task_id' => 1, 'item_id' => $item, 'trade_id' => $line->trade_id,
+                'trade_item_id' => $line->id, 'earning_id' => $line->id,
+                'ordered_qty' => 5, 'ordered_qty_type' => 'PIECE',
+                'planned_qty' => 0, 'planned_qty_type' => 'PIECE', 'picked_qty_type' => 'PIECE', 'shortage_qty' => 5,
+            ]);
+            if ($hasShortageRecord) {
+                $db->table('wms_shortages')->insert([
+                    'wave_id' => 1, 'warehouse_id' => $this->fixtureWarehouseId, 'item_id' => $item,
+                    'trade_id' => $line->trade_id, 'trade_item_id' => $line->id, 'earning_id' => $line->id,
+                    'order_qty' => 5, 'planned_qty' => 0, 'shortage_qty' => 5, 'qty_type_at_order' => 'PIECE',
+                ]);
+            }
+        }
+
+        $list = (new PickingListService)->generateShortageListByWaveIds([1]);
+
+        $this->assertCount(2, $list['items'], 'Both shortage-table and picking-result paths must retain one row');
+        $this->assertSame(10, $list['summary']['total_shortage']);
+        foreach ($serialIds as $serialId) {
+            $rows = collect($list['items'])->where('serial_id', $serialId);
+            $this->assertCount(1, $rows);
+            $this->assertSame(5, $rows->first()['shortage_qty']);
+            $this->assertSame($expectedSalesmanId === null ? '' : '担当者'.$expectedSalesmanId, $rows->first()['salesman_name']);
+        }
+    }
+
+    public static function currentBuyerDetailCases(): iterable
+    {
+        yield 'same date chooses newest ID' => [[[10, '2026-10-12', true], [20, '2026-10-12', true]], 20, '2026-10-12'];
+        yield 'latest date takes precedence over ID' => [[[30, '2026-10-11', true], [10, '2026-10-12', true]], 10, '2026-10-12'];
+        yield 'inactive latest rows do not hide active history' => [[[10, '2026-10-11', true], [20, '2026-10-12', false], [30, '2026-10-12', false]], 10, '2026-10-12'];
+        yield 'future means after business date, not wall clock' => [[[10, '2026-10-12', true], [20, '2026-11-06', true]], 10, '2026-10-12'];
+        yield 'no history retains shortages' => [[], null, '2026-10-12'];
+        yield 'only inactive history retains shortages' => [[[10, '2026-10-12', false]], null, '2026-10-12'];
+        yield 'only future history retains shortages' => [[[10, '2026-11-06', true]], null, '2026-10-12'];
+        yield 'unset business date falls back to today' => [[[10, '2026-11-06', true], [20, '2026-11-07', true]], 10, null];
     }
 
     #[Test]
