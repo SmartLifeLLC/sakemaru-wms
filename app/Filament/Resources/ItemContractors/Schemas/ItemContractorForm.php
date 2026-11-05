@@ -9,7 +9,7 @@ use App\Models\Sakemaru\Warehouse;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Toggle;
+use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
@@ -75,6 +75,23 @@ class ItemContractorForm
 
                 Section::make('在庫設定')
                     ->schema([
+                        TextInput::make('safety_stock')
+                            ->label('発注点')
+                            ->numeric()
+                            ->rules(['integer'])
+                            ->default(0)
+                            ->dehydrateStateUsing(fn ($state) => (int) ($state ?? 0))
+                            ->minValue(0)
+                            ->maxValue(4294967295)
+                            ->suffix('バラ')
+                            ->visible(fn ($record): bool => ! $record?->is_auto_order_active)
+                            ->helperText('手動発注の参考値です。'),
+
+                        TextEntry::make('automatic_reorder_point')
+                            ->label('発注点')
+                            ->state('自動発注中')
+                            ->visible(fn ($record): bool => (bool) $record?->is_auto_order_active),
+
                         TextInput::make('min_stock')
                             ->label('最低在庫')
                             ->numeric()
@@ -84,17 +101,12 @@ class ItemContractorForm
                             ->suffix('個')
                             ->helperText('旧システムの最低在庫数'),
 
-                        Toggle::make('is_auto_order')
-                            ->label('自動発注対象')
-                            ->default(false)
-                            ->helperText('自動発注の対象にする場合はON'),
-
-                        Toggle::make('use_safety_stock_auto_update')
-                            ->label('安全在庫自動更新')
-                            ->default(true)
-                            ->helperText('OFFにすると月次の安全在庫同期で上書きされません'),
+                        TextEntry::make('automatic_order_status')
+                            ->label('自動発注')
+                            ->state(fn ($record): string => $record?->is_auto_order_active ? '自動発注中' : '自動発注OFF')
+                            ->helperText('自動発注の設定は「商品別発注設定」で変更します。'),
                     ])
-                    ->columns(3),
+                    ->columns(2),
             ]);
     }
 }

@@ -380,8 +380,10 @@ class ExportService
     public function extractQueryConstraints(Builder $query): array
     {
         return [
+            'columns' => $query->getQuery()->columns,
             'wheres' => $query->getQuery()->wheres,
             'bindings' => $query->getQuery()->getBindings(),
+            'binding_groups' => $query->getQuery()->getRawBindings(),
             'orders' => $query->getQuery()->orders ?? [],
         ];
     }
@@ -393,13 +395,21 @@ class ExportService
     {
         $query = $modelClass::query();
 
+        if (array_key_exists('columns', $constraints)) {
+            $query->getQuery()->columns = $constraints['columns'];
+        }
+
         // WHERE条件を再適用
         if (! empty($constraints['wheres'])) {
             $query->getQuery()->wheres = $constraints['wheres'];
         }
 
         // バインディングを再設定
-        if (! empty($constraints['bindings'])) {
+        if (isset($constraints['binding_groups'])) {
+            foreach ($constraints['binding_groups'] as $type => $bindings) {
+                $query->getQuery()->setBindings($bindings, $type);
+            }
+        } elseif (! empty($constraints['bindings'])) {
             foreach ($constraints['bindings'] as $binding) {
                 $query->getQuery()->addBinding($binding);
             }

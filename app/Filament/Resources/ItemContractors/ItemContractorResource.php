@@ -9,11 +9,13 @@ use App\Filament\Resources\ItemContractors\Pages\ListItemContractors;
 use App\Filament\Resources\ItemContractors\Schemas\ItemContractorForm;
 use App\Filament\Resources\ItemContractors\Tables\ItemContractorsTable;
 use App\Models\Sakemaru\ItemContractor;
+use App\Services\AutoReplenishment\AutoOrderDisplayStatus;
 use BackedEnum;
 use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class ItemContractorResource extends AdminResource
 {
@@ -50,6 +52,11 @@ class ItemContractorResource extends AdminResource
     public static function table(Table $table): Table
     {
         return ItemContractorsTable::configure($table);
+    }
+
+    public static function getEloquentQuery(): Builder
+    {
+        return app(AutoOrderDisplayStatus::class)->withItemContractorStatus(parent::getEloquentQuery());
     }
 
     public static function getRelations(): array
