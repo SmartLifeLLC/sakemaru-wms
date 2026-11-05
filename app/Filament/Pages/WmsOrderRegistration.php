@@ -766,9 +766,10 @@ class WmsOrderRegistration extends AdminPage
         $lastOrderDates = $this->lastOrderDates($selectedWarehouseId, $previewItemIds);
         $weeklySalesQuantities = $this->weeklySalesQuantities($selectedWarehouseId, $previewItemIds);
         $defaultLocationCodes = $this->defaultLocationCodes($selectedWarehouseId, $previewItemIds);
+        $activeAutoOrderItems = $searchService->activeAutoOrderItems($selectedWarehouseId, $previewItemIds);
 
         $this->salesBasedExternalOrderPreviewRows = $previewRows
-            ->map(function ($row) use ($days, $defaultLocationCodes, $jxContractorIds, $lastOrderDates, $searchService, $selectedWarehouseId, $weeklySalesQuantities): array {
+            ->map(function ($row) use ($days, $defaultLocationCodes, $jxContractorIds, $lastOrderDates, $searchService, $selectedWarehouseId, $weeklySalesQuantities, $activeAutoOrderItems): array {
                 $contractorId = (int) $row->contractor_id;
                 $itemId = (int) $row->item_id;
                 $isEosAvailable = in_array($contractorId, $jxContractorIds, true);
@@ -808,6 +809,7 @@ class WmsOrderRegistration extends AdminPage
                     'previous_month_sales_qty' => (int) $weeklySales['previous_month_sales_qty'],
                     'daily_avg_qty' => round(((int) $row->sales_qty) / $days, 2),
                     'safety_stock' => (int) $row->safety_stock,
+                    'is_auto_order_active' => isset($activeAutoOrderItems[$itemId]),
                     'effective_stock' => (int) $row->effective_stock,
                     'incoming_qty' => (int) $row->incoming_qty,
                     'incoming_expected_arrival_date' => filled($row->incoming_expected_arrival_date)
@@ -1525,12 +1527,13 @@ class WmsOrderRegistration extends AdminPage
         $lastOrderDates = $this->lastOrderDates($incomingWarehouseId, $itemIds);
         $weeklySalesQuantities = $this->weeklySalesQuantities($warehouseId, $itemIds);
         $orderingCodes = $this->orderingCodesForItems($itemIds);
+        $activeAutoOrderItems = $searchService->activeAutoOrderItems($incomingWarehouseId, $itemIds);
 
         $registeredLines = collect($this->lines)
             ->whereIn('item_id', $itemIds)
             ->groupBy('item_id');
 
-        $data = $items->map(function (Item $item) use ($summaries, $itemContractors, $registeredLines, $searchService, $warehouseId, $jxContractorIds, $category2Codes, $defaultLocationCodes, $effectiveStocks, $incomingQuantities, $incomingExpectedArrivalDates, $lastOrderDates, $orderingCodes, $weeklySalesQuantities) {
+        $data = $items->map(function (Item $item) use ($summaries, $itemContractors, $registeredLines, $searchService, $warehouseId, $jxContractorIds, $category2Codes, $defaultLocationCodes, $effectiveStocks, $incomingQuantities, $incomingExpectedArrivalDates, $lastOrderDates, $orderingCodes, $weeklySalesQuantities, $activeAutoOrderItems) {
             $summary = $summaries->get($item->id);
             $itemContractor = $itemContractors->get($item->id);
             $registered = $registeredLines->get($item->id, collect());
@@ -1580,6 +1583,7 @@ class WmsOrderRegistration extends AdminPage
                 'purchase_unit' => max(1, (int) ($itemContractor->purchase_unit ?? 1)),
                 'default_location_code' => (string) ($defaultLocationCodes[(int) $item->id] ?? ''),
                 'safety_stock' => (int) ($itemContractor->safety_stock ?? 0),
+                'is_auto_order_active' => isset($activeAutoOrderItems[(int) $item->id]),
                 'default_expected_arrival_date' => $itemContractor
                     ? $searchService->defaultExpectedArrivalDate(
                         $warehouseId,
