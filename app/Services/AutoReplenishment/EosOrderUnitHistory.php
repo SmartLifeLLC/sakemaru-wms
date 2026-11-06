@@ -2,6 +2,7 @@
 
 namespace App\Services\AutoReplenishment;
 
+use App\Services\AutoOrder\OrderTransmissionService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -20,7 +21,10 @@ class EosOrderUnitHistory
         $asOf = min(CarbonImmutable::now('Asia/Tokyo')->toDateString(), CarbonImmutable::parse($asOf)->toDateString());
         $period = ['start' => CarbonImmutable::parse($asOf)->subDays(90)->toDateString(),
             'end' => CarbonImmutable::parse($asOf)->subDay()->toDateString()];
+        $mapping = app(OrderTransmissionService::class)->getGenerator()?->getTransmissionContractorMapping() ?? [];
+        $transmissionContractor = (int) ($mapping[$contractor] ?? $contractor);
         // A document may contain several stores. Scope by the candidate, not the document header's warehouse.
+        // The header uses the consolidated JX destination; keep the original contractor filter on the candidate.
         // No join to transmission logs or incoming splits: retries and split receipts must not multiply observations.
         $counts = $db->table('wms_order_candidates as c')
             ->join('wms_order_jx_documents as d', 'd.id', '=', 'c.wms_order_jx_document_id')
@@ -30,7 +34,7 @@ class EosOrderUnitHistory
                 'c.warehouse_id' => $warehouse, 'c.item_id' => $item, 'c.contractor_id' => $contractor,
                 'c.ordering_code' => $orderingCode, 'c.status' => 'EXECUTED'])
             ->whereIn('d.status', ['TRANSMITTED', 'CONFIRMED'])
-            ->whereColumn('d.contractor_id', 'c.contractor_id')
+            ->where('d.contractor_id', $transmissionContractor)
             ->where(fn ($q) => $q->whereNull('c.order_channel')->orWhere('c.order_channel', 'EOS'))
             ->where('c.order_quantity', '>', 0)->whereIn('c.quantity_type', ['CASE', 'PIECE'])
             ->whereBetween('d.order_date', array_values($period))
@@ -41,6 +45,7 @@ class EosOrderUnitHistory
         return $this->summarize((int) ($counts['CASE'] ?? 0), (int) ($counts['PIECE'] ?? 0)) + [
             'source' => 'eos_transmitted_orders', 'warehouse_id' => $warehouse, 'item_id' => $item,
             'contractor_id' => $contractor, 'ordering_code' => $orderingCode, 'period' => $period,
+            'transmission_contractor_id' => $transmissionContractor,
         ];
     }
 

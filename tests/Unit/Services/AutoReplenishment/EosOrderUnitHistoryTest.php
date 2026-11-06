@@ -2,9 +2,11 @@
 
 namespace Tests\Unit\Services\AutoReplenishment;
 
+use App\Contracts\OrderFileGeneratorInterface;
 use App\Models\Sakemaru\Item;
 use App\Services\AutoOrder\OrderOutputQuantityResolver;
 use App\Services\AutoOrder\OrderRegistrationSearchService;
+use App\Services\AutoOrder\OrderTransmissionService;
 use App\Services\AutoReplenishment\EosOrderUnitHistory;
 use App\Services\AutoReplenishment\OrderUnitService;
 use App\Services\AutoReplenishment\SettingsRecommendationHistory;
@@ -15,11 +17,18 @@ use Tests\TestCase;
 
 class EosOrderUnitHistoryTest extends TestCase
 {
+    private array $transmissionMapping = [];
+
     protected function setUp(): void
     {
         parent::setUp();
         config(['database.connections.sakemaru' => ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']]);
         DB::purge('sakemaru');
+        $generator = Mockery::mock(OrderFileGeneratorInterface::class);
+        $generator->shouldReceive('getTransmissionContractorMapping')->andReturnUsing(fn () => $this->transmissionMapping);
+        $transmission = Mockery::mock(OrderTransmissionService::class);
+        $transmission->shouldReceive('getGenerator')->andReturn($generator);
+        $this->app->instance(OrderTransmissionService::class, $transmission);
         CarbonImmutable::setTestNow('2026-11-04 02:00:00');
         $db = DB::connection('sakemaru');
         $tables = [
@@ -95,6 +104,53 @@ class EosOrderUnitHistoryTest extends TestCase
         self::assertSame(1, $this->history()['count_orders']);
     }
 
+    public function test_consolidated_jx_destination_counts_only_the_original_contractor_orders(): void
+    {
+        $this->transmissionMapping = [1021 => 1106, 1029 => 1106];
+        for ($i = 1; $i <= 5; $i++) {
+            $this->order($i, ['contractor_id' => 1021]);
+        }
+        // Other contractors can share the same JX file, but must not affect this product's order unit.
+        $this->order(6, ['contractor_id' => 1029, 'quantity_type' => 'PIECE']);
+        $this->order(7, ['quantity_type' => 'PIECE']);
+        $this->order(8, ['contractor_id' => 1021], ['contractor_id' => 1202]);
+        $this->order(9, ['contractor_id' => 1021, 'warehouse_id' => 10]);
+        $this->order(10, ['contractor_id' => 1021, 'item_id' => 211265]);
+        $this->order(11, ['contractor_id' => 1021, 'ordering_code' => 'different']);
+        $this->order(12, ['contractor_id' => 1021], ['status' => 'PENDING', 'transmitted_at' => null]);
+
+        $history = (new EosOrderUnitHistory)->read(6, 8, 211264, 1021, '4514603325812', '2026-11-04');
+        self::assertSame(5, $history['case_count']);
+        self::assertSame(0, $history['piece_count']);
+        self::assertSame('CASE', $history['preferred_type']);
+        self::assertSame(1021, $history['contractor_id']);
+        self::assertSame(1106, $history['transmission_contractor_id']);
+        self::assertSame('CASE', (new OrderUnitService)->resolve(6, 211264, 24, history: $history)['quantity_type']);
+        self::assertSame('PIECE', (new OrderUnitService)->resolve(6, 211264, 24, mode: 'PIECE', history: $history)['quantity_type']);
+    }
+
+    public function test_route_changes_use_the_generator_mapping_without_retaining_an_old_destination(): void
+    {
+        $this->order(1, ['contractor_id' => 1021]);
+        $this->order(2, ['contractor_id' => 1021, 'quantity_type' => 'PIECE'], ['contractor_id' => 1202]);
+        $reader = new EosOrderUnitHistory;
+        $read = fn () => $reader->read(6, 8, 211264, 1021, '4514603325812', '2026-11-04');
+        $this->transmissionMapping = [1021 => 1106];
+        self::assertSame(1, $read()['case_count']);
+        $this->transmissionMapping = [1021 => 1202];
+        self::assertSame(0, $read()['case_count']);
+        self::assertSame(1, $read()['piece_count']);
+    }
+
+    public function test_missing_generator_retains_direct_contractor_history(): void
+    {
+        $transmission = Mockery::mock(OrderTransmissionService::class);
+        $transmission->shouldReceive('getGenerator')->andReturnNull();
+        $this->app->instance(OrderTransmissionService::class, $transmission);
+        $this->order(1);
+        self::assertSame(1, $this->history()['case_count']);
+    }
+
     public function test_replay_excludes_future_transmissions_and_window_edges_and_tenant_mismatches(): void
     {
         $this->order(1, doc: ['order_date' => '2026-08-06']);
@@ -131,8 +187,9 @@ class EosOrderUnitHistoryTest extends TestCase
 
     public function test_editor_and_recommendation_use_identical_scope_and_retain_explicit_piece(): void
     {
+        $this->transmissionMapping = [1021 => 1106];
         for ($i = 1; $i <= 5; $i++) {
-            $this->order($i);
+            $this->order($i, ['contractor_id' => 1021]);
         }
         $search = Mockery::mock(OrderRegistrationSearchService::class);
         $search->shouldReceive('orderingCodeForItem')->with(211264)->andReturn('4514603325812');
@@ -142,11 +199,11 @@ class EosOrderUnitHistoryTest extends TestCase
         $this->app->instance(OrderOutputQuantityResolver::class, $resolver);
         $item = Item::findOrFail(211264);
         $units = new OrderUnitService;
-        $editor = $units->forEditor(6, (object) $item->getAttributes(), 'EOS', warehouse: 8, contractor: 1106);
-        $recommend = (new SettingsRecommendationHistory)->orderUnit(6, $item, 'EOS', 0, 'AUTO', '2026-11-04', 8, 1106);
+        $editor = $units->forEditor(6, (object) $item->getAttributes(), 'EOS', warehouse: 8, contractor: 1021);
+        $recommend = (new SettingsRecommendationHistory)->orderUnit(6, $item, 'EOS', 0, 'AUTO', '2026-11-04', 8, 1021);
         self::assertSame($editor, $recommend);
         self::assertSame(24, $recommend['packing_unit']);
-        self::assertSame('PIECE', $units->forEditor(6, (object) $item->getAttributes(), 'EOS', 'PIECE', warehouse: 8, contractor: 1106)['quantity_type']);
-        self::assertSame('PIECE', $units->forEditor(6, (object) $item->getAttributes(), 'EOS', warehouse: 10, contractor: 1106)['quantity_type']);
+        self::assertSame('PIECE', $units->forEditor(6, (object) $item->getAttributes(), 'EOS', 'PIECE', warehouse: 8, contractor: 1021)['quantity_type']);
+        self::assertSame('PIECE', $units->forEditor(6, (object) $item->getAttributes(), 'EOS', warehouse: 10, contractor: 1021)['quantity_type']);
     }
 }
